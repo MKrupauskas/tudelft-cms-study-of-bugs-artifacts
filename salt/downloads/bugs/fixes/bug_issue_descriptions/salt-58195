@@ -1,0 +1,134 @@
+**Description**
+After running state.apply with an network.managed state, each br interface in /etc/network/interfaces get a line with only a dot (".") .
+
+**Setup**
+states/test.sls
+```
+linux_interface_eno1:
+  network.managed:
+  - name: eno1
+  - enabled: True
+  - type: eth
+  - proto: manual
+```
+
+**Steps to Reproduce the behavior**
+cat /etc/network/interfaces
+```
+auto lo
+iface lo inet loopback
+auto eno1
+iface eno1 inet manual
+auto enp3s0
+iface enp3s0 inet manual
+auto br-dsl
+iface br-dsl inet static
+    address 192.168.179.17
+    netmask 255.255.255.0
+    gateway 192.168.179.1
+    bridge_ports eno1
+```
+salt-call -l debug state.apply test
+```
+...
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/test.sls:
+
+linux_interface_eno1:
+  network.managed:
+  - name: eno1
+  - enabled: True
+  - type: eth
+  - proto: manual
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('linux_interface_eno1', OrderedDict([('network.managed', [OrderedDict([('name', 'eno1')]), OrderedDict([('enabled', True)]), OrderedDict([('type', 'eth')]), OrderedDict([('proto', 'manual')])])]))])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/test.sls' using 'yaml' renderer: 0.0005314350128173828
+[DEBUG   ] LazyLoaded config.option
+[DEBUG   ] LazyLoaded ip.get_interface
+[DEBUG   ] LazyLoaded network.managed
+[INFO    ] Running state [eno1] at time 22:58:19.120690
+[INFO    ] Executing state network.managed for [eno1]
+[INFO    ] Interface eno1 is up to date.
+[INFO    ] Completed state [eno1] at time 22:58:19.165807 (duration_in_ms=45.118)
+[DEBUG   ] File /var/cache/salt/minion/accumulator/139801726516416 does not exist, no need to cleanup
+[DEBUG   ] LazyLoaded state.check_result
+[DEBUG   ] LazyLoaded highstate.output
+local:
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:  45.118 ms
+```
+
+cat /etc/network/interfaces
+```
+auto lo
+iface lo inet loopback
+auto eno1
+iface eno1 inet manual
+auto enp3s0
+iface enp3s0 inet manual
+auto br-dsl
+iface br-dsl inet static
+    address 192.168.179.17
+    netmask 255.255.255.0
+    gateway 192.168.179.1
+.
+    bridge_ports eno1
+```
+
+**Expected behavior**
+If no changes, nothing should changed. 
+
+**Versions Report**
+```
+Salt Version:
+           Salt: 3001.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.6.1
+         pygit2: Not Installed
+         Python: 3.7.3 (default, Jul 25 2020, 13:03:44)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: debian 10 buster
+         locale: UTF-8
+        machine: x86_64
+        release: 4.19.0-10-amd64
+         system: Linux
+        version: Debian GNU/Linux 10 buster
+```
+
+**additional info**
+If you have multiple bridge interfaces, all bridge interfaces are modified.
+
+With strace, I saw, that the file is modified between this lines:
+```
+[INFO    ] Executing state network.managed for [eno1]
+[INFO    ] Interface eno1 is up to date.
+```

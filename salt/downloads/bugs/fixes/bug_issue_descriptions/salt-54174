@@ -1,0 +1,54 @@
+Misuse of `multiprocessing.utils.register_after_fork` causes multiple bugs in `salt.utils.process`. Every fork will call the after fork methods registered, not just the fork associated with the process it is intended for. The following code illustrates the issue. An un-related process can cause a `SignalHandlingMultiprocessingProcess` to get killed off prematurely.
+
+```
+import os
+import signal
+import logging
+from salt.utils.process import SignalHandlingMultiprocessingProcess, log
+import time
+import multiprocessing
+
+log.addHandler(logging.StreamHandler())
+log.setLevel(logging.DEBUG)
+
+evt = multiprocessing.Event()
+
+def target():
+    def run_forever():
+        while not evt.is_set():
+            time.sleep(1)
+    p = multiprocessing.Process(target=run_forever)
+    p.start()
+    p.join()
+
+sh_proc = SignalHandlingMultiprocessingProcess(target=target)
+sh_proc.start()
+
+def kill_target_sub_proc():
+    pid = os.fork()
+    if pid == 0:
+        return
+    pid = os.fork()
+    if pid == 0:
+        return
+    time.sleep(.1)
+    try:
+        os.kill(os.getpid(), signal.SIGINT)
+    except KeyboardInterrupt:
+        pass
+
+proc = multiprocessing.Process(target=kill_target_sub_proc)
+proc.start()
+proc.join()
+
+# When the bug exists, the kill_target_sub_proc signal will kill both
+# processes. sh_proc will be alive if the bug is fixed
+assert sh_proc.is_alive()
+
+evt.set()
+sh_proc.join()
+```
+
+### Versions Report
+
+All current versions are affected.

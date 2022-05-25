@@ -1,0 +1,95 @@
+### Description of Issue/Question
+I try to comment some lines in a FreeBSD configuration file. This file contains some comment containing itself the pattern I want to find. Result is that nothing is done.
+According to documentation "comment"/"uncomment" do not have a "flags" argument, would it be relevant to add it ?
+
+### Setup
+Master(less) : Debian Stretch / virtualenv Python 2.7.13 (pip install salt-ssh) / salt-ssh 2016.11.5 (Carbon)
+Minion (agentless) : FreeBSD 11.0 in virtualbox / Python 2.7.13
+
+### Steps to Reproduce Issue
+#### First
+On minion : create a file /home/test_user/test.conf :
+```
+# Test sample
+*.whatever;and_also 	 /bad/news
+
+# Don't forget to configure /bad/news before enabling it .. 
+
+*.error /bad/news
+```
+On master : create a test.sls :
+```
+test-comment:
+  file.comment:
+    - name: /home/test_user/test.conf
+    - regex: ^.*/bad/news\s*
+    - backup: False
+```
+And add it to top.sls
+```
+base:
+  'the_minion':
+    - test
+```
+#### Than
+salt-ssh 'the_minion' state.apply
+
+### What I get
+```
+salt-ssh 'the_minion' state.apply 
+the_minion:
+----------
+          ID: test-comment
+    Function: file.comment
+        Name: /home/test_user/test.conf
+      Result: True
+     Comment: Pattern already commented
+     Started: 20:11:39.976112
+    Duration: 10.888 ms
+     Changes:   
+
+Summary for the_minion
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:  10.888 ms
+```
+
+But if I replace "/bad/news" by "bAd/news" in line 4 of test.conf, I get :
+```
+salt-ssh 'the_minion' state.apply 
+the_minion:
+----------
+          ID: test-comment
+    Function: file.comment
+        Name: /home/test_user/test.conf
+      Result: True
+     Comment: Commented lines successfully
+     Started: 20:17:45.291284
+    Duration: 14.342 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -1,7 +1,7 @@
+                   # Test sample
+                  -*.whatever;and_also 	 /bad/news
+                  +#*.whatever;and_also 	 /bad/news
+                   
+                   # Don't forget to configure /bAd/news before enabling it .. 
+                   
+                  -*.error /bad/news
+                  +#*.error /bad/news
+                   
+
+Summary for the_minion
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  14.342 ms
+```

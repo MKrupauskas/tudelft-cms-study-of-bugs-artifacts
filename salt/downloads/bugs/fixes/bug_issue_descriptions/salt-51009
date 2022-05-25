@@ -1,0 +1,119 @@
+When create a docker network using the Macvlan driver, initial creation succeeds however subsequent runs fail.
+
+The issue appears to be in the [/salt/states/docker_network.py](https://github.com/saltstack/salt/blob/develop/salt/states/docker_network.py) line 654, where a a temp network is being created using docker.create_network. However, since the same "parent" interface is being referenced, the Docker API rejects the request due to an already existing network using that interface.
+
+### Setup
+Salt State being used:
+
+<file: docker-nets/vlan21.sls>
+```
+docker_network_vlan_21:
+  docker_network.present:
+    - name: lan-vlan
+    - driver: macvlan
+    - driver_opts:
+      - macvlan_mode: bridge
+      - parent: bond0.21
+    - labels:
+      - vlan21
+      - lan
+    - subnet: 192.168.21.0/24
+    - gateway: 192.168.21.1
+    - iprange: 192.168.21.192/26
+```
+
+### Steps to Reproduce Issue
+run: `salt 'dockerminion' state.apply docker-nets.vlan21`
+
+#### First Run:
+
+```
+dockerminion:
+----------
+          ID: docker_network_vlan_21
+    Function: docker_network.present
+        Name: lan-vlan
+      Result: True
+     Comment: Network 'lan-vlan' created
+     Started: 22:59:53.934145
+    Duration: 131.401 ms
+     Changes:   
+              ----------
+              created:
+                  True
+
+Summary for dockerminion
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time: 131.401 ms
+```
+
+#### Subsequent Runs:
+```
+dockerminion:
+----------
+          ID: docker_network_vlan_21
+    Function: docker_network.present
+        Name: lan-vlan
+      Result: False
+     Comment: Failed to create temp network for comparison: Error 500: network dm-6c3297c06880 is already using parent interface bond0.21
+     Started: 23:01:46.169896
+    Duration: 10.689 ms
+     Changes:   
+
+Summary for dockerminion
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:  10.689 ms
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.3
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: 3.6.0
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.26.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.2
+         Python: 2.7.15rc1 (default, Nov 12 2018, 14:31:15)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-42-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+
+```

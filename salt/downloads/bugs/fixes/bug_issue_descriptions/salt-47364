@@ -1,0 +1,88 @@
+### Description of Issue/Question
+
+Unable to reload the zfs module during a state run.
+
+
+#### Expected behaviour
+
+0. run `state.apply`
+0. Install zfsutils-linux package
+0. reload zfs module
+0. create zpool
+0. `state.apply` finishes
+
+#### Actual behaviour
+
+0. Installs zfsutils-linux package
+0. Reloads module but does not enable (because `zfs_available` grain is not updated)
+0. Fails the create zpool due to module not being loaded corectly
+0. `state.apply` finishes
+0. run `state.apply` again and it works
+
+Debug log: https://www.hastebin.com/himapiladu
+
+Looks like it's unable to reload and activate the module due to relying on the grain `zfs_support` which is not being updated, changing the order of `reload_modules` and `reload_grains` in the below formula has no effect.
+
+### Setup
+```
+zfs:
+  pkg.installed:
+    - pkgs: ['zfsutils-linux']
+    - reload_grains: True
+    - reload_modules: True
+
+zfs-zpool-foo:
+  zpool.present:
+    - name: foo
+    - layout: [{'mirror': ['/dev/sdb', '/dev/sdc']}, {'mirror': ['/dev/sdd', '/dev/sde']}, {'mirror': ['/dev/sdf', '/dev/sdg']}, {'log': ['mirror', '/dev/sdh', '/dev/sdi']}]
+    - config: {'device_dir': 'None', 'force': True}
+    - require:
+      - pkg: zfs
+```
+
+### Steps to Reproduce Issue
+Use the above
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.0-n/a-7390b72 (installed via bootstrap `git 2018.3`)
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Dec  4 2017, 14:50:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-87-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

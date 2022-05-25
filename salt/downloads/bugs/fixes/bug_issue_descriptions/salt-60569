@@ -1,0 +1,103 @@
+**Description**
+On systemd minions, if a `service.running` state is specified with e.g. a `watch` requisite and `enable` is True, the service is normally attempted to be reloaded on watch satisfications.
+
+This instead should call `systemctl reload-or-restart <name>` as the state will **fail** if the service does not expose a reload method in its unit.
+
+This will reduce the need for modification via mod_watch (of which the documentation is fairly unclear on usage) for these cases, and these type of units are quite common (It's the default type of systemd unit).
+
+Per the systemctl man page:
+
+```
+       reload-or-restart PATTERN...
+           Reload one or more units if they support it. If not, restart them instead. If the units are not running yet, they will be started.
+```
+
+Alternatively, `reload-or-try-restart`:
+
+```
+       reload-or-try-restart PATTERN...
+           Reload one or more units if they support it. If not, restart them instead. This does nothing if the units are not running. Note that, for compatibility with SysV init scripts, force-reload is equivalent to this command.
+```
+
+**Setup**
+See Description.
+
+These subcommands seem to be present in all major implemented versions of systemd, as I cannot even find their genesis in the [systemd changelog](https://github.com/systemd/systemd/blob/main/NEWS).
+
+**Steps to Reproduce the behavior**
+Apply a watch requisite which would be triggered to any service.running state for a service that is of Type=simple (the default if only ExecStart= is specified).
+
+The state will fail with e.g.:
+
+```
+          ID: [REDACTED]
+    Function: service.running
+        Name: [REDACTED]
+      Result: False
+     Comment: Failed to reload [REDACTED].service: Job type reload is not applicable for unit [REDACTED].service.                                    
+     Started: 06:25:31.601481
+    Duration: 51.699 ms
+     Changes: 
+```
+
+And this is confirmed via commandline:
+
+```
+| root@[REDACTED] | 19.07.2021 07:10:39 +0000 |
+[ ~ ] # systemctl reload [REDACTED]
+Failed to reload [REDACTED].service: Job type reload is not applicable for unit [REDACTED].service.
+```
+
+**Expected behavior**
+Upon the watch requisite being triggered, the service should be **restarted** instead of **reloaded** if a reload is *not supported*, and this logic should be determined by systemd itself rather than Salt via a mod_watch modification (as it is a native feature to systemd).
+
+**Screenshots**
+N/A
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+          Salt: 3003.1
+ 
+Dependency Versions:
+          cffi: 1.11.5
+      cherrypy: Not Installed
+      dateutil: 2.6.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10.1
+       libgit2: Not Installed
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.14
+      pycrypto: Not Installed
+  pycryptodome: Not Installed
+        pygit2: Not Installed
+        Python: 3.6.8 (default, May  8 2021, 09:11:34)
+  python-gnupg: Not Installed
+        PyYAML: 3.12
+         PyZMQ: 19.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+ 
+System Versions:
+          dist: centos 8 
+        locale: UTF-8
+       machine: x86_64
+       release: 4.18.0-310.el8.x86_64
+        system: Linux
+       version: CentOS Stream 8
+```
+</details>
+
+**Additional context**
+N/A

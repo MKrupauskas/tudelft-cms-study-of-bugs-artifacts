@@ -1,0 +1,418 @@
+**Description**
+I set up the Vault module following this guide:
+
+https://help.saltstack.com/hc/en-us/articles/360041140451-Quick-Guide-to-Vault-Integration, and patched with #57739 
+
+and am receiving an error with null output:
+
+```
+salt-run sdb.get 'sdb://myvault/salt/data/user1' --out=json
+[ERROR   ] Error from vault: {"request_id":"38ab5f29-53c5-e7a5-add5-405fa55434aa","lease_id":"","renewable":false,"lease_duration":0,"data":null,"wrap_info":null,"warnings":["Non-listing operations on the root of a K/V v2 mount are not supported."],"auth":null}
+null
+```
+
+If I attempt to change the path using a non-root path:
+```
+# salt-run sdb.get 'sdb://myvault/salt/data/user/user1' --out=json
+[ERROR   ] Error from vault: {"errors":[]}
+
+null
+```
+
+**Setup**
+```
+# export VAULT_TOKEN=<removed>
+# vault secrets enable -version=2 -path=salt/ kv
+# vault secrets list -detailed
+
+Path          Plugin       Accessor              Default TTL    Max TTL    Force No Cache    Replication    Seal Wrap    External Entropy Access    Options           Description                                                UUID
+----          ------       --------              -----------    -------    --------------    -----------    ---------    -----------------------    -------           -----------                                                ----
+cubbyhole/    cubbyhole    cubbyhole_0ed4e009    n/a            n/a        false             local          false        false                      map[]             per-token private secret storage                           <removed>       
+identity/     identity     identity_5c67da23     system         system     false             replicated     false        false                      map[]             identity store                                             <removed>       
+salt/         kv           kv_388973e6           system         system     false             replicated     false        false                      map[version:2]    n/a                                                        <removed>       
+sys/          system       system_06f235c2       n/a            n/a        false             replicated     false        false                      map[]             system endpoints used for control, policy and debugging    <removed>
+```
+
+/etc/vault.d/saltmaster.hcl:
+```
+# This section grants all access on "salt/*". 
+# Further restrictions can be applied to this broad policy, as shown below.
+
+# Minimum required access for KV secrets engine V1 and V2
+
+# V1
+path "salt/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+path "salt/" {
+  capabilities = ["list"]
+}
+
+# V2
+path "salt/data/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+path "salt/data/" {
+  capabilities = ["list"]
+}
+
+# THIS ENTRY ALLOW SALTUTIL.PILLAR_REFRESH TO WORK PROPERLY
+path "auth/token/create" {
+ capabilities = ["create", "read", "update"]
+}
+```
+
+```
+# vault policy write saltmaster /etc/vault.d/saltmaster.hcl
+# vault kv put salt/user1 password=p4ssw0rd desc="test user"
+# vault kv put salt/user/user1 password=p4ssw0rd desc="test user"
+```
+```
+# vault kv get salt/user1 
+====== Metadata ======
+Key              Value
+---              -----
+created_time     2020-07-20T23:01:36.654071035Z
+deletion_time    n/a
+destroyed        false
+version          1
+
+====== Data ======
+Key         Value
+---         -----
+desc        test user
+password    p4ssw0rd
+```
+```
+# vault kv get salt/user/user1
+====== Metadata ======
+Key              Value
+---              -----
+created_time     2020-07-20T23:15:32.685871147Z
+deletion_time    n/a
+destroyed        false
+version          1
+
+====== Data ======
+Key         Value
+---         -----
+desc        test user
+password    p4ssw0rd
+```
+```
+# vault auth enable approle
+# vault write auth/approle/role/saltmaster policies="saltmaster" token_num_uses=0 secret_id_num_uses=0 token_ttl=3600 secret_id_ttl=31536000 token_type=service role_name=saltmaster
+```
+```
+# vault read auth/approle/role/saltmaster
+Key                        Value
+---                        -----
+bind_secret_id             true
+local_secret_ids           false
+policies                   [saltmaster]
+secret_id_bound_cidrs      <nil>
+secret_id_num_uses         0
+secret_id_ttl              8760h
+token_bound_cidrs          []
+token_explicit_max_ttl     0s
+token_max_ttl              0s
+token_no_default_policy    false
+token_num_uses             0
+token_period               0s
+token_policies             [saltmaster]
+token_ttl                  1h
+token_type                 service
+```
+```
+# vault read auth/approle/role/saltmaster/role-id
+Key        Value
+---        -----
+role_id    <removed>
+```
+```
+# vault write -f auth/approle/role/saltmaster/secret-id
+Key                   Value
+---                   -----
+secret_id             <removed>
+secret_id_accessor    <removed>
+```
+```
+# vault write auth/approle/login role_id=<removed> secret_id=<removed>
+Key                     Value
+---                     -----
+token                   <removed>
+token_accessor          <removed>
+token_duration          1h
+token_renewable         true
+token_policies          ["default" "saltmaster"]
+identity_policies       []
+policies                ["default" "saltmaster"]
+token_meta_role_name    saltmaster
+```
+```
+# export VAULT_TOKEN=<removed>
+```
+```
+# vault kv get salt/user1
+====== Metadata ======
+Key              Value
+---              -----
+created_time     2020-07-20T23:01:36.654071035Z
+deletion_time    n/a
+destroyed        false
+version          1
+
+====== Data ======
+Key         Value
+---         -----
+desc        test user
+password    p4ssw0rd
+```
+```
+# vault kv get salt/user/user1
+====== Metadata ======
+Key              Value
+---              -----
+created_time     2020-07-20T23:15:32.685871147Z
+deletion_time    n/a
+destroyed        false
+version          1
+
+====== Data ======
+Key         Value
+---         -----
+desc        test user
+password    p4ssw0rd
+```
+
+/etc/salt/master.d/vault.conf:
+```
+# SDB CONFIG
+myvault:
+  driver: vault
+
+# VAULT CONFIG FOR TOKEN OR APPROLE AUTH MODE
+vault:
+  url: http://127.0.0.1:8200
+  auth:
+    method: approle
+    role_id: <removed>
+    secret_id: <removed>
+  policies:
+    - saltmaster
+```
+
+
+**Steps to Reproduce the behavior**
+```
+# salt-run sdb.get 'sdb://myvault/salt/data/user1' --out=json -l debug
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/git_pillar.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/git_pillar.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/gitfs.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/gitfs.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/netbox.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/netbox.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/saltgui.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/saltgui.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/slack.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/slack.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/vault.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/vault.conf
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] Configuration file path: /etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] LazyLoaded sdb.get
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/git_pillar.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/git_pillar.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/gitfs.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/gitfs.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/netbox.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/netbox.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/saltgui.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/saltgui.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/slack.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/slack.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/vault.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/vault.conf
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[DEBUG   ] Found minion id from generate_minion_id(): uyornetops01.centrilogic.com
+[DEBUG   ] Grains refresh requested. Refreshing grains.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/git_pillar.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/git_pillar.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/gitfs.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/gitfs.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/netbox.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/netbox.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/saltgui.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/saltgui.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/slack.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/slack.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/vault.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/vault.conf
+[DEBUG   ] Elapsed time getting FQDNs: 0.11327743530273438 seconds
+[DEBUG   ] LazyLoaded zfs.is_supported
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event: tag = salt/run/20200721011415601094/new; data = {'fun': 'runner.sdb.get', 'jid': '20200721011415601094', 'user': 'sudo_user', 'fun_args': ['sdb://myvault/salt/data/user1'], '_stamp': '2020-07-21T01:14:16.417462'}
+[DEBUG   ] LazyLoaded vault.get
+[DEBUG   ] LazyLoaded vault.is_v2
+[DEBUG   ] Found cached metadata for salt/data
+[DEBUG   ] Path salt/data already contains data in the right place - saltstack duct tape?
+[DEBUG   ] Path is a "data" type but "metadata" type requested - Flipping: salt/metadata
+[DEBUG   ] Path is a "data" type but "destroy" type requested - Flipping: salt/destroy
+[DEBUG   ] Token has not expired 1595297293 > 1595294056
+[DEBUG   ] Starting new HTTP connection (1): 127.0.0.1:8200
+[DEBUG   ] http://127.0.0.1:8200 "GET /v1/salt/data HTTP/1.1" 404 232
+[ERROR   ] Error from vault: {"request_id":"<removed>","lease_id":"","renewable":false,"lease_duration":0,"data":null,"wrap_info":null,"warnings":["Non-listing operations on the root of a K/V v2 mount are not supported."],"auth":null}       
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[DEBUG   ] Sending event: tag = salt/run/20200721011415601094/ret; data = {'fun': 'runner.sdb.get', 'jid': '20200721011415601094', 'user': 'sudo_user', 'fun_args': ['sdb://myvault/salt/data/user1'], '_stamp': '2020-07-21T01:14:16.507959', 'return': None, 'success':
+ True}
+[DEBUG   ] LazyLoaded json.output
+null
+[INFO    ] Runner completed: 20200721011415601094
+[DEBUG   ] Closing IPCMessageClient instance
+[DEBUG   ] Runner return: None
+```
+```
+# salt-run sdb.get 'sdb://myvault/salt/data/user/user1' --out=json -l debug
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/git_pillar.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/git_pillar.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/gitfs.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/gitfs.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/netbox.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/netbox.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/saltgui.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/saltgui.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/slack.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/slack.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/vault.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/vault.conf
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] Configuration file path: /etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] LazyLoaded sdb.get
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/git_pillar.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/git_pillar.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/gitfs.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/gitfs.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/netbox.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/netbox.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/saltgui.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/saltgui.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/slack.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/slack.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/vault.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/vault.conf
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[DEBUG   ] Found minion id from generate_minion_id(): uyornetops01.centrilogic.com
+[DEBUG   ] Grains refresh requested. Refreshing grains.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/git_pillar.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/git_pillar.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/gitfs.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/gitfs.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/netbox.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/netbox.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/saltgui.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/saltgui.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/slack.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/slack.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/vault.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/vault.conf
+[DEBUG   ] Elapsed time getting FQDNs: 0.11252784729003906 seconds
+[DEBUG   ] LazyLoaded zfs.is_supported
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event: tag = salt/run/20200721011431196459/new; data = {'fun': 'runner.sdb.get', 'jid': '20200721011431196459', 'user': 'sudo_user', 'fun_args': ['sdb://myvault/salt/data/user/user1'], '_stamp': '2020-07-21T01:14:31.978862'}
+[DEBUG   ] LazyLoaded vault.get
+[DEBUG   ] LazyLoaded vault.is_v2
+[DEBUG   ] Found cached metadata for salt/data/user
+[DEBUG   ] Path salt/data/user already contains data in the right place - saltstack duct tape?
+[DEBUG   ] Path is a "data" type but "metadata" type requested - Flipping: salt/metadata/user
+[DEBUG   ] Path is a "data" type but "destroy" type requested - Flipping: salt/destroy/user
+[DEBUG   ] Token has not expired 1595297293 > 1595294072
+[DEBUG   ] Starting new HTTP connection (1): 127.0.0.1:8200
+[DEBUG   ] http://127.0.0.1:8200 "GET /v1/salt/data/user HTTP/1.1" 404 14
+[ERROR   ] Error from vault: {"errors":[]}
+
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[DEBUG   ] Sending event: tag = salt/run/20200721011431196459/ret; data = {'fun': 'runner.sdb.get', 'jid': '20200721011431196459', 'user': 'sudo_user', 'fun_args': ['sdb://myvault/salt/data/user/user1'], '_stamp': '2020-07-21T01:14:32.061270', 'return': None, 'success': True}
+[DEBUG   ] LazyLoaded json.output
+null
+[INFO    ] Runner completed: 20200721011431196459
+[DEBUG   ] Closing IPCMessageClient instance
+[DEBUG   ] Runner return: None
+```
+
+**Expected behavior**
+```
+{ "data": { "password": "p4ssw0rd", "desc": "test user" }, "metadata": { "created_time": "2020-07-20T23:01:36.654071035Z", "destroyed": false, "version": 1, "deletion_time": "" } }
+```
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 3001
+
+Dependency Versions:
+           cffi: 1.14.0
+       cherrypy: unknown
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.2
+        libgit2: 0.26.8
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.20
+       pycrypto: Not Installed
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 3.6.8 (default, Apr 16 2020, 01:36:27)
+   python-gnupg: Not Installed
+         PyYAML: 5.3.1
+          PyZMQ: 19.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+
+System Versions:
+           dist: centos 8 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 4.18.0-193.6.3.el8_2.x86_64
+         system: Linux
+        version: CentOS Linux 8 Core
+```
+</details>
+
+**Additional context**
+```
+# vault status
+Key             Value
+---             -----
+Seal Type       shamir
+Initialized     true
+Sealed          false
+Total Shares    5
+Threshold       3
+Version         1.4.3
+Cluster Name    vault-cluster-415da5fb
+Cluster ID      <removed>
+HA Enabled      false
+```

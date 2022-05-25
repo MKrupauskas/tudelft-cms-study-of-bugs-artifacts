@@ -1,0 +1,189 @@
+### Description of Issue/Question
+I tried to get familiar with Beacons and Reactors. The documentation suggested that pillars are a good place to define my Beacons. This works, but if I do a change in the defined Beacon on the Master in the pillar files, say add rename a watched file or change the interval parameter, I just cant get the already defined beacon on the Minion to update.
+
+### Setup
+1 Master and 1 Minion both running 2017.7.0 on Minimal Ubuntu 16.04 installs
+
+
+### Steps to Reproduce Issue
+
+**Master /srv/pillar/top.sls**
+```yaml
+base:
+    '*':
+        - timezone
+    'minion1':
+        - beacon
+```
+
+**Master /srv/pillar/beacon.sls**
+```yaml
+beacons:
+    inotify:
+        /etc/important_file:
+            mask:
+                - modify
+            interval: 5
+            disable_during_state_run: True
+```
+
+So now I start the minion up and run this command on the master:
+```yaml
+root@master:~# salt 'minion1' beacons.list
+minion1:
+    beacons:
+      inotify:
+        /etc/important_file:
+          mask:
+          - modify
+        disable_during_state_run: true
+        interval: 5
+```
+So far so good. Now I change something.
+
+**NEW /srv/pillar/beacon.sls**
+```yaml
+beacons:
+    inotify:
+        /etc/important_file2:
+            mask:
+                - modify
+            interval: 7
+            disable_during_state_run: True
+```
+
+After that change I tried all kinds of commands: 
+ * salt 'minion1' saltutil.refresh_pillar
+ * salt 'minion1' saltutil.refresh_beacons
+ * salt 'minion1' state.apply
+
+No matter what, the outcome ist always:
+```yaml
+root@master:~# salt 'minion1' beacons.list
+minion1:
+    beacons:
+      inotify:
+        /etc/important_file:
+          mask:
+          - modify
+        disable_during_state_run: true
+        interval: 5
+```
+
+The Pillar data itself is definetly at the minion. 
+```yaml
+root@master:~# salt 'minion1' pillar.items
+minion1:
+    ----------
+    beacons:
+        ----------
+        inotify:
+            ----------
+            /etc/important_file2:
+                ----------
+                mask:
+                    - modify
+            disable_during_state_run:
+                True
+            interval:
+                7
+    timezone:
+        ----------
+        name:
+            Europe/Berlin
+        utc:
+            True
+```
+But somehow the beacons do not get updated. Once I do a manual restart of the minion the updated beacon is there.
+
+Am I doing something wrong here or are missing something? 
+
+### Versions Report
+**MASTER**
+```yaml
+Salt Version:
+           Salt: 2017.7.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-87-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```
+
+**Minion**
+```yaml
+root@minion1:~# salt-minion --versions
+Salt Version:
+           Salt: 2017.7.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-87-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

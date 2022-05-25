@@ -1,0 +1,125 @@
+### Description of Issue/Question
+
+I get some "Exception [Errno 12] Cannot allocate memory occurred in scheduled job" errors in the log (reported to sentry). 
+
+The munin graph below shows some clear patterns of a memory leak. 
+
+Am willing to spend some time debugging this if needed (otherwise a @daily crontab restart of salt-minion probably will do the trick...)
+### Setup
+
+![screenshot_2016-04-05_09-31-47](https://cloud.githubusercontent.com/assets/445200/14274403/714e2c02-fb11-11e5-940f-045ebb8d41ec.png)
+### Steps to Reproduce Issue
+
+It has about 10 of schedules such as this one : 
+
+```
+      smokeping-for-host.logilab.fr:
+        args:
+        - host.logilab.fr
+        enabled: true
+        function: lglb_network.ping_json
+        jid_include: true
+        kwargs:
+          normalize_url: true
+        maxrunning: 1
+        minutes: 1
+        name: smokeping-for-host.logilab.fr
+        returner: master
+        seconds: 0
+        splay: 15
+```
+
+The master returner is the one published here : https://github.com/saltstack/salt/issues/12653#issuecomment-100673737
+
+The custom module is as follows (converted network.ping to a dict/json output) : 
+
+```
+import salt.utils
+
+def _normalize_url(url):
+    ''' 
+    Normalize URL, mainly so that carbon return can put them in single bucket instead of a hierarchy
+    '''
+    return url.replace('.','_')
+
+def ping_json(host, timeout=False, normalize_url=False):
+    '''
+    Performs a ping to a host and returns the result as json
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' lglb_network.ping_json saltstack.com
+
+    .. versionadded:: 2015.5.0
+
+    Set the time to wait for a response in seconds.
+
+    .. code-block:: bash
+
+        salt '*' lglb_network.ping_json saltstack.com timeout=3
+    '''
+    if timeout:
+        cmd = 'ping -W {0} -c 4 {1}'.format(timeout, salt.utils.network.sanitize_host(host))
+    else:
+        cmd = 'ping -c 4 {0}'.format(salt.utils.network.sanitize_host(host))
+    ret = __salt__['cmd.run_stdout'](cmd)
+    try:
+        last_line = ret.splitlines()[-1]
+    except IndexError:
+        # probably unknown host - TODO log warning
+        return {}
+    labels, results = last_line.split('=')
+    labels = labels.replace('rtt ','').strip()
+    results = results.replace(' ms','').strip().split('/')
+    result_dict = {}
+    for index, category in enumerate(labels.split('/')):
+        result_dict[category] = results[index]
+    key = salt.utils.network.sanitize_host(host)
+    if normalize_url:
+        key = _normalize_url(key)
+    return {key : result_dict}
+```
+### Versions Report
+
+```
+# salt-call --versions-report
+Salt Version:
+           Salt: 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.3 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 8.3 
+
+```

@@ -1,0 +1,59 @@
+Turns out this piece of code doesn't behave especially well.
+
+``` python
+def nodegroup_comp(group, nodegroups, skip=None):
+    '''
+    Take the nodegroup and the nodegroups and fill in nodegroup refs
+    '''
+    k = 1
+    if skip is None:
+        skip = set([group])
+        k = 0
+    if group not in nodegroups:
+        return ''
+    gstr = nodegroups[group]
+    ret = ''
+    for comp in gstr.split(','):
+        if not comp.startswith('N@'):
+            ret += '{0} or '.format(comp)
+            continue
+        ngroup = comp[2:]
+        if ngroup in skip:
+            continue
+        skip.add(ngroup)
+        ret += nodegroup_comp(ngroup, nodegroups, skip)
+    if k == 1:
+        return ret
+    else:
+        return ret[:-3]
+```
+
+The docs say that node groups work using compound selectors, but that `gstr.split(',')` makes quite the mess.  A few distinct bugs I've found so far are illustrated with this group list:
+
+``` yaml
+nodegroups:
+  group1: 'mysql5'
+  group2: 'mysql6'
+  test1: 'N@group1 or N@group2'
+  test2: 'mysql5 or N@group2'
+  test3: 'L@mysql5,and,mysql6'
+  test4: 'G@os:Ubuntu and L@mysql5,mysql6'
+  test5: 'E@node\d{1,2}'
+```
+1. Group test1 - No minions matched, 100% fail.
+   The lack of comma triggers an expansion against a group called 'group1 or N@group2' which fails and causes the return value to be an empty string.
+2. Group test2 - No minions matched, 100% fail. 
+   No comma means this gets passed back as is, but seems to break the completion code further up the chain.
+
+Cases 3-5 are different problem behaviours from the same bug.
+1. Group test3 - No minions matched, 100% fail. 
+   I'll admit this example is a little contrived, but I couldn't think of a better way of showing it and the syntax is still valid.  The commas cause this to be expanded then glued back together as `L@mysql5 or and or mysql6` which breaks the completion code up chain.  Feeding the expression to salt directly via -L or -C cli options will result in the expected targeting of mysql5 and mysql6
+2. Group test4: Matches 1 minion, should match none. 50% fail?
+   The return value here is `G@os:Ubuntu and L@mysql5 or mysql6`... both are Gentoo boxes but mysql6 matches because of the altered logical precedence.
+3. Group test5: No minions matched ... goodness knows what the parser is making of it.
+   Again, this is slightly contrived. I wanted to find an example of a comma in a match spec that wasn't in a L@ where it would be harmless if there are no and operators about.  This one expands to `E@node\d{1 or 2}`
+
+Funnily, all of these should have been working fine on older code, making this also a regression bug.  I had a construct similar to test1 that was expanding ok until I updated the salt version I was using.
+How much of a regression? #13712 was the PR that changed the behaviour so that test1 should now be `N@group1,N@group2`.
+
+I'm opening a bug for this rather than trying to correct it myself because the behaviour described in PR #13712 is completely different from the behaviour indicated in the docs at http://docs.saltstack.com/en/latest/topics/targeting/nodegroups.html ... what is the correct intended behaviour?

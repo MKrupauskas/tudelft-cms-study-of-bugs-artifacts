@@ -1,0 +1,120 @@
+### Description of Issue/Question
+
+We have an hierarchical setup where the master of the proxy minions is itself a straigh minion of another master. We wrote custom modules for our minions (managed by the top master), defined inside the directories as "_modules", "_states", "_retuners" etc.
+For our proxy minions, we also have custom modules, some of them made public (e.g.: [net](https://github.com/saltstack/salt/blob/develop/salt/modules/napalm_network.py), [bpg](https://github.com/saltstack/salt/blob/develop/salt/modules/napalm_bgp.py) etc.), again stored under the same directories: "_modules", "_grains", "_states" etc.
+It turns out they are using the same caching directory (under `/var/cache/salt/minion/extmods/`), creating conflicts.
+
+Although the list of external modules for the minion should be as:
+
+``` bash
+# ls -la /state/var/cache/salt/minion/files/base/_modules/
+total 316
+drwx------  2 root root   4096 Jul  4 09:30 .
+drwxr-xr-x 58 root root   4096 Jun 30 13:17 ..
+-rw-------  1 root root    252 Jul  4 09:58 cfnginx.py
+-rw-------  1 root root   1460 Jul  4 09:58 cfutils.py
+-rw-------  1 root root  23781 Jul  4 09:58 netdns.py
+-rw-------  1 root root  20989 Jul  4 09:58 parted_cf.py
+```
+
+In the `extmods` directory we find:
+
+``` bash
+# ls -la /state/var/cache/salt/minion/extmods/modules/
+total 140
+drwx------ 2 root root  4096 Jul  4 10:16 .
+drwxr-xr-x 7 root root    74 Jul  4 10:16 ..
+-rw------- 1 root root  5345 Jul  4 10:01 napalm_bgp.py
+-rw------- 1 root root  5915 Jul  4 10:16 napalm_bgp.pyc
+-rw------- 1 root root 25038 Jul  4 10:01 napalm_network.py
+-rw------- 1 root root 23363 Jul  4 10:16 napalm_network.pyc
+-rw------- 1 root root  5541 Jul  4 10:01 napalm_ntp.py
+-rw------- 1 root root  5103 Jul  4 10:16 napalm_ntp.pyc
+```
+
+Whilst the cachedir for the proxies is empty:
+
+``` bash
+# ls -la /state/var/cache/salt/proxy/extmods/
+total 0
+drwxr-xr-x 2 root root   6 Jul  4 10:02 .
+drwxr-xr-x 6 root root 118 Mar  4 18:20 ..
+```
+
+Although the base files are cached:
+
+``` bash
+# ls -la /state/var/cache/salt/proxy/files/base/_modules/
+total 100
+drwx------ 2 root root  4096 Jul  4 10:06 .
+drwx------ 7 root root    79 Jul  4 10:06 ..
+-rw------- 1 root root  5345 Jul  4 10:06 napalm_bgp.py
+-rw------- 1 root root 25038 Jul  4 10:06 napalm_network.py
+-rw------- 1 root root  5541 Jul  4 10:06 napalm_ntp.py
+```
+### Setup
+
+Minion config file:
+
+``` bash
+# cat /etc/salt/minion
+master: <master_ns>
+environment: base
+```
+
+Proxy config file:
+
+``` bash
+# cat /etc/salt/proxy
+master: localhost
+pki_dir: /etc/salt/pki/proxy
+cachedir: /var/cache/salt/proxy
+multiprocessing: False
+```
+
+In the proxy master, there is is specified the caching directory for jobs and data as:
+
+``` yaml
+# Directory to store job and cache data
+cachedir: /var/cache/salt/proxy-master
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.6.4
+      gitpython: 2.0.5
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: 1.2.5
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.5
+        machine: x86_64
+         system: Linux
+        version: debian 8.5
+```

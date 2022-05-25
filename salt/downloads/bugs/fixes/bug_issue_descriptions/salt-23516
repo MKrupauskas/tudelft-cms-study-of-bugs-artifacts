@@ -1,0 +1,245 @@
+## Problem 
+
+There seems to be a time bug when coupled with the "seconds == 1" logic in schedule.py.  Cron jobs added to the "schedule" dictionary in /etc/salt/master were not firing for me as expected but would only sometimes fire.
+## Reproducing Problem
+
+> Same behavior was seen for cron of every 2 or 3 minutes as well.
+
+``` yaml
+**(venv)  salt_fixing  cat venv/etc/salt/master**
+root_dir: /Users/covalence/HACKING/git/salt_fixing/venv
+user: covalence
+schedule:
+   cron1:
+      function: test.arg
+      args:
+       - arg1
+      kwargs:
+         please: fire
+      cron: '*/1 * * * *'
+```
+
+**versions report**
+
+``` yaml
+(venv)  salt_fixing  salt-master --versions-report
+Salt Version:
+           Salt: 2015.5.0-1239-g58c7ba2
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.6.0
+         Python: 2.7.9 (default, Dec 10 2014, 23:46:04)
+           RAET: Not Installed
+            ZMQ: 4.0.5
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+       pycrypto: 2.6.1
+
+System Versions:
+           dist:
+        machine: x86_64
+        release: 14.3.0
+         system: 10.10.3 -- x86_64
+```
+
+**I added some telemetry prints in order to debug why.**  
+
+``` diff
+diff --git a/salt/utils/schedule.py b/salt/utils/schedule.py
+index 21116fa..b954e47 100644
+--- a/salt/utils/schedule.py
++++ b/salt/utils/schedule.py
+@@ -683,10 +683,11 @@ class Schedule(object):
+
+     def eval(self):
+         '''
+         Evaluate and execute the schedule
+         '''
++        log.debug('Entering schedule.eval() with schedule.self.loop_interval=%s', self.loop_interval)
+         schedule = self.option('schedule')
+         if not isinstance(schedule, dict):
+             raise ValueError('Schedule must be of type dict.')
+         if 'enabled' in schedule and not schedule['enabled']:
+             return
+@@ -933,10 +934,11 @@ class Schedule(object):
+                     cron = int(croniter.croniter(data['cron'], now).get_next())
+                 except (ValueError, KeyError):
+                     log.error('Invalid cron string. Ignoring')
+                     continue
+                 seconds = cron - now
++                log.debug('job[%s]: seconds until next cron job trigger: %s' % (data['name'], seconds))
+             else:
+                 continue
+
+             # Check if the seconds variable is lower than current lowest
+             # loop interval needed. If it is lower than overwrite variable
+@@ -969,10 +971,11 @@ class Schedule(object):
+                     if seconds == 0:
+                         if data['_when_run']:
+                             data['_when_run'] = False
+                             run = True
+                 elif 'cron' in data:
++                    log.debug('job[%s]: cron job in self.intervals' % (data['name']))
+                     if seconds == 1:
+                         run = True
+                 else:
+                     if now - self.intervals[job] >= seconds:
+                         run = True
+@@ -981,10 +984,11 @@ class Schedule(object):
+                     if seconds == 0:
+                         if data['_when_run']:
+                             data['_when_run'] = False
+                             run = True
+                 elif 'cron' in data:
++                    log.debug('job[%s]: cron job NOT in self.intervals' % (data['name']))
+                     if seconds == 1:
+                         run = True
+                 else:
+                     # If run_on_start is True, the job will run when the Salt
+                     # minion start.  If the value is False will run at the next
+@@ -1094,11 +1098,11 @@ class Schedule(object):
+                 self.intervals[job] = now
+             if salt.utils.is_windows():
+                 # Restore our function references.
+                 self.functions = functions
+                 self.returners = returners
+-
++        log.debug('Exiting schedule.eval()')
+
+ def clean_proc_dir(opts):
+
+     '''
+     Loop through jid files in the minion proc directory (default /var/cache/salt/minion/proc)
+```
+## Noticed Behavior (job does not trigger)
+- notice [DEBUG ] job[cron1]: seconds until next cron job trigger: 8 jumps to [DEBUG ] job[cron1]: seconds until next cron job trigger: 60 
+
+```
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[INFO    ] Found minion id from generate_minion_id(): eikon.local
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Entering schedule.eval() with schedule.self.loop_interval=48
+[DEBUG   ] Could not LazyLoad config.merge
+[DEBUG   ] job[cron1]: seconds until next cron job trigger: 59
+[DEBUG   ] job[cron1]: cron job NOT in self.intervals
+[DEBUG   ] Exiting schedule.eval()
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 0 minion keys.
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[INFO    ] Found minion id from generate_minion_id(): eikon.local
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Entering schedule.eval() with schedule.self.loop_interval=48
+[DEBUG   ] Could not LazyLoad config.merge
+[DEBUG   ] job[cron1]: seconds until next cron job trigger: 10
+[DEBUG   ] job[cron1]: cron job NOT in self.intervals
+[DEBUG   ] Exiting schedule.eval()
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 0 minion keys.
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[INFO    ] Found minion id from generate_minion_id(): eikon.local
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Entering schedule.eval() with schedule.self.loop_interval=10
+[DEBUG   ] Could not LazyLoad config.merge
+[DEBUG   ] job[cron1]: seconds until next cron job trigger: 60
+[DEBUG   ] job[cron1]: cron job NOT in self.intervals
+[DEBUG   ] Exiting schedule.eval()
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 0 minion keys.
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[INFO    ] Found minion id from generate_minion_id(): eikon.local
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Entering schedule.eval() with schedule.self.loop_interval=10
+[DEBUG   ] Could not LazyLoad config.merge
+[DEBUG   ] job[cron1]: seconds until next cron job trigger: 50
+[DEBUG   ] job[cron1]: cron job NOT in self.intervals
+[DEBUG   ] Exiting schedule.eval()
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 0 minion keys.
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[INFO    ] Found minion id from generate_minion_id(): eikon.local
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Entering schedule.eval() with schedule.self.loop_interval=10
+[DEBUG   ] Could not LazyLoad config.merge
+[DEBUG   ] job[cron1]: seconds until next cron job trigger: 39
+[DEBUG   ] job[cron1]: cron job NOT in self.intervals
+[DEBUG   ] Exiting schedule.eval()
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 0 minion keys.
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[INFO    ] Found minion id from generate_minion_id(): eikon.local
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Entering schedule.eval() with schedule.self.loop_interval=10
+[DEBUG   ] Could not LazyLoad config.merge
+[DEBUG   ] job[cron1]: seconds until next cron job trigger: 29
+[DEBUG   ] job[cron1]: cron job NOT in self.intervals
+[DEBUG   ] Exiting schedule.eval()
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 0 minion keys.
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[INFO    ] Found minion id from generate_minion_id(): eikon.local
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Entering schedule.eval() with schedule.self.loop_interval=10
+[DEBUG   ] Could not LazyLoad config.merge
+[DEBUG   ] job[cron1]: seconds until next cron job trigger: 19
+[DEBUG   ] job[cron1]: cron job NOT in self.intervals
+[DEBUG   ] Exiting schedule.eval()
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 0 minion keys.
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[INFO    ] Found minion id from generate_minion_id(): eikon.local
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Entering schedule.eval() with schedule.self.loop_interval=10
+[DEBUG   ] Could not LazyLoad config.merge
+[DEBUG   ] job[cron1]: seconds until next cron job trigger: 8
+[DEBUG   ] job[cron1]: cron job NOT in self.intervals
+[DEBUG   ] Exiting schedule.eval()
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 0 minion keys.
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[INFO    ] Found minion id from generate_minion_id(): eikon.local
+[DEBUG   ] Reading configuration from /Users/covalence/HACKING/git/salt_fixing/venv/etc/salt/master
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Entering schedule.eval() with schedule.self.loop_interval=8
+[DEBUG   ] Could not LazyLoad config.merge
+[DEBUG   ] job[cron1]: seconds until next cron job trigger: 60
+[DEBUG   ] job[cron1]: cron job NOT in self.intervals
+[DEBUG   ] Exiting schedule.eval()
+[DEBUG   ] Updating roots fileserver cache
+```
+## Hypothesis
+
+It appears when running schedule.eval and 'cron' is in the job data, then that data won't ever get added to self.intervals.  Also, there is no guarantee that master.py or minion.py will be able to call schedule.eval on a 1 second precision loop as both master/minion have other indeterminate  jobs to complete in the loop such as file/pillar updates.  Cron jobs only trigger when the conditions are "just right" for the cron logic of "seconds == 1" to trigger in order to signify a run. The cron functionality continually uses crofter to get the NEXT time interval in secs, so if our schedule.eval() loop is called for any condition where the **cron - now** does not == 1, then the job won't fire.
+## Proposed Solution
+
+Track "last time" or "cron seconds count" in order to add logic that "if the cron schedule time in seconds is > last seen, run == true, since we've overrun ourselves".  This would cover the condition that occurs when a schedule.eval loop happens, and the croniter get next gives us a value for the NEXT time the cronjob should trigger.

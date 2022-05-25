@@ -1,0 +1,213 @@
+### Description of Issue/Question
+
+When applying a state using `salt-ssh` the pillar data is replaced completely inside the second state that is applied with `module.run` + `state.apply` and explicit pillar overriding.
+The initial pillar data is available in the state that is applied directly but not in the second state that's applied using `module.run` and `state.apply`. The overriding pillar is available in the second state when referenced explicitly but not in `pillar.items`.
+
+### Setup
+
+Patch from #47497 is needed in order to reproduce this because `--extra-filerefs` doesn't work properly in this case as the state to be applied doesn't reference the second state file using the `salt://...` prefix.
+
+Master config:
+```yaml
+pillar_roots:
+  base:
+    - /srv/pillar
+
+file_roots:
+  base:
+    - /srv/salt
+```
+Roster:
+`/tmp/roster`:
+```
+dev-minsles12sp2-1.tf.local:
+    host: dev-minsles12sp2-1.tf.local
+    user: root
+    port: 22
+    timeout: 180
+```
+
+### Steps to Reproduce Issue
+
+Pillar definition:
+`/srv/pillar/top.sls`:
+```yaml
+base:
+  '*':
+    - test
+```
+`/srv/pillar/test.sls`:
+```yaml
+somekey: xyz
+```
+
+States:
+`/srv/salt/testpillar.sls`:
+```yaml
+call_show:
+  module.run:
+    - name: state.apply
+    - mods:
+      - showpillar
+    - kwargs:
+          pillar:
+              test: "foo bar"
+```
+
+`/srv/salt/showpillar.sls`:
+```yaml
+show_all_pillars:
+    module.run:
+    -   name: pillar.items
+test_somekey:
+    test.check_pillar:
+    -   present:
+         -  somekey
+test_test:
+    test.check_pillar:
+    -   present:
+         -  test
+```
+Displaying the pillar works fine:
+```bash
+salt-ssh  --roster-file=/tmp/roster dev-minsles12sp2-1.tf.local pillar.items
+```
+```
+dev-minsles12sp2-1.tf.local:
+    ----------
+    somekey:
+        xyz
+
+```
+but when applying the `testpillar` state the pillar is not propagated across `module.run` + `state.apply`:
+```bash
+salt-ssh --roster-file=/tmp/roster --extra-filerefs="salt://showpillar.sls" dev-minsles12sp2-1.tf.local state.apply testpillar
+```
+
+```
+dev-minsles12sp2-1.tf.local:                                                                                                                                                        [44/1830]
+----------
+          ID: call_show
+    Function: module.run
+        Name: state.apply
+      Result: False
+     Comment: Module function state.apply executed
+     Started: 21:40:18.281126
+    Duration: 95.981 ms
+     Changes:   
+              ----------
+              ret:
+                  ----------
+                  module_|-show_all_pillars_|-pillar.items_|-run:
+                      ----------
+                      __id__:
+                          show_all_pillars
+                      __run_num__:
+                          0
+                      __sls__:
+                          showpillar
+                      changes:
+                          ----------
+                          ret:
+                              ----------
+                      comment:
+                          Module function pillar.items executed
+                      duration:
+                          19.307
+                      name:
+                          pillar.items
+                      result:
+                          True
+                      start_time:
+                          21:40:18.355439
+                  test_|-test_somekey_|-test_somekey_|-check_pillar:
+                      ----------
+                      __id__:
+                          test_somekey
+                      __run_num__:
+                          1
+                      __sls__:
+                          showpillar
+                      changes:
+                          ----------
+                      comment:
+                          Pillar key "somekey" is missing.
+                      duration:
+                          0.461
+                      name:
+                          test_somekey
+                      result:
+                          False
+                      start_time:
+                          21:40:18.375171
+                  test_|-test_test_|-test_test_|-check_pillar:
+                      ----------
+                      __id__:
+                          test_test
+                      __run_num__:
+                          2
+                      __sls__:
+                          showpillar
+                      changes:
+                          ----------
+                      comment:
+                      duration:
+                          0.346
+                      name:
+                          test_test
+                      result:
+                          True
+                      start_time:
+                          21:40:18.375734
+
+Summary for dev-minsles12sp2-1.tf.local
+------------
+Succeeded: 0 (changed=1)
+Failed:    1
+------------
+
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.0
+ 
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: 3.6.0
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: 0.24.0
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.24.0
+         Python: 2.7.13 (default, Jan 11 2017, 10:56:06) [GCC]
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 14.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+ 
+System Versions:
+           dist: SuSE 12 x86_64
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.21-69-default
+         system: Linux
+        version: SUSE Linux Enterprise Server  12 x86_64
+```

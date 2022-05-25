@@ -1,0 +1,43 @@
+`pkg.install` uses 100% CPU whenever there are no changes to the registry.
+This is due to a for cycle that is in place in order to make sure there are no effective changes that still have to be applied to it. 
+This cycle made my **Windows** VM CPU spike, this is not very efficient and:
+- may cause performance issues to other applications or the OS
+- may cause unnecessary CPU credits consumption on AWS burstable instances
+- causes Salt to timeout and return no date unless a -t flag is set in the command
+  The relevant code is [here](https://github.com/saltstack/salt/blob/998b55b2bf46ade5e7941b61adbd17bbcae05a5d/salt/modules/win_pkg.py#L788):
+
+``` py
+    # Get a new list of installed software
+    new = list_pkgs()
+    tries = 0
+    difference = salt.utils.compare_dicts(old, new)
+    while not all(name in difference for name in changed) and tries <= 1000:
+        new = list_pkgs()
+        difference = salt.utils.compare_dicts(old, new)
+        tries += 1
+        if tries == 1000:
+            ret['_comment'] = 'Registry not updated.'
+```
+
+I suggest to use a sleep function, and iterate for 30 seconds (this is what 1000 iterations take on my VM) (which should be sufficient, doesn't cause any timeout issues, and doesn't cause any CPU spike):
+
+``` py
+import time
+```
+
+``` py
+    # Get a new list of installed software
+    new = list_pkgs()
+    tries = 0
+    difference = salt.utils.compare_dicts(old, new)
+    while not all(name in difference for name in changed) and tries < 10:
+        time.sleep( 3 )
+        new = list_pkgs()
+        difference = salt.utils.compare_dicts(old, new)
+        tries += 1
+        log.debug("Try {0}".format(tries))
+        if tries == 10:
+            ret['_comment'] = 'Registry not updated.'
+```
+
+Any thoughts on this?

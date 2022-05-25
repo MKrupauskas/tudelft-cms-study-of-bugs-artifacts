@@ -1,0 +1,86 @@
+### Description of Issue/Question
+
+It looks like Salt is using it's own interpreter to decide if the python2 or python3 version of dnf-plugin-versionlock is necessary. The python2 version is no longer available on Fedora 30. `/usr/bin/salt-call` explicitly uses `/usr/bin/python2.7` as it's interpreter meaning that using `hold` with any `pkg.installed` does not work as it cannot find `python2-dnf-plugin-versionlock`.
+
+### Setup
+I'm using https://github.com/saltstack-formulas/packages-formula which does the following:
+
+```sls
+wanted_pkgs:
+  pkg.installed:
+    - pkgs: {{ wanted_packages | json }}
+    {% if grains['os_family'] not in ['Suse'] %}
+    - hold: false
+    {% endif %}
+    - require:
+      - pkg: pkg_req_pkgs
+      {% if req_states %}
+        {% for dep in req_states %}
+      - sls: {{ dep }}
+        {% endfor %}
+      {% endif %}
+```
+
+The `hold: false` there causes the problem, modifying the conditional to read:
+
+```jinja
+{% if grains['os_family'] not in ['Suse'] and (grains['os'] != 'Fedora' or grains['osmajorrelease'] < 30) %}
+```
+
+causes the error to go away.
+
+### Steps to Reproduce Issue
+While I haven't tried this explicitly, it should be possible to use the following state on any Fedora 30 system after installing with the normal salt bootstrapper:
+
+```sls
+vim:
+    pkg.installed:
+        - hold: false
+```
+
+### Versions Report
+
+Note: This happens to be a masterless setup so the version report will be from `salt-call`.
+
+```
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.30.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.1
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.16 (default, Mar  5 2019, 09:07:48)
+   python-gnupg: 0.4.3
+         PyYAML: 5.1
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 5.0.2
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: fedora 30 Thirty
+         locale: UTF-8
+        machine: x86_64
+        release: 5.0.9-301.fc30.x86_64
+         system: Linux
+        version: Fedora 30 Thirty
+```

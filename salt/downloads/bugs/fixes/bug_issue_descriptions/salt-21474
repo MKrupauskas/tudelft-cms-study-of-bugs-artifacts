@@ -1,0 +1,106 @@
+```
+root@saltmaster:~# salt --versions-report
+           Salt: 2014.7.1
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.3.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+            ZMQ: 4.0.4
+           Mako: 0.9.1
+```
+
+Executed command being executed:
+`
+root@saltmaster:~# salt-cloud -p rackspace-dfw-web dfw-web-001 -l debug
+`
+
+This is the profile:
+
+``` yaml
+rackspace-dfw-web:
+  provider: rackspace-dfw
+  size: general1-2
+  image: Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
+  networks:
+    - fixed:
+      - 00000000-0000-0000-0000-000000000000
+      - 11111111-1111-1111-1111-111111111111
+```
+
+This is provider configuration that works:
+
+``` yaml
+rackspace-dfw:
+  provider: openstack
+  identity_url: https://identity.api.rackspacecloud.com/v2.0/tokens
+  compute_name: cloudServersOpenStack
+  protocol: ipv4
+  ssh_key_name: saltmaster
+  ssh_key_file: /root/.ssh/saltmaster.pem
+  ssh_interface: private_ips
+  user: <api-user>
+  apikey: <api-key>
+  tenant: <tennant-id>
+  compute_region: DFW
+  minion:
+    master: dfw-saltmaster.example.com
+```
+
+However this one:
+
+``` yaml
+rackspace-core:
+  provider: openstack
+  identity_url: https://identity.api.rackspacecloud.com/v2.0/tokens
+  compute_name: cloudServersOpenStack
+  protocol: ipv4
+  ssh_key_name: saltmaster
+  ssh_key_file: /root/.ssh/saltmaster.pem
+  ssh_interface: private_ips
+  user: <api-user>
+  apikey: <api-key>
+  tenant: <tennant-id>
+  minion:
+    master: saltmaster.example.com
+
+rackspace-dfw:
+  extends: rackspace-core:openstack
+  compute_region: DFW
+  minion:
+    master: dfw-saltmaster.example.com
+```
+
+produces this exception:
+
+```
+[DEBUG   ] Failed to execute 'openstack.list_nodes()' while querying for running nodes: <LibcloudError in None 'Could not find specified endpoint'>
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 2198, in run_parallel_map_providers_query
+    cloud.clouds[data['fun']]()
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/libcloudfuncs.py", line 429, in list_nodes
+    nodes = conn.list_nodes()
+  File "/usr/lib/python2.7/dist-packages/libcloud/compute/drivers/openstack.py", line 219, in list_nodes
+    self.connection.request('/servers/detail').object)
+  File "/usr/lib/python2.7/dist-packages/libcloud/compute/drivers/openstack.py", line 157, in request
+    method=method, headers=headers)
+  File "/usr/lib/python2.7/dist-packages/libcloud/common/openstack.py", line 575, in request
+    return super(OpenStackBaseConnection, self).request(**kwargs)
+  File "/usr/lib/python2.7/dist-packages/libcloud/common/base.py", line 596, in request
+    action = self.morph_action_hook(action)
+  File "/usr/lib/python2.7/dist-packages/libcloud/common/openstack.py", line 571, in morph_action_hook
+    self._populate_hosts_and_request_paths()
+  File "/usr/lib/python2.7/dist-packages/libcloud/common/openstack.py", line 611, in _populate_hosts_and_request_paths
+    url = self._ex_force_base_url or self.get_endpoint()
+  File "/usr/lib/python2.7/dist-packages/libcloud/common/openstack.py", line 563, in get_endpoint
+    raise LibcloudError('Could not find specified endpoint')
+LibcloudError: <LibcloudError in None 'Could not find specified endpoint'>
+```
+
+It seems that something is wrong with handling `extends` in provider configuration.

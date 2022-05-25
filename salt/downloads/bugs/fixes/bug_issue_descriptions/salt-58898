@@ -1,0 +1,112 @@
+**Description**
+Trying to get the GitFS backend to work keeps resulting in this error:
+```
+2020-11-06 15:15:37,245 [salt.utils.gitfs :1888][ERROR   ][42996] Error occurred fetching gitfs remote 'git@github.com:<USER>/<REPO>.git': Failed to authenticate SSH session: Unable to send userauth-publickey request
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/gitfs.py", line 1864, in _fetch
+    fetch_results = origin.fetch(**fetch_kwargs)
+  File "/usr/lib/python3/dist-packages/pygit2/remote.py", line 423, in fetch
+    check_error(err)
+  File "/usr/lib/python3/dist-packages/pygit2/errors.py", line 61, in check_error
+    raise GitError(message)
+_pygit2.GitError: Failed to authenticate SSH session: Unable to send userauth-publickey request
+```
+It takes quite long for the authentication to fail, so I suspect a timeout is reached.
+
+**Setup**
+Configuration
+```yaml
+fileserver_backend:
+  - roots
+  - git
+
+file_roots:
+  base:
+    - /srv/salt
+
+pillar_roots:
+  base:
+    - /srv/pillar
+
+gitfs_base: main
+
+gitfs_remotes:
+  - git@github.com:<USER>/<REPO>.git:
+    - pubkey: /<PATH>/ssh-git-ro.pub
+    - privkey: /<PATH>/ssh-git-ro
+```
+The SSH key is added as a Deploy Key to the Git repository.
+Also tried:
+- SSH key as key for user
+- 4096 bit SSH key
+- 3072 bit SSH key
+- chmod 777 on SSH key (+pub)
+- removing trailing whitespace from private key
+
+All the attempts resulted in the same error. I am able to do a 'git clone' manually of the repository.
+
+**Steps to Reproduce the behavior**
+Installation is done through `apt-get` using the instructions [here](https://docs.saltstack.com/en/latest/topics/installation/ubuntu.html).
+Installed `python3-pygit2` package through `apt-get`
+
+After setting up the master (and a minion) with the above config. 
+Create a new GitHub repository with a `top.sls` file on the `main` branch.
+Generate an SSH key and add the SSH key as a Deploy Key to the GitHub repository.
+
+Run as root:
+```
+salt-run cache.clear_git_lock gitfs type=update
+
+salt-run -l debug fileserver.update
+```
+
+**Expected behavior**
+The command succeeds
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 3002.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: 2.0.6
+      gitpython: 3.0.7
+         Jinja2: 2.10.1
+        libgit2: 0.28.3
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: 3.6.1
+         pygit2: 1.0.3
+         Python: 3.8.5 (default, Jul 28 2020, 12:59:40)
+   python-gnupg: 0.4.5
+         PyYAML: 5.3.1
+          PyZMQ: 18.1.1
+          smmap: 2.0.5
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+
+System Versions:
+           dist: ubuntu 20.04 focal
+         locale: utf-8
+        machine: x86_64
+        release: 5.4.0-52-generic
+         system: Linux
+        version: Ubuntu 20.04 focal
+```
+</details>
+
+**Additional context**
+Also reported as a comment on this closed issue: https://github.com/saltstack/salt/issues/52636#issuecomment-671766967

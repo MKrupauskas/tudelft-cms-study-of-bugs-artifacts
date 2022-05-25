@@ -1,0 +1,106 @@
+### Description of Issue/Question
+Master and minions are running RHEL 6.9 in FIPS mode, just upgraded from 2016.11.3-1 packages to 2016.11.4-1 and ran into FIPS issues again, looks to be related to the new Cryptodome stuff. I do use 'hash_type: sha256' on the master and all minions.
+
+This is what happens when trying to start the services:
+
+```
+# service salt-master start
+Starting salt-master daemon:  salt-master[ERROR   ] error:060800A3:digital envelope routines:EVP_DigestInit_ex:disabled for fips
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/utils/parsers.py", line 200, in parse_args
+    process_option_func()
+  File "/usr/lib/python2.6/site-packages/salt/utils/parsers.py", line 520, in process_config_dir
+    self.config.update(self.setup_config())
+  File "/usr/lib/python2.6/site-packages/salt/utils/parsers.py", line 1714, in setup_config
+    return config.master_config(self.get_config_file_path())
+  File "/usr/lib/python2.6/site-packages/salt/config/__init__.py", line 3299, in master_config
+    opts = apply_master_config(overrides, defaults)
+  File "/usr/lib/python2.6/site-packages/salt/config/__init__.py", line 3318, in apply_master_config
+    import salt.crypt
+  File "/usr/lib/python2.6/site-packages/salt/crypt.py", line 27, in <module>
+    from Cryptodome.Cipher import AES, PKCS1_OAEP
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Cipher/__init__.py", line 86, in <module>
+    from Cryptodome.Cipher._mode_siv import _create_siv_cipher
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Cipher/_mode_siv.py", line 42, in <module>
+    from Cryptodome.Protocol.KDF import _S2V
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Protocol/KDF.py", line 39, in <module>
+    from Cryptodome.Hash import SHA1, SHA256, HMAC, CMAC
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Hash/HMAC.py", line 81, in <module>
+    import MD5, BLAKE2s
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Hash/MD5.py", line 79, in <module>
+    new = __make_constructor()
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Hash/MD5.py", line 49, in __make_constructor
+    h = _hash_new()
+ValueError: error:060800A3:digital envelope routines:EVP_DigestInit_ex:disabled for fips
+Usage: salt-master [options]
+
+salt-master: error: Error while processing <bound method Master.process_config_dir of <salt.cli.daemons.Master object at 0x2557a10>>: Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/utils/parsers.py", line 200, in parse_args
+    process_option_func()
+  File "/usr/lib/python2.6/site-packages/salt/utils/parsers.py", line 520, in process_config_dir
+    self.config.update(self.setup_config())
+  File "/usr/lib/python2.6/site-packages/salt/utils/parsers.py", line 1714, in setup_config
+    return config.master_config(self.get_config_file_path())
+  File "/usr/lib/python2.6/site-packages/salt/config/__init__.py", line 3299, in master_config
+    opts = apply_master_config(overrides, defaults)
+  File "/usr/lib/python2.6/site-packages/salt/config/__init__.py", line 3318, in apply_master_config
+    import salt.crypt
+  File "/usr/lib/python2.6/site-packages/salt/crypt.py", line 27, in <module>
+    from Cryptodome.Cipher import AES, PKCS1_OAEP
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Cipher/__init__.py", line 86, in <module>
+    from Cryptodome.Cipher._mode_siv import _create_siv_cipher
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Cipher/_mode_siv.py", line 42, in <module>
+    from Cryptodome.Protocol.KDF import _S2V
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Protocol/KDF.py", line 39, in <module>
+    from Cryptodome.Hash import SHA1, SHA256, HMAC, CMAC
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Hash/HMAC.py", line 81, in <module>
+    import MD5, BLAKE2s
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Hash/MD5.py", line 79, in <module>
+    new = __make_constructor()
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Hash/MD5.py", line 49, in __make_constructor
+    h = _hash_new()
+ValueError: error:060800A3:digital envelope routines:EVP_DigestInit_ex:disabled for fips
+
+
+# service salt-minion start
+ERROR: Unable to look-up config values for /etc/salt
+```
+
+Nothing written to either /var/log/salt/master or /var/log/salt/minion.
+
+### Steps to Reproduce Issue
+1. Enable FIPS (install dracut-fips + fipscheck, set fips=1 and boot=<dev> kernel command line arguments in GRUB, dracut -f, reboot).
+2) Upgrade to 2016.11.4-1.el6 salt, salt-minion, salt-master packages. libtommath, libtomcrypt, and python2-pycryptodomex packages are installed as new dependencies.
+
+### Versions Report
+```
+# salt --versions-report
+Traceback (most recent call last):
+  File "/usr/bin/salt", line 10, in <module>
+    salt_main()
+  File "/usr/lib/python2.6/site-packages/salt/scripts.py", line 464, in salt_main
+    client.run()
+  File "/usr/lib/python2.6/site-packages/salt/cli/salt.py", line 33, in run
+    import salt.client
+  File "/usr/lib/python2.6/site-packages/salt/client/__init__.py", line 31, in <module>
+    import salt.cache
+  File "/usr/lib/python2.6/site-packages/salt/cache/__init__.py", line 15, in <module>
+    from salt.payload import Serial
+  File "/usr/lib/python2.6/site-packages/salt/payload.py", line 17, in <module>
+    import salt.crypt
+  File "/usr/lib/python2.6/site-packages/salt/crypt.py", line 27, in <module>
+    from Cryptodome.Cipher import AES, PKCS1_OAEP
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Cipher/__init__.py", line 86, in <module>
+    from Cryptodome.Cipher._mode_siv import _create_siv_cipher
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Cipher/_mode_siv.py", line 42, in <module>
+    from Cryptodome.Protocol.KDF import _S2V
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Protocol/KDF.py", line 39, in <module>
+    from Cryptodome.Hash import SHA1, SHA256, HMAC, CMAC
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Hash/HMAC.py", line 81, in <module>
+    import MD5, BLAKE2s
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Hash/MD5.py", line 79, in <module>
+    new = __make_constructor()
+  File "/usr/lib64/python2.6/site-packages/Cryptodome/Hash/MD5.py", line 49, in __make_constructor
+    h = _hash_new()
+ValueError: error:060800A3:digital envelope routines:EVP_DigestInit_ex:disabled for fips
+```

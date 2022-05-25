@@ -1,0 +1,105 @@
+**Description**
+In the slack state documentation, it says:
+```
+The api key can be specified in the master or minion configuration like below:
+```
+
+However, when the api_key isn't provided in the kwargs, the state fails without checking the master or minion configuration. It does in the slack_notify.py module and in the slack utils code, but not in the state.
+
+**Setup**
+
+Add slack.api_key to salt minion configuration.
+```
+slack:
+  api_key: peWcBiMOS9HrZG15peWcBiMOS9HrZG15
+```
+
+And call slack.post_message from a state:
+```
+slack_post_message_for_testing:
+  slack.post_message:
+    - message: "test message"
+    - channel: #testing
+    - from_name: me
+```
+
+**Steps to Reproduce the behavior**
+
+```
+2021-05-06 14:44:13,874 [salt.state                                                   ][ERROR   ] Please specify api_key or webhook.
+```
+
+**Expected behavior**
+
+When the api_key is configuration in the salt master or minion config, the state should read it from there.
+
+**Versions Report**
+
+```
+Salt Version:
+          Salt: 3002.5
+
+Dependency Versions:
+          cffi: 1.14.5
+      cherrypy: unknown
+      dateutil: 2.8.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.1
+       libgit2: Not Installed
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: 1.4.6
+     pycparser: 2.20
+      pycrypto: 3.10.1
+  pycryptodome: Not Installed
+        pygit2: Not Installed
+        Python: 3.6.8 (default, Aug  7 2019, 17:28:10)
+  python-gnupg: Not Installed
+        PyYAML: 3.13
+         PyZMQ: 17.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.1.4
+
+System Versions:
+          dist: centos 7 Core
+        locale: UTF-8
+       machine: x86_64
+       release: 3.10.0-1062.4.1.el7.x86_64
+        system: Linux
+       version: CentOS Linux 7 Core
+```
+
+**Additional context**
+
+I have updated the slack state to use the same calls that the slack module uses and then it works fine. I do see there is a slack util which should probably be used from the state instead of doing the work over and over again, but I'm not sure how. I know this state was only ever supposed to make slack be able to be called from state runs, so not sure where to start to rewrite it.
+
+At the moment, this is the problem code in the state (https://github.com/saltstack/salt/blob/4f3cb36955d84c6793efcbeabf53963067922d90/salt/states/slack.py#L109): 
+```
+    if not kwargs.get("api_key") and not kwargs.get("webhook"):
+        ret["comment"] = "Please specify api_key or webhook."
+        return ret
+```
+
+It can be "fixed" by adding this instead:
+```
+    if not kwargs.get("api_key") and not kwargs.get("webhook"):
+        api_key = __salt__["config.get"]("slack.api_key") or __salt__["config.get"]("slack:api_key")
+        if not api_key:
+            identifier = __salt__["config.get"]("slack.hook") or __salt__["config.get"]("slack:hook")
+            if not identifier:
+                ret["comment"] = "Please specify api_key or webhook."
+                return ret
+```
+
+Then in the try at line 136 https://github.com/saltstack/salt/blob/4f3cb36955d84c6793efcbeabf53963067922d90/salt/states/slack.py#L136:
+```
+        if api_key:
+```
+
+And replace for `else` in line 145 https://github.com/saltstack/salt/blob/4f3cb36955d84c6793efcbeabf53963067922d90/salt/states/slack.py#L145.

@@ -1,0 +1,148 @@
+I have a master running with salt-api using the rest_wsgi.py.
+
+I can issue various commands which work repeatedly without any problems. These include:
+1. test.ping
+2. test.fib 10
+3. abuse.create_ftplogs cust_id="123456789" (custom module)
+4. abuse.lastdays_filelist cust_id="123456789" (custom module)
+
+The fields 'username' and 'password' are for the local user on the salt-masters which uses external_auth.
+
+Here are the corresponding POST-Strings i generate:
+1. test.ping
+
+``` json
+[
+    {
+        "username": "<username>",
+        "tgt": "server01.cust-srv.org",
+        "client": "local",
+        "eauth": "pam",
+        "fun": "test.ping",
+        "password": "<password>"
+    }
+]
+```
+1. test.fib 10
+
+``` json
+[
+    {
+        "username": "<username>",
+        "tgt": "server01.cust-srv.org",
+        "client": "local",
+        "eauth": "pam",
+        "arg": [
+            "10"
+        ],
+        "fun": "test.fib",
+        "password": "<password>"
+    }
+]
+```
+1.  abuse.create_ftplogs cust_id='s1234567890'
+
+``` json
+[
+    {
+        "username": "<username>",
+        "tgt": "server01.cust-srv.org",
+        "kwarg": {
+            "cust_id": "s1234567890"
+        },
+        "client": "local",
+        "eauth": "pam",
+        "fun": "abuse.create_ftplogs",
+        "password": "<password>"
+    }
+]
+```
+1. abuse.lastdays_filelist cust_id='s1234567890'
+
+``` json
+[
+    {
+        "username": "<username>",
+        "tgt": "server01.cust-srv.org",
+        "kwarg": {
+            "cust_id": "s1234567890"
+        },
+        "client": "local",
+        "eauth": "pam",
+        "fun": "abuse.lastdays_filelist",
+        "password": "<password>"
+    }
+]
+```
+
+All these commands return the expected results.
+
+But there are other requests that always seem to fail within the netapi even though there are executed on the minion. On failure the following message is returned:
+
+``` bash
+"Failed to authenticate!  This is most likely because this user is not permitted to execute commands, but there is a small possibility that a disk error ocurred (check disk/inode usage)."}
+```
+
+A few example POST-Strings that fail:
+1. test.sleep 10
+
+``` json
+[
+    {
+        "username": "<username>",
+        "tgt": "server01.cust-srv.org",
+        "client": "local",
+        "eauth": "pam",
+        "arg": [
+            "10"
+        ],
+        "fun": "test.sleep",
+        "password": "<password>"
+    }
+]
+```
+
+This fails with the above message but i can see the minion executing it:
+
+``` bash
+[INFO    ] User root Executing command test.sleep with jid 20140909075007412530
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20140909075007412530', 'tgt': 'server01.cust-srv.org', 'ret': '', 'user': 'root', 'arg': ['10'], 'fun': 'test.sleep'}
+[INFO    ] Returning information for job: 20140909075007412530
+```
+
+And its in the masters cache:
+
+``` bash
+$ salt-run jobs.lookup_jid 20140909075007412530
+server01.cust-srv.org:
+    True
+```
+1. abuse.find_pattern cust_id='s12345678' pattern='wordpress'
+
+``` json
+[
+    {
+        "username": "<username>",
+        "tgt": "server01.cust-srv.org",
+        "kwarg": {
+            "pattern": "wordpress",
+            "cust_id": "s1234567890"
+        },
+        "client": "local",
+        "eauth": "pam",
+        "fun": "abuse.find_pattern",
+        "password": "<password>"
+    }
+]
+```
+
+This one also fails with the above message even though the minions executes it:
+
+``` bash
+[INFO    ] User root Executing command abuse.find_pattern with jid 20140909080136051705
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20140909080136051705', 'tgt': 'server01.cust-srv.org', 'ret': '', 'user': 'root', 'arg': [{'pattern': 'wordpress', 'cust_id': 's1234567890', '__kwarg__': True}], 'fun': 'abuse.find_pattern'}
+```
+
+If i strace the job-process on the minion, i can see that its doing the right thing. 
+
+For this one the result is not found in the masters cache because its never returned by the minion. The process on the minion just exits and no data is returned.

@@ -1,0 +1,103 @@
+I do not understand well how salt should interact with the return code.
+For this i have even done a bash function to test for errors based on my own experiments, but that can be just a workaround about a bug, see http://pastebin.com/YpwsuDH6
+
+My assumption is that even with no error, i will possibly get a retcode=2 with running "salt-call --retcode-passthrough state.sls" where i would have expected a 0 status
+
+```
+salt-call -lquiet --retcode-passthrough state.sls good --output=yaml;echo $?
+local:
+  local:
+    cmd_|-run-project_|-/data/project/project.sh_|-run:
+      __run_num__: 1
+      changes: {}
+      comment: unless execution succeeded
+      name: /data/project/project.sh
+      result: true
+    cmd_|-run-projecta_|-/data/project/project.sh_|-run:
+      __run_num__: 2
+      changes:
+        pid: 48095
+        retcode: 0
+        stderr: ''
+        stdout: I am the project executable
+      comment: Command "/data/project/project.sh" run
+      name: /data/project/project.sh
+      result: true
+    git_|-acheckout-code_|-https://github.com/a/salt-.git_|-latest:
+      __run_num__: 3
+      changes: {}
+      comment: ''
+      name: https://github.com/a/salt-.git
+      result: true
+    git_|-bcheckout-code_|-https://github.com/a/salt-.git_|-latest:
+      __run_num__: 4
+      changes: {}
+      comment: ''
+      name: https://github.com/a/salt-.git
+      result: true
+    git_|-checkout-code_|-https://github.com/a/salt-.git_|-latest:
+      __run_num__: 0
+      changes: {}
+      comment: ''
+      name: https://github.com/a/salt-.git
+      result: true
+
+2
+```
+
+So there, to mark the execution as not in error, the only solution is to parse output and see that there are no result=false
+
+Second problem is that whith some fatal errors i get also a retcode=2 which is fine if the first returns 0 but not if the first return 2
+
+```
+salt-call --retcode-passthrough state.sls non.existing>/dev/null;echo $?
+[INFO    ] The `lspci` binary is not available on the system. GPU grains will not be available.
+[INFO    ] Executing command 'ps -efH' in directory '/root'
+[INFO    ] The `lspci` binary is not available on the system. GPU grains will not be available.
+[INFO    ] Loading fresh modules for state activity
+[ERROR   ] No matching sls found for 'non.existing' in env 'base
+
+2
+```
+
+Third problem:
+
+```
+salt-call -lquiet --retcode-passthrough state.sls bad --output=yaml;echo $?
+local:
+  local:
+    cmd_|-checkout-code_|-rsync -az /srv/salt/.gita/ /data/project/.git/_|-run:
+      __run_num__: 2
+      changes:
+        pid: 48233
+        retcode: 23
+        stderr: 'rsync: change_dir "/srv/salt/.gita" failed: No such file or directory
+          (2)
+
+          rsync error: some files/attrs were not transferred (see previous errors)
+          (code 23) at main.c(1070) [sender=3.0.9]'
+        stdout: ''
+      comment: Command "rsync -az /srv/salt/.gita/ /data/project/.git/" run
+      name: rsync -az /srv/salt/.gita/ /data/project/.git/
+      result: false
+    file_|-checkout-code_|-/data/project_|-directory:
+      __run_num__: 1
+      changes: {}
+      comment: Directory /data/project is in the correct state
+      name: /data/project
+      result: true
+    git_|-checkout-salt_|-https://github.com/a/salt-.git_|-latest:
+      __run_num__: 0
+      changes: {}
+      comment: ''
+      name: https://github.com/a/salt-.git
+      result: true
+23
+```
+
+So here the retcode marks the execution as failed, but do we need a more consistent retcode like 255 or 1 or -1 ?
+Where does this 23 come from ?
+
+--> EDIT: rereading it comes from the retcode of the cmd execution, but there is upper level shell, i would just want to know with a consistent retcode that the global salt-call failed
+
+Related to #6973

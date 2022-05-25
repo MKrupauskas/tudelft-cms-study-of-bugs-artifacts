@@ -1,0 +1,147 @@
+### Description of Issue/Question
+The `dockerng.image_present` and `dockerng.image_absent` states both incorrectly think that a network is present if another network whose name partially matches the specified network is present.
+
+For example, if the network `abcdef` already exists and `dockerng.image_present` is used to create the network `cde`, it'll just return with a message saying no action's required because the network already exists.
+
+### Setup
+```
+# ./docker/network/test_present.sls
+test_network_present:
+  dockerng.network_present:
+    - name: cde
+```
+```
+# ./docker/network/test_absent.sls
+test_network_absent:
+  dockerng.network_absent:
+    - name: cde
+```
+
+### Steps to Reproduce Issue
+The steps below show that if the network `abcdef` already exists then `dockerng.image_present` doesn't think it needs to create the network `cde`, and `dockerng.image_absent` attempts to remove `cde` it even though it's not actually present:
+```
+user@host ~ $ sudo docker network ls | grep cde
+e982840fa7a1        abcdef              bridge              local
+user@host ~ $ sudo salt '*' state.apply docker.network.test_present test=True
+host.domain:
+----------
+          ID: test_network_present
+    Function: dockerng.network_present
+        Name: cde
+      Result: True
+     Comment: Network 'cde' already exists.
+     Started: 15:14:34.886654
+    Duration: 5.399 ms
+     Changes:   
+
+Summary for host.domain
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:   5.399 ms
+user@host ~ $ sudo salt '*' state.apply docker.network.test_present
+host.domain:
+----------
+          ID: test_network_present
+    Function: dockerng.network_present
+        Name: cde
+      Result: True
+     Comment: Network 'cde' already exists.
+     Started: 15:14:41.984847
+    Duration: 9.433 ms
+     Changes:   
+
+Summary for host.domain
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:   9.433 ms
+user@host ~ $ sudo salt '*' state.apply docker.network.test_absent test=True
+host.domain:
+----------
+          ID: test_network_absent
+    Function: dockerng.network_absent
+        Name: cde
+      Result: None
+     Comment: The network 'cde' will be removed
+     Started: 15:16:26.964736
+    Duration: 4.956 ms
+     Changes:   
+
+Summary for host.domain
+------------
+Succeeded: 1 (unchanged=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   4.956 ms
+user@host ~ $ sudo salt '*' state.apply docker.network.test_absent
+host.domain:
+----------
+          ID: test_network_absent
+    Function: dockerng.network_absent
+        Name: cde
+      Result: False
+     Comment: Failed to remove network 'cde': Error 404: {"message":"network cde not found"}
+     Started: 15:16:14.349035
+    Duration: 9.475 ms
+     Changes:   
+
+Summary for host.domain
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:   9.475 ms
+ERROR: Minions returned with non-zero exit code
+```
+
+Note that in this example the `test=True` is working because I've tested this on top of my changes in #41977.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.5
+ 
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: 1.10.6
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.24.6
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: Not Installed
+   pycryptodome: 3.4.3
+         pygit2: 0.24.2
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.3.1611 Core
+        machine: x86_64
+        release: 3.10.0-514.16.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```

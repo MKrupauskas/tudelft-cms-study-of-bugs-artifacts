@@ -1,0 +1,136 @@
+**Description**
+I have three salt masters, two of which are running salt-syndic to connect to the master-of-masters.  When I run something like
+
+```
+salt doesNotExist state.apply
+```
+
+from one of the syndic servers, I get an error immediately:
+
+```
+[root@syndic1: ~]# salt doesNotExist state.apply
+No minions matched the target. No command was sent, no jid was assigned.
+ERROR: No return received
+```
+
+However, when I do the same thing from the master-of-masters, the command hangs forever.  Commands with valid targets will complete.
+
+**Setup**
+I have a master-of-masters configured with
+
+```
+order_masters: true
+```
+
+and two syndic servers configured with
+
+```
+syndic_master: master-of-masters.example.com
+```
+
+**Steps to Reproduce the behavior**
+
+From the master of masters, I run a command with an invalid target (I use ``state.apply`` in this example, but it could be anything, e.g. ``cmd.run``):
+
+```
+salt doesNotExist state.apply
+```
+
+then it hangs forever.  I tried running with trace logging and just see the same messages repeat forever:
+
+```
+[root@master-of-masters: ~]# salt doesNotExist state.apply -l trace
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/SaltGUI.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/SaltGUI.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/ext_pillar.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/ext_pillar.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: salt.services-in.xr
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[TRACE   ] The required configuration section, 'fluent_handler', was not found the in the configuration. Not loading the fluent logging handlers module.
+[TRACE   ] None of the required configuration sections, 'logstash_udp_handler' and 'logstash_zmq_handler', were found in the configuration. Not loading the Logstash logging handlers module.
+[DEBUG   ] Configuration file path: /etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/SaltGUI.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/SaltGUI.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/ext_pillar.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/ext_pillar.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: salt.services-in.xr
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/master', 'salt.services-in.xr_master', 'tcp://127.0.0.1:4506', 'clear')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://127.0.0.1:4506
+[DEBUG   ] Trying to connect to: tcp://127.0.0.1:4506
+[TRACE   ] Inserted key into loop_instance_map id 140588781129120 for key ('/etc/salt/pki/master', 'salt.services-in.xr_master', 'tcp://127.0.0.1:4506', 'clear') and process 7421
+[TRACE   ] IPCClient: Connecting to socket: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] Closing AsyncZeroMQReqChannel instance
+[TRACE   ] func get_cli_event_returns()
+[DEBUG   ] LazyLoaded local_cache.get_load
+[DEBUG   ] Reading minion list from /var/cache/salt/master/jobs/92/1c35e2a3b7fa03aeecdec65aa249e761fec01dd34984613680e2f4f7e63e77/.minions.p
+[DEBUG   ] get_iter_returns for jid 20200505001431545885 sent to set() will timeout at 00:24:31.557410
+[TRACE   ] Get event. tag: (salt/job|syndic/.*)/20200505001431545885
+[TRACE   ] _get_event() waited 0 seconds and received nothing
+[TRACE   ] Get event. tag: (salt/job|syndic/.*)/20200505001431545885
+[TRACE   ] get_event() received = {'data': {'jid': '20200505001431545885', 'tgt_type': 'glob', 'tgt': 'doesNotExist', 'user': 'root', 'fun': 'state.apply', 'arg': [], 'minions': [], 'missing': [], '_stamp': '2020-05-05T00:14:31.547589'}, 'tag': 'salt/job/20200505001431545885/new'}
+[TRACE   ] Get event. tag: (salt/job|syndic/.*)/20200505001431545885
+[TRACE   ] _get_event() waited 0 seconds and received nothing
+[TRACE   ] Get event. tag: (salt/job|syndic/.*)/20200505001431545885
+[TRACE   ] _get_event() waited 0 seconds and received nothing
+[TRACE   ] Get event. tag: (salt/job|syndic/.*)/20200505001431545885
+[TRACE   ] _get_event() waited 0 seconds and received nothing
+[TRACE   ] Get event. tag: (salt/job|syndic/.*)/20200505001431545885
+[TRACE   ] _get_event() waited 0 seconds and received nothing
+```
+
+Those two alternating lines at the end just repeat forever.
+
+**Expected behavior**
+I expect that after both of the syndic servers report back to the master-of-masters that they don't have a ``doesNotExist`` minion, the command would terminate.  When I run the same command from one of the syndic masters, it returns with an error right away.
+
+**Versions Report**
+
+All servers are on the latest Centos (currently 7.8 though we began seeing this error back when we were on 7.7) and have the latest salt version (3000.2, though we began seeing this on the original 3000 version).  We're also currently on Python 3, but we began seeing this behavior when we were still on Python 2.
+
+<details><summary>salt --versions-report</summary>
+```
+Salt Version:
+           Salt: 3000.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.8.1
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Mar 30 2020, 17:04:00)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 15.3.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.8.2003 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.131-1.el7.centos.x86_64
+         system: Linux
+        version: CentOS Linux 7.8.2003 Core
+```
+</details>

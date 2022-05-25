@@ -1,0 +1,60 @@
+**OS:** Windows 7 Enterprise x64 en_US
+**Salt:**
+
+```
+               Salt: 2014.7.1
+             Python: 2.7.5 (default, May 15 2013, 22:44:16) [MSC v.1500 64 bit (AMD64)]
+             Jinja2: 2.7.1
+           M2Crypto: 0.21.1
+     msgpack-python: 0.4.2
+       msgpack-pure: Not Installed
+           pycrypto: 2.6
+            libnacl: Not Installed
+             PyYAML: 3.11
+              ioflo: Not Installed
+              PyZMQ: 14.1.1
+               RAET: Not Installed
+                ZMQ: 4.0.4
+               Mako: Not Installed
+```
+
+`fileclient.get_url()` raises a `MinionError` exception in case an HTTP download failed (e.g. `404`).
+This seems to be ignored by `modules.win_pkg.install()` which just blindly continues its process even when the installer download failed.
+
+Example:
+**win_repo for adobe.flash:**
+
+``` SLS
+adobe.flash:
+    15.0.0.152:
+        # invalid URL, results in a 404 but still a downloaded 270B file with some 404-message HTML
+        installer: http://download.macromedia.com/get/flashplayer/current/licensing/win/install_flash_player_15_plugin.msi
+        full_name: 'Adobe Flash Player 15 Plugin'
+        install_flags: ' /q'
+        msiexec: True
+        reboot: False
+        uninstaller: http://download.macromedia.com/get/flashplayer/current/support/uninstall_flash_player.exe
+```
+
+**pkg.install adobe.flash:**
+
+```
+    [INFO    ] Starting new HTTP connection (1): download.macromedia.com
+    [DEBUG   ] "GET /get/flashplayer/current/licensing/win/install_flash_player_15_plugin.msi HTTP/1.1" 302 289
+    [INFO    ] Starting new HTTP connection (1): fpdownload.macromedia.com
+    [DEBUG   ] "GET /get/flashplayer/current/licensing/win/install_flash_player_15_plugin.msi HTTP/1.1" 404 270
+    [WARNING ] Specified file http://download.macromedia.com/get/flashplayer/current/licensing/win/install_flash_player_15_plugin.msi is not present to generate hash
+    [INFO    ] Starting new HTTP connection (1): download.macromedia.com
+    [DEBUG   ] "GET /get/flashplayer/current/licensing/win/install_flash_player_15_plugin.msi HTTP/1.1" 302 289
+    [INFO    ] Starting new HTTP connection (1): fpdownload.macromedia.com
+    [DEBUG   ] "GET /get/flashplayer/current/licensing/win/install_flash_player_15_plugin.msi HTTP/1.1" 404 270
+    [INFO    ] Executing command ['msiexec', '/i', 'c:\\salt\\var\\cache\\salt\\minion\\extrn_files\\base\\download.macromedia.com\\get\\flashplayer\\current\\licensing\\win\\install_flash_player_15_plugin.msi', '/q'] in directory 'C:\\Windows\\system32\\config\\systemprofile'
+    [ERROR   ] Command ['msiexec', '/i', 'c:\\salt\\var\\cache\\salt\\minion\\extrn_files\\base\\download.macromedia.com\\get\\flashplayer\\current\\licensing\\win\\install_flash_player_15_plugin.msi', '/q'] failed with return code: 1620
+    [ERROR   ] output: This installation package could not be opened.  Contact the application vendor to verify that this is a valid Windows Installer package.
+```
+
+The call chain is:
+- `salt.modules.win_pkg.install()`
+- `salt.modules.cp.cache_file()`
+- `salt.fileclient.cache_file()`
+- `salt.fileclient.get_url()` ← raises `MinionError` exception in case of an `HTTPError` or `URLError` exception

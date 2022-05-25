@@ -1,0 +1,57 @@
+I'm writing a runner which (amongst other things) compiles the Pillar data for a minion, then executes the Caller() to execute a formula.
+
+The problem is is that the Pillar seems to clobber the Caller in some way I can't understand.
+
+SaltStack 2015.5.2-130-gf52f7e1
+
+Given the Formula `aformula`:
+
+``` yaml
+{{ salt.test.ping() }}
+
+{{ salt.justa.func()|yaml(False) }}
+```
+
+And the following example Runner:
+
+``` python
+def strange_issue():
+    minion_id = 'myminion.example.com'
+    sls = 'aformula'
+
+    caller = salt.client.Caller()
+
+    # works
+    res1 = caller.sminion.functions['justa.func']()
+
+    minion, grains, _ = salt.utils.minions.get_minion_data(minion_id, __opts__)
+
+    pillar = salt.pillar.Pillar(
+        __opts__,
+        grains,
+        minion_id,
+        'base',
+    )
+    pillar = pillar.compile_pillar(pillar_dirs={})
+
+    # Without this, the following call won't have i.e. justa.func in the module index when in a formula
+    # caller = salt.client.Caller()
+
+    # works
+    res2 = caller.sminion.functions['justa.func']()
+
+    # dies
+    res3 = caller.sminion.functions['state.sls'](sls, pillar={'additional_stuff': 'some_extra_data'}, concurrent=True)
+
+    return res3
+```
+
+`res1` and `res2` always work as expected; `res3` however will always crap out:
+
+```
+"Rendering SLS 'base:aformula' failed: Jinja variable 'salt.loader.LazyLoader object' has no attribute 'justa'"
+```
+
+However, if I reinitialize the `Caller()`, the state renders correctly.
+
+It would seem somehow the external modules get yanked from the LazyLoader object _when running formulas_, but I can't for the life of me imagine how that happens???

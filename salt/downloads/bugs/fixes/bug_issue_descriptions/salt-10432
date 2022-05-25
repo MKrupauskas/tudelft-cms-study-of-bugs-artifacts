@@ -1,0 +1,60 @@
+salt-ssh raw mode operates like cmd.run_stdout rather than cmd.run_all.  It is imperative to preserve stderr and the returncode for full analysis of command results and special-handling of failure conditions.
+
+```
+>$ salt-ssh 'c901.qc' -r '/bin/true'
+c901.qc:
+
+>$ echo $?
+0
+```
+
+The above is expected
+
+```
+>$ salt-ssh 'c901.qc' -r '/bin/false'
+c901.qc:
+
+>$ echo $?
+0
+```
+
+There is no evidence that there was a failure in the above.
+
+```
+>$ salt-ssh 'c901.qc' -r 'echo FOO >&2'
+c901.qc:
+    FOO
+```
+
+The above is reasonable, but there is nothing to distinguish that "FOO" was emitted on stderr rather than stdout.
+
+```
+>$ salt-ssh 'c901.qc' -r 'echo FOO; echo BAR >&2; exit 1'
+c901.qc:
+    FOO
+
+>$ echo $?
+0
+```
+
+The above is completely unexpected.  What happened to "BAR"?  Where is the exit status of 1?  It should result in something more like cmd.run_all - such as below:
+
+```
+>$ salt-ssh 'c901.qc' -r 'echo FOO; echo BAR >&2; exit 1'
+c901.qc:
+    ----------
+    retcode:
+        1
+    stderr:
+        BAR
+
+    stdout:
+        FOO
+
+>$ echo $?
+0
+```
+
+The above is _expected_ to have a exit status of 0 because salt-ssh ran correctly; however now the output YAML can be analyzed to associate c901.qc with a return code of 1.  This is especially necessary for multi-target salt-ssh commands.
+
+Patch forthcoming.

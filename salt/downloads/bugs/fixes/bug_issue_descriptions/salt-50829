@@ -1,0 +1,116 @@
+### process.absent state throws a UnicodeDecodeError if cmdline for any process on the target minion contains unicode characters
+
+### Setup
+unicode.sls
+```
+create process with cmdline containing unicode character:
+  cmd.run:
+    - name: sleep 5 && echo 
+    - bg: True
+ 
+kill some other process:
+  process.absent:
+    - name: something else unrelated to the above process
+```
+
+
+### Steps to Reproduce Issue
+```
+[root@master /srv/salt]# salt 'someminion' state.apply unicode
+someminion:
+----------
+          ID: create process with cmdline containing unicode character
+    Function: cmd.run
+        Name: sleep 5 && echo 
+      Result: True
+     Comment: Command "sleep 5 && echo " run
+     Started: 21:49:52.599837
+    Duration: 12.202 ms
+     Changes:   
+              ----------
+              pid:
+                  13851
+              retcode:
+                  None
+              stderr:
+              stdout:
+----------
+          ID: kill process started above
+    Function: process.absent
+        Name: something else unrelated to the above process
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/site-packages/salt/state.py", line 1913, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1898, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/states/process.py", line 53, in absent
+                  status = __salt__['ps.pkill'](name, user=user, full=True)
+                File "/usr/lib/python2.7/site-packages/salt/modules/ps.py", line 289, in pkill
+                  name_match = pattern in ' '.join(_get_proc_cmdline(proc)) if full \
+              UnicodeDecodeError: 'ascii' codec can't decode byte 0xe7 in position 16: ordinal not in range(128)
+     Started: 21:49:52.614433
+    Duration: 32.217 ms
+     Changes:   
+
+Summary for someminion
+------------
+Succeeded: 1 (changed=1)
+Failed:    1
+------------
+Total states run:     2
+Total run time:  44.419 ms
+ERROR: Minions returned with non-zero exit code
+[root@master /srv/salt]#
+```
+### Versions Report
+master and minion are running identical versions.
+```
+[root@master /srv/salt]# rpm -qa | grep psutil
+...
+python2-psutil-2.2.1-4.el7.x86_64
+...
+```
+```
+Salt Version:
+           Salt: 2018.3.3
+ 
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.26.3
+        libnacl: Not Installed
+       M2Crypto: 0.28.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: 1.2.5
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, Oct 30 2018, 23:45:53)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.6.1810 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-957.1.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.6.1810 Core
+```
+

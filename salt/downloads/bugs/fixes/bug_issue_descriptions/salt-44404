@@ -1,0 +1,73 @@
+### Description of Issue/Question
+
+With test=True, commands should be no op and explain what they should do.
+
+Instead, `zfs.filesystem_present` advertises to update the volume record_size property (unconditionally, even if the volume is already configured like that).
+
+According `zpool history` output, there is no command recorded (and the history logs reconfigure commands too, like a `zfs create -o quux=foo ...` followed by a `zfs set quux=foo ...`, the second will be **logged).**
+
+This is confirmed by the debug log (see below): only `zfs list` and `zfs get` are executed, and no `zfs set`.
+
+So the issue is probably in the reporting.
+
+### Setup
+
+A zfs.filesystem_present state, like:
+
+```
+{{ tank }}/mysql-innodb-data:
+  zfs.filesystem_present:
+    - properties:
+        compression: lz4
+        recordsize: 16k
+        primarycache: metadata
+```
+
+### Steps to Reproduce Issue
+Apply the state with test=True:
+
+```
+$ salt-call --local state.apply path/to/state test=True
+          ID: arcology/mysql-innodb-data                                       
+    Function: zfs.filesystem_present   
+      Result: True                     
+     Comment: filesystem arcology/mysql-innodb-data was updated                
+     Started: 23:40:57.321366          
+    Duration: 143.389 ms               
+     Changes:                          
+              ----------               
+              arcology/mysql-innodb-data:                                      
+                  ----------           
+                  recordsize:          
+                      16k 
+$ zpool history
+(nothing new)
+$ salt-call -l debug --local state.apply path/to/state test=True
+...
+[DEBUG   ] LazyLoaded zfs.filesystem_present                                                                                                                   
+[INFO    ] Running state [arcology/mysql-innodb-data] at time 23:44:51.786683                                                                                  
+[INFO    ] Executing state zfs.filesystem_present for [arcology/mysql-innodb-data]                                                                             
+[DEBUG   ] zfs.filesystem_present::arcology/mysql-innodb-data::config::create_parent = False
+[DEBUG   ] zfs.filesystem_present::arcology/mysql-innodb-data::config::cloned_from = None                                               
+[DEBUG   ] zfs.filesystem_present::arcology/mysql-innodb-data::config::properties = OrderedDict([('compression', 'lz4'), ('recordsize', '16k'), ('primarycache'
+, 'metadata')])                                                     
+[INFO    ] Executing command '/sbin/zfs list -H -t filesystem -o name,used,avail,refer,mountpoint arcology/mysql-innodb-data' in directory '/root'
+[DEBUG   ] stdout: arcology/mysql-innodb-data   88K     792G    88K     none
+[INFO    ] Executing command '/sbin/zfs get -H -d 1 -o name,property,value compression,recordsize,primarycache arcology/mysql-innodb-data' in directory '/root'
+[DEBUG   ] stdout: arcology/mysql-innodb-data   compression     lz4            
+arcology/mysql-innodb-data      recordsize      16K                                            
+arcology/mysql-innodb-data      primarycache    metadata                                          
+[INFO    ] {'arcology/mysql-innodb-data': {'recordsize': '16k'}}
+[INFO    ] Completed state [arcology/mysql-innodb-data] at time 23:44:51.940965 duration_in_ms=154.281
+...
+```
+
+### Versions Report
+
+```
+Salt Version:                          
+           Salt: 2017.7.1
+System Versions:                       
+        release: 11.1-RELEASE-p1       
+****         system: FreeBSD         
+```

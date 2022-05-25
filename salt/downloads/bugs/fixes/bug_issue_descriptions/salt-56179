@@ -1,0 +1,376 @@
+### Description of Issue
+Some VPS providers do not provision hostname at /etc/hosts at Ubuntu 18.04 image.
+Right now it leads to salt-master failure to start.
+
+From UX point of view, it looks like this:
+1. User gets a new VPS with Ubuntu 18.04
+2. Installs salt-master from SaltStack's py3 repo
+3. salt-master never starts
+
+Current workaround: add hostname lines to `/etc/hosts` manually, e.g.:
+
+```diff
+  127.0.0.1       localhost.localdomain   localhost
+  ::1             localhost6.localdomain6 localhost6
++ 127.0.1.1       cloud208317.someprovider.io cloud208317
+```
+
+### Setup
+Ubuntu 18.04, SaltStack py3 repo
+
+```sh
+~# cat /etc/hostname
+cloud208317.someprovider.io
+
+~# hostname --all-fqdns
+cloud123-123-123-123.someprovider.io .
+
+~# cat /etc/hosts
+127.0.0.1       localhost.localdomain   localhost
+::1             localhost6.localdomain6 localhost6
+
+# The following lines are desirable for IPv6 capable hosts
+::1     localhost ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+ff02::3 ip6-allhosts
+```
+
+### Steps to Reproduce Issue
+1. Spin a node with Ubuntu 18.04
+2. Make sure `/etc/hosts` lacks node's hostname
+3. Install salt-master from SaltStack py3 repo
+4. Start salt-master
+5. Wait ~30 sec
+
+```
+~# salt-master -l debug
+
+....
+
+[ERROR   ] An un-handled exception from the multiprocessing process 'MWorker-1' was caught:
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/encodings/idna.py", line 165, in encode
+    raise UnicodeError("label empty or too long")
+UnicodeError: label empty or too long
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 760, in wrapped_run_func
+    return run_func()
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1139, in run
+    self.key,
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1891, in __init__
+    ignore_config_errors=True
+  File "/usr/lib/python3/dist-packages/salt/minion.py", line 898, in __init__
+    self.opts['grains'] = salt.loader.grains(opts)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 808, in grains
+    ret = funcs[key]()
+  File "/usr/lib/python3/dist-packages/salt/grains/core.py", line 2279, in ip_fqdn
+    info = socket.getaddrinfo(_fqdn, None, socket_type)
+  File "/usr/lib/python3.6/socket.py", line 745, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+UnicodeError: encoding with 'idna' codec failed (UnicodeError: label empty or too long)
+Process MWorker-1:
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/encodings/idna.py", line 165, in encode
+    raise UnicodeError("label empty or too long")
+UnicodeError: label empty or too long
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/multiprocessing/process.py", line 258, in _bootstrap
+    self.run()
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 771, in wrapped_run_func
+    six.reraise(*sys.exc_info())
+  File "/usr/lib/python3/dist-packages/salt/ext/six.py", line 693, in reraise
+    raise value
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 760, in wrapped_run_func
+    return run_func()
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1139, in run
+    self.key,
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1891, in __init__
+    ignore_config_errors=True
+  File "/usr/lib/python3/dist-packages/salt/minion.py", line 898, in __init__
+    self.opts['grains'] = salt.loader.grains(opts)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 808, in grains
+    ret = funcs[key]()
+  File "/usr/lib/python3/dist-packages/salt/grains/core.py", line 2279, in ip_fqdn
+    info = socket.getaddrinfo(_fqdn, None, socket_type)
+  File "/usr/lib/python3.6/socket.py", line 745, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+UnicodeError: encoding with 'idna' codec failed (UnicodeError: label empty or too long)
+[ERROR   ] An un-handled exception from the multiprocessing process 'MWorker-0' was caught:
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/encodings/idna.py", line 165, in encode
+    raise UnicodeError("label empty or too long")
+UnicodeError: label empty or too long
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 760, in wrapped_run_func
+    return run_func()
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1139, in run
+    self.key,
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1891, in __init__
+    ignore_config_errors=True
+  File "/usr/lib/python3/dist-packages/salt/minion.py", line 898, in __init__
+    self.opts['grains'] = salt.loader.grains(opts)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 808, in grains
+    ret = funcs[key]()
+  File "/usr/lib/python3/dist-packages/salt/grains/core.py", line 2279, in ip_fqdn
+    info = socket.getaddrinfo(_fqdn, None, socket_type)
+  File "/usr/lib/python3.6/socket.py", line 745, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+UnicodeError: encoding with 'idna' codec failed (UnicodeError: label empty or too long)
+Process MWorker-0:
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/encodings/idna.py", line 165, in encode
+    raise UnicodeError("label empty or too long")
+UnicodeError: label empty or too long
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/multiprocessing/process.py", line 258, in _bootstrap
+    self.run()
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 771, in wrapped_run_func
+    six.reraise(*sys.exc_info())
+  File "/usr/lib/python3/dist-packages/salt/ext/six.py", line 693, in reraise
+    raise value
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 760, in wrapped_run_func
+    return run_func()
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1139, in run
+    self.key,
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1891, in __init__
+    ignore_config_errors=True
+  File "/usr/lib/python3/dist-packages/salt/minion.py", line 898, in __init__
+    self.opts['grains'] = salt.loader.grains(opts)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 808, in grains
+    ret = funcs[key]()
+  File "/usr/lib/python3/dist-packages/salt/grains/core.py", line 2279, in ip_fqdn
+    info = socket.getaddrinfo(_fqdn, None, socket_type)
+  File "/usr/lib/python3.6/socket.py", line 745, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+UnicodeError: encoding with 'idna' codec failed (UnicodeError: label empty or too long)
+[ERROR   ] An un-handled exception from the multiprocessing process 'MWorker-3' was caught:
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/encodings/idna.py", line 165, in encode
+    raise UnicodeError("label empty or too long")
+UnicodeError: label empty or too long
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 760, in wrapped_run_func
+    return run_func()
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1139, in run
+    self.key,
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1891, in __init__
+    ignore_config_errors=True
+  File "/usr/lib/python3/dist-packages/salt/minion.py", line 898, in __init__
+    self.opts['grains'] = salt.loader.grains(opts)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 808, in grains
+    ret = funcs[key]()
+  File "/usr/lib/python3/dist-packages/salt/grains/core.py", line 2279, in ip_fqdn
+    info = socket.getaddrinfo(_fqdn, None, socket_type)
+  File "/usr/lib/python3.6/socket.py", line 745, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+UnicodeError: encoding with 'idna' codec failed (UnicodeError: label empty or too long)
+Process MWorker-3:
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/encodings/idna.py", line 165, in encode
+    raise UnicodeError("label empty or too long")
+UnicodeError: label empty or too long
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/multiprocessing/process.py", line 258, in _bootstrap
+    self.run()
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 771, in wrapped_run_func
+    six.reraise(*sys.exc_info())
+  File "/usr/lib/python3/dist-packages/salt/ext/six.py", line 693, in reraise
+    raise value
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 760, in wrapped_run_func
+    return run_func()
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1139, in run
+    self.key,
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1891, in __init__
+    ignore_config_errors=True
+  File "/usr/lib/python3/dist-packages/salt/minion.py", line 898, in __init__
+    self.opts['grains'] = salt.loader.grains(opts)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 808, in grains
+    ret = funcs[key]()
+  File "/usr/lib/python3/dist-packages/salt/grains/core.py", line 2279, in ip_fqdn
+    info = socket.getaddrinfo(_fqdn, None, socket_type)
+  File "/usr/lib/python3.6/socket.py", line 745, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+UnicodeError: encoding with 'idna' codec failed (UnicodeError: label empty or too long)
+[ERROR   ] An un-handled exception from the multiprocessing process 'MWorker-2' was caught:
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/encodings/idna.py", line 165, in encode
+    raise UnicodeError("label empty or too long")
+UnicodeError: label empty or too long
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 760, in wrapped_run_func
+    return run_func()
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1139, in run
+    self.key,
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1891, in __init__
+    ignore_config_errors=True
+  File "/usr/lib/python3/dist-packages/salt/minion.py", line 898, in __init__
+    self.opts['grains'] = salt.loader.grains(opts)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 808, in grains
+    ret = funcs[key]()
+  File "/usr/lib/python3/dist-packages/salt/grains/core.py", line 2279, in ip_fqdn
+    info = socket.getaddrinfo(_fqdn, None, socket_type)
+  File "/usr/lib/python3.6/socket.py", line 745, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+UnicodeError: encoding with 'idna' codec failed (UnicodeError: label empty or too long)
+Process MWorker-2:
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/encodings/idna.py", line 165, in encode
+    raise UnicodeError("label empty or too long")
+UnicodeError: label empty or too long
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/multiprocessing/process.py", line 258, in _bootstrap
+    self.run()
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 771, in wrapped_run_func
+    six.reraise(*sys.exc_info())
+  File "/usr/lib/python3/dist-packages/salt/ext/six.py", line 693, in reraise
+    raise value
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 760, in wrapped_run_func
+    return run_func()
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1139, in run
+    self.key,
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1891, in __init__
+    ignore_config_errors=True
+  File "/usr/lib/python3/dist-packages/salt/minion.py", line 898, in __init__
+    self.opts['grains'] = salt.loader.grains(opts)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 808, in grains
+    ret = funcs[key]()
+  File "/usr/lib/python3/dist-packages/salt/grains/core.py", line 2279, in ip_fqdn
+    info = socket.getaddrinfo(_fqdn, None, socket_type)
+  File "/usr/lib/python3.6/socket.py", line 745, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+UnicodeError: encoding with 'idna' codec failed (UnicodeError: label empty or too long)
+[ERROR   ] An un-handled exception from the multiprocessing process 'MWorker-4' was caught:
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/encodings/idna.py", line 165, in encode
+    raise UnicodeError("label empty or too long")
+UnicodeError: label empty or too long
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 760, in wrapped_run_func
+    return run_func()
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1139, in run
+    self.key,
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1891, in __init__
+    ignore_config_errors=True
+  File "/usr/lib/python3/dist-packages/salt/minion.py", line 898, in __init__
+    self.opts['grains'] = salt.loader.grains(opts)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 808, in grains
+    ret = funcs[key]()
+  File "/usr/lib/python3/dist-packages/salt/grains/core.py", line 2279, in ip_fqdn
+    info = socket.getaddrinfo(_fqdn, None, socket_type)
+  File "/usr/lib/python3.6/socket.py", line 745, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+UnicodeError: encoding with 'idna' codec failed (UnicodeError: label empty or too long)
+Process MWorker-4:
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/encodings/idna.py", line 165, in encode
+    raise UnicodeError("label empty or too long")
+UnicodeError: label empty or too long
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/multiprocessing/process.py", line 258, in _bootstrap
+    self.run()
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 771, in wrapped_run_func
+    six.reraise(*sys.exc_info())
+  File "/usr/lib/python3/dist-packages/salt/ext/six.py", line 693, in reraise
+    raise value
+  File "/usr/lib/python3/dist-packages/salt/utils/process.py", line 760, in wrapped_run_func
+    return run_func()
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1139, in run
+    self.key,
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1891, in __init__
+    ignore_config_errors=True
+  File "/usr/lib/python3/dist-packages/salt/minion.py", line 898, in __init__
+    self.opts['grains'] = salt.loader.grains(opts)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 808, in grains
+    ret = funcs[key]()
+  File "/usr/lib/python3/dist-packages/salt/grains/core.py", line 2279, in ip_fqdn
+    info = socket.getaddrinfo(_fqdn, None, socket_type)
+  File "/usr/lib/python3.6/socket.py", line 745, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+UnicodeError: encoding with 'idna' codec failed (UnicodeError: label empty or too long)
+[INFO    ] Process <class 'salt.master.MWorker'> (9022) died with exit status 1, restarting...
+[DEBUG   ] Started 'salt.master.<class 'type'>.MWorker' with pid 9106
+[INFO    ] Process <class 'salt.master.MWorker'> (9023) died with exit status 1, restarting...
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Started 'salt.master.<class 'type'>.MWorker' with pid 9107
+[INFO    ] Process <class 'salt.master.MWorker'> (9024) died with exit status 1, restarting...
+
+
+~# salt '*' test.ping
+[ERROR   ] Message timed out
+Salt request timed out. The master is not responding. You may need to run your command with `--async` in order to bypass the congested event bus. With `--async`, the CLI tool will print the job id (jid) and exit immediately without listening for responses. You can then use `salt-run jobs.lookup_jid` to look up the results of the job in the job cache later.
+```
+
+### Versions Report
+```
+~# salt --versions-report
+Salt Version:
+           Salt: 3000
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+         Jinja2: 2.10
+        libgit2: 0.26.0
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.2
+         Python: 3.6.9 (default, Nov  7 2019, 10:44:02)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-76-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```

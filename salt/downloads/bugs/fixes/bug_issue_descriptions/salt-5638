@@ -1,0 +1,133 @@
+I think I have come across a bug in the postgres_database state module while attempting to build a state for GitLab.
+
+```
+gitlab_pgsql_create_db:
+  postgres_database:
+    - present
+    - name: gitlabhq_production
+    - runas: postgres
+    - require:
+      - postgres_user: gitlab_pgsql_create_user
+```
+
+This keeps coming back with:
+
+```
+Database gitlanhq_production is already present
+```
+
+but the database is not, in fact, present, and my state file fails in a later stage.
+
+While attempting to debug it, I found that the corresponding non-state module answers the existence query correctly; so the state module is not simply calling the postgres module in order to carry out is test. Using extant testXX and absent testXY, we get:
+
+```
+root@code3# salt-call postgres.db_exists testXX
+local:
+    True
+```
+
+```
+root@code3# salt-call postgres.db_exists testXY
+local:
+    False
+```
+
+Invoking state.low to call postgres_database.present, however, yields:
+
+```
+root@code3# salt-call state.low '{"state": "postgres_database", "fun": "present", "name": "testXX", "runas": "postgres"}'
+__run_num__:
+    0
+changes:
+    ----------
+comment:
+    Database testXX is already present
+name:
+    testXX
+result:
+    True
+```
+
+and
+
+```
+root@code3# salt-call state.low '{"state": "postgres_database", "fun": "present", "name": "testXY", "runas": "postgres"}'
+__run_num__:
+    0
+changes:
+    ----------
+comment:
+    Database testXY is already present
+name:
+    testXY
+result:
+    True
+```
+
+There is _NO_ database testXY.
+
+If I add an optional argument, in this case _owner_, then we get:
+
+```
+root@code3# salt-call state.low '{"state": "postgres_database", "fun": "present", "name": "testYY", "owner": "git", "runas": "postgres"}'
+__run_num__:
+    0
+changes:
+    ----------
+    testYY:
+        Present
+comment:
+    The database testYY has been created
+name:
+    testYY
+result:
+    True
+```
+
+If we look in salt/states/postgres_database.py, we find:
+
+```
+    ret = {'name': name,
+           'changes': {},
+           'result': True,
+           'comment': 'Database {0} is already present'.format(name)}
+
+    dbs = __salt__['postgres.db_list'](runas=runas)
+    db_params = dbs.get(name, {})
+
+    if all((
+        db_params.get('Tablespace') == tablespace if tablespace else True,
+        db_params.get('Encoding') == encoding if encoding else True,
+        db_params.get('Collate') == lc_collate if lc_collate else True,
+        db_params.get('Ctype') == lc_ctype if lc_ctype else True,
+        db_params.get('Owner') == owner if owner else True
+    )):
+        return ret
+    elif name in dbs and any((
+        db_params.get('Encoding') != encoding if encoding else False,
+        db_params.get('Collate') != lc_collate if lc_collate else False,
+        db_params.get('Ctype') != lc_ctype if lc_ctype else False
+    )):
+        ret['comment'] = 'Database {0} has wrong parameters ' \
+                         'which couldn\'t be changed on fly.'.format(name)
+        ret['result'] = False
+        return ret
+```
+
+The all() function is True if all the list/tuples passed in are True and one way to make this block True is to simply pass in no keyword arguments.
+
+The function postgres.db_list() returns a dictionary of the form:
+
+```
+dbs = {'dbname1': dict(), 'dbname2': dict(), ...}
+```
+
+So, I think the addition of:
+
+```
+  if name in dbs and all((...
+```
+
+should do the trick.
+
+I will submit a pull request with the trivial change. (I haven't played with GitHub enough yet to know how to link an issue with a pull request. Perhaps I will by the time this is done.)

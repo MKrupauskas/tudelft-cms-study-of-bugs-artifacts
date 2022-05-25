@@ -1,0 +1,135 @@
+### Description of Issue/Question
+
+I've installed saltstack via brew. Doing so I discovered two things:
+- `/etc/salt` is actually located at `/usr/local/etc/saltstack/master`
+- installing dependencies is actually harder than installing salt within a virtualenv
+
+So I proceeded to install it via `pip` instead.
+
+My `/usr/local/etc/saltstack/master` looks like:
+```yaml
+##### Primary configuration settings #####
+##########################################
+user: myuser
+root_dir: /usr/local/var/saltstack
+conf_file: /usr/local/etc/saltstack
+
+engines:
+  - slack: 
+      token: 'xoxbb' # this is a legacy token
+      control: True
+      groups:
+        default:
+          valid_users:
+            - slackuser
+          valid_commands:
+            - test.ping
+            - list_jobs
+            - list_commands
+            - jobs.list_jobs
+            - pillar.get
+          aliases:
+            list_jobs:
+              cmd: jobs.list_jobs
+            list_commands:
+              cmd: pillar.get salt:engines:slack:valid_commands target=saltmaster tgt_type=list
+     
+sock_dir: /usr/local/var/run/saltstack/master
+log_file: /usr/local/var/log/salt/master
+
+```
+
+An my start command is like so: `~/venvs/salt/bin/salt-master -c /usr/local/etc/saltstack -l debug`
+
+
+Yet I keep getting messages `CRITICAL` error messages as if the engine is not respecting my config file:
+
+```
+[INFO    ] Process <class 'salt.engines.Engine'> (51861) died with exit status 0, restarting...
+[DEBUG   ] Started 'salt.engines.Engine' with pid 51862
+[DEBUG   ] LazyLoaded slack.start
+[DEBUG   ] MasterEvent PUB socket URI: /usr/local/var/saltstack/var/cache/salt/master/.salt-unix/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /usr/local/var/saltstack/var/cache/salt/master/.salt-unix/master_event_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /usr/local/var/saltstack/var/cache/salt/master/.salt-unix/master_event_pub.ipc
+[DEBUG   ] Requesting URL https://slack.com/api/users.list?token=xoxbb using GET method
+[DEBUG   ] https://slack.com/api/users.list
+[DEBUG   ] {'token': 'xoxbb'}
+[DEBUG   ] None
+[DEBUG   ] {'status': 429, 'error': 'HTTP 429: Too Many Requests'}
+[DEBUG   ] Starting new HTTPS connection (1): slack.com
+[DEBUG   ] https://slack.com:443 "POST /api/rtm.start HTTP/1.1" 429 34
+[DEBUG   ] connected to slack
+[CRITICAL] Engine <salt.loader.LazyLoader object at 0x105b32e50> could not be started! Error: Could not connect to slack
+[INFO    ] Process <class 'salt.engines.Engine'> (51862) died with exit status 0, restarting...
+[DEBUG   ] Started 'salt.engines.Engine' with pid 51863
+[DEBUG   ] LazyLoaded slack.start
+[DEBUG   ] MasterEvent PUB socket URI: /usr/local/var/saltstack/var/cache/salt/master/.salt-unix/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /usr/local/var/saltstack/var/cache/salt/master/.salt-unix/master_event_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /usr/local/var/saltstack/var/cache/salt/master/.salt-unix/master_event_pub.ipc
+[DEBUG   ] Requesting URL https://slack.com/api/users.list?token=xoxbb using GET method
+[DEBUG   ] Response Status Code: 200
+[DEBUG   ] Starting new HTTPS connection (1): slack.com
+[DEBUG   ] https://slack.com:443 "POST /api/rtm.start HTTP/1.1" 200 4523
+[DEBUG   ] connected to slack
+[DEBUG   ] Initializing new IPCClient for path: /usr/local/var/saltstack/var/cache/salt/master/.salt-unix/master_event_pull.ipc
+[DEBUG   ] Sending event: tag = salt/engines/slack/hello; data = {'_stamp': '2017-09-11T05:55:48.677995', u'type': u'hello'}
+[DEBUG   ] Missing configuration file: /etc/salt/master
+[DEBUG   ] Missing configuration file: /Users/myuser/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[ERROR   ] Unable to connect to the salt master publisher at /var/run/salt/master
+[CRITICAL] Engine <salt.loader.LazyLoader object at 0x105b3b510> could not be started! Error: The salt master could not be contacted. Is master running?
+```
+
+and these messages only appear after I had to manually create the folders: `mkdir -p /var/cache/salt/master` which I should not have to create as my `root_dir` is `/usr/local/var/saltstack` hence I should have `/usr/local/var/saltstack/cache/salt/master`
+
+**Notice** how it says `[DEBUG   ] Missing configuration file: /etc/salt/master` even though I've started it specifying where the master conf file is and set it inside the conf file.
+
+Also it seems the slack client hits the rate limiting quite fast in this scenario.
+
+What can I do to fix this? 
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2017.7.1
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.10 (default, Feb  7 2017, 00:08:15)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.5.2
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 16.7.0
+         system: Darwin
+        version: 10.12.6 x86_64
+```

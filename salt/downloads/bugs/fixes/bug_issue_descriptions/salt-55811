@@ -1,0 +1,106 @@
+### Description of Issue
+
+state `mysql_user.present` is raising a Python `TypeError` with the message "cannot use a string pattern on a bytes-like object" in Salt `2018.3.4` (no sensitive information).
+
+Possibly related to https://github.com/saltstack/salt/issues/45026
+
+### Setup
+
+our state is very simple and looks like this ([in context](https://github.com/elifesciences/builder-base-formula/blob/master/elife/mysql-server.sls#L28-L34)):
+
+```yaml
+mysql-root-user:
+    mysql_user.present:
+        - name: {{ pillar.org.db_root.username }}
+        - password: {{ pillar.org.db_root.password }}
+        - host: localhost
+        - require:
+            - mysql-server
+```
+
+and the (dummy, public) pillar data looks like this ([in context](https://github.com/elifesciences/builder-base-formula/blob/master/pillar/elife.sls#L102-L104)):
+
+```
+org:
+   ...
+    db_root:
+        username: root
+        password: root
+```
+
+### Steps to Reproduce Issue
+
+Running `highstate` with `-l debug` gives us this:
+
+```shell
+[INFO    ] Executing state mysql_user.present for [root]
+[DEBUG   ] Doing query: SELECT VERSION()
+[DEBUG   ] Doing query: SELECT column_name from information_schema.COLUMNS WHERE table_schema=%(schema)s and table_name=%(table)s and column_name=%(column)s args: {'column': 'Password', 'schema': 'mysql', 'table': 'user'} 
+[DEBUG   ] Doing query: SELECT User,Host FROM mysql.user WHERE User = %(user)s AND Host = %(host)s AND authentication_string = PASSWORD(%(password)s) args: {'password': 'root', 'host': '%', 'user': 'root'} 
+[DEBUG   ] An exception occurred in this state: cannot use a string pattern on a bytes-like object
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/state.py", line 1919, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 1918, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/states/mysql_user.py", line 142, in present
+    **connection_args):
+  File "/usr/lib/python3/dist-packages/salt/modules/mysql.py", line 1315, in user_exists
+    _execute(cur, qry, args)
+  File "/usr/lib/python3/dist-packages/salt/modules/mysql.py", line 609, in _execute
+    return cur.execute(qry, args)
+  File "/usr/lib/python3/dist-packages/MySQLdb/cursors.py", line 228, in execute
+    if not self._defer_warnings: self._warning_check()
+  File "/usr/lib/python3/dist-packages/MySQLdb/cursors.py", line 127, in _warning_check
+    warn(w[-1], self.Warning, 3)
+TypeError: cannot use a string pattern on a bytes-like object
+```
+
+### Versions Report
+
+(masterless)
+
+```
+$ salt-call --versions-report
+Salt Version:
+           Salt: 2018.3.4
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.3.7
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.2 (default, Oct  8 2019, 13:06:37)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-116-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+``` 
+

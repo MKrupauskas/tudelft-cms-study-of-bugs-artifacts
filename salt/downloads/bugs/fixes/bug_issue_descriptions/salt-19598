@@ -1,0 +1,52 @@
+When managing keys for a user the _present_test function (in ssh_auth.py) does not account for the various formats that can be used such as
+
+```
+- name:
+  - {key}
+  - {enc} {key}
+  - {key} {comment}
+  - {enc} {key} {comment}
+  - {options} {enc} {key} {comment}
+```
+
+The _present function handles these formats properly and does not update the authorized_keys file unless a change is truly needed, however the _present_test function does not alsways do a proper comparison.
+
+May be related to #10259 and #5374
+
+Reproduce:
+Create state file /srv/salt/myuserid.sls
+
+```
+myuserid:
+  user.present
+
+myuserid-shkeys:
+  ssh_auth.present:
+    - user: myuserid
+    - enc: ssh-rsa
+    - names:
+      - AAAAB3NzaC1yc2EAAAADAQABAAABAQChwoZ+qnqG0s63sXSbejA5xsRGH/6G7L7cQBAvSTPxXXEUBsDuQPjpMBSlebyGPaZe7gxWGcxT+rcZH/H2f4kYty7VNTJdtrY6UREXfwafynVJrSshCpEMMEIKuXaDzLGpR9oQ+teIE7J9EI5IVnoRIFNFuI3HPoPweMqCYDyDxOWr9Q2t82zw1pewDFjvxf1HJQO9Sa5hgFo5Q40ROMjQ4FFWES2p9fc+mLuJPZavu4MiiQnksGYougB2yOib6Dehfhee/cE3RSLrX0RTjiTjIfHJNVKpr/2MJoxiaYYOHybEg1avlGBnjbNn742zMzbePLdvLWixnt8szMnvDVOH
+      - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC7UtmkiE8WT3LkYtSbTLK3L69h1ulhUQsNHyZl7Lp8vaC/75hsvPLIJNkNbTxQsxDCOzJiXgB0zpLhC1in6bk+Vdtkd/mltq4oqSDP/PmPkSSG0fljHzotz6DzXedqNFaRyJ1Yd9fk09pEMEfbvabR28ozfW0kW2O5RRjoabAD3FUUrDAiz5FbgAQy8EVc0kIp5ds8Kb34NJY0ly6SS00/DwT+NOD5JztLC1Xt9RBqe+O4VZq8HTeyG7bTyos0qrNm+erBBd1+6ktrdmbl9PB7glvBru25Wl5wByUdYuf0i3Vdn5gSfl4mFfWVHrgF7KJemzVnRb6oY5UC8yJDqh1D
+      - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCiSodazFFZ8DqxfxHENDbp1mn4+d4tpimBxBvWvnDn+dj2sZTXPI/Tl1ncy8M7lKCxZ2RV8baBynyibGZ9o0K0jSjJRTqssJklITgfQDToO/fgwtkTt+Bmgq8Pmj9YAiBKaVj7Ckv9tjo6F9giX906huA52CxwueWMHDhQTaRAT7TY20IPilI1b4vHO6lNwKvlL6GiExxqSD93IO8vJzoBRnipT3djdDFBg/kBZqblecWKXAIGn616UumVhFHSsuQDg67zNTJr5bQVM3mVEK3iMHbENjq8UtfggRMpoFtIGp0epbUHZzQJz0dzPNJBtxEqElcJRQJlKEyj/bBvsihH myuserid@my_workstation
+      - AAAAB3NzaC1yc2EAAAADAQABAAABAQDVOt7YoZU/9ZG8WULaxffbyyFnS1tfR1JRDdqzetB0Cs6Do2qEczUOZ3IMQnpbsd1+BTiEfozlWgKi3XVhQnkDUmE2o0oLzL97d+wcx7gdsX2024i0YIu/BVMdvKZPWY3ZuGRU2/5WZIldNWNX+4uQdQvLv/Rkbxi2XUpmE4vbXfw0rm47s7BQyyeb+36fusVZfvyOtQKcaV5hOloy40PQX/0V+vWiVuxilYJhoK/Eh2upspgH86+lL/VZiAhUh4bfgUj5iGZFr1379LWaSCaezKjNBiWxjYZ5W6EaMOg4oH/OHlyizm9X8np89cZsoTACeovb/+tMnxrTkU0sKCYT myuserid@my_workstation
+      - from="127.0.0.1",no-pty ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDV0uozNIe+ulTNP8NSWN5/YbDrZNeG/nDbgLtMjc1aoCicPm1essHV5r0cX0rVK4ko5zXv+EGy9Ixyj2EYof20m9HK49X3lC9Q/BK83ZxtT7zaAk57UYKcJ0O8/3hKviBkPmo7KrH3nyDih6TS9jQzDb1CSd0cmwBZZ+iGey2PA0M6B/VMER9SShZnvWiNbXPnsBOwfsTwnzyOHUZfflbc4brVRZOHKi5m051hhFquFcEuYTcLtWF+cFG897T6Ftkv5DVDqRN3gtDcrybyc1+mi+9B/hRbJpAVlFTIekSe6EquLBYj7XZoS8P076wd6gmT/cILSDxM3hZXLye++2Rn myuserid@my_workstation
+```
+1. Execute state on test box
+   `salt testbox state.sls myuserid`
+   Result is all 6 executed successful (Blue = actually made changes) (1 user account, 5 keys)
+2. Execute state on test box again
+   `salt testbox state.sls myuserid`
+   Result is all 6 executed successful (green = Clean, aka no changes made) (1 user account, 5 keys)
+3. Execute state on test box with test=true
+   `salt testbox state.sls myuserid test=true`
+   Result is that key`#1` (key only) and `#2` (enc + key) are Clean.  Other 3 keys are reported as needing to be updated.
+
+After digging a bit I copied the section of code from the _present function:
+https://github.com/saltstack/salt/blob/5b7660b5588f91547d5e1dbed5656175444d31ec/salt/states/ssh_auth.py#L161-L179
+
+to _present_test, adding an else:
+https://github.com/saltstack/salt/blob/5b7660b5588f91547d5e1dbed5656175444d31ec/salt/states/ssh_auth.py#L83
+
+That has fixed this issue but I'm not sure if there are other use cases where this might cause probles or if there is a better way but for now it seems to be working at least better than it did before.
+
+Pull request with actuall changes coming soon.

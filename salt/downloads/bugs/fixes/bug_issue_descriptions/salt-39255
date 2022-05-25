@@ -1,0 +1,65 @@
+Using blockdev.formated on an ec2 instance with ephemeral instance block devices (D2.2xlarge - 6 2TB disks)
+
+Some disks will fail to provision all disks failing after the 10 fixed blind retry count set
+https://github.com/saltstack/salt/blob/4c2d4159fd8705d1b3bb8f90500635f8ccec4f22/salt/states/blockdev.py#L168-L188
+
+The cause seems to be related to `lsblk` not returning the fstype of the effected disks though it does return the correct fstype for other disks both before and after a failure. 
+
+somewhat related to - https://github.com/saltstack/salt/issues/25775
+
+### Setup / Recreate
+```
+{% set disks = salt['grains.get']('SSDs')|sort %}
+{% set excluded_disks = ['xvda'] %}
+
+#  Iterate over all disks - excluded
+{% for disk in disks if not disk in excluded_disks: %}
+
+provision_{{disk}}:
+  blockdev.formatted:
+    - name: /dev/{{disk}}
+    - fs_type: ext4
+
+mount_{{disk}}:
+  mount.mounted:
+    - name: /dn{{loop.index}}
+    - device: /dev/{{disk}}
+    - fstype: ext4
+    - mkmnt: True
+    - persist: True
+    - opts:
+      - defaults
+    - require:
+      - blockdev: provision_{{disk}}
+
+{% endfor %}
+```
+
+### Suggested fix
+Switching from using `lsblk` to `blkid` 
+
+```
+[root@beat ~]# lsblk -o fstype /dev/xvd{b,c,d,e,f,g}
+FSTYPE
+ext4
+ext4
+ext4
+ext4
+
+
+```
+The two disks f,g fail to show the FSTYPE - not clear why
+
+```
+[root@beat ~]# blkid -o value -s TYPE /dev/xvd{b,c,d,e,f,g}
+ext4
+ext4
+ext4
+ext4
+ext4
+ext4
+```
+
+lsblk seems to be inconsistent determining the fstype of a block device suggest switching to using blkid but I'm not 100% sure what knock on effects this will have as it would need to be replaced in both the blockdev.formatted state ~and the disk.fstype module~(module called but looks to be unnecessary) for this to be successful. 
+
+Happy to create the pull request - let me know comments / suggestions welcome

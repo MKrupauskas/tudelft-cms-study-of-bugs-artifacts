@@ -1,0 +1,63 @@
+### Description of Issue
+
+Python's original `platform.linux_distribution` function will be removed in Python 3.8. In the #50822 and #51541, this is fixed by using the [`distro`](https://pypi.org/project/distro/) library on an `ImportError` in both `salt/version.py` and `salt/grains/core.py`. The `distro` library isn't mentioned as a dependency and therefore the install of `salt>=2017.7.0` will result in an error.
+
+Snippet importing the `distro` library:
+
+```python
+# linux_distribution deprecated in py3.7
+try:
+    from platform import linux_distribution
+    from platform import linux_distribution as _deprecated_linux_distribution
+
+    def linux_distribution(**kwargs):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return _deprecated_linux_distribution(**kwargs)
+except ImportError:
+    from distro import linux_distribution # <-- used but not installed by default
+```
+
+### Setup
+
+- `python>=3.8`
+- `salt>=2017.7.0`
+
+### Steps to Reproduce Issue
+
+The issue can be reproduced by installing Salt (via pip) in a Docker Python 3.8 container, by running the following command:
+
+`docker run -it python:3.8 /bin/bash -c "pip install salt"`
+
+This results in the following error message:
+
+```
+Collecting salt
+    ERROR: Command errored out with exit status 1:
+     command: /usr/local/bin/python -c 'import sys, setuptools, tokenize; sys.argv[0] = '"'"'/tmp/pip-install-zt9okj4a/salt/setup.py'"'"'; __file__='"'"'/tmp/pip-install-zt9okj4a/salt/setup.py'"'"';f=getattr(tokenize, '"'"'open'"'"', open)(__file__);code=f.read().replace('"'"'\r\n'"'"', '"'"'\n'"'"');f.close();exec(compile(code, __file__, '"'"'exec'"'"'))' egg_info --egg-base /tmp/pip-install-zt9okj4a/salt/pip-egg-info
+         cwd: /tmp/pip-install-zt9okj4a/salt/
+    Complete output (14 lines):
+    Traceback (most recent call last):
+      File "/tmp/pip-install-zt9okj4a/salt/salt/version.py", line 15, in <module>
+        from platform import linux_distribution as _deprecated_linux_distribution
+    ImportError: cannot import name 'linux_distribution' from 'platform' (/usr/local/lib/python3.8/platform.py)
+    
+    During handling of the above exception, another exception occurred:
+    
+    Traceback (most recent call last):
+      File "<string>", line 1, in <module>
+      File "/tmp/pip-install-zt9okj4a/salt/setup.py", line 137, in <module>
+        exec(compile(open(SALT_VERSION).read(), SALT_VERSION, 'exec'))
+      File "/tmp/pip-install-zt9okj4a/salt/salt/version.py", line 22, in <module>
+        from distro import linux_distribution
+    ModuleNotFoundError: No module named 'distro'
+    ----------------------------------------
+ERROR: Command errored out with exit status 1: python setup.py egg_info Check the logs for full command output.
+```
+
+### Affected Versions
+
+Quick test shows that Salt `2017.7.0` and higher are affected when being installed on Python 3.8. 
+
+
+

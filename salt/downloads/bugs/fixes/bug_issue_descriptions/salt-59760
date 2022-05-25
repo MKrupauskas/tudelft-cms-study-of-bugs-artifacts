@@ -1,0 +1,190 @@
+**Description**
+First of all, I have been testing and using Saltstack for a couple of weeks now, and I think its perfect for many scenarios. Thanks for all you guys' effort.
+
+I am trying to manage Linux LV sizes using the lvm.lv_present state in a state file. Here is the relevant part of the state file:
+
+```
+# ...
+
+lv_data:
+  lvm.lv_present:
+    - name: data
+    - vgname: elasticsearch
+    - extents: 10
+
+# ...
+ ```
+
+This state works well for creating the LV for the first time. However, it should also resize the LV if, for example, I change `extents: 10` to `extents: 20`. This feature was introduced in [#57659](https://github.com/saltstack/salt/pull/57659). I am using version 3002.5 and checked under `salt/states/lvm.py`, if the relevant change is there, it is.
+
+The issue is, I think, that for some reason `size_mb != old_size_mb or extents != old_extents` does not return `True`. I checked the reported extents value with `salt.modules.lvm.lvdisplay` (used for old_extents), and I am sure that it is not equal to the new value I set.
+
+**Steps to Reproduce the behavior**
+1. Create LV using the above state salt state.
+```
+# salt 'elastic-test-01' state.apply elastic.elasticsearch.test_lvm
+elastic-test-01:
+----------
+          ID: lv_data
+    Function: lvm.lv_present
+        Name: data
+      Result: True
+     Comment: Created Logical Volume data
+     Started: 23:21:36.529315
+    Duration: 152.32 ms
+     Changes:   
+              ----------
+              created:
+                  ----------
+                  /dev/elasticsearch/data:
+                      ----------
+                      Allocated Logical Extents:
+                          -1
+                      Allocation Policy:
+                          0
+                      Current Logical Extents Associated:
+                          10
+                      Internal Logical Volume Number:
+                          -1
+                      Logical Volume Access:
+                          3
+                      Logical Volume Name:
+                          /dev/elasticsearch/data
+                      Logical Volume Size:
+                          81920
+                      Logical Volume Status:
+                          1
+                      Major Device Number:
+                          253
+                      Minor Device Number:
+                          2
+                      Open Logical Volumes:
+                          0
+                      Read Ahead Sectors:
+                          -1
+                      Volume Group Name:
+                          elasticsearch
+                  Output from lvcreate:
+                      WARNING: xfs signature detected on /dev/elasticsearch/data at offset 0. Wipe it? [y/n]: [n]
+```
+2. Update `extents`.
+New state:
+```
+# salt 'elastic-test-01' state.show_sls elastic.elasticsearch.test_lvm --out=yaml
+elastic-test-01:
+  lv_data:
+    __env__: base
+    __sls__: elastic.elasticsearch.test_lvm
+    lvm:
+    - name: data
+    - vgname: elasticsearch
+    - extents: 20
+    - lv_present
+    - order: 10000
+```
+Meanwhile, the system reports the following:
+```
+# salt 'elastic-test-01' lvm.lvdisplay /dev/elasticsearch/data
+elastic-test-01:
+    ----------
+    /dev/elasticsearch/data:
+        ----------
+        Allocated Logical Extents:
+            -1
+        Allocation Policy:
+            0
+        Current Logical Extents Associated:
+            10
+        Internal Logical Volume Number:
+            -1
+        Logical Volume Access:
+            3
+        Logical Volume Name:
+            /dev/elasticsearch/data
+        Logical Volume Size:
+            81920
+        Logical Volume Status:
+            1
+        Major Device Number:
+            253
+        Minor Device Number:
+            2
+        Open Logical Volumes:
+            0
+        Read Ahead Sectors:
+            -1
+        Volume Group Name:
+            elasticsearch
+```
+Note that `Current Logical Extents Associated` is 10, while the new `extents` value is 20.
+
+3. Re-run the state
+```
+# salt 'elastic-test-01' state.apply elastic.elasticsearch.test_lvm
+elastic-test-01:
+----------
+          ID: lv_data
+    Function: lvm.lv_present
+        Name: data
+      Result: True
+     Comment: Logical Volume data already present
+     Started: 23:22:38.127153
+    Duration: 42.0 ms
+     Changes:   
+
+Summary for elastic-test-01
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:  42.000 ms
+```
+
+**Expected behavior**
+LV gets resized.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+Salt Version:
+          Salt: 3002.5
+ 
+Dependency Versions:
+          cffi: 1.14.4
+      cherrypy: unknown
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.1
+       libgit2: 1.1.0
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.20
+      pycrypto: Not Installed
+  pycryptodome: Not Installed
+        pygit2: 1.5.0
+        Python: 3.6.8 (default, Nov 16 2020, 16:55:22)
+  python-gnupg: Not Installed
+        PyYAML: 3.13
+         PyZMQ: 17.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.1.4
+ 
+System Versions:
+          dist: centos 7 Core
+        locale: UTF-8
+       machine: x86_64
+       release: 3.10.0-1160.11.1.el7.x86_64
+        system: Linux
+       version: CentOS Linux 7 Core
+```
+</details>
+

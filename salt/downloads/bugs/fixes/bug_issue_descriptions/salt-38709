@@ -1,0 +1,416 @@
+### Description of Issue/Question
+Creating AWS security groups using the state definition in https://docs.saltstack.com/en/latest/ref/states/all/salt.states.boto_secgroup.html succeeds ( security group is created), but it shows as an error.  
+
+The only changes I made were
+-  different region/key/keyid
+- created mysecgroup2 and then modified the source_group_name to point to that secgroup ( not sure if self-referencing is a problem)
+
+
+### Setup
+```
+Ensure mysecgroup exists:
+    boto_secgroup.present:
+        - name: mysecgroup
+        - description: My security group
+        - rules:
+            - ip_protocol: tcp
+              from_port: 80
+              to_port: 80
+              cidr_ip:
+                - 0.0.0.0/0
+                - 192.168.0.0/16
+            - ip_protocol: icmp
+              from_port: -1
+              to_port: -1
+              source_group_name: mysecgroup2
+        - rules_egress:
+            - ip_protocol: all
+              from_port: -1
+              to_port: -1
+              cidr_ip:
+                - 10.0.0.0/0
+                - 192.168.0.0/0
+        - tags:
+            SomeTag: 'My Tag Value'
+            SomeOtherTag: 'Other Tag Value'
+        - region: us-east-2
+        - keyid: XXXMyKeyIDXXXX
+        - key: XXXMyKeyXXXXXXXXXXXXXXXXXXXXXXX
+```
+
+### Steps to Reproduce Issue
+Can re-produce it if msecgroup does not exist or if it does exist.
+```
+Here is salt output.  Screenshots also attached showing the resulting aws SG.
+
+local-core-api-prod-1:
+----------
+          ID: Ensure mysecgroup exists
+    Function: boto_secgroup.present
+        Name: mysecgroup
+      Result: False
+     Comment: Security group mysecgroup created.  Created rules on mysecgroup security group.  Removed egress rule on mysecgroup security group. Failed to create egress rules on mysecgroup security group.
+     Started: 16:00:25.682675
+    Duration: 3558.434 ms
+     Changes:
+              ----------
+              new:
+                  ----------
+                  rules:
+                      |_
+                        ----------
+                        cidr_ip:
+                            0.0.0.0/0
+                        from_port:
+                            80
+                        ip_protocol:
+                            tcp
+                        to_port:
+                            80
+                      |_
+                        ----------
+                        cidr_ip:
+                            192.168.0.0/16
+                        from_port:
+                            80
+                        ip_protocol:
+                            tcp
+                        to_port:
+                            80
+                      |_
+                        ----------
+                        from_port:
+                            -1
+                        ip_protocol:
+                            icmp
+                        source_group_group_id:
+                            sg-21ee5848
+                        source_group_owner_id:
+                            747602142433
+                        to_port:
+                            -1
+                  rules_egress:
+                      |_
+                        ----------
+                        cidr_ip:
+                            0.0.0.0/0
+                        from_port:
+                            None
+                        ip_protocol:
+                            -1
+                        to_port:
+                            None
+                  secgroup:
+                      ----------
+                      description:
+                          My security group
+                      group_id:
+                          sg-f0ee5899
+                      name:
+                          mysecgroup
+                      owner_id:
+                          747602142433
+                      rules:
+                      rules_egress:
+                          |_
+                            ----------
+                            cidr_ip:
+                                0.0.0.0/0
+                            from_port:
+                                None
+                            ip_protocol:
+                                -1
+                            to_port:
+                                None
+                      tags:
+                          ----------
+                  tags:
+                      ----------
+             ERROR: Minions returned with non-zero exit code
+         SomeOtherTag:
+                          Other Tag Value
+                      SomeTag:
+                          My Tag Value
+              old:
+                  ----------
+                  rules:
+                  rules_egress:
+                      |_
+                        ----------
+                        cidr_ip:
+                            0.0.0.0/0
+                        from_port:
+                            -1
+                        ip_protocol:
+                            -1
+                        to_port:
+                            -1
+                  secgroup:
+                      None
+                  tags:
+                      ----------
+
+Summary for local-core-api-prod-1
+------------
+Succeeded: 0 (changed=1)
+Failed:    1
+------------
+Total states run:     1
+Total run time:   3.558 s
+```
+
+MINION DEBUG
+```INFO    ] User twells Executing command state.sls with jid 20170112080020559233
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20170112080020559233', 'tgt': 'local-core-api-prod-1', 'ret': '', 'user': 'twells', 'arg': ['states/aws'], 'fun': 'state.sls'}
+[INFO    ] Starting a new job with PID 13762
+[DEBUG   ] LazyLoaded direct_call.get
+[DEBUG   ] LazyLoaded saltutil.is_running
+[DEBUG   ] LazyLoaded grains.get
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'local-core-api-prod-1', 'tcp://10.0.2.2:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'local-core-api-prod-1', 'tcp://10.0.2.2:4506')
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'local-core-api-prod-1', 'tcp://10.0.2.2:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'local-core-api-prod-1', 'tcp://10.0.2.2:4506')
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] Could not find file 'salt://states/aws.sls' in saltenv 'base'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'states/aws/init.sls' to resolve 'salt://states/aws/init.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/states/aws/init.sls' to resolve 'salt://states/aws/init.sls'
+[DEBUG   ] Fetching file from saltenv 'base', ** attempting ** 'salt://states/aws/init.sls'
+[DEBUG   ] No dest file found
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'states/aws/init.sls'
+[DEBUG   ] compile template: /var/cache/salt/minion/files/base/states/aws/init.sls
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'local-core-api-prod-1', 'tcp://10.0.2.2:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'local-core-api-prod-1', 'tcp://10.0.2.2:4506')
+[DEBUG   ] In saltenv 'base', looking at rel_path 'states/aws/defaults.yaml' to resolve 'salt://states/aws/defaults.yaml'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/states/aws/defaults.yaml' to resolve 'salt://states/aws/defaults.yaml'
+[DEBUG   ] Fetching file from saltenv 'base', ** attempting ** 'salt://states/aws/defaults.yaml'
+[DEBUG   ] No dest file found
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'states/aws/defaults.yaml'
+[DEBUG   ] LazyLoaded grains.filter_by
+[DEBUG   ] LazyLoaded pillar.get
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/states/aws/init.sls' using 'jinja' renderer: 0.207405090332
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/states/aws/init.sls:
+
+
+#include:
+#  - .vpc
+
+
+# show_state_output:
+#   file.managed:
+#     - name: /tmp/output.txt
+#     - source: salt://states/aws/vpc.sls
+#     - template: jinja
+#
+# aws_create_myvpc1_security_group_sgWeb:
+#   boto_secgroup.present:
+#     - name: sgWeb-myvpc1
+#     - description: my super special security group
+#     - vpc_name: myvpc1
+#     - profile: {'region': 'us-east-2', 'keyid': 'XXXXXXXXXXX', 'key': 'XXXXXXXXXXXXXXXXXXXX'}
+#     - rules:
+#         - ip_protocol: tcp
+#           to_port: 80
+#           cidr_ip:
+#             - 0.0.0.0/0
+#     - rules_egress: none
+
+
+Ensure mysecgroup exists:
+    boto_secgroup.present:
+        - name: mysecgroup
+        - description: My security group
+        - rules:
+            - ip_protocol: tcp
+              from_port: 80
+              to_port: 80
+              cidr_ip:
+                - 0.0.0.0/0
+                - 192.168.0.0/16
+            - ip_protocol: icmp
+              from_port: -1
+              to_port: -1
+              source_group_name: mysecgroup2
+        - rules_egress:
+            - ip_protocol: all
+              from_port: -1
+              to_port: -1
+              cidr_ip:
+                - 10.0.0.0/0
+                - 192.168.0.0/0
+        - tags:
+            SomeTag: 'My Tag Value'
+            SomeOtherTag: 'Other Tag Value'
+        - region: us-east-2
+        - keyid: XXXXXXXXXX
+        - key: XXXXXXXXXXXXXXXXXXXX
+
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('Ensure mysecgroup exists', OrderedDict([('boto_secgroup.present', [OrderedDict([('name', 'mysecgroup')]), OrderedDict([('description', 'My security group')]), OrderedDict([('rules', [OrderedDict([('ip_protocol', 'tcp'), ('from_port', 80), ('to_port', 80), ('cidr_ip', ['0.0.0.0/0', '192.168.0.0/16'])]), OrderedDict([('ip_protocol', 'icmp'), ('from_port', -1), ('to_port', -1), ('source_group_name', 'mysecgroup2')])])]), OrderedDict([('rules_egress', [OrderedDict([('ip_protocol', 'all'), ('from_port', -1), ('to_port', -1), ('cidr_ip', ['10.0.0.0/0', '192.168.0.0/0'])])])]), OrderedDict([('tags', OrderedDict([('SomeTag', 'My Tag Value'), ('SomeOtherTag', 'Other Tag Value')]))]), OrderedDict([('region', 'us-east-2')]), OrderedDict([('keyid', 'XXXXXXXXXX')]), OrderedDict([('key', 'XXXXXXXXXXXXXXXXXXXX')])])]))])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/states/aws/init.sls' using 'yaml' renderer: 0.00699090957642
+[DEBUG   ] LazyLoaded boto.assign_funcs
+[DEBUG   ] LazyLoaded boto_secgroup.exists
+[DEBUG   ] LazyLoaded boto_secgroup.present
+[INFO    ] Running state [mysecgroup] at time 16:00:25.682675
+[INFO    ] Executing state boto_secgroup.present for mysecgroup
+[DEBUG   ] getting group for mysecgroup
+[INFO    ] Created security group mysecgroup.
+[DEBUG   ] getting group for mysecgroup
+[DEBUG   ] examining rule IPPermissions:-1(None-None) for group sg-f0ee5899
+[DEBUG   ] examining grant 0.0.0.0/0 for
+[DEBUG   ] getting group for mysecgroup
+[DEBUG   ] examining rule IPPermissions:-1(None-None) for group sg-f0ee5899
+[DEBUG   ] examining grant 0.0.0.0/0 for
+[DEBUG   ] Rules to be deleted: []
+[DEBUG   ] Rules to be created: [OrderedDict([('ip_protocol', 'tcp'), ('from_port', 80), ('to_port', 80), ('cidr_ip', '0.0.0.0/0')]), OrderedDict([('ip_protocol', 'tcp'), ('from_port', 80), ('to_port', 80), ('cidr_ip', '192.168.0.0/16')]), OrderedDict([('ip_protocol', 'icmp'), ('from_port', -1), ('to_port', -1), ('source_group_name', 'mysecgroup2')])]
+[DEBUG   ] getting group for mysecgroup
+[INFO    ] Added rule to security group mysecgroup with id sg-f0ee5899
+[DEBUG   ] getting group for mysecgroup
+[INFO    ] Added rule to security group mysecgroup with id sg-f0ee5899
+[DEBUG   ] getting group for mysecgroup
+[INFO    ] Added rule to security group mysecgroup with id sg-f0ee5899
+[DEBUG   ] getting group for mysecgroup
+[DEBUG   ] examining rule IPPermissions:tcp(80-80) for group sg-f0ee5899
+[DEBUG   ] examining grant 0.0.0.0/0 for
+[DEBUG   ] examining grant 192.168.0.0/16 for
+[DEBUG   ] examining rule IPPermissions:icmp(-1--1) for group sg-f0ee5899
+[DEBUG   ] examining grant sg-21ee5848-747602142433 for
+[DEBUG   ] examining rule IPPermissions:-1(None-None) for group sg-f0ee5899
+[DEBUG   ] examining grant 0.0.0.0/0 for
+[DEBUG   ] getting group for mysecgroup
+[DEBUG   ] examining rule IPPermissions:tcp(80-80) for group sg-f0ee5899
+[DEBUG   ] examining grant 0.0.0.0/0 for
+[DEBUG   ] examining grant 192.168.0.0/16 for
+[DEBUG   ] examining rule IPPermissions:icmp(-1--1) for group sg-f0ee5899
+[DEBUG   ] examining grant sg-21ee5848-747602142433 for
+[DEBUG   ] examining rule IPPermissions:-1(None-None) for group sg-f0ee5899
+[DEBUG   ] examining grant 0.0.0.0/0 for
+[DEBUG   ] Rules to be deleted: [{'to_port': -1, 'from_port': -1, 'ip_protocol': u'-1', 'cidr_ip': u'0.0.0.0/0'}]
+[DEBUG   ] Rules to be created: [OrderedDict([('ip_protocol', '-1'), ('from_port', -1), ('to_port', -1), ('cidr_ip', '10.0.0.0/0')]), OrderedDict([('ip_protocol', '-1'), ('from_port', -1), ('to_port', -1), ('cidr_ip', '192.168.0.0/0')])]
+[DEBUG   ] getting group for mysecgroup
+[INFO    ] Removed rule from security group mysecgroup with id sg-f0ee5899.
+[DEBUG   ] getting group for mysecgroup
+[INFO    ] Added rule to security group mysecgroup with id sg-f0ee5899
+[DEBUG   ] getting group for mysecgroup
+[ERROR   ] Failed to add rule to security group mysecgroup with id sg-f0ee5899.
+[ERROR   ] EC2ResponseError: 400 Bad Request
+<?xml version="1.0" encoding="UTF-8"?>
+<Response><Errors><Error><Code>InvalidPermission.Duplicate</Code><Message>the specified rule "peer: 0.0.0.0/0, ALL, ALLOW" already exists</Message></Error></Errors><RequestID>44ed16ef-2789-4a6b-98e9-b84c99eda6e0</RequestID></Response>
+[DEBUG   ] getting group for mysecgroup
+[DEBUG   ] examining rule IPPermissions:tcp(80-80) for group sg-f0ee5899
+[DEBUG   ] examining grant 0.0.0.0/0 for
+[DEBUG   ] examining grant 192.168.0.0/16 for
+[DEBUG   ] examining rule IPPermissions:icmp(-1--1) for group sg-f0ee5899
+[DEBUG   ] examining grant sg-21ee5848-747602142433 for
+[DEBUG   ] examining rule IPPermissions:-1(None-None) for group sg-f0ee5899
+[DEBUG   ] examining grant 0.0.0.0/0 for
+[DEBUG   ] getting group for mysecgroup
+[DEBUG   ] examining rule IPPermissions:tcp(80-80) for group sg-f0ee5899
+[DEBUG   ] examining grant 0.0.0.0/0 for
+[DEBUG   ] examining grant 192.168.0.0/16 for
+[DEBUG   ] examining rule IPPermissions:icmp(-1--1) for group sg-f0ee5899
+[DEBUG   ] examining grant sg-21ee5848-747602142433 for
+[DEBUG   ] examining rule IPPermissions:-1(None-None) for group sg-f0ee5899
+[DEBUG   ] examining grant 0.0.0.0/0 for
+[DEBUG   ] getting group for mysecgroup
+[ERROR   ] {'new': {'rules': [{'to_port': 80, 'from_port': 80, 'ip_protocol': u'tcp', 'cidr_ip': u'0.0.0.0/0'}, {'to_port': 80, 'from_port': 80, 'ip_protocol': u'tcp', 'cidr_ip': u'192.168.0.0/16'}, {'to_port': -1, 'source_group_owner_id': u'747602142433', 'from_port': -1, 'source_group_group_id': u'sg-21ee5848', 'ip_protocol': u'icmp'}], 'rules_egress': [{'to_port': None, 'from_port': None, 'ip_protocol': u'-1', 'cidr_ip': u'0.0.0.0/0'}], 'secgroup': OrderedDict([('name', u'mysecgroup'), ('group_id', u'sg-f0ee5899'), ('owner_id', u'747602142433'), ('description', u'My security group'), ('tags', {}), ('rules', []), ('rules_egress', [{'to_port': None, 'from_port': None, 'ip_protocol': u'-1', 'cidr_ip': u'0.0.0.0/0'}])]), 'tags': {'SomeOtherTag': 'Other Tag Value', 'SomeTag': 'My Tag Value'}}, 'old': {'rules': [], 'rules_egress': [{'to_port': -1, 'from_port': -1, 'ip_protocol': u'-1', 'cidr_ip': u'0.0.0.0/0'}], 'secgroup': None, 'tags': {}}}
+[INFO    ] Completed state [mysecgroup] at time 16:00:29.241109 duration_in_ms=3558.434```
+
+
+
+
+### Versions Report
+BOTO versions on both master and minion
+```vagrant@local-core-api-prod-1:/var/log/salt$ pip list | grep boto
+DEPRECATION: The default format will switch to columns in the future. You can use --format=(legacy|columns) (or define a format=(legacy|columns) in your pip.conf under the [list] section) to disable this warning.
+boto (2.45.0)
+boto3 (1.4.3)
+botocore (1.4.92)```
+
+MASTER
+```± |feature/DC-74_aws_vpc {45} S:9 U:8 |  salt --versions-report
+Salt Version:
+           Salt: 2016.11.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.10 (default, Oct 23 2015, 19:19:21)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.2.0
+
+System Versions:
+           dist:
+        machine: x86_64
+        release: 15.6.0
+         system: Darwin
+        version: 10.11.6 x86_64
+```
+
+MINION
+```
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Oct 26 2016, 20:30:19)
+   python-gnupg: 0.3.6
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-96-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty```
+
+
+![aws_sg_tags](https://cloud.githubusercontent.com/assets/9868888/21897992/25bbcc00-d8a0-11e6-80db-5dff868b20b4.png)
+![aws_sg_outbound](https://cloud.githubusercontent.com/assets/9868888/21897990/25b61fd0-d8a0-11e6-8712-76c7ae15e51b.png)
+![aws_sg_inbound](https://cloud.githubusercontent.com/assets/9868888/21897991/25ba3336-d8a0-11e6-968d-3e8f6285be0f.png)

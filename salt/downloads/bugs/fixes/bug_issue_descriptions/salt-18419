@@ -1,0 +1,83 @@
+Post e85e2c2 (Add Salt Cloud roster) I am having the following issue with running salt-cloud as a non-root user.
+
+```
+# on develop (2db74b1)
+$ salt-cloud -m cloud.maps.d/dev.conf
+[INFO    ] salt-cloud starting
+[INFO    ] Applying map from 'cloud.maps.d/dev.conf'.
+The following virtual machines are set to be created:
+  alex
+
+Proceed? [N/y] y
+... proceeding
+[INFO    ] Calculating dependencies for alex
+[ERROR   ] There was a query error: [Errno 13] Permission denied: '/var/cache'
+```
+
+I'm not sure why it's trying to write to `/var`, as my config should be overriding the root directory to the current directory.
+
+If I checkout a commit before e85e2c2 I can run the above just fine. When I go back to develop, the destroy is successful despite the error message.
+
+```
+# ... ran successfully on older commit.
+
+# and now back on develop (2db74b1)
+$ salt-cloud -m cloud.maps.d/dev.conf -d
+[INFO    ] salt-cloud starting
+[INFO    ] Applying map from 'cloud.maps.d/dev.conf'.
+The following virtual machines are set to be destroyed:
+  ec2:
+    ec2:
+      alex
+
+Proceed? [N/y] y
+... proceeding
+[INFO    ] Destroying in non-parallel mode.
+[INFO    ] [{'instanceId': 'i-4e894aa7', 'currentState': {'code': '32', 'name': 'shutting-down'}, 'previousState': {'code': '16', 'name': 'running'}}]
+[ERROR   ] There was an error destroying machines: [Errno 13] Permission denied: '/var/cache'
+```
+
+I'm suspicious of how `salt.syspaths` doesn't seem to be aware of the config in `Saltfile` and `cloud` config files, but that's all I've got at the moment.
+## Config Files
+### Saltfile
+
+```
+salt:
+  config_dir: .
+salt-ssh:
+  config_dir: .
+salt-key:
+  config_dir: .
+salt-cloud:
+  config_dir: .
+salt-master:
+  config_dir: .
+```
+### cloud
+
+```
+minion:
+    master: salt-master
+root_dir: ./
+```
+## Versions
+
+```
+# develop branch
+$ salt --versions
+           Salt: 2014.7.0-1758-g2db74b1
+         Python: 2.7.8 (default, Oct  3 2014, 20:39:45)
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.4.1
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+
+```

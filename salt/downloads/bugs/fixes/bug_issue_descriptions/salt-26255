@@ -1,0 +1,136 @@
+_Note: This issue was originally titled ‘Grains collection glacially slow on FreeBSD 10.1 machine with multiple SSDs’. It has been renamed to better match the problem determined by the course of investigation outlined below._
+
+A simple `salt-ssh` `test.ping` call was taking over 16 seconds against a single physical FreeBSD host with 128 GB RAM and 4 SSDs. After some hunting, I was able to locate the problem as being in the collection of grains data.
+
+The issue is easily demonstrated locally on the host using `salt-call --local`:
+
+```
+# time salt-call --local test.ping
+local:
+    True
+       11.88 real         2.48 user         8.72 sys
+```
+
+That took nearly 12 seconds! The same call, but skipping grains:
+
+```
+# time salt-call --local --skip-grains test.ping
+local:
+    True
+        0.41 real         0.33 user         0.07 sys
+```
+
+Grains collection is thus taking over 11 seconds on this host.
+
+Running `salt-call` with logging set to `all` shows a delay of several seconds before the `Device kern.disks: does not report itself as an SSD` line is output, and there is also a perceptible delay before each of the subsequent disk-related lines is output:
+
+```
+# salt-call -l all --local test.ping
+[DEBUG   ] Reading configuration from /usr/local/etc/salt/minion
+[DEBUG   ] Including configuration from '/usr/local/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /usr/local/etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Using cached minion ID from /usr/local/etc/salt/minion_id: <snip>
+[TRACE   ] None of the required configuration sections, 'logstash_udp_handler' and 'logstash_zmq_handler', were found the in the configuration. Not loading the Logstash logging handlers module.
+[DEBUG   ] Configuration file path: /usr/local/etc/salt/minion
+[TRACE   ] Trying pysss.getgrouplist for 'root'
+[TRACE   ] Trying generic group list for 'root'
+[TRACE   ] Group list for user 'root': ['operator']
+[DEBUG   ] Reading configuration from /usr/local/etc/salt/minion
+[DEBUG   ] Including configuration from '/usr/local/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /usr/local/etc/salt/minion.d/_schedule.conf
+[TRACE   ] 'ip' could not be found in the following search path: ['/sbin', '/bin', '/usr/sbin', '/usr/bin', '/usr/games', '/usr/local/sbin', '/usr/local/bin', '/home/djn/bin']
+[TRACE   ] 'ip' could not be found in the following search path: ['/sbin', '/bin', '/usr/sbin', '/usr/bin', '/usr/games', '/usr/local/sbin', '/usr/local/bin', '/home/djn/bin']
+[TRACE   ] 'ip' could not be found in the following search path: ['/sbin', '/bin', '/usr/sbin', '/usr/bin', '/usr/games', '/usr/local/sbin', '/usr/local/bin', '/home/djn/bin']
+[TRACE   ] 'arch' could not be found in the following search path: ['/sbin', '/bin', '/usr/sbin', '/usr/bin', '/usr/games', '/usr/local/sbin', '/usr/local/bin', '/home/djn/bin']
+[TRACE   ] Device kern.disks: does not report itself as an SSD
+[TRACE   ] Device da4 does not report itself as an SSD
+[TRACE   ] Device da3 reports itself as an SSD
+[TRACE   ] Device da2 reports itself as an SSD
+[TRACE   ] Device da1 reports itself as an SSD
+[TRACE   ] Device da0 reports itself as an SSD
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[TRACE   ] Depends decorator instantiated with dep list of ('non_existantmodulename',)
+[TRACE   ] Unloading <module 'salt.loaded.int.module.test' from '/usr/local/lib/python2.7/site-packages/salt/modules/test.pyc'>.<function missing_func at 0x80ae8e758> because dependency (non_existantmodulename) is not imported
+[DEBUG   ] LazyLoaded test.ping
+[DEBUG   ] LazyLoaded nested.output
+[TRACE   ] data = {'local': True}
+local:
+    True
+```
+
+Observations:
+1. The above suggests that the code being used to determine whether each disk is an SSD is taking an inordinate amount of time – sufficient to make `salt-ssh` extremely unpleasant to use against this host.
+2. I am unsure why `kern.disks` is being queried as to whether it is an SSD, since it is not a disk device. This looks like a bug.
+3. As an aside, the apparent repeated attempts to locate the `ip` command (which does not exist on FreeBSD) would seem sub-optimal.
+
+Here is the versions report for the host, which has the `py27-salt` pkg installed:
+
+```
+# salt --versions-report
+           Salt: 2015.5.3
+         Python: 2.7.10 (default, Aug  9 2015, 01:20:33)
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.6.0
+           RAET: Not Installed
+            ZMQ: 4.1.2
+           Mako: Not Installed
+        Tornado: Not Installed
+```
+
+The four SSDs da0 - da3 are Intel 3500 series 800 GB drives connected via an LSI 2308 controller. da4 is a USB flash drive. Here’s the relevant `dmesg` output:
+
+```
+mps0: <LSI SAS2308> port 0xd000-0xd0ff mem 0xfbe40000-0xfbe4ffff,0xfbe00000-0xfbe3ffff irq 40 at device 0.0 on pci4
+mps0: Firmware: 19.00.00.00, Driver: 19.00.00.00-fbsd
+mps0: IOCCapabilities: 4185c<ScsiTaskFull,DiagTrace,SnapBuf,EEDP,TransRetry,IR>
+```
+
+```
+da0 at mps0 bus 0 scbus0 target 2 lun 0
+da0: <ATA INTEL SSDSC2BB80 0380> Fixed Direct Access SCSI-6 device 
+da0: Serial Number BTWH507100ZH800CGN  
+da0: 600.000MB/s transfers
+da0: Command Queueing enabled
+da0: 763097MB (1562824368 512 byte sectors: 255H 63S/T 97281C)
+da1 at mps0 bus 0 scbus0 target 3 lun 0
+da1: <ATA INTEL SSDSC2BB80 0380> Fixed Direct Access SCSI-6 device 
+da1: Serial Number BTWH5071013D800CGN  
+da1: 600.000MB/s transfers
+da1: Command Queueing enabled
+da1: 763097MB (1562824368 512 byte sectors: 255H 63S/T 97281C)
+da2 at mps0 bus 0 scbus0 target 4 lun 0
+da2: <ATA INTEL SSDSC2BB80 0380> Fixed Direct Access SCSI-6 device 
+da3 at mps0 bus 0 scbus0 target 5 lun 0
+da2: Serial Number BTWH50710122800CGN  
+da2: 600.000MB/s transfers
+da2: Command Queueing enabled
+da2: 763097MB (1562824368 512 byte sectors: 255H 63S/T 97281C)
+da3: <ATA INTEL SSDSC2BB80 0380> Fixed Direct Access SCSI-6 device 
+da3: Serial Number BTWH507101SG800CGN  
+da3: 600.000MB/s transfers
+da3: Command Queueing enabled
+da3: 763097MB (1562824368 512 byte sectors: 255H 63S/T 97281C)
+da4 at umass-sim0 bus 0 scbus8 target 0 lun 0
+da4: <Kingston DataTraveler 3.0 PMAP> Removable Direct Access SCSI-6 device 
+da4: Serial Number 50E549C692DBEF51594F1BC1
+da4: 40.000MB/s transfers
+da4: 15004MB (30728832 512 byte sectors: 255H 63S/T 1912C)
+da4: quirks=0x2<NO_6_BYTE>
+```
+
+The operating system is a fresh stock FreeBSD 10.1 install with all updates applied:
+
+```
+# uname -a
+FreeBSD <snip> 10.1-RELEASE-p16 FreeBSD 10.1-RELEASE-p16 #0: Tue Jul 28 12:04:19 UTC 2015     root@amd64-builder.daemonology.net:/usr/obj/usr/src/sys/GENERIC  amd64
+```

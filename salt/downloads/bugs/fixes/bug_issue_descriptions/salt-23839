@@ -1,0 +1,201 @@
+high level:
+
+12-15 cloud instance minions
+custom execution module: tls2 (virtual: tls_ca)
+custom runner module:  tls_ca_run (virtual: tls_ca)
+
+salt-cloud -dy [list of 6+ minions]
+
+The first 4-5 are destroyed, the event is caught, the reactor is triggered, the orchestration states are rendered and processed successfully.
+
+Then... this.
+
+versions
+
+``` bash
+           Salt: 2015.5.0-401-g3df3b85
+         Python: 2.7.5 (default, Jun 17 2014, 18:11:42)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: 1.4.2
+         PyYAML: 3.10
+          ioflo: 1.2.1
+          PyZMQ: 14.3.1
+           RAET: 0.6.3
+            ZMQ: 3.2.5
+           Mako: Not Installed
+```
+
+In the ext pillar calls, `_s` is just an alias for `__salt__`
+
+tls_ca is a custom execution module
+
+``` bash
+2015-05-17 23:11:10,787 [salt.pillar      ][ERROR   ][16125] Failed to load ext_pillar tls_gen: Set changed size during iteration
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/pillar/__init__.py", line 534, in ext_pillar
+    key)
+  File "/usr/lib/python2.7/site-packages/salt/pillar/__init__.py", line 493, in _external_pillar_data
+    ext = self.ext_pillars[key](self.opts['id'], pillar, **val)
+  File "/srv/ext_modules/pillar/tls_gen.py", line 135, in ext_pillar
+    ca_opts = _s['tls_ca.config']()
+  File "/usr/lib/python2.7/site-packages/salt/utils/lazy.py", line 85, in __getitem__
+    if self._load(key):
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1102, in _load
+    ret = _inner_load(mod_name)
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1091, in _inner_load
+    if self._load_module(name) and key in self._dict:
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1068, in _load_module
+    Depends.enforce_dependencies(self._dict, self.tag)
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 81, in enforce_dependencies
+    for module, func, fallback_function in dependent_set:
+RuntimeError: Set changed size during iteration
+2015-05-17 23:11:10,790 [salt.state       ][INFO    ][16125] Loading fresh modules for state activity
+2015-05-17 23:11:10,788 [salt.pillar      ][ERROR   ][16125] Failed to load ext_pillar tls_gen: Set changed size during iteration
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/pillar/__init__.py", line 534, in ext_pillar
+    key)
+  File "/usr/lib/python2.7/site-packages/salt/pillar/__init__.py", line 493, in _external_pillar_data
+    ext = self.ext_pillars[key](self.opts['id'], pillar, **val)
+  File "/srv/ext_modules/pillar/tls_gen.py", line 135, in ext_pillar
+    ca_opts = _s['tls_ca.config']()
+  File "/usr/lib/python2.7/site-packages/salt/utils/lazy.py", line 85, in __getitem__
+    if self._load(key):
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1102, in _load
+    ret = _inner_load(mod_name)
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1091, in _inner_load
+    if self._load_module(name) and key in self._dict:
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1068, in _load_module
+    Depends.enforce_dependencies(self._dict, self.tag)
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 81, in enforce_dependencies
+    for module, func, fallback_function in dependent_set:
+RuntimeError: Set changed size during iteration
+
+
+015-05-17 23:11:05,622 [salt.state       ][INFO    ][16125] Exception occurred in runner tls_ca.revoke_certificate: Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/client/mixins.py", line 317, in low
+    data['return'] = self.functions[fun](*args, **kwargs)
+  File "/srv/ext_modules/runners/tls_ca_run.py", line 225, in revoke_certificate
+    ca_list = fn['tls_ca.config']().get('authorities').keys()
+  File "/usr/lib/python2.7/site-packages/salt/utils/lazy.py", line 85, in __getitem__
+    if self._load(key):
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1102, in _load
+    ret = _inner_load(mod_name)
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1091, in _inner_load
+    if self._load_module(name) and key in self._dict:
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1068, in _load_module
+    Depends.enforce_dependencies(self._dict, self.tag)
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 81, in enforce_dependencies
+    for module, func, fallback_function in dependent_set:
+RuntimeError: Set changed size during iteration
+```
+
+The reactor
+
+``` yaml
+syncit:
+  runner.state.orchestrate:
+    - mods: orc.decommision
+    - pillar:
+        id: {{data.name}}
+```
+
+The orchestration state
+
+``` yaml
+{% set target_expr = pillar.id %}
+{% set mminion = salt.extutils.master_id() -%}
+
+decom_state_end:
+  salt.function:
+    - name: event.fire_master
+    - tgt: {{salt.extutils.master_id()}}
+    - expr_form: compound
+    - kwarg:
+        data:
+          msg: decommission complete
+        tag: orc/decommission/{{target_expr}}/complete
+
+mine_clear:
+  salt.runner:
+    - name: cache.clear_mine
+    - tgt: {{target_expr}}
+    - expr_form: compound
+    - require_in:
+      - salt: decom_state_end
+
+revoke_cert:
+  salt.runner:
+    - name: tls_ca.revoke_certificate
+    - tgt: {{target_expr}}
+    - require_in:
+      - salt: decom_state_end
+```
+
+The runner
+
+``` python
+def __init__(opts):
+    fn = salt.loader.minion_mods(opts)
+    setattr(sys.modules[__name__], 'fn', fn)
+
+[...]
+def revoke_certificate(tgt=None):
+    '''
+    takes one argument: target (minion_id)
+
+    This function revokes all certificates on all configured CAs.  Meant
+    to be called from a salt/cloud/*/destroyed reactor.
+    '''
+
+    retval = {}
+    if not tgt:
+        return retval
+
+    event = {'changes': {}}
+
+    ca_list = fn['tls_ca.config']().get('authorities').keys()
+
+    for ca in ca_list:
+        fire_event = False
+        for ctype in ['server', 'client']:
+            if fn['tls_ca.get_certificate'](ca, CN=tgt, cert_type=ctype):
+                res = fn['tls_ca.revoke_cert'](ca, CN=tgt, cert_type=ctype)
+                res = 'deleted'
+                fire_event = fire_event | True
+            else:
+                res = 'not present'
+
+            retval.setdefault('changes', {}).setdefault(
+                ca, {}).setdefault(
+                tgt, {}).update({ctype: res})
+
+            if fire_event:
+                event.setdefault('changes', {}).setdefault(
+                    ca, {}).setdefault(
+                    tgt, {}).update({ctype: res})
+
+    _displayit(retval, tgt)
+    log.debug(event)
+    _flingit(event)
+
+    return retval
+
+```
+
+both the runner and external pillar function perfectly except when I give salt-cloud more than a handful of instances to destroy at a time.  2015.5.0 performs identically to this sort of run.  2014.7.5 also exhibits loader failures under the same context--the only difference is that it merely complains that the external module functions do not exist rather than the set size change.
+
+I am at a loss.  If it would help, I'll gzip a debug log from a failed run and toss it up somewhere. 
+
+I was looking at the possibility of just queueing the minion_ids of the destroyed instances but looks like the only interface for automatically processing them (queue runner) just wants to dump events back on the bus--I'm thinking it would experience the same difficulty.
+
+I thought this was such a simple state that it would be easily taken care of from the reactor; however, when I saw the same sorts of problems, I imagined it to be that it needed to be passed off for orchestration.
+
+I started developing this process using 2014.7.4 then moved to 2015.5.0 when its release was announced.  The above logs fragments are from 2015.5 (from about 3 hours ago).  I'll probably go back to 2014.7.5.  Either way the result is the same.
+
+It is an important part of the process I've been building that these certificates be revoked and removed very quickly after instance destruction.  They contain multiple IP addresses in their subjAltName field--a minion with the same name with an old certificate would just cause all sorts of confusion.
+
+The next step are (zomg) cron-triggered shell scripts.  Kinda makes me want to cry when I think about it.  Any assistance that can be provided will be quite welcome.

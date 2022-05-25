@@ -1,0 +1,195 @@
+### Description of Issue/Question
+
+Any states using the file cache fail in salt-ssh 2016.11.1 due to permission problems. Apparently the file is created as root but later accessed with user rights.
+
+```
+erlacher at vmrbg51 in /srv/saltstack on default <!> 
+$ salt-ssh --refresh --user $(whoami) -L 'localhost' state.sls test test=True -l debug
+[INFO    ] Loading Saltfile from '/srv/saltstack/Saltfile'
+[DEBUG   ] Reading configuration from /srv/saltstack/Saltfile
+[DEBUG   ] Reading configuration from /srv/saltstack/etc/master
+[DEBUG   ] Configuration file path: /srv/saltstack/etc/master
+....
+[ERROR   ] An Exception occurred while executing state.sls: [Errno 13] Permission denied: '/var/tmp/.erlacher_f62e6b_salt/running_data/var/cache/salt/minion/salt-ssh'
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/client/ssh/__init__.py", line 967, in run_wfunc
+    result = self.wfuncs[self.fun](*self.args, **self.kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/client/ssh/wrapper/state.py", line 95, in sls
+    st_kwargs['id_'])
+  File "/usr/lib/python2.7/dist-packages/salt/client/ssh/state.py", line 204, in prep_trans_tar
+    path = file_client.cache_file(name, saltenv, cachedir=cachedir)
+  File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 178, in cache_file
+    return self.get_url(path, '', True, saltenv, cachedir=cachedir)
+  File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 486, in get_url
+    result = self.get_file(url, dest, makedirs, saltenv, cachedir=cachedir)
+  File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 1025, in get_file
+    rel_path, saltenv, cachedir=cachedir) as cache_dest:
+  File "/usr/lib/python2.7/contextlib.py", line 17, in __enter__
+    return self.gen.next()
+  File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 150, in _cache_loc
+    os.makedirs(destdir)
+  File "/usr/lib/python2.7/os.py", line 150, in makedirs
+    makedirs(head, mode)
+  File "/usr/lib/python2.7/os.py", line 150, in makedirs
+    makedirs(head, mode)
+  File "/usr/lib/python2.7/os.py", line 150, in makedirs
+    makedirs(head, mode)
+  File "/usr/lib/python2.7/os.py", line 150, in makedirs
+    makedirs(head, mode)
+  File "/usr/lib/python2.7/os.py", line 157, in makedirs
+    mkdir(name, mode)
+OSError: [Errno 13] Permission denied: '/var/tmp/.erlacher_f62e6b_salt/running_data/var/cache/salt/minion/salt-ssh'
+[DEBUG   ] LazyLoaded nested.output
+localhost:
+    An Exception occurred while executing state.sls: [Errno 13] Permission denied: '/var/tmp/.erlacher_f62e6b_salt/running_data/var/cache/salt/minion/salt-ssh'
+
+$ ls -al /var/tmp/
+total 28
+drwxrwxrwt  7 root     root    4096 Dec 28 11:26 .
+drwxr-xr-x 12 root     root    4096 Nov 23  2015 ..
+drwxrwx---  4 root     tumuser 4096 Dec 28 11:33 .erlacher_f62e6b_salt
+```
+
+### Setup
+
+```
+erlacher at vmrbg51 in /srv/saltstack on default <!> 
+$ cat states/test/
+init.sls  test.foo  
+
+erlacher at vmrbg51 in /srv/saltstack on default <!> 
+$ cat states/test/init.sls 
+'/tmp/foo':
+  file.managed:
+    - source: salt://test/test.foo
+
+erlacher at vmrbg51 in /srv/saltstack on default <!> 
+$ cat states/test/test.foo 
+testfoo
+
+erlacher at vmrbg51 in /srv/saltstack on default <!> 
+$ grep -A 5 'localhost' etc/roster 
+localhost:
+  host: vmrbg51
+  sudo: True
+ubuntumirror:
+  host: vmrbg59
+  sudo: True
+
+erlacher at vmrbg51 in /srv/saltstack on default <!> 
+$ cat Saltfile 
+salt-ssh:
+  config_dir: etc
+  ssh_max_procs: 30
+  wipe_ssh: true
+
+erlacher at vmrbg51 in /srv/saltstack on default <!> 
+$ cat etc/master 
+pki_dir: /srv/saltstack/pki/
+pillar_roots:
+  base:
+  - /srv/saltstack/pillar
+file_roots:
+  base:
+  - /srv/saltstack/states
+  - /srv/saltstack/secret
+ssh_minion_opts:
+  log_level: debug
+  log_level_logfile: debug
+  log_file: /var/log/salt/minion
+ssh_list_nodegroups:
+  lsvpn: vmrbg44, localhost
+```
+
+### Steps to Reproduce Issue
+
+See above
+
+
+### Versions Report
+
+```
+$ salt-ssh --versions-report
+Salt Version:
+           Salt: 2016.11.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Oct 26 2016, 20:30:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: Not Installed
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: Not Installed
+ 
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-93-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```
+
+Happens also with repository version of salt -
+
+```
+$ salt-ssh --versions-report
+Salt Version:
+           Salt: 2016.11.0-562-g5cba84c
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.2
+ 
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-93-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```
+
+EDIT: Does not happen with `v2016.9` tag (f76dc0f9c06dd0690447a31544b7bd1fe7f5765a) from repo

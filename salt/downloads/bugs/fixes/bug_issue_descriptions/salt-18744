@@ -1,0 +1,44 @@
+Ran into an odd case where `pkg.version` is inaccurate on Windows. In my case I'm on Windows 7, with powershell installed.
+
+From my logs:
+
+```
+[INFO    ] Executing command 'Powershell " $msi = New-Object -ComObject WindowsInstaller.Installer; $msi.GetType().InvokeMember(\'ProductsEx\', \'GetProperty\', $null, $msi, (\'\', \'s-1-1-0\', 7)) | select @{       name=\'name\';       expression={$_.GetType().InvokeMember(\'InstallProperty\', \'GetProperty\', $null, $_, (\'ProductName\'))}     },     @{       name=\'version\';       expression={$_.GetType().InvokeMember(\'InstallProperty\', \'GetProperty\', $null, $_, (\'VersionString\'))}     } | Write-host "' in directory 'C:\\cygwin\\home\\ryepup'
+
+[DEBUG   ] stdout: @{name=Microsoft Office Visual Web Developer 2007; version=12.0.4518.1066}
+... a bunch more entries ...
+@{name=NSClient++ (x64); version=0.4.1.105}
+... a bunch more entries ...
+@{name=NSClient++ (x64); version=0.4.1.102}
+... a bunch more entries ...
+```
+
+So somehow my computer thought it had two installations of this program. I went into the windows "Add/Remove Programs" dialog, and it showed both. The NSClient++ executable on disk had some metadata saying it was 0.4.1.105. Somehow I managed to get my registry (or whatever db stores this) into a bad state.
+
+This boils down to https://github.com/saltstack/salt/blob/3a50001a7f870ea6312bc717b2d99bf041825b72/salt/modules/win_pkg.py#L319; we iterate through the name/versions from powershell, and the last one in wins.
+
+My versions:
+
+```
+           Salt: 2014.7.0
+         Python: 2.7.5 (default, May 15 2013, 22:44:16) [MSC v.1500 64 bit (AMD64)]
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.2
+   msgpack-pure: 0.1.3
+       pycrypto: 2.6
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.1.1
+           RAET: Not Installed
+            ZMQ: 4.0.4
+           Mako: Not Installed
+```
+
+I can put some time in to make a PR, but I'm honestly not sure what the right thing to do here. Options I can think of:
+- if we see multiple versions from powershell, raise an exception
+- if we see multiple versions from powershell, use the one that's lexigraphically larger
+- change `_get_msi_software` to return a dict keyed on name, with a list of versions as the value. This function is only used in `salt.modules.win_pkg.list_pkgs` and `salt.modules.win_pkg._search_software`, so the change in return value would be straightforward to update (and I think `_search_software` might be dead code anyway). There seems to be some support for multiple versions installed, but I don't quite grok it (`pkg_resource.sort_pkglist` and the `versions_as_list` option to `pkg.list_pkgs`)
+
+This is clearly a corner case, but it took a few hours to figure out that this was the issue, and I think any of the above options would make it easier to track down in the future.

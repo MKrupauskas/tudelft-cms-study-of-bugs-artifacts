@@ -1,0 +1,63 @@
+### Description of Issue/Question
+
+The order that top files are merged in by default has changed when running Salt with Python 3. We have a couple of tests to check for this - the expected way that top files will be merged/ordered by default is lexicographically when running Salt in Python 2. Python 3 seems to treat lists more as traditional lists - they are unordered and results will vary. 
+
+I tried to track this down, but the solution isn't immediately apparent to me. I _think_ the problem has something to do with our [DefaultOrderedDict](https://github.com/saltstack/salt/blob/fbede2a471a95c995a8974493a109c6f736d70dd/salt/utils/odict.py#L312) class and the way it is instantiated in the [get_tops](https://github.com/saltstack/salt/blob/fbede2a471a95c995a8974493a109c6f736d70dd/salt/state.py#L2516) function where we instantiate the `default_factory` as a `list`, but I am just guessing. That might be a red herring. Either way, this will affect the expected ordering of top files and environments and will be a regression for people when they switch to Python 3.
+### Setup
+
+I found this issue when running the [highstateconf unit tests](https://github.com/saltstack/salt/blob/develop/tests/unit/highstateconf_test.py) with Python 3.
+### Steps to Reproduce Issue
+
+Set up the test suite to run with Python 3 and run:
+
+```
+python3 tests/runtests.py -n unit.highstateconf_test
+```
+
+There will be two test failures: `test_basic_merge` and `test_ordered_merge`. These fail because the order of the top files in the `merge_tops` and `get_tops` function calls is now variable and unordered. In Python 2, these lists were always ordered lexicographically, and the `assertEqual` would pass. 
+### Versions Report
+
+Develop branch:
+
+```
+# salt --versions
+Salt Version:
+           Salt: 2016.3.0-1055-g0329f57
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: 5.0.1
+       dateutil: 2.4.2
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: 1.5.5
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: 0.3.8
+         PyYAML: 3.10
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: 0.2.4
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 4.5.5-x86_64-linode69
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```
+
+ping @cachedout @thatch45 and @meggiebot 

@@ -1,0 +1,88 @@
+Having configured a salt-virt setup, I'm trying to launch a vm on it. By doing 
+
+```
+$ salt-run virt.init ubuntu1 2 512 salt://trusty-server-cloudimg-amd64-disk1.img 
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM ubuntu1 on hypervisor ursa
+VM ubuntu1 initialized on hypervisor ursa
+```
+
+it's not running
+
+```
+root@ursa:~# virsh list --all
+ Id    Name                           State
+----------------------------------------------------
+ -     ubuntu1                        shut off
+```
+
+on the minion side : 
+
+```
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20140123105751291112', 'tgt': 'ursa', 'ret': '', 'user': 'sudo_arthur', 'arg': ['ubuntu1', 2, 512, 'salt://trusty-server-cloudimg-amd64-disk1.img', 'seed=True', 'nic=default', 'install=True'], 'fun': 'virt.init'}
+[DEBUG   ] Parsed args: ['ubuntu1', 2, 512, 'salt://trusty-server-cloudimg-amd64-disk1.img']
+[DEBUG   ] Parsed kwargs: {'__pub_user': 'sudo_arthur', '__pub_arg': ['ubuntu1', 2, 512, 'salt://trusty-server-cloudimg-amd64-disk1.img', 'seed=True', 'nic=default', 'install=True'], 'install': True, 'nic': 'default', '__pub_fun': 'virt.init', '__pub_jid': '20140123105751291112', 'seed': True, '__pub_tgt': 'ursa', '__pub_tgt_type': 'glob', '__pub_ret': ''}
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Fetching file ** attempting ** 'salt://trusty-server-cloudimg-amd64-disk1.img'
+[INFO    ] Fetching file ** done ** 'trusty-server-cloudimg-amd64-disk1.img'
+[TRACE   ] 'restorecon' could not be found in the following search path: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+[INFO    ] Executing command 'qemu-img info /srv/salt-images/ubuntu1/vda' in directory '/home/arthur'
+[DEBUG   ] output: image: /srv/salt-images/ubuntu1/vda
+file format: qcow2
+virtual size: 2.0G (2147483648 bytes)
+disk size: 247M
+cluster_size: 65536
+[INFO    ] Executing command 'modprobe nbd max_part=63' in directory '/home/arthur'
+[DEBUG   ] output: 
+[INFO    ] Executing command 'cfdisk -P t /dev/nbd9' in directory '/home/arthur'
+[INFO    ] Executing command 'qemu-nbd -c /dev/nbd9 /srv/salt-images/ubuntu1/vda' in directory '/home/arthur'
+[DEBUG   ] output: 
+[INFO    ] Executing command 'cfdisk -P t /dev/nbd9' in directory '/home/arthur'
+[INFO    ] Executing command 'partprobe /dev/nbd9' in directory '/home/arthur'
+[DEBUG   ] output: 
+[INFO    ] Executing command 'mount -o defaults /dev/nbd9p1 /tmp/nbd/nbd9/nbd9p1 ' in directory '/home/arthur'
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Executing command 'mount -o defaults -t devtmpfs udev /tmp/nbd/nbd9/nbd9p1/dev ' in directory '/home/arthur'
+[INFO    ] Executing command 'mount -o defaults -t proc proc /tmp/nbd/nbd9/nbd9p1/proc ' in directory '/home/arthur'
+[WARNING ] The minion function caused an exception: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 695, in _thread_return
+    return_data = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/virt.py", line 382, in init
+    install=install)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/seed.py", line 118, in apply_
+    res = _check_install(mpt)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/seed.py", line 167, in _check_install
+    return (not _chroot_exec(root, cmd))
+  File "/usr/lib/python2.7/dist-packages/salt/modules/seed.py", line 196, in _chroot_exec
+    pids = _chroot_pids(root)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/seed.py", line 217, in _chroot_pids
+    link = os.path.realpath(root)
+  File "/usr/lib/python2.7/posixpath.py", line 367, in realpath
+    path, ok = _joinrealpath('', filename, {})
+  File "/usr/lib/python2.7/posixpath.py", line 406, in _joinrealpath
+    path, ok = _joinrealpath(path, os.readlink(newpath), seen)
+OSError: [Errno 2] No such file or directory: '/proc/4197/root'
+
+[INFO    ] Returning information for job: 20140123105751291112
+```
+
+the process in question doesn't seem to have anything related to salt or libvirt 
+
+```
+# ps xaf | grep 4197
+28629 pts/1    S+     0:00              \_ grep --color=auto 4197
+ 4197 ?        Z      0:00  \_ [pidgin] <defunct>
+```
+
+In salt/modules/seed.py the following line looks a bit surprising (do we have to look at all the pids on the system ? 
+
+```
+    for root in glob.glob('/proc/[0-9]*/root'):
+
+```

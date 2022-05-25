@@ -1,0 +1,51 @@
+The default for puppet.run is to set the puppet.subcmd = agent. This means that if you run puppet.run with no other arguments the minion will correctly run puppet agent --test. However, I've noticed that if you provide any arguments, or as I found it, if you run noop with no arguments then puppet will run without --test being set. This results in an empty puppet run with no output (puppet agent, or puppet agent --noop). The bug is in the puppet.py file in modules. Here is the code. 
+
+``` python
+if args:
+        # based on puppet documentation action must come first. making the same
+        # assertion. need to ensure the list of supported cmds here matches
+        # those defined in _Puppet.arguments()
+        if args[0] in ['agent', 'apply']:
+            puppet.subcmd = args[0]
+            puppet.arguments(args[1:])
+    else:
+        # args will exist as an empty list even if none have been provided
+        puppet.arguments(args)
+```
+
+You can, of course provide agent as the first argument and that will fix this, but that seems odd since the documentation seems to assume that you shouldn't need to. There are many referrences that include arguments but don't put agent as the first argument. In my testing, and according to the code above, they will fail. 
+
+It seems to make sense to me that either  if args[0] in ['agent', 'apply']: be given an else which simply runs puppet.arguments(args). Or if we assume that agent/apply may not be the first argument passed in you do a for loop across args to set things accordingly and at the end outside the for loop you run puppet.arguements(newargs). That is how I've fixed things for my purposes because I was having some ordering issues doing puppet runs over salt-api. 
+
+``` python
+   buildargs = ()
+    for arg in range(len(args)):
+       if args[arg] in ['agent', 'apply']:
+         puppet.subcmd = args[arg]
+       else:
+         buildargs += (args[arg],)
+    puppet.arguments(buildargs)
+```
+
+This allows me to order my args anyway I wish without having to worry about where agent/apply might end up. And it also allows me to go back what seems to be the desired behavior of defaulting to agent runs by default. 
+
+``` yaml
+salt --versions-report
+           Salt: 2015.5.5
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+         Jinja2: 2.7.2
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+        Tornado: Not Installed
+        timelib: Not Installed
+       dateutil: Not Installed
+```

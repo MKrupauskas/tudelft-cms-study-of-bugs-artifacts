@@ -1,0 +1,48 @@
+### Description of Issue/Question
+
+I ran into an issue similar to https://github.com/saltstack/salt/issues/20639. In multithreaded environment LocalClient leaks descriptor to pipes, sockets and that anon_inode:[eventfd] mentioned in #20639. But there is more to it. It seems that using cmd_async() seems to trigger the leaks. 
+
+In my use case I want to listen for events from a central thread and submit async jobs from a bunch of others. That seems to result in this massive proliferation of open handles - I think it's 4 per thread created. Those handles stay open after the thread ends.
+
+Please see the code below.
+### Setup
+
+Any simple 2016.3.2 setup.
+### Steps to Reproduce Issue
+
+Run the code below and watch /proc/pid/fd growing.
+
+```
+import os, threading, time
+import salt.client
+
+class TestThread(threading.Thread):
+        def run(self):
+                self.salt_local_client = salt.client.LocalClient()
+                print self.salt_local_client.cmd_async(tgt = ["minion.name "], fun = "cmd.run", arg = ["uname -a"], expr_form="list")
+                time.sleep(8)
+                del self.salt_local_client
+
+print "PID: %s" % os.getpid()
+for _ in range(50):
+        test_thread = TestThread()
+        test_thread.run()
+        time.sleep(10)
+```
+
+Now change the run() function method to use cmd():
+
+```
+class TestThread(threading.Thread):
+        def run(self):
+                self.salt_local_client = salt.client.LocalClient()
+                print self.salt_local_client.cmd(tgt = ["minion.name "], fun = "cmd.run", arg = ["uname -a"], expr_form="list")
+                del self.salt_local_client
+```
+
+and see /proc/pid/fd stabilise at around 10-15 descriptors.
+
+I also added a debug to SaltEvent.destroy() method and in the cmd_async() variant it doesn't seem to be called. I tried calling it manually with self.salt_local_client.event.destroy() just for testing and it helps in the above example. But when that trick is applied to my use case then it somehow messes up the thread which listens for all events (without any filter).
+### Versions Report
+
+2016.3.2

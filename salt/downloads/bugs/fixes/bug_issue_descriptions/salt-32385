@@ -1,0 +1,109 @@
+### Description of Issue/Question
+
+The state git.latest sometimes fails. There is no consistent behavior as far as I noticed, that it impacts only certain ec2 instances. Executing the state on the same instance, first time it fails, the second, (sometimes from the third attempt) it succeeds. 
+### Setup
+
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+I am trying to execute the sls id
+
+```
+optimyapp:
+  git.latest:
+    - name: git@bitbucket.org:optimy/optimyapp.git
+    - rev: {{ salt['pillar.get']('optimyapp-git-branch', 'master') }}
+    - target: {{ pillar['optimyapp-root-dir'] }}
+    - identity: /root/.ssh/id_rsa
+    - require:
+      - cmd: bitbucket.org
+      - cmd: upload-root-rsa-pubkey
+      - pkg: git
+```
+### Steps to Reproduce Issue
+
+(Include debug logs if possible and relevant.)
+There is some info in /var/log/salt/minion
+
+```
+2016-04-06 09:12:42,347 [salt.state                                                ][INFO    ][17773] Running state [git@bitbucket.org:optimy/optimyapp.git] at time 09:12:42.346991
+2016-04-06 09:12:42,347 [salt.state                                                ][INFO    ][17773] Executing state git.latest for git@bitbucket.org:optimy/optimyapp.git
+2016-04-06 09:12:42,347 [salt.loaded.int.states.git                                ][INFO    ][17773] Checking remote revision for git@bitbucket.org:optimy/optimyapp.git
+2016-04-06 09:12:42,349 [salt.loaded.int.module.git                                ][INFO    ][17773] Attempting git authentication using identity file /root/.ssh/id_rsa
+2016-04-06 09:12:42,349 [salt.loaded.int.module.cmdmod                             ][INFO    ][17773] Executing command ['git', 'ls-remote', 'git@bitbucket.org:optimy/optimyapp.git'] in directory '/root'
+2016-04-06 09:12:43,700 [salt.loaded.int.module.cmdmod                             ][INFO    ][17773] Executing command ['git', 'for-each-ref', '--format', '%(refname:short)', 'refs/heads/'] in directory '/srv/optimyapp'
+2016-04-06 09:12:43,706 [salt.loaded.int.module.cmdmod                             ][INFO    ][17773] Executing command ['git', 'for-each-ref', '--format', '%(refname:short)', 'refs/tags/'] in directory '/srv/optimyapp'
+2016-04-06 09:12:43,710 [salt.loaded.int.states.git                                ][INFO    ][17773] Checking local revision for /srv/optimyapp
+2016-04-06 09:12:43,710 [salt.loaded.int.module.cmdmod                             ][INFO    ][17773] Executing command ['git', 'rev-parse', 'HEAD'] in directory '/srv/optimyapp'
+2016-04-06 09:12:43,714 [salt.loaded.int.states.git                                ][INFO    ][17773] Checking local branch for /srv/optimyapp
+2016-04-06 09:12:43,714 [salt.loaded.int.module.cmdmod                             ][INFO    ][17773] Executing command ['git', 'rev-parse', '--abbrev-ref', 'HEAD'] in directory '/srv/optimyapp'
+2016-04-06 09:12:43,718 [salt.loaded.int.module.cmdmod                             ][INFO    ][17773] Executing command ['git', 'remote', '--verbose'] in directory '/srv/optimyapp'
+2016-04-06 09:12:43,721 [salt.loaded.int.module.cmdmod                             ][INFO    ][17773] Executing command ['git', 'rev-parse', 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx^{commit}'] in directory '/srv/optimyapp'
+2016-04-06 09:12:43,726 [salt.loaded.int.module.cmdmod                             ][INFO    ][17773] Executing command ['git', 'rev-parse', '--abbrev-ref', 'master@{upstream}'] in directory '/srv/optimyapp'
+2016-04-06 09:12:43,730 [salt.loaded.int.module.git                                ][INFO    ][17773] Attempting git authentication using identity file /root/.ssh/id_rsa
+2016-04-06 09:12:43,730 [salt.loaded.int.module.cmdmod                             ][INFO    ][17773] Executing command ['git', 'fetch', 'origin', 'refs/heads/*:refs/remotes/origin/*', '+refs/tags/*:refs/tags/*'] in directory '/srv/optimyapp'
+2016-04-06 09:12:46,063 [salt.loaded.int.module.cmdmod                             ][ERROR   ][17773] Command ['git', 'fetch', 'origin', 'refs/heads/*:refs/remotes/origin/*', '+refs/tags/*:refs/tags/*'] failed with return code: 1
+2016-04-06 09:12:46,063 [salt.loaded.int.module.cmdmod                             ][ERROR   ][17773] stdout: From bitbucket.org:optimy/optimyapp
+ ! [rejected]        APP-861-MyStatistics2 -> origin/APP-861-MyStatistics2  (non-fast-forward)
+   30e10c8..e06cc7d  develop    -> origin/develop
+   65838fc..67cb0da  master     -> origin/master
+2016-04-06 09:12:46,063 [salt.loaded.int.module.cmdmod                             ][ERROR   ][17773] retcode: 1
+2016-04-06 09:12:46,064 [salt.loaded.int.states.git                                ][ERROR   ][17773] Unexpected exception in git.latest state
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/states/git.py", line 1073, in latest
+    identity=identity)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/git.py", line 1469, in fetch
+    redirect_stderr=True)['stdout']
+  File "/usr/lib/python2.7/dist-packages/salt/modules/git.py", line 242, in _git_run
+    salt.utils.url.redact_http_basic_auth(result['stderr'])
+  File "/usr/lib/python2.7/dist-packages/salt/utils/url.py", line 195, in redact_http_basic_auth
+    return re.sub(url_re, redacted, output, flags=re.IGNORECASE)
+  File "/usr/lib/python2.7/re.py", line 151, in sub
+    return _compile(pattern, flags).sub(repl, string, count)
+TypeError: expected string or buffer
+2016-04-06 09:12:46,065 [salt.state                                                ][ERROR   ][17773] expected string or buffer
+2016-04-06 09:12:46,065 [salt.state                                                ][INFO    ][17773] Completed state [git@bitbucket.org:optimy/optimyapp.git] at time 09:12:46.065027
+```
+### Versions Report
+
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+```
+Salt Version:
+           Salt: 2015.8.8
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-48-generic
+         system: Ubuntu 14.04 trusty
+```
+
+The salt-minion version
+ `salt-minion 2015.8.8 (Beryllium)`

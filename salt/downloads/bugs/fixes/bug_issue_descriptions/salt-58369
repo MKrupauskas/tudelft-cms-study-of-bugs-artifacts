@@ -1,0 +1,24 @@
+Description
+Many issues exist in the salt loader and thread safety must be addressed
+
+WIP PR: #56513 -- may not be the implementation we want, unknown at this time
+
+From Closed PR from Akmod: #54878
+Merge PR from develop #50655 which was a new version of #39948, #48598, and #50648 so the description has been copied from there. This PR will hopefully resolve the problems that existed in the original PRs. The code is identical to #50648, but this PR is based on the develop branch instead of the 2018.3.3 branch because Jenkins obviously cannot run tests for branches based on the 2018.3.3 branch.
+
+There was a race condition in the salt loader when injecting global values (e.g. "pillar" or "salt") into modules. One effect of this race condition was that in a setup with multiple threads, some threads may see pillar data intended for other threads or the pillar data seen by a thread might even change spuriously.
+
+There have been earlier attempts to fix this problem (#27937, #29397). These patches tried to fix the problem by storing the dictionary that keeps the relevant data in a thread-local variable and referencing this thread-local variable from the variables that are injected into the modules.
+
+These patches did not fix the problem completely because they only work when a module is loaded through a single loader instance only. When there is more than one loader, there is more than one thread-local variable and the variable injected into a module is changed to point to another thread-local variable when the module is loaded again. Thus, the problem resurfaced while working on #39670.
+
+This patch attempts to solve the problem from a slightly different angle, complementing the earlier patches: The value injected into the modules now is a proxy that internally uses a thread-local variable to decide to which object it points. This means that when loading a module
+again through a different loader (possibly passing different pillar data), the data is actually only changed in the thread in which the loader is used. Other threads are not affected by such a change.
+
+This means that it will work correctly in the current situation where loaders are possibly created by many different modules and these modules do not necessary know in which context they are executed. Thus it is much more flexible and reliable than the more explicit approach
+used by the two earlier patches.
+What issues does this PR fix or reference?
+
+This PR fixes problems that surfaced when developing the parallel runners feature (#39670), but is also related to problems reported earlier (#23373). The problems described in #29028 might also be related, though this needs further confirmation.
+
+See also #57696

@@ -1,0 +1,128 @@
+**Description**
+When the Salt master process starts and the hgfs backend is configured, it will crash trying to compute the hash of the repository url.
+
+**Setup**
+
+Configure the salt master to use the hgfs backend
+```
+# /etc/salt/master.d/backend.conf
+
+fileserver_backend:
+  - hgfs
+
+hgfs_remotes:
+  - http://repo.com/my_repo:  # replace by a valid repo url
+    - root: states
+```
+
+**Steps to Reproduce the behavior**
+Start the salt master. It should crash right away.
+
+```
+root@dev-master:/etc/salt/master.d# systemctl restart salt-master
+root@dev-master:/etc/salt/master.d# systemctl status salt-master
+salt-master.service - The Salt Master Server
+     Loaded: loaded (/lib/systemd/system/salt-master.service; enabled; vendor preset: enabled)
+     Active: failed (Result: exit-code) since Thu 2020-08-13 11:36:05 EDT; 3s ago
+       Docs: man:salt-master(1)
+             file:///usr/share/doc/salt/html/contents.html
+             https://docs.saltstack.com/en/latest/contents.html
+    Process: 19515 ExecStart=/usr/bin/salt-master (code=exited, status=1/FAILURE)
+   Main PID: 19515 (code=exited, status=1/FAILURE)
+
+Aug 13 11:36:05 dev-master salt-master[19515]:     self._pre_flight()
+Aug 13 11:36:05 dev-master salt-master[19515]:   File "/usr/lib/python3/dist-packages/salt/master.py", line 641, in _pre_flight
+Aug 13 11:36:05 dev-master salt-master[19515]:     fileserver.init()
+Aug 13 11:36:05 dev-master salt-master[19515]:   File "/usr/lib/python3/dist-packages/salt/fileserver/__init__.py", line 548, in init
+Aug 13 11:36:05 dev-master salt-master[19515]:     self.servers[fstr]()
+Aug 13 11:36:05 dev-master salt-master[19515]:   File "/usr/lib/python3/dist-packages/salt/fileserver/hgfs.py", line 283, in init
+Aug 13 11:36:05 dev-master salt-master[19515]:     repo_hash = hash_type(repo_url).hexdigest()
+Aug 13 11:36:05 dev-master salt-master[19515]: TypeError: Unicode-objects must be encoded before hashing
+Aug 13 11:36:05 dev-master systemd[1]: salt-master.service: Main process exited, code=exited, status=1/FAILURE
+Aug 13 11:36:05 dev-master systemd[1]: salt-master.service: Failed with result 'exit-code'.
+```
+
+**Expected behavior**
+It should not crash.
+
+**Screenshots**
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+root@dev-master:/etc/salt/master.d# salt --versions-report
+Salt Version:
+           Salt: 3001.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: 2.0.6
+      gitpython: 3.0.7
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: 3.6.1
+         pygit2: Not Installed
+         Python: 3.8.2 (default, Jul 16 2020, 14:00:26)
+   python-gnupg: 0.4.5
+         PyYAML: 5.3.1
+          PyZMQ: 18.1.1
+          smmap: 2.0.5
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+
+System Versions:
+           dist: ubuntu 20.04 focal
+         locale: utf-8
+        machine: x86_64
+        release: 5.4.0-42-generic
+         system: Linux
+        version: Ubuntu 20.04 focal
+```
+
+```
+root@dev-master:/etc/salt/master.d# pip3 freeze | grep hglib
+python-hglib==2.6.1
+
+root@dev-master:/etc/salt/master.d# hg --version
+Mercurial Distributed SCM (version 5.3.1)
+```
+</details>
+
+**Additional context**
+I tried to fix it by modifying hgfs.py to encode the string before computing the hash but it still crash later.
+
+````
+root@dev-master:/etc/salt/master.d# systemctl status salt-master
+salt-master.service - The Salt Master Server
+     Loaded: loaded (/lib/systemd/system/salt-master.service; enabled; vendor preset: enabled)
+     Active: failed (Result: exit-code) since Thu 2020-08-13 11:48:08 EDT; 6s ago
+       Docs: man:salt-master(1)
+             file:///usr/share/doc/salt/html/contents.html
+             https://docs.saltstack.com/en/latest/contents.html
+    Process: 19972 ExecStart=/usr/bin/salt-master (code=exited, status=1/FAILURE)
+   Main PID: 19972 (code=exited, status=1/FAILURE)
+
+Aug 13 11:48:08 dev-master salt-master[19972]:     out = self.rawcommand(args)
+Aug 13 11:48:08 dev-master salt-master[19972]:   File "/usr/lib/python3/dist-packages/hglib/client.py", line 258, in rawcommand
+Aug 13 11:48:08 dev-master salt-master[19972]:     ret = self.runcommand(args, inchannels, outchannels)
+Aug 13 11:48:08 dev-master salt-master[19972]:   File "/usr/lib/python3/dist-packages/hglib/client.py", line 186, in runcommand
+Aug 13 11:48:08 dev-master salt-master[19972]:     if any(b('\0') in a for a in args):
+Aug 13 11:48:08 dev-master salt-master[19972]:   File "/usr/lib/python3/dist-packages/hglib/client.py", line 186, in <genexpr>
+Aug 13 11:48:08 dev-master salt-master[19972]:     if any(b('\0') in a for a in args):
+Aug 13 11:48:08 dev-master salt-master[19972]: TypeError: 'in <string>' requires string as left operand, not bytes
+Aug 13 11:48:08 dev-master systemd[1]: salt-master.service: Main process exited, code=exited, status=1/FAILURE
+Aug 13 11:48:08 dev-master systemd[1]: salt-master.service: Failed with result 'exit-code'.
+````

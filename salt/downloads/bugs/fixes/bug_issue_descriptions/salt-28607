@@ -1,0 +1,361 @@
+I find some problems in network module. When I try make some operations with basic network interfaces (on physical and virtual servers based on Centos7) - work fine, but when I try configure bond and br with vlan's work too slow or not work at all. 
+
+This state change server ip from pxe vlan (an-tagged) to normal (tagged)
+
+Pillar
+
+```
+machine_id:
+  d1f4f9ec05099f10da835fd3f4f886ef:
+    network:
+      hostname: snbvirtp0002l00
+      interface:
+        enp3s0:
+          enabled: true
+          proto: none
+          type: slave
+          master: bond0
+        enp5s0:
+          enabled: true
+          proto: none
+          type: slave
+          master: bond0
+        bond0:
+          enabled: true
+          proto: none
+          type: bond
+          slaves: "enp3s0 enp5s0"
+          opt:
+            miimon: 100
+            updelay: 0
+            downdelay: 0
+            mode: 802.3ad
+            lacp_rate: 0
+            ad_select: 0
+        bond0.131:
+          enabled: true
+          proto: none
+          type: vlan
+          bridge: br0.131
+        br0.131:
+          enabled: true
+          proto: none
+          type: bridge
+          ip:
+            ipaddr: 10.8.31.102
+            netmask: 255.255.255.0
+            gateway: 10.8.31.1
+```
+
+sls state
+
+```
+{% set local_config = pillar['machine_id'][grains['machine_id']]['network'] %}
+
+NetworkManager:
+  pkg.removed:
+    - pkgs:
+      - NetworkManager
+  service:
+    - dead
+    - enable: false
+
+network:
+  service:
+    - running
+    - enable: true
+
+{% for device, args_if in local_config['interface'].items() %}
+{{device}}:
+  network.managed:
+
+  {% for args_key, args_value in args_if.iteritems() %}
+    {% if args_value is not mapping %}
+      {% if args_key in ['use','require'] %}
+    - {{ args_key }}:
+        {% for args_value1 in args_value %}
+      - network: {{ args_value1 }}
+        {% endfor %}
+      {% else %}
+    - {{ args_key}}: {{ args_value }}
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+
+  {% if args_if['type'] == 'bond' %}
+    {% if 'opt' in args_if %}
+      {% for key, value in args_if['opt'].iteritems() %}
+    - {{ key }}: {{ value }}
+      {% endfor %}
+    {% endif %}
+  {% endif %}
+
+  {% if 'ip' in args_if %}
+    {% for key, value in args_if['ip'].iteritems() %}
+    - {{ key }}: {{ value }}
+    {% endfor %}
+  {% endif %}
+
+{% endfor %}
+```
+
+Result after it (I'm take it from salt-ssh output):
+
+```
+NetworkManager:
+  pkg.removed:
+    - pkgs:
+      - NetworkManager
+  service:
+    - dead
+    - enable: false
+
+network:
+  service:
+    - running
+    - enable: true
+
+enp3s0:
+  network.managed:
+    - enabled: True
+    - proto: none
+    - type: slave
+    - master: bond0
+enp5s0:
+  network.managed:
+    - enabled: True
+    - proto: none
+    - type: slave
+    - master: bond0
+bond0:
+  network.managed:
+    - enabled: True
+    - proto: none
+    - type: bond
+    - slaves: enp3s0 enp5s0
+    - miimon: 100
+    - updelay: 0
+    - downdelay: 0
+    - mode: 802.3ad
+    - lacp_rate: 0
+    - ad_select: 0
+bond0.131:
+  network.managed:
+    - enabled: True
+    - proto: none
+    - type: vlan
+    - bridge: br0.131
+br0.131:
+  network.managed:
+    - enabled: True
+    - proto: none
+    - type: bridge
+    - ipaddr: 10.8.31.102
+    - netmask: 255.255.255.0
+    - gateway: 10.8.31.1
+```
+
+Result from salt-call. Command is:
+
+```
+salt-call --no-color --out-file=/root/salt-call-out-file2.txt --out-file-append --log-level=quiet state.highstate
+```
+
+```
+Thu Nov  5 15:11:45 CET 2015
+local:
+----------
+          ID: NetworkManager
+    Function: service.dead
+      Result: True
+     Comment: Service NetworkManager has been disabled, and is dead
+     Started: 15:11:53.990629
+    Duration: 613.818 ms
+     Changes:   
+              ----------
+              NetworkManager:
+                  True
+----------
+          ID: NetworkManager
+    Function: pkg.removed
+      Result: True
+     Comment: All targeted packages were removed.
+     Started: 15:11:55.035857
+    Duration: 8808.938 ms
+     Changes:   
+              ----------
+              NetworkManager:
+                  ----------
+                  new:
+                  old:
+                      1.0.0-16.git20150121.b4ea599c.el7_1
+              NetworkManager-team:
+                  ----------
+                  new:
+                  old:
+                      1.0.0-16.git20150121.b4ea599c.el7_1
+              NetworkManager-tui:
+                  ----------
+                  new:
+                  old:
+                      1.0.0-16.git20150121.b4ea599c.el7_1
+----------
+          ID: network
+    Function: service.running
+      Result: True
+     Comment: Service network is already enabled, and is in the desired state
+     Started: 15:12:03.867207
+    Duration: 345.884 ms
+     Changes:   
+----------
+          ID: enp3s0
+    Function: network.managed
+      Result: True
+     Comment: Interface enp3s0 updated.
+     Started: 15:12:04.218939
+    Duration: 81.695 ms
+     Changes:   
+              ----------
+              interface:
+                  --- 
+                  +++ 
+                  @@ -1,6 +1,6 @@
+                  -BOOTPROTO="dhcp"
+                   DEVICE="enp3s0"
+                  -HWADDR="00:1e:0b:77:00:ea"
+                  -ONBOOT=yes
+                  -PEERDNS=yes
+                  -PEERROUTES=yes
+                  +USERCTL="no"
+                  +MASTER="bond0"
+                  +SLAVE="yes"
+                  +BOOTPROTO="none"
+                  +ONBOOT="yes"
+              status:
+                  Interface enp3s0 restart to validate
+----------
+          ID: br0.131
+    Function: network.managed
+      Result: True
+     Comment: Interface br0.131 added.
+     Started: 15:12:04.300888
+    Duration: 202364.593 ms
+     Changes:   
+              ----------
+              interface:
+                  Added network interface.
+              status:
+                  Interface br0.131 is up
+----------
+          ID: enp5s0
+    Function: network.managed
+      Result: True
+     Comment: Interface enp5s0 updated.
+     Started: 15:15:26.665786
+    Duration: 31.83 ms
+     Changes:   
+              ----------
+              interface:
+                  --- 
+                  +++ 
+                  @@ -1,16 +1,6 @@
+                  -TYPE=Ethernet
+                  -BOOTPROTO=dhcp
+                  -DEFROUTE=yes
+                  -PEERDNS=yes
+                  -PEERROUTES=yes
+                  -IPV4_FAILURE_FATAL=no
+                  -IPV6INIT=yes
+                  -IPV6_AUTOCONF=yes
+                  -IPV6_DEFROUTE=yes
+                  -IPV6_PEERDNS=yes
+                  -IPV6_PEERROUTES=yes
+                  -IPV6_FAILURE_FATAL=no
+                  -NAME=enp5s0
+                  -UUID=7a3b33cb-0790-44cc-8405-62831963af6d
+                  -DEVICE=enp5s0
+                  -ONBOOT=no
+                  +DEVICE="enp5s0"
+                  +USERCTL="no"
+                  +MASTER="bond0"
+                  +SLAVE="yes"
+                  +BOOTPROTO="none"
+                  +ONBOOT="yes"
+              status:
+                  Interface enp5s0 restart to validate
+----------
+          ID: bond0
+    Function: network.managed
+      Result: True
+     Comment: Bond interface bond0 added.
+     Started: 15:15:26.697877
+    Duration: 187982.756 ms
+     Changes:   
+              ----------
+              bond:
+                  Added bond bond0.
+              interface:
+                  Added network interface.
+              status:
+                  Interface bond0 is up
+----------
+          ID: bond0.131
+    Function: network.managed
+      Result: True
+     Comment: Interface bond0.131 added.
+     Started: 15:18:34.680871
+    Duration: 6573.632 ms
+     Changes:   
+              ----------
+              interface:
+                  Added network interface.
+              status:
+                  Interface bond0.131 is up
+
+Summary
+------------
+Succeeded: 8 (changed=7)
+Failed:    0
+------------
+Total states run:     8
+Thu Nov  5 15:21:41 CET 2015
+```
+
+Problem is execution time (10 min)
+
+```
+START 15:11:45
+ID: NetworkManager
+Started: 15:11:53.990629
+Duration: 613.818 ms
+
+ID: NetworkManager
+Started: 15:11:55.035857
+Duration: 8808.938 ms
+
+ID: network
+Started: 15:12:03.867207
+Duration: 345.884 ms
+
+ID: enp3s0
+Started: 15:12:04.218939
+Duration: 81.695 ms
+
+ID: br0.131
+Started: 15:12:04.300888
+Duration: 202364.593 ms
+
+ID: enp5s0
+Started: 15:15:26.665786
+Duration: 31.83 ms
+
+ID: bond0
+Started: 15:15:26.697877
+Duration: 187982.756 ms
+
+ID: bond0.131
+Started: 15:18:34.680871
+Duration: 6573.632 ms
+
+END 15:21:41
+```

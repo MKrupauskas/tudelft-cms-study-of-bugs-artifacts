@@ -1,0 +1,146 @@
+**Description**
+Getting following error message when trying to [upgrade salt-minion to 3001](https://salt.tips/upgrading-salt-to-python-3/#upgrade-salt-on-centos-and-amazon-linux).
+```
+ - Rendering SLS 'base:git.prod.salt.3001up' failed: could not find expected ':'
+```
+**Setup**
+- Correct indentation 
+```
+[me@salt01 salt]$ cat 3001up.sls
+
+{% for key, repo in salt['pkg.list_repos']().items() %}
+{% if repo.get('enabled', '1') == '1' and 'saltstack' in key %}
+Remove repo {{ key }}:
+  pkgrepo.absent:
+      - name: {{ key }}
+{% endif %}
+{% endfor %}
+
+{% if grains['os_family'] == 'RedHat' %}
+install_at:
+  pkg.installed:
+      - name: at
+      - name: curl
+atd_service:
+  service.running:
+      - name: atd
+      - enable: True
+upgrade_salt_minion:
+  cmd.run:
+      - name: |
+          echo "systemctl stop salt-minion.service
+          yum -y remove salt-minion
+          yum -y remove PyYAML m2crypto python-zmq zeromq python-crypto python-msgpack
+          yum -y autoremove
+          rm -rf /var/cache/salt/minion
+          curl -Ls https://bootstrap.saltstack.com | sh -s -- -X -x python3 stable
+          [ -f /etc/salt/minion.rpmsave ] && \
+          ( cp -f /etc/salt/minion /etc/salt/minion.bak; \
+          mv -f /etc/salt/minion.rpmsave /etc/salt/minion )
+          systemctl is-enabled salt-minion.service || \
+          (systemctl preset salt-minion.service && \
+          systemctl enable salt-minion.service)
+          systemctl start salt-minion.service" | at now
+{% endif %}
+[me@salt01 salt]$
+
+```
+
+- Wrong indentation starting from echo line that create this confusing  message.
+```
+[me@salt01 salt]$ cat  3001up-ident-off.sls
+
+{% for key, repo in salt['pkg.list_repos']().items() %}
+{% if repo.get('enabled', '1') == '1' and 'saltstack' in key %}
+Remove repo {{ key }}:
+  pkgrepo.absent:
+      - name: {{ key }}
+{% endif %}
+{% endfor %}
+
+{% if grains['os_family'] == 'RedHat' %}
+install_at:
+  pkg.installed:
+      - name: at
+      - name: curl
+atd_service:
+  service.running:
+      - name: atd
+      - enable: True
+upgrade_salt_minion:
+  cmd.run:
+      - name: |
+        echo "systemctl stop salt-minion.service
+        yum -y remove salt-minion
+        yum -y remove PyYAML m2crypto python-zmq zeromq python-crypto python-msgpack
+        yum -y autoremove
+        rm -rf /var/cache/salt/minion
+        curl -Ls https://bootstrap.saltstack.com | sh -s -- -X -x python3 stable
+        [ -f /etc/salt/minion.rpmsave ] && \
+        ( cp -f /etc/salt/minion /etc/salt/minion.bak; \
+        mv -f /etc/salt/minion.rpmsave /etc/salt/minion )
+        systemctl is-enabled salt-minion.service || \
+        (systemctl preset salt-minion.service && \
+        systemctl enable salt-minion.service)
+        systemctl start salt-minion.service" | at now
+{% endif %}
+[me@salt01 salt]$
+
+```
+
+**Steps to Reproduce the behavior**
+(Include debug logs if possible and relevant)
+
+**Expected behavior**
+
+Hoping to see error about wrong indentation starting from "echo" line.
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+
+- version 3000.3 and 3001 
+```
+Salt Version:
+           Salt: 3000.3
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: unknown
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+         Jinja2: 2.7.2
+        libgit2: 0.26.3
+       M2Crypto: 0.31.0
+           Mako: 0.8.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: 1.2.5
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: 3.9.7
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, Apr  2 2020, 13:16:51)
+   python-gnupg: 0.4.3
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+          smmap: 0.9.0
+        timelib: 0.2.4
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.8.2003 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1127.8.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.8.2003 Core
+```
+</details>
+
+**Additional context**
+Add any other context about the problem here.

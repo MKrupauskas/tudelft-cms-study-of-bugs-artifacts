@@ -1,0 +1,44 @@
+I have to start this bug report by noting that the requisite ordering of the _states_ is still correct with `aggregate: True`, however, since the work of the state (including changes that are being watched), have moved to the first aggregated state (the one that fires), it's _functionally_ disrespectful. It's a discussion worth having as-to whether or not _State A_ is really still _State A_ if everything it _does_ has been moved to _State B_.
+
+```
+*If it looks like a duck, and walks like a duck, and quacks like a duck...*
+```
+
+A practical scenario where this could be problematic is package installs that start services on completion. When packages start services, it's not uncommon to put the configuration files for those services in-place before the package is installed and started. If `pkg.installed` calls are aggregated it's possible that the expected configuration step will not happen before the package is installed. As state hierarchies become increasingly complex, the likelihood that a single `aggregate: True` could have unintended side effects increases.
+
+I cornered @whiteinge yesterday about it and he agreed this might need a bit closer look.
+
+See the attached sample state gist and json results for an example:
+
+https://gist.github.com/cheuschober/ef4b7089c19b7aadf5de
+
+If we consider requirements as being attached to the actual work the state is doing (regardless of its name), I would have expected states to order:
+
+```
+C => Z => B(+Y) => A => X
+```
+
+Perhaps a fix would be for `aggregate: True` to not only cause the aggregated state to inherit a function's arguments but _also_ inherit its requisites (and their inverted `_in` 's). This could potentially create some scenarios with requisite loops but at least these 'fail fast'. The only real problem with inheriting all requisites is the watchers which may unintentionally fire (eg, one of five installed packages changes but a watch for one of the four other packages is triggered) because the aggregated state returns changes.
+
+I don't know, off the top of my head, whether requisite loops can be detected before aggregation happens in a way that could predict whether an aggregation would create one. The most _intelligent_ solution would be predictive and not aggregate states whose requisites would cause a loop during aggregation or who have requisites that watch for changes.
+
+The "dumbest" but most straightforward fix would be to simply not aggregate states who have requisites.
+
+I think the aggregate feature is a great idea but I feel it lacks some transparency. To some degree, I'd prefer changes to all aggregated states to make it more clear that a state was aggregated, eg comments to the effect of:
+
+```
+"comment": "This state was aggregated in: state X"
+```
+
+And return data that collects the aggregated states on the true _executing_ state, eg:
+
+```
+"comment": "The following packages are set to be installed: x, y, z",
+"name": "mystate1",
+"start_time": "03:18:58.199313", 
+"result": null, 
+"duration": 1.365, 
+"__run_num__": 4, 
+"changes": {}
+"aggregated": ["mystate1", "mystate2", "mystate3"]
+```

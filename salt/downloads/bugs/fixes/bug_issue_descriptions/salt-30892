@@ -1,0 +1,92 @@
+We've got a state which should check if nested virtualization via kvm is enabled or not. If not it should set the required setting for it to work. This includes a reload of the kvm_intel module, since we don't want to stop and start libvirtd and remove and load the module everytime the state runs we've added a little check and a `prereq` so the check is only in one place.
+
+This `prereq` however causes 'some' other states to run in test=True mode too. The `stop_libvirt` state is also affected. They never get exectued and cause other states to fail.
+
+I don't know why this is happening but I suspect it has something todo with with how the `prereq` gets executed and the test=True handling of state.py (line: 1643, 1708). And again not all future states are affected only some states like `pkg.installed` even though they should be exectuted normally, without tets=True.
+
+Test state:
+
+With the following state file you can reproduce the bug. You should see, that `qemu-kvm: pkg.installed` will be executed with test=True set.
+
+For that to happen you have to install a package, then have a state with prereq and then install another package, that's why I have arranged the states as they are now.
+
+``` sls
+libvirt:
+  pkg:
+    - installed
+
+libvirt-python:
+  pkg:
+    - installed
+
+stop_libvirt:
+  service.dead:
+    - name: libvirtd
+    - prereq:
+      - kmod: rmmod_kvm_intel
+
+rmmod_kvm_intel:
+  kmod.absent:
+    - name: kvm_intel
+    - onlyif:
+      - grep N '/sys/module/kvm_intel/parameters/nested'
+
+/etc/modprobe.d/dist.conf:
+  file.managed:
+    - contents: |
+        options kvm-intel nested=y
+
+insmod_kvm_intel:
+  kmod.present:
+    - name: kvm_intel
+
+start_libvirtd:
+  service.running:
+    - name: libvirtd
+    - enable: True
+
+qemu-kvm:
+  pkg:
+    - installed
+```
+
+``` yaml
+[root@salt-master ~]# salt-call --versions
+Salt Version:
+           Salt: 2015.8.4
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 1.1.2
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+        libgit2: 0.21.0
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.21.4
+   python-gnupg: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-229.14.1.el7.x86_64
+         system: CentOS Linux 7.2.1511 Core
+
+```

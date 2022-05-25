@@ -1,0 +1,127 @@
+**Description**
+
+Commands triggered by `virtualenv.managed` might not respect the `user` parameter, which result in a `__pycache__` folder owned by `root`, triggering permission issues later on.
+
+**Setup**
+
+On ubuntu 20.04, python 3.8, salt 3001 rc1 (but there does not seem to be any recent updates on https://github.com/saltstack/salt/blob/v3001rc1/salt/states/virtualenv_mod.py)
+
+Minimal state example that does not run `pip.version`:
+```yaml
+graphite:
+    user.present:
+        - home: /opt/graphite
+
+/opt/graphite:
+    virtualenv.managed:
+        - index_url: https://pypi.org/simple
+        - user: graphite
+        - require:
+            - user: graphite
+            - pkg: virtualenv
+```
+
+Relevant logs:
+```
+2020-06-04 18:41:28,288 [salt.state       :2032][INFO    ][83636] Running state [/opt/graphite] at time 18:41:28.288164
+2020-06-04 18:41:28,288 [salt.state       :2065][INFO    ][83636] Executing state virtualenv.managed for [/opt/graphite]
+2020-06-04 18:41:28,317 [salt.loaded.int.module.cmdmod:414 ][INFO    ][83636] Executing command ['/usr/bin/virtualenv', '/opt/graphite'] as user 'graphite' in directory '/opt/graphite'
+2020-06-04 18:41:28,983 [salt.loaded.int.module.cmdmod:414 ][INFO    ][83636] Executing command '/opt/graphite/bin/python -V' in directory '/root'
+2020-06-04 18:41:28,991 [salt.state       :326 ][INFO    ][83636] {'new': ''}
+2020-06-04 18:41:28,992 [salt.state       :2222][INFO    ][83636] Completed state [/opt/graphite] at time 18:41:28.991992 (duration_in_ms=703.828)
+```
+
+At this stage, no `__pycache__` folder in `/opt/graphite/lib/python3.8/site-packages/`.
+
+Now, adding `pip_pkgs`:
+```yaml
+graphite:
+    user.present:
+        - home: /opt/graphite
+
+/opt/graphite:
+    virtualenv.managed:
+        - index_url: https://pypi.org/simple
+        - user: graphite
+        - pip_pkgs:
+            - scandir
+        - require:
+            - user: graphite
+            - pkg: virtualenv
+```
+
+The relevant logs:
+```
+2020-06-04 17:23:33,170 [salt.loaded.int.module.cmdmod:414 ][INFO    ][81657] Executing command ['/usr/bin/virtualenv', '/opt/graphite'] as user 'graphite' in directory '/opt/graphite'
+2020-06-04 17:23:33,800 [salt.loaded.int.module.cmdmod:414 ][INFO    ][81657] Executing command '/opt/graphite/bin/python -V' in directory '/root'
+2020-06-04 17:23:33,808 [salt.loaded.int.module.cmdmod:414 ][INFO    ][81657] Executing command ['/opt/graphite/bin/python', '-m', 'pip', '--version'] in directory '/root'
+2020-06-04 17:23:34,377 [salt.loaded.int.module.cmdmod:414 ][INFO    ][81657] Executing command ['/opt/graphite/bin/python', '-m', 'pip', 'freeze', '--all'] as user 'graphite' in directory '/opt/graphite'
+2020-06-04 17:23:34,895 [salt.loaded.int.module.cmdmod:414 ][INFO    ][81657] Executing command ['/opt/graphite/bin/python', '-m', 'pip', 'install', '--index-url', 'https://pypi.org/simple', '--no-cache-dir', 'scandir'] as user 'graphite' in directory '/opt/graphite'
+2020-06-04 17:23:36,886 [salt.loaded.int.module.cmdmod:854 ][ERROR   ][81657] Command '['/opt/graphite/bin/python', '-m', 'pip', 'install', '--index-url', 'https://pypi.org/simple', '--no-cache-dir', 'scandir']' failed with return code: 1
+2020-06-04 17:23:36,886 [salt.loaded.int.module.cmdmod:856 ][ERROR   ][81657] stdout: Collecting scandir
+  Downloading scandir-1.10.0.tar.gz (33 kB)
+Building wheels for collected packages: scandir
+  Building wheel for scandir (setup.py): started
+  Building wheel for scandir (setup.py): finished with status 'done'
+  Created wheel for scandir: filename=scandir-1.10.0-cp38-cp38-linux_x86_64.whl size=44304 sha256=37930356570451755fc0d36de089a67d1d864d6c0062db055a5f71cb4db28a0e
+  Stored in directory: /tmp/pip-ephem-wheel-cache-l6sfbk0x/wheels/3e/e7/c7/6dd4baff5095133cd03c550991ca8505b4972aa858122e6031
+Successfully built scandir
+Installing collected packages: scandir
+2020-06-04 17:23:36,886 [salt.loaded.int.module.cmdmod:858 ][ERROR   ][81657] stderr: ERROR: Could not install packages due to an EnvironmentError: [Errno 13] Permission denied: '/opt/graphite/lib/python3.8/site-packages/__pycache__/scandir.cpython-38.pyc'
+Consider using the `--user` option or check the permissions.
+```
+
+Notice the call to `['/opt/graphite/bin/python', '-m', 'pip', '--version']`, which triggers the creation of `/opt/graphite/lib/python3.8/site-packages/__pycache__/`, owned by `root` because that command is not run by the chosen user.
+
+I have not identified if one of the `__salt__["pip.version"]` calls in `virtualenv_mod.py` is the root of the problem, or if it is somewhere else.
+
+**Expected behavior**
+
+All commands run to build the virtualenv and install requirements should be run as the selected user, because they have side-effects.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 3001rc1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: 2.0.6
+      gitpython: 3.0.7
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: 3.6.1
+         pygit2: Not Installed
+         Python: 3.8.2 (default, Apr 27 2020, 15:53:34)
+   python-gnupg: 0.4.5
+         PyYAML: 5.3.1
+          PyZMQ: 18.1.1
+          smmap: 2.0.5
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+ 
+System Versions:
+           dist: ubuntu 20.04 focal
+         locale: utf-8
+        machine: x86_64
+        release: 5.4.0-33-generic
+         system: Linux
+        version: Ubuntu 20.04 focal
+```
+</details>
+
+Thanks !

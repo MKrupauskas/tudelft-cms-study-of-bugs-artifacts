@@ -1,0 +1,289 @@
+  I wanted to test some code before actually executing it, and hence used test=True. The service had a watch for the config file and the package. The output from salt-ssh with test=True would say the service is going to get restarted if the file is going to change, but won't when the package is going to change. Yet when salt-ssh is run without test=True the service is restarted for the package.
+
+The reason for nginx.conf.test instead of nginx.conf is that the package upgrade will change the file. That would invalidate the test.
+
+These tests were run with Fedora 34 locally and Fedora 34 remotely. Though I don't think this issue is Fedora specific or has anything to do with nginx. They are just used in the test case.
+
+```
+salt-ssh --versions-report
+Salt Version:
+          Salt: 3002.6
+ 
+Dependency Versions:
+          cffi: 1.14.5
+      cherrypy: Not Installed
+      dateutil: 2.8.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.3
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: 1.1.4
+       msgpack: 1.0.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.20
+      pycrypto: 2.6.1
+  pycryptodome: 3.9.8
+        pygit2: Not Installed
+        Python: 3.9.4 (default, Apr  6 2021, 00:00:00)
+  python-gnupg: Not Installed
+        PyYAML: 5.4.1
+         PyZMQ: 22.0.3
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+ 
+System Versions:
+          dist: fedora 34 
+        locale: utf-8
+       machine: x86_64
+       release: 5.11.15-300.fc34.x86_64
+        system: Linux
+       version: Fedora 34 
+ ```
+
+**COMMANDS**
+Run on fqdn and it installs nginx-1.18.0-5.fc34:
+```
+dnf --disablerepo=updates install nginx
+```
+
+Works as expected:
+```
+salt-ssh -i fqdn state.apply nginx
+fqdn:
+----------
+          ID: nginx_pkgs
+    Function: pkg.installed
+      Result: True
+     Comment: All specified packages are already installed
+     Started: 15:07:26.335869
+    Duration: 548.1 ms
+     Changes:   
+----------
+          ID: nginx_config_file
+    Function: file.managed
+        Name: /etc/nginx/nginx.conf.test
+      Result: True
+     Comment: File /etc/nginx/nginx.conf.test updated
+     Started: 15:07:26.917324
+    Duration: 92.646 ms
+     Changes:   
+              ----------
+              diff:
+                  New file
+              mode:
+                  0644
+----------
+          ID: nginx_service
+    Function: service.running
+        Name: nginx
+      Result: True
+     Comment: Service nginx has been enabled, and is running
+     Started: 15:07:27.015113
+    Duration: 575.093 ms
+     Changes:   
+              ----------
+              nginx:
+                  True
+
+Summary for fqdn
+------------
+Succeeded: 3 (changed=2)
+Failed:    0
+------------
+Total states run:     3
+Total run time:   1.216 s
+```
+
+Add `: 1:1.20.0-2.fc34` to the end of pkgs.sls and run:
+```
+salt-ssh -i fqdn state.apply nginx test=True
+fqdn:
+----------
+          ID: nginx_pkgs
+    Function: pkg.installed
+      Result: None
+     Comment: The following packages would be installed/updated: nginx=1:1.20.0-2.fc34
+     Started: 14:59:27.574289
+    Duration: 577.366 ms
+     Changes:   
+----------
+          ID: nginx_config_file
+    Function: file.managed
+        Name: /etc/nginx/nginx.conf.test
+      Result: True
+     Comment: The file /etc/nginx/nginx.conf.test is in the correct state
+     Started: 14:59:28.185189
+    Duration: 92.417 ms
+     Changes:   
+----------
+          ID: nginx_service
+    Function: service.running
+        Name: nginx
+      Result: True
+     Comment: The service nginx is already running
+     Started: 14:59:28.282661
+    Duration: 50.314 ms
+     Changes:   
+
+Summary for fqdn
+------------
+Succeeded: 3 (unchanged=1)
+Failed:    0
+------------
+Total states run:     3
+Total run time: 720.097 ms
+```
+
+Run this and see the service is restarted after all.
+```
+salt-ssh -i fqdn state.apply nginx          
+fqdn:
+----------
+          ID: nginx_pkgs
+    Function: pkg.installed
+      Result: True
+     Comment: 1 targeted package was installed/updated.
+     Started: 15:09:50.841474
+    Duration: 23266.741 ms
+     Changes:   
+              ----------
+              nginx:
+                  ----------
+                  new:
+                      1:1.20.0-2.fc34
+                  old:
+                      1:1.18.0-5.fc34
+              nginx-filesystem:
+                  ----------
+                  new:
+                      1:1.20.0-2.fc34
+                  old:
+                      1:1.18.0-5.fc34
+----------
+          ID: nginx_config_file
+    Function: file.managed
+        Name: /etc/nginx/nginx.conf.test
+      Result: True
+     Comment: File /etc/nginx/nginx.conf.test is in the correct state
+     Started: 15:10:14.143396
+    Duration: 95.842 ms
+     Changes:   
+----------
+          ID: nginx_service
+    Function: service.running
+        Name: nginx
+      Result: True
+     Comment: Service restarted
+     Started: 15:10:14.320675
+    Duration: 943.984 ms
+     Changes:   
+              ----------
+              nginx:
+                  True
+
+Summary for fqdn
+------------
+Succeeded: 3 (changed=2)
+Failed:    0
+------------
+Total states run:     3
+Total run time:  24.307 s
+
+```
+Run this and see that it says it will restart the service for the file when it didn't with test=True for the package:
+```
+salt-ssh -i fqdn state.apply nginx test=True
+fqdn:
+----------
+          ID: nginx_pkgs
+    Function: pkg.installed
+      Result: True
+     Comment: All specified packages are already installed and are at the desired version
+     Started: 15:12:12.764285
+    Duration: 904.603 ms
+     Changes:   
+----------
+          ID: nginx_config_file
+    Function: file.managed
+        Name: /etc/nginx/nginx.conf.test
+      Result: None
+     Comment: The file /etc/nginx/nginx.conf.test is set to be changed
+              Note: No changes made, actual changes may
+              be different due to other states.
+     Started: 15:12:13.712430
+    Duration: 128.537 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -1 +1,2 @@
+                   test
+                  +
+----------
+          ID: nginx_service
+    Function: service.running
+        Name: nginx
+      Result: None
+     Comment: Service is set to be restarted
+     Started: 15:12:13.911078
+    Duration: 22.008 ms
+     Changes:   
+
+Summary for fqdn
+------------
+Succeeded: 3 (unchanged=2, changed=1)
+Failed:    0
+------------
+Total states run:     3
+Total run time:   1.055 s
+```
+
+**FILES**
+nginx/init.sls:
+```
+include:
+  - nginx.pkgs
+  - nginx.files
+  - nginx.services
+```
+
+nginx/pkgs.sls:
+```
+nginx_pkgs:
+  pkg.installed:
+    - pkgs:
+      - nginx
+```
+```
+nginx/files.sls:
+nginx_config_file:
+  file.managed:
+    - name: /etc/nginx/nginx.conf.test
+    - source: salt://nginx/files/etc/nginx/nginx.conf.test
+    - user: root
+    - group: root
+    - mode: 0644
+    - template: jinja
+```
+
+nginx/services.sls:
+```
+nginx_service:
+  service.running:
+    - name: nginx
+    - enable: True
+    - watch:
+      - pkg: nginx
+      - file: nginx_config_file
+```
+
+nginx/files/etc/nginx/nginx.conf.test:
+```
+test
+```

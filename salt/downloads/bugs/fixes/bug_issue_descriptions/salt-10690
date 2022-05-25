@@ -1,0 +1,54 @@
+Consider this log output, with level "debug":
+
+```
+[INFO    ] Executing state cmd.run for changed="no"
+for x in {59..67}; do
+for y in {14..21}; do
+#echo $x,$y
+if [ ! -f srtm_${x}_${y}.zip ]; then
+  #wget -nv http://droppr.org/srtm/v4.1/6_5x5_TIFs/srtm_${x}_${y}.zip
+  wget -nv ftp://srtm.csi.cgiar.org/SRTM_V41/SRTM_Data_GeoTiff/srtm_${x}_${y}.zip
+  changed="yes"
+fi
+done
+done
+if [ $changed == "yes" ]; then unzip '*.zip'; fi
+echo
+echo "changed=$changed"
+
+[INFO    ] Executing command 'changed="no"\nfor x in {59..67}; do\nfor y in {14..21}; do\n#echo $x,$y\nif [ ! -f srtm_${x}_${y}.zip ]; then\n  #wget -nv http://droppr.org/srtm/v4.1/6_5x5_TIFs/srtm_${x}_${y}.zip\n  wget -nv ftp://srtm.csi.cgiar.org/SRTM_V41/SRTM_Data_GeoTiff/srtm_${x}_${y}.zip\n  changed="yes"\nfi\ndone\ndone\nif [ $changed == "yes" ]; then unzip \'*.zip\'; fi\necho\necho "changed=$changed"\n' as user 'ubuntu' in directory '/mnt/dem'
+[INFO    ] User sudo_ubuntu Executing command saltutil.find_job with jid 2014022409284609194
+```
+
+The bash script being run is quoted twice but the result of the "stateful" part doesn't appear anywhere, which makes it hard to debug. I can't tell from this:
+1. whether setting `Stateful: True` was even taken into account, 
+2. what my script returned as output (including the `changed=...` final line)
+3. whether Salt interpreted the `changed=...` line correctly.
+
+FWIW, here's my state (but I'm not looking for support in debugging it):
+
+```
+getdems:
+  pkg.installed: 
+    - name: unzip
+  cmd.run:
+    - cwd: {{ pillar.tm_demdir }}
+    - user: ubuntu
+    - group: ubuntu
+    - name: |
+        changed="no"
+        for x in {{'{' ~ pillar.tm_srtm_x1 ~ '..' ~ pillar.tm_srtm_x2 ~ '}'}}; do
+        for y in {{'{' ~ pillar.tm_srtm_y1 ~ '..' ~ pillar.tm_srtm_y2 ~ '}'}}; do
+        #echo $x,$y
+        if [ ! -f srtm_${x}_${y}.zip ]; then
+          #wget -nv http://droppr.org/srtm/v4.1/6_5x5_TIFs/srtm_${x}_${y}.zip
+          wget -nv ftp://srtm.csi.cgiar.org/SRTM_V41/SRTM_Data_GeoTiff/srtm_${x}_${y}.zip
+          changed="yes"
+        fi
+        done
+        done
+        if [ $changed == "yes" ]; then unzip '*.zip'; fi
+        echo
+        echo "changed=$changed"
+    - stateful: True
+```

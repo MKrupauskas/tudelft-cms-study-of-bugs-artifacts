@@ -1,0 +1,59 @@
+**OS:** Ubuntu 14.04.1 amd64
+**Salt:**
+
+```
+               Salt: 2014.7.1
+             Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+             Jinja2: 2.7.2
+           M2Crypto: 0.21.1
+     msgpack-python: 0.3.0
+       msgpack-pure: Not Installed
+           pycrypto: 2.6.1
+            libnacl: Not Installed
+             PyYAML: 3.10
+              ioflo: Not Installed
+              PyZMQ: 14.0.1
+               RAET: Not Installed
+                ZMQ: 4.0.4
+               Mako: 0.9.1
+```
+
+In the `winrepo.genrepo` runner, there's this code which defines, where `winrepo.p` will be written to - the win_repo cachefile consumed by Windows minions through `pkg.refresh_db`:
+
+``` Python
+ 69     with salt.utils.fopen(os.path.join(repo, winrepo), 'w+b') as repo:
+ 70         repo.write(msgpack.dumps(ret))
+```
+
+`repo` and `winrepo` are both read from `opts`:
+
+``` Python
+37     repo = __opts__['win_repo']
+38     if not os.path.exists(repo):
+39         os.makedirs(repo)
+40     winrepo = __opts__['win_repo_mastercachefile']
+```
+
+According to `salt/config.py` both are absolute paths:
+
+``` Python
+ 548     'win_repo': os.path.join(salt.syspaths.BASE_FILE_ROOTS_DIR, 'win', 'repo'),
+ 549     'win_repo_mastercachefile': os.path.join(salt.syspaths.BASE_FILE_ROOTS_DIR,
+ 550                                              'win', 'repo', 'winrepo.p')
+```
+
+This means, that `os.path.join()` in the `winrepo.genrepo` runner will join 2 absolute paths.
+The outcome here is:
+- `winrepo.p` is written to `/srv/salt/win/repo/winrepo.p`
+- Minions try to pull `winrepo.p` from `/media/volumes/salt/master/fileserver/win/repo/winrepo.p` and fail doing this, as they can't find this file.
+- Relevant config customizations on my master are:
+
+``` YAML
+fileserver_backend:
+  - roots
+  - git
+file_roots:
+  base:
+    - /media/volumes/salt/master/fileserver/
+win_repo: /media/volumes/salt/master/fileserver/win/repo
+```

@@ -1,0 +1,159 @@
+### Description of Issue/Question
+
+In the script below, I set up `salt-api` via `rest_cherrypy` and perform a basic `test.ping` via `pepper`. One client side, the result is a simple `Pepper error: Server error.` On the service, though:
+#### Error A
+```
+2017-10-04 21:14:12,457 [cherrypy.error                           :219 ][ERROR   ][8155] [04/Oct/2017:21:14:12] ENGINE Error in background task thread function <bound method Autoreloader.run of <cherrypy.process.plugins.Autoreloader object at 0x7f03d2d2e320>>.
+AttributeError: cffi library '_constant_time' has no function, constant or global variable named '__loader__'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/tmp/tmp.LDk01pqr8F/lib/python3.5/site-packages/cherrypy/process/plugins.py", line 519, in run
+    self.function(*self.args, **self.kwargs)
+  File "/tmp/tmp.LDk01pqr8F/lib/python3.5/site-packages/cherrypy/process/plugins.py", line 651, in run
+    for filename in self.sysfiles() | self.files:
+  File "/tmp/tmp.LDk01pqr8F/lib/python3.5/site-packages/cherrypy/process/plugins.py", line 635, in sysfiles
+    hasattr(m, '__loader__') and
+SystemError: <built-in function hasattr> returned a result with an error set
+```
+#### Error B
+```
+2017-10-04 21:14:16,538 [cherrypy.error.139654397075016           :219 ][ERROR   ][8155] [04/Oct/2017:21:14:16] HTTP 
+Traceback (most recent call last):
+  File "/tmp/tmp.LDk01pqr8F/lib/python3.5/site-packages/cherrypy/_cprequest.py", line 663, in respond
+    self.body.process()
+  File "/tmp/tmp.LDk01pqr8F/lib/python3.5/site-packages/cherrypy/_cpreqbody.py", line 982, in process
+    super(RequestBody, self).process()
+  File "/tmp/tmp.LDk01pqr8F/lib/python3.5/site-packages/cherrypy/_cpreqbody.py", line 561, in process
+    proc(self)
+  File "/tmp/tmp.LDk01pqr8F/lib/python3.5/site-packages/salt/netapi/rest_cherrypy/app.py", line 913, in wrapped
+    fn(*args, **kwargs)
+  File "/tmp/tmp.LDk01pqr8F/lib/python3.5/site-packages/salt/netapi/rest_cherrypy/app.py", line 966, in json_processor
+    body = entity.fp.read(fp_out=contents)
+  File "/tmp/tmp.LDk01pqr8F/lib/python3.5/site-packages/cherrypy/_cpreqbody.py", line 841, in read
+    fp_out.write(data)
+TypeError: string argument expected, got 'bytes'
+```
+
+### Setup
+```bash
+VENV_DIR=$(mktemp -d)
+CONFIG_DIR=$(mktemp -d)
+FILE_ROOT=$(mktemp -d)
+ROOT_DIR=$(mktemp -d)
+PORT=12345
+BRANCH=develop
+
+cat <<EOF > $CONFIG_DIR/requirements.txt
+salt
+salt-pepper
+PyOpenSSL
+cherrypy
+cffi
+EOF
+
+cat <<EOF > $CONFIG_DIR/constraints.txt
+git+https://github.com/saltstack/salt.git@$BRANCH#egg=salt
+git+https://github.com/saltstack/pepper.git@$BRANCH#egg=salt-pepper
+EOF
+
+cat <<EOF > $CONFIG_DIR/minion
+root_dir: $ROOT_DIR
+ca.cert_base_path: '$ROOT_DIR/etc/pki'
+EOF
+
+cat <<EOF > $CONFIG_DIR/master
+root_dir: $ROOT_DIR
+file_roots:
+  base:
+    - $FILE_ROOT
+rest_cherrypy:
+  port: $PORT
+  debug: True
+  ssl_crt: $ROOT_DIR/etc/pki/tls/certs/localhost.crt
+  ssl_key: $ROOT_DIR/etc/pki/tls/certs/localhost.key
+EOF
+
+cat <<EOF > $CONFIG_DIR/pepper
+[main]
+SALTAPI_URL=https://localhost:$PORT/
+SALTAPI_USER=saltdev
+SALTAPI_PASS=saltdev
+SALTAPI_EAUTH=pam
+EOF
+
+python3.5 -m venv $VENV_DIR
+BIN_DIR=$VENV_DIR/bin
+source $BIN_DIR/activate
+
+$BIN_DIR/pip install -r $CONFIG_DIR/requirements.txt -c $CONFIG_DIR/constraints.txt
+$BIN_DIR/salt-master --log-file-level=all --config-dir=$CONFIG_DIR --daemon --pid-file=$CONFIG_DIR/master.pid
+$BIN_DIR/salt-call   --log-file-level=all --config-dir=$CONFIG_DIR --local tls.create_self_signed_cert
+$BIN_DIR/salt-api    --log-file-level=all --config-dir=$CONFIG_DIR --daemon --pid-file=$CONFIG_DIR/api.pid
+sleep 5
+
+$BIN_DIR/pepper -vv -c $CONFIG_DIR/pepper '*' test.ping
+sleep 1
+
+pkill -F $CONFIG_DIR/master.pid
+pkill -F $CONFIG_DIR/api.pid
+echo "###############################################################################################"
+echo $ROOT_DIR
+cat $ROOT_DIR/var/log/salt/api
+echo "###############################################################################################"
+$BIN_DIR/salt --versions-report
+$BIN_DIR/salt-api --version
+echo cherrypy version `$BIN_DIR/python -c 'import cherrypy; print(cherrypy.__version__)'`
+rm -rf $VENV_DIR $CONFIG_DIR $FILE_ROOT $ROOT_DIR
+
+```
+### Steps to Reproduce Issue
+Run the script above.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.0-668-g01a0ea8
+ 
+Dependency Versions:
+           cffi: 1.11.1
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.3 (default, Sep 14 2017, 22:58:41)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.2
+            ZMQ: 4.1.6
+ 
+System Versions:
+           dist: Ubuntu 17.04 zesty
+         locale: UTF-8
+        machine: x86_64
+        release: 4.12.0-041200rc6-generic
+         system: Linux
+        version: Ubuntu 17.04 zesty
+ 
+salt-api 2017.7.0-668-g01a0ea8 (Nitrogen)
+cherrypy version 11.0.0
+```

@@ -1,0 +1,55 @@
+First off... **SALT IS AWESOME!** :grin: Secondly, I don't know where to post this, so if I'm in the wrong place, please redirect me. It took me a whole day to hunt this down, and I'm trying to help others as well as perhaps get a fix for this.
+
+I tried using [npm.bootstrap](http://docs.saltstack.com/en/latest/ref/states/all/salt.states.npm.html#salt.states.npm.bootstrap) on a node project that had an indirect reference to [node-gyp](https://github.com/TooTallNate/node-gyp), but the install process hung. I couldn't recover the machine and had to `vagrant halt` it. 
+
+Here's what broke it:
+
+``` sh
+salt-ssh
+ vagrant@127.0.0.1
+     sudo
+         npm install
+             node node-gyp rebuild
+                 su vagrant # <-- node-gyp doesn't like "sudo". Technically,
+                     g++    # it's not su vagrant, but su $SSH_USER
+```
+
+``` yaml
+# roster
+shopper-vagrant:
+  host: 127.0.0.1
+  user: vagrant
+  sudo: True # <-- NPM bootstraps as root, but node-gyp bails back to vagrant
+  port: 2222
+  priv: ../.vagrant/machines/default/virtualbox/private_key
+```
+
+The end result was to remove `SUDO_UID` and `SUDO_USER` from `ENV` before running it, per
+[https://github.com/TooTallNate/node-gyp/issues/115#issuecomment-28490552]. Unfortunately, you can't use [environ.setenv](http://docs.saltstack.com/en/latest/ref/states/all/salt.states.environ.html#salt.states.environ.setenv) for this, because the changes aren't picked up by `npm install`. I ended up using the following to fix it:
+
+``` yaml
+# project.sls
+test-project:
+  cmd.script:
+    - name: salt://npm-hack/npm-bootstrap.sh
+    - cwd : {{ project.path }}
+    - user: {{ project.user }}
+    - onchanges:
+      - git: webfetch-shopper
+```
+
+``` sh
+#!/bin/sh
+# npm-bootstrap.sh
+
+export SUDO_UID=$(id -u)
+export SUDO_USER=
+
+npm install
+```
+
+So... Is there any way we can make `npm.bootstrap` see if `user: foo` is set, and run an alternative version of npm install? If I'm in the right place, I might try writing a fix, as the script I wrote could have been as simple as:
+
+``` sh
+SUDO_UID=$(id -u) SUDO_USER="" npm install
+```

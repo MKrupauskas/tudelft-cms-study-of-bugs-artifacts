@@ -1,0 +1,34 @@
+In a virtualenv created by `virtualenv.managed` executing a state such as this will fail with recent versions of pip:
+
+```
+/opt/diamond:
+  virtualenv.managed:
+    - user: diamond
+
+bobo-pip:
+  pip.installed:
+    - name: boto
+    - user: diamond
+    - bin_env: /opt/diamond
+    - require:
+      - virtualenv: /opt/diamond
+```
+
+Executing the above states will yields errors similar to the following:
+```
+Apr  9 18:27:35 hostname salt-minion [salt.state       ][INFO    ] Executing state pip.installed for [boto]
+Apr  9 18:27:35 hostname salt-minion [salt.loaded.int.module.cmdmod][INFO    ] Executing command '/opt/diamond/bin/pip --version' in directory '/root'
+Apr  9 18:27:35 hostname salt-minion [salt.loaded.int.module.cmdmod][INFO    ] Executing command ['/opt/diamond/bin/pip', 'freeze', '--all'] as user 'diamond' in directory '/opt/diamond'
+Apr  9 18:27:36 hostname salt-minion [salt.loaded.int.module.cmdmod][INFO    ] Executing command ['/opt/diamond/bin/pip', 'install'] as user 'diamond' in directory '/opt/diamond'
+Apr  9 18:27:36 hostname salt-minion [salt.loaded.int.module.cmdmod][ERROR   ] Command '['/opt/diamond/bin/pip', 'install']' failed with return code: 1
+Apr  9 18:27:36 hostname salt-minion [salt.loaded.int.module.cmdmod][ERROR   ] stderr: ERROR: You must give at least one requirement to install
+Apr  9 18:27:36 hostname salt-minion [salt.loaded.int.module.cmdmod][ERROR   ] retcode: 1
+Apr  9 18:27:36 hostname salt-minion [salt.state       ][ERROR   ] Python package boto was already installed#012Failed to install packages: . Error:  ERROR: You must give at least one requirement to install
+Apr  9 18:27:36 hostname salt-minion [salt.state       ][INFO    ] Completed state [boto] at time 18:27:36.693921 duration_in_ms=1436.26
+```
+
+This seems to be related to the fact that `virtualenv` installs the latest version of `pip`, which is currently reported as `10.0.0b2` (that's another bug, pip shouldn't upgrade itself to beta versions - https://github.com/pypa/pip/issues/5156)
+
+pip >=10 now exits with 1 when called without an argument to install (`Command '['/opt/diamond/bin/pip', 'install']' failed with return code: 1` in the logs above), whereas before this only showed a warning and exited with 0. Now this is fatal.
+
+This has been observed on salt 2017.7.5, both master and minion.

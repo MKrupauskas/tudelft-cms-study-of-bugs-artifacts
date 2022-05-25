@@ -1,0 +1,157 @@
+### Description of Issue/Question
+Upgrading salt-minion from 2016.11.2 to 2018.3.2 have always been failing a bit randomly (~50%), with high probability the minion entering a running but non-responding state, logging
+```
+2018-09-28 18:17:23,128 [salt.utils.parsers                                   ][WARNING ][165127] Minion received a SIGTERM. Exiting.
+2018-09-28 18:17:31,900 [salt.template                                                  ][ERROR   ][172291] The renderer "yaml_jinja" is not available
+2018-09-28 18:17:31,900 [salt.loader                                                    ][CRITICAL][172291] The renderer yaml_jinja is unavailable, this error is often because the needed software is unavailable
+2018-09-28 18:17:31,900 [salt.minion                                                    ][WARNING ][172291] The minion function caused an exception
+```
+Simply restarting the minion resolves the problem (and magically making yaml_jinja present again). (But the restart takes a visibly longer time, like 30 seconds.) I have tried to install python3 jinja and yaml before upgrading minion (it's just hand-waving since the package does that anyway) but didn't help.
+
+(Tried to search issues, found nothing relevant.)
+
+### Setup
+Debian jessie and stretch mixed; master is either 2016.11 or 2018.3, both fails the same. (2018 is from the official salt repo, 2016 is from Debian repo.)
+
+Multimaster, but I don't think it's relevant.
+(As a sidenote upgrade "always" fail when ipv6:True and the masters only have ipv4 addresses. It's been working before but I'm not sure whether it's a bug or a feature.)
+
+Minion config:
+```
+/etc/salt/minion.d/proxy.conf:proxy_host: proxy.x.y
+/etc/salt/minion.d/proxy.conf:proxy_port: 3128
+/etc/salt/minion.d/_schedule.conf:schedule:
+/etc/salt/minion.d/_schedule.conf:  __mine_interval: {enabled: true, function: mine.update, jid_include: true, maxrunning: 2,
+/etc/salt/minion.d/_schedule.conf:    minutes: 60, return_job: false}
+/etc/salt/minion.d/l.conf:master: 
+/etc/salt/minion.d/l.conf:  - salt2.x.y
+/etc/salt/minion.d/l.conf:  - salt1.x.y
+/etc/salt/minion.d/l.conf:master_tries: -1
+/etc/salt/minion.d/l.conf:#damnyou# ipv6:true 
+/etc/salt/minion.d/l.conf:grains:
+/etc/salt/minion.d/l.conf:  roles:
+/etc/salt/minion.d/l.conf:    - default_config
+/etc/salt/minion.d/l.conf:    - ct
+/etc/salt/minion.d/l.conf:    - no_default_users
+/etc/salt/minion.d/l.conf:  cluster: hackworth
+```
+
+### Steps to Reproduce Issue
+```yaml
+{% if pillar['salt-official-latest'] is defined %}
+update-salt-official-latest:
+  pkg.latest:
+    - pkgs:
+      - salt-minion
+      - salt-common
+    - cache_valid_time: 600
+    - install_recommends: True
+    - only_upgrade: True
+    - require:
+      - pkg: salt-required-other-pkgs
+
+restart-when-updated-official:
+  service.running:
+    - name: salt-minion
+    - watch: 
+      - pkg: update-salt-official-latest
+{% endif %}   
+
+# salt require these
+salt-required-other-pkgs:
+  pkg.latest:
+    - pkgs:
+{% if pillar['salt-official-latest'] is defined %}
+      - python3-jinja2
+      - python3-yaml
+      - python3-apt
+{% else %}
+      - python-apt
+{% endif %}      
+```
+
+### Versions Report
+Source:
+```
+Salt Version:
+           Salt: 2016.11.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 8.9 
+        machine: x86_64
+        release: 4.4.35-1-pve
+         system: Linux
+        version: debian 8.9 
+```
+
+Target:
+```
+Salt Version:
+           Salt: 2018.3.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.3 (default, Jan 19 2017, 14:11:04)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.3 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.35-1-pve
+         system: Linux
+        version: debian 9.3 
+```

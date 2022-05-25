@@ -1,0 +1,106 @@
+### Description of Issue/Question
+
+`gem.installed` is not coping with mixed output (specifically the dictionaries that appear alongside strings) from `gem.list` and as a result it never recognizes that the desired gem is already installed, thus always reinstalling it and causing changes where none are needed.
+
+I am in the process of switching from `rvm` to `rbenv` and this problem was discovered during this migration.
+
+### Setup
+
+[Code in question](https://github.com/saltstack/salt/blob/develop/salt/states/gem.py#L86):
+```
+    gems = __salt__['gem.list'](name, ruby, gem_bin=gem_bin, runas=user)
+    if name in gems and version is not None and str(version) in gems[name]:
+        ret['result'] = True
+        ret['comment'] = 'Gem is already installed.'
+        return ret
+    elif name in gems and version is None:
+        ret['result'] = True
+        ret['comment'] = 'Gem is already installed.'
+        return ret
+```
+which runs against the two flavors of output below:
+
+`rbenv` system output (no strings, just a dictionary):
+```
+$ sudo salt-call --local gem.list json
+local:
+    ----------
+    json:
+        - default: 2.1.0
+```
+`rvm` system output (mix of strings and a dictionary):
+```
+$  sudo salt-call --local gem.list json
+local:
+    ----------
+    json:
+        - 1.8.6
+        - 1.8.3
+        - default: 1.8.1
+```
+
+### Steps to Reproduce Issue
+It appears that the code is only able to interpret the strings and not the dictionaries. In the `rbenv` case, there is only a dictionary so that means when running this:
+```
+# cat /srv/salt/test1.sls
+json Gem Installed:
+  gem.installed:
+    - name: json
+    - version: '2.1.0'
+```
+I always see:
+```
+[INFO    ] Executing command ['gem', 'list', 'json'] in directory '/root'
+[DEBUG   ] stdout: json (default: 2.1.0)
+[INFO    ] Executing command ['/usr/local/rbenv/bin/rbenv', 'rehash'] in directory '/root'
+[INFO    ] Executing command ['gem', 'install', 'json', '--version', '2.1.0', '--no-rdoc', '--no-ri'] in directory '/root'
+[DEBUG   ] stdout: Building native extensions. This could take a while...
+Successfully installed json-2.1.0
+1 gem installed
+```
+There should not have been any install because the current version satisfies the desired end state.
+
+### Versions Report
+```
+$ salt --versions-report
+Salt Version:
+           Salt: 2017.7.7
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: unknown
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Jul 13 2018, 13:06:57)
+   python-gnupg: 0.4.2
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.14.4.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```

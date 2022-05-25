@@ -1,0 +1,21 @@
+Hello, I think I have found a bug in `pip.installed` state.
+Sometimes you need to install python package in editable mode (for development purposes). So the typical case would be:
+1. Checkout project from VCS, e.g. with `git.latest`
+2. Make virtualenv with `virtualenv.managed`
+3. Install project in _development_ mode (`pip install -e /path/to/package`)
+
+``` yaml
+'install_package@dev':
+    pip.installed:
+        - cwd: /var/project
+        - user: vagrant
+        - activate: True
+        - editable: ['.']
+        - bin_env: /var/venv
+        - require:
+            - git: /var/project
+            - virtualenv: /var/venv
+```
+
+When I tried this state, I got an error `ValueError: ('Expected version spec in', 'install_package@dev', 'at', '@dev')`. I wondered about the error, so I dug into the code of `salt.states.pip_state`. It seems that the error was thrown by `_check_pkg_version_format` method, which was called from line 527 in `installed` method.
+As said in comment at lines 538-540, `name` and `pkgs` parameter should be ignored when using `--editable` flag but the check for that is missing at line 524. So while it's missing, `_check_pkg_version_format` is called at line 527, and that finally causes an error, because `install_package@dev` is bad input for `pip.req.InstallRequirement.from_line` method.

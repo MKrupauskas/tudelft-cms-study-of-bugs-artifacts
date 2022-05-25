@@ -1,0 +1,117 @@
+Hello !
+
+I'm currently testing the ini_manage state (and the related module) in the develop branch, and noticed some performance degradation.
+In my setup, a dry-run takes about 50s, where it used to take about 6s with the "old" (2015.08.5) version.
+## version
+
+Server:
+
+```
+Salt Version:
+           Salt: 2015.8.4
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: 0.21.1
+           Mako: 1.0.0
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: 3.5.0
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.1 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 8.1 
+```
+
+While using  ini_manage state as of eb19140cc5caaa7e6664a9a99389f958b307e5e9 and ini_manage module as of 6339d7bfd9d4e1b9fe60b8082aa26138ae9add34
+These 2 versions are in the current develop branch, and I only backported these 2 one, by placing them in _states/ and _modules/ directory of the fileserver.
+
+(If you try to reproduce, It also seems to be an unrelated issue with the ini_manage module and the way it handles non-string values, and will make a separate issue about that)
+### Run duration
+
+With 2015.0.5 ini_manage (dry run unsupported)
+
+```
+Succeeded: 194 (unchanged=4)
+Failed:      0
+--------------
+Total states run:     194
+Total run time:     8.180 s
+
+```
+
+With the "develop" ini_manage
+
+```
+Succeeded: 194
+Failed:      0
+--------------
+Total states run:     194
+Total run time:    56.227 s
+```
+## Investigation
+
+I've looked at the previous commits, and saw that ini_manage now support testing changes when test=true is specified (from commit bf95bf9e5532c0bd868eb6968eaea88cd1279e72), by doing this
+
+```
+    if __opts__['test']:
+        ret['result'] = True
+        ret['comment'] = ''
+        for section in sections or {}:
+            section_name = ' in section ' + section if section != 'DEFAULT_IMPLICIT' else ''
+            for key in sections[section]:
+                cur_value = __salt__['ini.get_option'](name, section, key)
+                if cur_value == str(sections[section][key]):
+                    ret['comment'] += 'Key {0}{1} unchanged.\n'.format(key, section_name)
+                    continue
+                ret['comment'] += 'Changed key {0}{1}.\n'.format(key, section_name)
+                ret['result'] = None
+        return ret
+
+```
+
+That's great, but it results in a large amount of `__salt__['ini.get_option']()` calls if we manage multiple ini key , which seems to be a bit slow.
+By replacing all the `__salt__['ini.get_option']()` call with a `__salt__['ini.get_section']()` loading all the section before iterating on it, my dry-run takes ~8s (instead of 56s).
+
+```
+ if __opts__['test']:
+        ret['result'] = True
+        ret['comment'] = ''
+        for section in sections or {}:
+            section_name = ' in section ' + section if section != 'DEFAULT_IMPLICIT' else ''
+            curr_section = __salt__['ini.get_section'](name, section)
+            for key in sections[section]:
+                cur_value = curr_section.get(key)
+                if cur_value == str(sections[section][key]):
+                    ret['comment'] += 'Key {0}{1} unchanged.\n'.format(key, section_name)
+                    continue
+                ret['comment'] += 'Changed key {0}{1}.\n'.format(key, section_name)
+                ret['result'] = None
+        if ret['comment'] == '':
+            ret['comment'] = 'No changes detected.'
+        return ret
+```
+
+I will continue testing, and make a PR with these changes if you guys think it's worth it.

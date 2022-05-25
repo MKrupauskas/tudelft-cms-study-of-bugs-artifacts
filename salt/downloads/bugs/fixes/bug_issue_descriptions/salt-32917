@@ -1,0 +1,134 @@
+### Description of Issue/Question
+
+I have a standalone minion that is using a pygit2-backed pillar repo. If I commit a change to the pillar data the minion will not pick it up. I have tried the standard `saltutil.pillar_refresh` to no avail. Using one of the following two workarounds do cause the new pillar data to show up but are not sustainable:
+1. Delete the /var/cache/salt/minion directory
+2. Go to the /var/cache/salt/minion/git_pillar/89bfe4b6a235f685f9c5c0e20fc2c836 (as an example) directory and do a 'git fetch' first.
+
+The first workaround is overkill. The second one is interesting though. Note that the 'git fetch' doesn't actually update the cached files, but apparently is sufficient to make salt know there is a change and update the cache on the next pillar.item call.
+
+Is it possible that the Salt git code is missing a needed 'fetch' while processing?
+
+I've struggled with similar issues with pygit2-backed pillars on the salt master but figured that the standalone minion may be a better place to troubleshoot this as there are fewer moving parts. I have a hunch this could be caused by old pygit2/libgit2 v0.20.x but there's not much I can do about that.
+### Setup
+
+my minion conf file
+
+```
+# This minion has no master (so sad)
+
+file_client: local
+
+grains:
+  roles:
+    - mom
+  platform:
+    name: salt
+    ou: kar
+    realm: prod
+
+
+######### GIT PILLARS
+
+git_pillar_env: base
+git_pillar_branch: master
+git_pillar_provider: pygit2
+git_pillar_privkey: /etc/salt/pki/gitfs/global.key
+git_pillar_pubkey: /etc/salt/pki/gitfs/global.pub
+
+ext_pillar:
+  - git:
+    - master git@github.mycompany.com:KAR/linux-pillar.git:
+      - env: base
+    - master git@github.mycompany.com:brad-thurber/salt-mom-pillar.git:
+      - env: base
+
+######## GITFS FORMULAS
+
+fileserver_backend:
+  - git
+  - roots
+
+gitfs_provider: pygit2
+
+gitfs_privkey: /etc/salt/pki/gitfs/global.key
+gitfs_pubkey: /etc/salt/pki/gitfs/global.pub
+
+gitfs_remotes:
+  - git@github.mycompany.com:KAR/linux-formula.git:
+    - base: 'master'
+  - git@github.mycompany.com:KAR/ntp-tcpcloud-formula.git:
+    - base: 'master'
+  - git@github.mycompany.com:brad-thurber/mom-top-formula.git:
+    - base: 'master'
+  - git@github.mycompany.com:KAR/pkg-formula.git:
+    - base: 'master'
+  - git@github.mycompany.com:KAR/rhel-formula.git:
+    - base: 'master'
+# TODO: put this back once salt-formula is merged in
+#  - git@github.mycompany.com:KAR/salt-formula.git:
+#    - base: 'master'
+  - git@github.mycompany.com:brad-thurber/salt-formula.git:
+    - base: 'gitfs-minion-functionality'
+  - git@github.mycompany.com:KAR/selinux-formula.git:
+    - base: 'master'
+  - git@github.mycompany.com:KAR/sudoers-formula.git:
+    - base: 'master'
+  - git@github.mycompany.com:KAR/sysctl-formula.git:
+    - base: 'master'
+  - git@github.mycompany.com:KAR/vistara-formula.git:
+    - base: 'master'
+```
+
+This is the repo I'm having trouble with but I don't think it is repo-specific
+
+```
+    - master git@github.mycompany.com:brad-thurber/salt-mom-pillar.git:
+      - env: base
+```
+### Steps to Reproduce Issue
+1. setup pygit2-backed pillar on a standalone minion
+2. change the pillar data
+3. do a `salt-call saltutil.pillar_refresh`
+4. do a `salt-call pillar.item salt` (this is pillar data for the salt-formula in my case)
+5. notice that the pillar data has not changed
+### Versions Report
+
+```
+[root@p-saltmom-101 minion] salt --versions-report
+Salt Version:
+           Salt: 2015.8.8
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: 0.20.2
+           Mako: 0.3.4
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+         Python: 2.6.6 (r266:84292, May 22 2015, 08:34:51)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.4.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: 0.20.0
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: 0.20.3
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: redhat 6.7 Santiago
+        machine: x86_64
+        release: 2.6.32-573.22.1.el6.x86_64
+         system: Red Hat Enterprise Linux Server 6.7 Santiago
+```

@@ -1,0 +1,15 @@
+It appears the minions don't refresh the AES key when the master is restarted until a job is sent to them over the bus.  This is easily reproducible for us on 2015.8.1 (minions and masters).  I've tested with ping_on_rotate true and false with no change.
+
+After a restart we see massive spam in the master logs:
+
+```
+[salt.transport.zeromq][ERROR   ][5113] Bad load from minion
+```
+
+I went ahead and added the payload to the log line to get a quick capture of what it was, and it appears to be a valid payload, I'm guessing it's just using the old key:
+
+```
+[salt.transport.zeromq][ERROR   ][29352] Bad load from minion {'load': '7y\xaa\[..snip..]\xd2D', 'enc': 'aes'}
+```
+
+If we run a salt '*' test.ping, the Bad load errors immediately cease.  I haven't dug in past this, as I wanted to see if anyone else had run into similar or there were known bugs.  It appears the ping_on_rotate process isn't applying here as it's actually a full master restart, and we don't see the errors during the daily or key removal rotation, so I believe that process is fine.  Along with fixing the bug that's not triggering the AES rotation as the minions talk to the master after a restart, does a ping_on_start option make sense to compliment?

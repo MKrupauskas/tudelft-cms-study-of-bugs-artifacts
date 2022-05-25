@@ -1,0 +1,75 @@
+### Description of Issue/Question
+
+`salt/modules/linux_sysctl.py` tries to be smart in `persist()` and replaces spaces by tabs:
+```python
+        # On Linux procfs, files such as /proc/sys/net/ipv4/tcp_rmem or any
+        # other sysctl with whitespace in it consistently uses 1 tab.  Lets
+        # allow our users to put a space or tab between multi-value sysctls
+        # and have salt not try to set it every single time.
+        if isinstance(comps[1], string_types) and ' ' in comps[1]:
+            comps[1] = re.sub(r'\s+', '\t', comps[1])
+
+        # Do the same thing for the value 'just in case'
+        if isinstance(value, string_types) and ' ' in value:
+            value = re.sub(r'\s+', '\t', value)
+```
+
+This behavior exists since at least salt 0.11. Sadly following state:
+```yaml
+kernel-core-pattern:
+    sysctl.present:
+        - config: /etc/sysctl.d/50-dump-core.conf
+        - name: kernel.core_pattern
+        - value: "|/usr/share/kdump-tools/dump-core %p %s %t %e"
+```
+leads to following setting:
+```shell
+$ hd /proc/sys/kernel/core_pattern 
+00000000  7c 2f 75 73 72 2f 73 68  61 72 65 2f 6b 64 75 6d  ||/usr/share/kdum|
+00000010  70 2d 74 6f 6f 6c 73 2f  64 75 6d 70 2d 63 6f 72  |p-tools/dump-cor|
+00000020  65 09 25 70 09 25 73 09  25 74 09 25 65 0a        |e.%p.%s.%t.%e.|
+0000002e
+```
+There is a difference between tabs and spaces for this setting!
+
+### Versions Report
+```bash
+$ salt-call --versions-report
+Salt Version:
+           Salt: 2016.11.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 8.7 
+        machine: x86_64
+        release: 4.4.36-2-pserver
+         system: Linux
+        version: debian 8.7 
+```

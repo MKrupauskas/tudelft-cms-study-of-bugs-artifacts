@@ -1,0 +1,110 @@
+salt-call --versions-report
+
+```
+           Salt: 2014.1.10
+         Python: 2.7.3 (default, Dec 18 2014, 19:10:20)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.11
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```
+
+I wrote a function in tls module to revoke a certificate:
+
+```
+    with salt.utils.fopen(index_file) as f:
+        for line in f:
+            if index_r_data_pattern.match(line):
+                revoke_date = line.split('\t')[2]
+                try:
+                    datetime.strptime(revoke_date, two_digit_year_fmt)
+                    return ('"{0}/{1}.crt" was already revoked, '
+                            'serial number: {2}').format(
+                                    cert_dir,
+                                    cert_filename,
+                                    serial_number
+                                    )
+                except ValueError:
+                    raise ValueError ("Revocation date '{0}' does not match"
+                                     " format '{1}'".format(
+                                             revoke_date,
+                                             two_digit_year_fmt))
+```
+
+By calling this function directly, it worked as expected:
+
+salt-call tls.revoke_cert ...
+
+```
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+ValueError: Revocation date '150255123016Z' does not matchformat '%y%m%d%H%M%SZ'
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/pymodules/python2.7/salt/scripts.py", line 82, in salt_call
+    client.run()
+  File "/usr/lib/pymodules/python2.7/salt/cli/__init__.py", line 319, in run
+    caller.run()
+  File "/usr/lib/pymodules/python2.7/salt/cli/caller.py", line 144, in run
+    ret = self.call()
+  File "/usr/lib/pymodules/python2.7/salt/cli/caller.py", line 81, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/var/cache/salt/minion/extmods/modules/tls.py", line 849, in revoke_cert
+    two_digit_year_fmt))
+ValueError: Revocation date '150255123016Z' does not match format '%y%m%d%H%M%SZ'
+```
+
+but it did not show up when using `salt-call state.sls ...`:
+
+```
+----------
+          ID: openvpn_revoke_client_cert_quanta
+    Function: module.run
+        Name: tls.revoke_cert
+      Result: False
+     Comment: Module function tls.revoke_cert threw an exception
+     Changes:
+----------
+          ID: openvpn-devops
+    Function: service.running
+      Result: False
+     Comment: One or more requisite failed
+     Changes:
+```
+
+By reading the `module.py` state, I can make it shown in the Changes:
+
+```
+                except ValueError:
+                    ret['retcode'] = 1
+                    ret['comment'] = ("Revocation date '{0}' does not match"
+                                     " format '{1}'").format(
+                                             revoke_date,
+                                             two_digit_year_fmt)
+                    return ret
+```
+
+```
+----------
+          ID: openvpn_revoke_client_cert_quanta
+    Function: module.run
+        Name: tls.revoke_cert
+      Result: False
+     Comment: Module function tls.revoke_cert executed
+     Changes:
+              ----------
+              ret:
+                  ----------
+                  comment:
+                      Revocation date '150255123016Z' does not match format '%y%m%d%H%M%SZ'
+                  retcode:
+                      1
+```
+
+But I'm not satisfy with it (IMO, it should be in Comment, not Changes).
+
+So, my question is: how can I make an exception from a module was shown in Comments when using `salt-call state.sls ...`?

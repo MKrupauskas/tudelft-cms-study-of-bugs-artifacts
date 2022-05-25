@@ -1,0 +1,48 @@
+A saltmaster running with an apache-configured cherrypy_rest-api might break if the user/root has the "wrong" umask set. In my case that was '0026'.
+
+The saltmaster is running and requests to the cherrypy-api are executed successfully. The master pings the minion and the minion returns 'true' to the master (thats in the logs). Its just the apache that keeps returning a 500 error without any error message in the logs (even in debug). The missing error message is due to
+
+/usr/share/pyshared/salt/netapi/rest_cherrypy/app.py
+
+not having a console-logger configured. If im not mistaken, WSGI only forwards errors on stderr to the error-log? Anyway, i _think_ thats the problem, because thats how i finally managed to see an error in apaches error_log.
+
+``` python
+ 215 from salt.log import setup_console_logger
+ 216 logger = logging.getLogger(__name__)
+ 217 setup_console_logger(log_level='debug')
+```
+
+After restarting apache+master and sending curl-request, i finally got the error message:
+
+``` bash
+[Wed Oct 21 11:55:08.570257 2015] [wsgi:error] [pid 23196:tid 140531673794304] [DEBUG   ] Error while processing request for: /run
+[Wed Oct 21 11:55:08.570283 2015] [wsgi:error] [pid 23196:tid 140531673794304] Traceback (most recent call last):
+[Wed Oct 21 11:55:08.570285 2015] [wsgi:error] [pid 23196:tid 140531673794304]   File "/usr/lib/pymodules/python2.7/salt/netapi/rest_cherrypy/app.py", line 350, in hypermedia_handler
+[Wed Oct 21 11:55:08.570288 2015] [wsgi:error] [pid 23196:tid 140531673794304]     ret = cherrypy.serving.request._hypermedia_inner_handler(*args, **kwargs)
+[Wed Oct 21 11:55:08.570290 2015] [wsgi:error] [pid 23196:tid 140531673794304]   File "/usr/lib/python2.7/dist-packages/cherrypy/_cpdispatch.py", line 61, in __call__
+[Wed Oct 21 11:55:08.570291 2015] [wsgi:error] [pid 23196:tid 140531673794304]     return self.callable(*self.args, **self.kwargs)
+[Wed Oct 21 11:55:08.570293 2015] [wsgi:error] [pid 23196:tid 140531673794304]   File "/usr/lib/pymodules/python2.7/salt/netapi/rest_cherrypy/app.py", line 1389, in POST
+[Wed Oct 21 11:55:08.570295 2015] [wsgi:error] [pid 23196:tid 140531673794304]     'return': list(self.exec_lowstate()),
+[Wed Oct 21 11:55:08.570297 2015] [wsgi:error] [pid 23196:tid 140531673794304]   File "/usr/lib/pymodules/python2.7/salt/netapi/rest_cherrypy/app.py", line 607, in exec_lowstate
+[Wed Oct 21 11:55:08.570299 2015] [wsgi:error] [pid 23196:tid 140531673794304]     ret = self.api.run(chunk)
+[Wed Oct 21 11:55:08.570300 2015] [wsgi:error] [pid 23196:tid 140531673794304]   File "/usr/lib/pymodules/python2.7/salt/netapi/__init__.py", line 47, in run
+[Wed Oct 21 11:55:08.570302 2015] [wsgi:error] [pid 23196:tid 140531673794304]     ret = l_fun(*f_call.get('args', ()), **f_call.get('kwargs', {}))
+[Wed Oct 21 11:55:08.570304 2015] [wsgi:error] [pid 23196:tid 140531673794304]   File "/usr/lib/pymodules/python2.7/salt/netapi/__init__.py", line 70, in local
+[Wed Oct 21 11:55:08.570306 2015] [wsgi:error] [pid 23196:tid 140531673794304]     return local.cmd(*args, **kwargs)
+[Wed Oct 21 11:55:08.570320 2015] [wsgi:error] [pid 23196:tid 140531673794304]   File "/usr/lib/pymodules/python2.7/salt/client/__init__.py", line 534, in cmd
+[Wed Oct 21 11:55:08.570322 2015] [wsgi:error] [pid 23196:tid 140531673794304]     **kwargs):
+[Wed Oct 21 11:55:08.570324 2015] [wsgi:error] [pid 23196:tid 140531673794304]   File "/usr/lib/pymodules/python2.7/salt/client/__init__.py", line 1211, in get_cli_event_returns
+[Wed Oct 21 11:55:08.570326 2015] [wsgi:error] [pid 23196:tid 140531673794304]     expect_minions=(verbose or show_timeout)
+[Wed Oct 21 11:55:08.570327 2015] [wsgi:error] [pid 23196:tid 140531673794304]   File "/usr/lib/pymodules/python2.7/salt/client/__init__.py", line 844, in get_iter_returns
+[Wed Oct 21 11:55:08.570329 2015] [wsgi:error] [pid 23196:tid 140531673794304]     if not self.returners['{0}.get_load'.format(self.opts['master_job_cache'])](jid) != {}:
+[Wed Oct 21 11:55:08.570331 2015] [wsgi:error] [pid 23196:tid 140531673794304]   File "/usr/lib/pymodules/python2.7/salt/returners/local_cache.py", line 227, in get_load
+[Wed Oct 21 11:55:08.570333 2015] [wsgi:error] [pid 23196:tid 140531673794304]     ret = serial.load(salt.utils.fopen(os.path.join(jid_dir, LOAD_P), 'rb'))
+[Wed Oct 21 11:55:08.570335 2015] [wsgi:error] [pid 23196:tid 140531673794304]   File "/usr/lib/pymodules/python2.7/salt/utils/__init__.py", line 1110, in fopen
+[Wed Oct 21 11:55:08.570336 2015] [wsgi:error] [pid 23196:tid 140531673794304]     fhandle = open(*args, **kwargs)
+[Wed Oct 21 11:55:08.570338 2015] [wsgi:error] [pid 23196:tid 140531673794304] IOError: [Errno 13] Permission denied: '/var/cache/salt/master/jobs/45/ad092f4d2b72902cd78b80dccc0f76/.load.p'
+[Wed Oct 21 11:55:08.571285 2015] [wsgi:error] [pid 23196:tid 140531673794304] [INFO    ] 172.16.0.13 - - [21/Oct/2015:11:55:08] "POST /run HTTP/1.1" 500 49 "" "curl/7.38.0"
+```
+
+A "permission denied" on a file the master created itself seemed really weird and led me to roots .bashrc where the umask was set to 0026 instead of the (debian-)default 0022. If root (re)starts the saltmaster with a "wrong" umask, the master inherits the umask and breaks.
+
+Not many people will trip over this, but i think the required umask should be mentioned in the docs somewhere. This is sort of related to #10418 with umasks being scattered all over the place :-)

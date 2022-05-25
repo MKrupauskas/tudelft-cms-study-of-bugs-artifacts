@@ -1,0 +1,111 @@
+### Description of Issue/Question
+
+```
+----------
+          ID: /var/db/predefined_crypto/x509/vpn/client/meanmachine2.crt
+    Function: x509.certificate_managed
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/local/lib/python2.7/site-packages/salt/state.py", line 1746, in call
+                  **cdata['kwargs'])
+                File "/usr/local/lib/python2.7/site-packages/salt/loader.py", line 1703, in wrap
+per
+                  return f(*args, **kwargs)
+                File "/usr/local/lib/python2.7/site-packages/salt/states/x509.py", line 464, in 
+certificate_managed
+                  current = __salt__['x509.read_certificate'](certificate=name)
+                File "/usr/local/lib/python2.7/site-packages/salt/modules/x509.py", line 549, in
+ read_certificate
+                  'Subject': _parse_subject(cert.get_subject()),
+                File "/usr/local/lib/python2.7/site-packages/salt/modules/x509.py", line 333, in
+ _parse_subject
+                  val = getattr(subject, nid_name)
+                File "/usr/local/lib/python2.7/site-packages/M2Crypto/X509.py", line 320, in __g
+etattr__
+                  return util.py3str(m2.x509_name_by_nid(self.x509_name, self.nid[attr]))
+                File "/usr/local/lib/python2.7/site-packages/M2Crypto/util.py", line 66, in py3s
+tr
+                  raise TypeError('No string argument provided')
+              TypeError: No string argument provided
+     Started: 15:14:15.821837
+    Duration: 1.387 ms
+     Changes:
+```
+
+Fails with M2Crypto 0.26.0.
+Works with M2Crypto 0.25.1.
+
+I narrowed the failure down to `m2.x509_name_by_nid(self.x509_name, self.nid[attr])` (in `M2Crypto/X509.py`) returning `None`, but I've obviously got no idea why. :-)
+
+Tested on FreeBSD 10.3.
+
+### Setup
+
+```
+# -- certs.sls
+
+/path/to/HOST.key
+  x509.private_key_managed:
+    - bits: 4096
+
+/path/to/HOST.crt
+  x509.certificate_managed:
+    - ca_server: FQDN
+    - signing_policy: mypol
+    - public_key: /path/to/HOST.key
+    - CN: {{ grains['fqdn'] }}
+    - days_remaining: 15
+    - backup: True
+```
+
+```
+pip install M2Crypto==0.26.0
+```
+
+### Steps to Reproduce Issue
+
+```
+salt 'HOST' state.highstate
+```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.11.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.26.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: 1.2.5
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Jan  3 2017, 01:35:50)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.1.5
+
+System Versions:
+           dist:
+        machine: amd64
+        release: 10.3-RELEASE-p11
+         system: FreeBSD
+        version: Not Installed
+```

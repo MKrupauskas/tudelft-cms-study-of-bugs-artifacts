@@ -1,0 +1,470 @@
+### Description of Issue/Question
+Error with one of the task creation examples in the [documentation for salt.states.module](https://docs.saltstack.com/en/latest/ref/states/all/salt.states.module.html) when using the new module.run. A task is created, but it also causes an error.
+
+```
+Passed invalid arguments to state.apply: can't serialize dict_keys(['task.create_task'])
+```
+
+Similar happens when trying to use module.run to create a windows service
+
+See also: [module.run documentation example causes YAML parsing error](https://groups.google.com/forum/#!topic/salt-users/7CrAUdCsI4s)
+
+And on a side note, multiple examples for state.module.run are missing a leading hyphen in front of the module name. Leaving it out causes a YAML parsing error. 
+
+### Setup
+#### Minion config
+```
+use_superseded:
+  - module.run
+```
+
+#### @saltstack:/srv/salt$ sudo vi moduleruntest.sls
+```
+eventsviewer:
+  module.run:
+    - task.create_task:
+      - name: events-viewer
+      - user_name: System
+      - action_type: Execute
+      - cmd: 'c:\netops\scripts\events_viewer.bat'
+      - trigger_type: 'Daily'
+      - start_date: '2017-1-20'
+      - start_time: '11:59PM'
+#NOTE: There is one modification here compared to the documented version. 
+#  The documentation doesn't include a hyphen, in front of task.create_task. 
+#  Leaving it out results in a YAML parsing error. 
+#  Respondents on both #salt irc and the salt-user group directed me to add it. 
+```
+
+### Steps to Reproduce Issue
+
+1. Create the state file
+2. Add the use_superseded directive to the minion config
+3. Run state.apply
+
+### Output
+
+#### Debug Output on Minion
+
+```
+[DEBUG   ] In saltenv 'base', looking at rel_path 'moduleruntest.sls' to resolve 'salt://moduleruntest.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path 'c:\salt\var\cache\salt\minion\files\base\moduleruntest.sls' to resolve 'salt://moduleruntest.sls'
+[DEBUG   ] Fetching file from saltenv 'base', ** attempting ** 'salt://moduleruntest.sls'
+[DEBUG   ] No dest file found
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'moduleruntest.sls'
+[DEBUG   ] compile template: c:\salt\var\cache\salt\minion\files\base\moduleruntest.sls
+[DEBUG   ] Jinja search path: ['c:\\salt\\var\\cache\\salt\\minion\\files\\base']
+[PROFILE ] Time (in seconds) to render 'c:\salt\var\cache\salt\minion\files\base\moduleruntest.sls' using 'jinja' renderer: 0.015621662139892578
+[DEBUG   ] Rendered data from file: c:\salt\var\cache\salt\minion\files\base\moduleruntest.sls:
+eventsviewer:
+  module.run:
+    - task.create_task:
+      - name: events-viewer
+      - user_name: System
+      - action_type: Execute
+      - cmd: 'c:\netops\scripts\events_viewer.bat'
+      - trigger_type: 'Daily'
+      - start_date: '2017-1-20'
+      - start_time: '11:59PM'
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('eventsviewer', OrderedDict([('module.run', [OrderedDict([('task.create_task', [OrderedDict([('name', 'events-viewer')]), OrderedDict([('user_name', 'System')]), Orde
+redDict([('action_type', 'Execute')]), OrderedDict([('cmd', 'c:\\netops\\scripts\\events_viewer.bat')]), OrderedDict([('trigger_type', 'Daily')]), OrderedDict([('start_date', '2017
+-1-20')]), OrderedDict([('start_time', '11:59PM')])])])])]))])
+[PROFILE ] Time (in seconds) to render 'c:\salt\var\cache\salt\minion\files\base\moduleruntest.sls' using 'yaml' renderer: 0.01560664176940918
+[DEBUG   ] LazyLoaded module.run
+[INFO    ] Running state [eventsviewer] at time 08:15:36.866735
+[INFO    ] Executing state module.run for [eventsviewer]
+[DEBUG   ] LazyLoaded task.create_task
+[INFO    ] {'task.create_task': True}
+[INFO    ] Completed state [eventsviewer] at time 08:15:36.976113 duration_in_ms=109.378
+[DEBUG   ] File c:\salt\var\cache\salt\minion\accumulator\17882563416 does not exist, no need to cleanup.
+[DEBUG   ] LazyLoaded config.option
+[DEBUG   ] LazyLoaded cmd.run
+[INFO    ] Executing command ['attrib', '-R', 'c:\\salt\\var\\cache\\salt\\minion\\sls.p'] in directory 'C:\Users\cruscio'
+[DEBUG   ] output:
+[WARNING ] Passed invalid arguments to state.apply: can't serialize dict_keys(['task.create_task'])
+
+    .. versionadded:: 2015.5.0
+
+    This function will call :mod:`state.highstate
+    <salt.modules.state.highstate>` or :mod:`state.sls
+    <salt.modules.state.sls>` based on the arguments passed to this function.
+    It exists as a more intuitive way of applying states.
+
+    .. rubric:: APPLYING ALL STATES CONFIGURED IN TOP.SLS (A.K.A. :ref:`HIGHSTATE <running-highstate>`)
+
+    To apply all configured states, simply run ``state.apply``:
+
+    .. code-block:: bash
+
+        salt '*' state.apply
+
+    The following additional arguments are also accepted when applying all
+    states configured in top.sls:
+
+    test
+        Run states in test-only (dry-run) mode
+
+    pillar
+        Custom Pillar values, passed as a dictionary of key-value pairs
+
+        .. code-block:: bash
+
+            salt '*' state.apply test pillar='{"foo": "bar"}'
+
+        .. note::
+            Values passed this way will override Pillar values set via
+            ``pillar_roots`` or an external Pillar source.
+
+    queue : False
+        Instead of failing immediately when another state run is in progress,
+        queue the new state run to begin running once the other has finished.
+
+        This option starts a new thread for each queued state run, so use this
+        option sparingly.
+
+    localconfig
+        Optionally, instead of using the minion config, load minion opts from
+        the file specified by this argument, and then merge them with the
+        options from the minion config. This functionality allows for specific
+        states to be run with their own custom minion configuration, including
+        different pillars, file_roots, etc.
+
+        .. code-block:: bash
+
+            salt '*' state.apply localconfig=/path/to/minion.yml
+
+
+    .. rubric:: APPLYING INDIVIDUAL SLS FILES (A.K.A. :py:func:`STATE.SLS <salt.modules.state.sls>`)
+
+    To apply individual SLS files, pass them as a comma-separated list:
+
+    .. code-block:: bash
+
+        # Run the states configured in salt://test.sls (or salt://test/init.sls)
+        salt '*' state.apply test
+        # Run the states configured in salt://test.sls (or salt://test/init.sls)
+        # and salt://pkgs.sls (or salt://pkgs/init.sls).
+        salt '*' state.apply test,pkgs
+
+    The following additional arguments are also accepted when applying
+    individual SLS files:
+
+    test
+        Run states in test-only (dry-run) mode
+
+    pillar
+        Custom Pillar values, passed as a dictionary of key-value pairs
+
+        .. code-block:: bash
+
+            salt '*' state.apply test pillar='{"foo": "bar"}'
+
+        .. note::
+            Values passed this way will override Pillar values set via
+            ``pillar_roots`` or an external Pillar source.
+
+    queue : False
+        Instead of failing immediately when another state run is in progress,
+        queue the new state run to begin running once the other has finished.
+
+        This option starts a new thread for each queued state run, so use this
+        option sparingly.
+
+    concurrent : False
+        Execute state runs concurrently instead of serially
+
+        .. warning::
+
+            This flag is potentially dangerous. It is designed for use when
+            multiple state runs can safely be run at the same time. Do *not*
+            use this flag for performance optimization.
+
+    saltenv
+        Specify a salt fileserver environment to be used when applying states
+
+        .. versionchanged:: 0.17.0
+            Argument name changed from ``env`` to ``saltenv``
+
+        .. versionchanged:: 2014.7.0
+            If no saltenv is specified, the minion config will be checked for an
+            ``environment`` parameter and if found, it will be used. If none is
+            found, ``base`` will be used. In prior releases, the minion config
+            was not checked and ``base`` would always be assumed when the
+            saltenv was not explicitly set.
+
+    pillarenv
+        Specify a Pillar environment to be used when applying states. This
+        can also be set in the minion config file using the
+        :conf_minion:`pillarenv` option. When neither the
+        :conf_minion:`pillarenv` minion config option nor this CLI argument is
+        used, all Pillar environments will be merged together.
+
+    localconfig
+        Optionally, instead of using the minion config, load minion opts from
+        the file specified by this argument, and then merge them with the
+        options from the minion config. This functionality allows for specific
+        states to be run with their own custom minion configuration, including
+        different pillars, file_roots, etc.
+
+        .. code-block:: bash
+
+            salt '*' state.apply test localconfig=/path/to/minion.yml
+
+Traceback (most recent call last):
+  File "c:\salt\bin\lib\site-packages\salt\minion.py", line 1468, in _thread_return
+    return_data = executor.execute()
+  File "c:\salt\bin\lib\site-packages\salt\executors\direct_call.py", line 28, in execute
+    return self.func(*self.args, **self.kwargs)
+  File "c:\salt\bin\lib\site-packages\salt\modules\state.py", line 592, in apply_
+    return sls(mods, **kwargs)
+  File "c:\salt\bin\lib\site-packages\salt\modules\state.py", line 1121, in sls
+    serial.dump(ret, fp_)
+  File "c:\salt\bin\lib\site-packages\salt\payload.py", line 304, in dump
+    fn_.write(self.dumps(msg, use_bin_type=True))
+  File "c:\salt\bin\lib\site-packages\salt\payload.py", line 181, in dumps
+    return msgpack.dumps(msg, use_bin_type=use_bin_type)
+  File "c:\salt\bin\lib\site-packages\msgpack\__init__.py", line 47, in packb
+    return Packer(**kwargs).pack(o)
+  File "msgpack\_packer.pyx", line 231, in msgpack._packer.Packer.pack (msgpack/_packer.cpp:3661)
+  File "msgpack\_packer.pyx", line 233, in msgpack._packer.Packer.pack (msgpack/_packer.cpp:3503)
+  File "msgpack\_packer.pyx", line 192, in msgpack._packer.Packer._pack (msgpack/_packer.cpp:2657)
+  File "msgpack\_packer.pyx", line 192, in msgpack._packer.Packer._pack (msgpack/_packer.cpp:2657)
+  File "msgpack\_packer.pyx", line 228, in msgpack._packer.Packer._pack (msgpack/_packer.cpp:3382)
+TypeError: can't serialize dict_keys(['task.create_task'])
+[DEBUG   ] Minion return retry timer set to 7 seconds (randomized)
+[INFO    ] Returning information for job: 20170919121529085103
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('c:\\salt\\conf\\pki\\minion', 'SUP00000290', 'tcp://x.x.x.x:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('c:\\salt\\conf\\pki\\minion', 'SUP00000290', 'tcp://x.x.x.x:4506')
+```
+
+
+#### Return Message on Master
+```
+saltstack:~$ sudo salt SUP00000290 state.apply moduleruntest
+SUP00000290:
+    Passed invalid arguments to state.apply: can't serialize dict_keys(['task.create_task'])
+
+        .. versionadded:: 2015.5.0
+
+        This function will call :mod:`state.highstate
+        <salt.modules.state.highstate>` or :mod:`state.sls
+        <salt.modules.state.sls>` based on the arguments passed to this function.
+        It exists as a more intuitive way of applying states.
+
+        .. rubric:: APPLYING ALL STATES CONFIGURED IN TOP.SLS (A.K.A. :ref:`HIGHSTATE <running-highstate>`)
+
+        To apply all configured states, simply run ``state.apply``:
+
+        .. code-block:: bash
+
+            salt '*' state.apply
+
+        The following additional arguments are also accepted when applying all
+        states configured in top.sls:
+
+        test
+            Run states in test-only (dry-run) mode
+
+        pillar
+            Custom Pillar values, passed as a dictionary of key-value pairs
+
+            .. code-block:: bash
+
+                salt '*' state.apply test pillar='{"foo": "bar"}'
+
+            .. note::
+                Values passed this way will override Pillar values set via
+                ``pillar_roots`` or an external Pillar source.
+
+        queue : False
+            Instead of failing immediately when another state run is in progress,
+            queue the new state run to begin running once the other has finished.
+
+            This option starts a new thread for each queued state run, so use this
+            option sparingly.
+
+        localconfig
+            Optionally, instead of using the minion config, load minion opts from
+            the file specified by this argument, and then merge them with the
+            options from the minion config. This functionality allows for specific
+            states to be run with their own custom minion configuration, including
+            different pillars, file_roots, etc.
+
+            .. code-block:: bash
+
+                salt '*' state.apply localconfig=/path/to/minion.yml
+
+
+
+       .. rubric:: APPLYING INDIVIDUAL SLS FILES (A.K.A. :py:func:`STATE.SLS <salt.modules.state.sls>`)
+
+        To apply individual SLS files, pass them as a comma-separated list:
+
+        .. code-block:: bash
+
+            # Run the states configured in salt://test.sls (or salt://test/init.sls)
+            salt '*' state.apply test
+            # Run the states configured in salt://test.sls (or salt://test/init.sls)
+            # and salt://pkgs.sls (or salt://pkgs/init.sls).
+            salt '*' state.apply test,pkgs
+
+        The following additional arguments are also accepted when applying
+        individual SLS files:
+
+        test
+            Run states in test-only (dry-run) mode
+
+        pillar
+            Custom Pillar values, passed as a dictionary of key-value pairs
+
+            .. code-block:: bash
+
+                salt '*' state.apply test pillar='{"foo": "bar"}'
+
+            .. note::
+                Values passed this way will override Pillar values set via
+                ``pillar_roots`` or an external Pillar source.
+
+        queue : False
+            Instead of failing immediately when another state run is in progress,
+            queue the new state run to begin running once the other has finished.
+
+            This option starts a new thread for each queued state run, so use this
+            option sparingly.
+
+        concurrent : False
+            Execute state runs concurrently instead of serially
+
+            .. warning::
+
+                This flag is potentially dangerous. It is designed for use when
+                multiple state runs can safely be run at the same time. Do *not*
+                use this flag for performance optimization.
+
+        saltenv
+            Specify a salt fileserver environment to be used when applying states
+
+            .. versionchanged:: 0.17.0
+                Argument name changed from ``env`` to ``saltenv``
+
+            .. versionchanged:: 2014.7.0
+                If no saltenv is specified, the minion config will be checked for an
+                ``environment`` parameter and if found, it will be used. If none is
+                found, ``base`` will be used. In prior releases, the minion config
+                was not checked and ``base`` would always be assumed when the
+                saltenv was not explicitly set.
+
+        pillarenv
+            Specify a Pillar environment to be used when applying states. This
+            can also be set in the minion config file using the
+            :conf_minion:`pillarenv` option. When neither the
+            :conf_minion:`pillarenv` minion config option nor this CLI argument is
+            used, all Pillar environments will be merged together.
+
+        localconfig
+            Optionally, instead of using the minion config, load minion opts from
+            the file specified by this argument, and then merge them with the
+            options from the minion config. This functionality allows for specific
+            states to be run with their own custom minion configuration, including
+            different pillars, file_roots, etc.
+
+            .. code-block:: bash
+
+                salt '*' state.apply test localconfig=/path/to/minion.yml
+saltstack:~$ 
+```
+
+### Versions Report
+
+#### Salt Master --Versions-Report
+
+```
+Salt Version:
+           Salt: 2017.7.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.5.0
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-91-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```
+
+#### Salt Minion --Versions-Report
+
+```
+Salt Version:
+           Salt: 2017.7.1
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 10.2.1
+       dateutil: 2.6.0
+      docker-py: Not Installed
+          gitdb: 2.0.2
+      gitpython: 2.1.3
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.6
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.3 (v3.5.3:1880cb95a742, Jan 16 2017, 16:02:32) [MSC v.1900 64 bit (AMD64)]
+   python-gnupg: 0.4.0
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: 0.2.4
+        Tornado: 4.5.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+         locale: cp1252
+        machine: AMD64
+        release: 2012ServerR2
+         system: Windows
+        version: 2012ServerR2 6.3.9600 SP0 Multiprocessor Free
+```
+

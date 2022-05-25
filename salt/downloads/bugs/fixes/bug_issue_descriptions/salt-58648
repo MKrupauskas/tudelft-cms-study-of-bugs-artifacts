@@ -1,0 +1,143 @@
+**Description**
+When running `pkgrepo.managed` (on CentOS 7, at least) for the second time it will report changes, although there shouldn't be any because the first run created the file.
+
+**Setup**
+On CentOS 7 (and possibly other yum systems) create SLS file with the example from the documentation:
+```
+foo:
+  pkgrepo.managed:
+    - humanname: Personal repo for foo
+    - baseurl: https://mydomain.tld/repo/foo/$releasever/$basearch
+    - gpgkey: file:///etc/pki/rpm-gpg/foo-signing-key
+    - gpgcheck: 1
+```
+
+**Steps to Reproduce the behavior**
+Run it:
+```
+# salt vdave-barman-01.xdc state.apply test
+vdave-barman-01.xdc:
+----------
+          ID: foo
+    Function: pkgrepo.managed
+      Result: True
+     Comment: Configured package repo 'foo'
+     Started: 08:58:16.328717
+    Duration: 1436.373 ms
+     Changes:   
+              ----------
+              repo:
+                  foo
+
+Summary for vdave-barman-01.xdc
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   1.436 s
+```
+
+The file was created on the server:
+```
+# ls -l /etc/yum.repos.d/foo.repo 
+-rw-r--r-- 1 root root 162 Oct  6 08:58 /etc/yum.repos.d/foo.repo
+# cat /etc/yum.repos.d/foo.repo
+[foo]
+baseurl=https://mydomain.tld/repo/foo/$releasever/$basearch
+gpgkey=file:///etc/pki/rpm-gpg/foo-signing-key
+gpgcheck=1
+name=Personal repo for foo
+enabled=1
+
+```
+
+If I run the state again, I get changes:
+```
+# salt vdave-barman-01.xdc state.apply test
+vdave-barman-01.xdc:
+----------
+          ID: foo
+    Function: pkgrepo.managed
+      Result: True
+     Comment: Configured package repo 'foo'
+     Started: 11:19:48.688753
+    Duration: 1361.317 ms
+     Changes:   
+              ----------
+              repo:
+                  foo
+
+Summary for vdave-barman-01.xdc
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   1.361 s
+```
+The file has been overwritten:
+```
+# ls -l /etc/yum.repos.d/foo.repo  
+-rw-r--r-- 1 root root 162 Oct  6 11:19 /etc/yum.repos.d/foo.repo
+```
+And the contents are exactly the same (not shown here again).
+
+The third run and all subsequent runs would produce the same result.
+
+
+**Expected behavior**
+There shouldn't have been changes in the second run and the file should not have been overwritten.
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+# salt-minion --versions-report
+Salt Version:
+           Salt: 3001.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.1
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Apr  2 2020, 13:34:55)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7 Core
+         locale: ISO-8859-2
+        machine: x86_64
+        release: 3.10.0-1127.18.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7 Core
+ 
+```
+</details>
+
+**Additional context**
+Add any other context about the problem here.

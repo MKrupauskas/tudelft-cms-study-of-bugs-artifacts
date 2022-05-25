@@ -1,0 +1,115 @@
+Per @nmadhok, continued from #23313:
+
+[Getting Started With VMware](http://docs.saltstack.com/en/latest/topics/cloud/vmware.html#profiles) has an example profile with hardcoded IP addresses in a deeply nested key.
+
+Sample profile:
+
+``` yaml
+vmware-rhel:
+  provider: example-vmware
+  clonefrom: rhel6.5_template
+
+  ## Optional arguments
+  num_cpus: 2
+  memory: 1024
+  devices:
+    disk:
+      Hard disk 1:
+        size: 15
+    network:
+      Network adapter 1:
+        ip: 10.0.0.10
+        gateway: [10.0.0.1]
+        subnet_mask: 255.255.0.0
+        domain: example.com
+        name: VM Network
+        switch_type: standard
+    scsi:
+      SCSI controller 1:
+        type: paravirtual
+
+  domain: example.com
+  dns_servers:
+    - 8.8.8.8
+    - 8.8.4.4
+
+  # If cloning from template, either resourcepool or cluster MUST be specified!
+  resourcepool: Resources
+  cluster: example
+
+  datastore: 'vmexp01:storage1'
+  folder: vm
+  datacenter: example
+  host: vmtest.example.com
+  template: False
+  power_on: True
+
+  deploy: True
+  private_key: /root/.ssh/id_rsa
+  ssh_username: example
+  password: 'SNIP'
+  minion:
+    master: SNIP
+```
+
+Obviously, you **must** change the IP address for each new VM, but it's not possible to override _only_ the IP address in the map file. This does not work:
+
+Sample map `/etc/salt/cloud.maps.d/fail.map`:
+
+``` yaml
+vmware-rhel:
+  - salt-rhel-1:
+      devices:
+        network:
+          Network adapter 1:
+            ip: 10.0.0.10
+  - salt-rhel-2:
+      devices:
+        network:
+          Network adapter 1:
+            ip: 10.0.0.11
+  - salt-rhel-3:
+      devices:
+        network:
+          Network adapter 1:
+            ip: 10.0.0.12
+```
+
+The resulting dict isn't merged with the profile, it replaces the devices key, so you have to copy the entire devices key, just to override that one item. This does work:
+
+Sample map `/etc/salt/cloud.maps.d/meh.map`:
+
+``` yaml
+vmware-rhel:
+  - salt-rhel-1:
+      devices:
+        disk:
+          Hard disk 1:
+            size: 15
+        network:
+          Network adapter 1:
+            ip: 10.0.0.10    # <-- first IP
+            gateway: [10.0.0.1]
+            subnet_mask: 255.255.0.0
+            domain: example.com
+            name: VM Network
+            switch_type: standard
+        scsi:
+          SCSI controller 1:
+            type: paravirtual
+  - salt-rhel-2:
+      devices:
+        disk:
+          Hard disk 1:
+            size: 15
+        network:
+          Network adapter 1:
+            ip: 10.0.0.11    # <-- second IP
+            gateway: [10.0.0.1]
+            subnet_mask: 255.255.0.0
+# ... You get the picture.
+```
+
+Deep dict merging can have its issues, but it's sure annoying to not be able to abstract the majority of that data up into the profile. You can leverage some jinja templating maybe, but that still makes for a potentially massive map file.
+
+Is there a better way to do this?

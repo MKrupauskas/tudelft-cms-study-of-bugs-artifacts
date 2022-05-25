@@ -1,0 +1,135 @@
+### Description of Issue/Question
+slsutil [as documented](https://docs.saltstack.com/en/latest/ref/modules/all/salt.modules.slsutil.html) does not work. I suspect it's a file path issue, it looks like the file on the master is not sent to the minion.
+
+Please suggest either a workaround or a fix, as I have a complex map file for which I need to use Python - Jinja's too limited for the task.
+
+### Setup
+As per the doc link above, I've created the following files (simplified example):
+
+`rhn/map.sls`
+```
+#!py
+def run():
+    rhn_config = "teststring"
+    return rhn_config
+```
+
+`rhn/init.sls`
+```
+{% set rhn_config = salt.slsutil.renderer('map.sls') %}
+rhn-ssl-cert:
+  file.managed:
+    - name: /usr/share/rhn/RHN-ORG-TRUSTED-SSL-CERT
+    - source: salt://{{ slspath }}/files/RHN-ORG-TRUSTED-SSL-CERT
+    - require:
+        - pkg: rhn-pkgs
+        - pkg: {{ rhn_config }}
+```
+Now I execute:
+
+` salt 'saltdev-c6-minion' state.show_sls rhn`
+
+And the result is:
+```
+rhn-ssl-cert:
+        ----------
+        __env__:
+            base
+        __sls__:
+            rhn
+        file:
+            |_
+              ----------
+              name:
+                  /usr/share/rhn/RHN-ORG-TRUSTED-SSL-CERT
+            |_
+              ----------
+              source:
+                  salt://rhn/files/RHN-ORG-TRUSTED-SSL-CERT
+            |_
+              ----------
+              require:
+                  |_
+                    ----------
+                    pkg:
+                        ----------
+            - managed
+            |_
+              ----------
+              order:
+                  10005
+```
+As it can be seen, `{{ rhn_config }}` has not been resolved to `teststring`.
+
+### Steps to Reproduce Issue
+Use the example above. Also, issued the following:
+
+` salt 'saltdev-c6-minion' state.apply rhn test=True`
+
+And the error returned is:
+```
+----------
+          ID: rhn-ssl-cert
+    Function: file.managed
+        Name: /usr/share/rhn/RHN-ORG-TRUSTED-SSL-CERT
+      Result: False
+     Comment: The following requisites were not found:
+                                 require:
+                                     pkg: OrderedDict()
+
+```
+I've tried specifying the path as:
+- `map.sls`
+- `/srv/salt/rhn/map.sls`
+- `rhn/map.sls`
+- `salt://rhn/map.sls`
+None of them works.
+
+Further testing:
+`salt 'saltdev-c6-minion' slsutil.renderer "/var/cache/salt/minion/files/base/rhn/init.sls"` - Works, renders the SLS file (still without getting rhn_config variablle)
+`salt 'saltdev-c6-minion' slsutil.renderer "/srv/salt/rhn/init.sls"` - Returns an empty result.
+
+Wether I execute the module in CLI mode or inside a state, the error is the same on the minion:
+`Template does not exist: /srv/salt/rhn/init.sls` or `Template does not exist: map.sls`, depending on which path I use.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+System Versions:
+           dist: centos 7.3.1611 Core
+        machine: x86_64
+        release: 3.10.0-514.10.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```
+
+

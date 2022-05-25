@@ -1,0 +1,91 @@
+### Description of Issue/Question
+
+It's common to see output like this:
+
+```
+[INFO    ] Running state [chown root:root '/var/cache/swap/swap.img' && chmod 0600 '/var/cache/swap/swap.img'
+] at time 10:59:40.421129
+[INFO    ] Executing state cmd.run for chown root:root '/var/cache/swap/swap.img' && chmod 0600 '/var/cache/swap/swap.img'
+
+[INFO    ] Executing command 'test -f '/var/cache/swap/swap.img' && ! stat --printf='%u:%g,%A\n' '/var/cache/swap/swap.img' | grep -q '0:0,-rw-------'
+' in directory '/root'
+[INFO    ] onlyif execution failed
+[INFO    ] Completed state [chown root:root '/var/cache/swap/swap.img' && chmod 0600 '/var/cache/swap/swap.img'
+] at time 10:59:40.426596 duration_in_ms=5.467
+
+```
+
+This was generated from:
+
+```
+Set swap image file permissions:
+{#
+# AFAICT, file.managed (at least in salt 2014.1.13) causes the entire
+# file to be read into RAM. If the swap file is already used, this
+# will cause the OOM killer to start nuking things, wreaking havoc and
+# effectively disabling the instance. Hence, we use cmd.run for this:
+#}
+  cmd.run:
+    - name: >
+        chown root:root '{{ file_path }}' &&
+        chmod 0600 '{{ file_path }}'
+    - onlyif: >
+        test -f '{{ file_path }}' &&
+        ! stat --printf='%u:%g,%A\n' '{{ file_path }}' |
+        grep -q '0:0,-rw-------'
+    - watch:
+      - cmd: Add a swap image
+```
+
+It can be very difficult to read at times due to all the line breaks, especially when you have a bunch of statements such as this. This small section of code has produced four additional line breaks in the INFO log output.
+### Setup
+
+No setup required. Just use some YAML block scalars with the `>` indentation modifier (extremely useful to avoid long lines in code) and you will get unwanted new lines in the log.
+### Steps to Reproduce Issue
+
+Just run a state with a YAML indentation modifier as above.
+### Versions Report
+
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+```
+Salt Version:
+           Salt: 2016.3.0
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.5 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.5 
+```
+
+(actually, it's 2016.3.1 but the version wasn't captured in the git tag)

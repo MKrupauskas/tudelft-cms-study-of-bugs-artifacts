@@ -1,0 +1,86 @@
+**Description**
+The disk-based pillar cache only stores one environment at max. The reason is a bug in `salt/pillar/__init__.py` where `__setitem__()` (and the correspoding `_write()` function) is only called when the cache is populated for the first time and the first environment.
+
+When the cache for the minion exists, but not for the requested environment, the cache update only calls `__setitem__()` for the nested data structure (see https://github.com/saltstack/salt/blob/master/salt/pillar/__init__.py#L462):
+```python
+self.cache[self.minion_id][self.pillarenv] = fresh_pillar
+```
+which is equivalent to
+```python
+self.cache.__getitem__(self.minion_id).__setitem(self.pillarenv, fresh_pillar)
+```
+Because the nested data structure is a regular dict, the `_write()` operation in `salt.utils.cache.CacheDisk` is not triggered.
+As a result, the pillar is recalculated on every call if an environment different from the first one is called. For ressource-intensive external pillars (our external pillar takes 3-4 seconds to compile for each minion), the runtime of operations will be increased massivly.
+As a workaround, the line can be replaced with:
+```python
+minion_cache = self.cache[self.minion_id]
+minion_cache[self.pillarenv] = fresh_pillar
+self.cache[self.minion_id] = minion_cache
+```
+I have not checked if the issue exists for other parts in the code as well (e.g. clearing cache).
+
+**Steps to Reproduce the behavior**
+
+1. Create two different enviroments with pillar data
+2. Activate the pillar disk cache:
+```yaml
+pillar_cache: True
+pillar_cache_ttl: 3600
+pillar_cache_backend: disk
+```
+3. Clear the pillar cache (remove `/var/log/salt/master/pillar_cache/<minion>` is necessary)
+4. Run any operation that accesses the pillar of a minion (e.g. `state.show_top`) for the first environment
+5. Run any operation that accesses the pillar of a minion (e.g. `state.show_top`) for the second environment
+
+When setting the log to DEBUG, you will see the following log entries indicating that the pillar cache was missed:
+```
+Pillar cache miss for pillarenv <env> for minion <minion>
+```
+Because the relevant functions in `salt/pillar/__init__.py` and `salt/utils/cache.py` do not have the required logging, you will have to add your own for more details (e.g. in `__getitem__` and `__setitem__` in `salt.utils.cache.CacheDisk`). 
+
+**Expected behavior**
+Pillar cache should persist data for multiple environments.
+
+**Versions Report**
+Even though we are on 3000, the bug is also present in the current `develop` branch.
+<details><summary>salt --versions-report</summary>
+```
+Salt Version:
+           Salt: 3000
+ 
+Dependency Versions:
+           cffi: 1.11.2
+       cherrypy: unknown
+       dateutil: 2.8.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10.1
+        libgit2: 1.0.0
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 1.2.1
+         Python: 3.6.10 (default, Dec 19 2019, 15:48:40) [GCC]
+   python-gnupg: Not Installed
+         PyYAML: 5.1.2
+          PyZMQ: 17.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.3
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: x86_64
+        release: 4.12.14-197.40-default
+         system: Linux
+        version: Not Installed
+```
+</details>

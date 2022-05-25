@@ -1,0 +1,489 @@
+**_Summary:_**
+OK, I **seemingly** have 32-bit ***.x86** pkgs that install on 64-bit **AMD64** minions.
+And also **seemingly** have 64-bit **AMD64** pkgs that install on 32-bit minions.
+And we know this is **NOT** even possible.
+(Note: I really believe this is different (a bug) and not related to the troubleshooting warning you have in the windows winrepo instructions, about making sure that the `'full_name'` and `'version'` number need to match. see http://docs.saltstack.com/en/latest/topics/windows/windows-package-manager.html#incorrect-name-version)
+
+**_Suspicion:_**
+I **_suspect_** that the `'pkg.install'` or `'pkg.installed'` functions match 'too early', somehow?
+
+**_Background:_**
+The winrepo has pkgs called `'mypkg.sls'` and `'mypkg_x86.sls'`, and the idea is that the `'mypkg_x86.sls'` file get's used on minions with `'cpuarch = x86'` and the `'mypkg.sls'` without the '_x86' suffix get's used on the 64-bit AMD64 machines, wiith the help of a little grains 'magic' stanza in the state files.
+
+```
+mypkg:
+    pkg:
+    {% if grains['cpuarch'] == 'x86'%}
+    - name: mypkg_x86
+    {% endif %}
+    - installed
+```
+
+That's the **theory**, but **in practice** it seems to think it installed some _x86 pkgs on 64-bit minions and 64-bit pkgs on 32-bit minions. The strange thing is, it works correctly for some and incorrectly for other pkgs?
+
+Here is my ``'test-packages.sls'` file:
+
+```
+# test-packages.sls
+7zip:
+  pkg:
+    {% if grains['cpuarch'] == 'x86'%}
+    - name: 7zip_x86
+    {% endif %}
+    - installed
+
+curl:
+  pkg:
+    {% if grains['cpuarch'] == 'x86'%}
+    - name: curl_x86
+    {% endif %}
+    - installed
+
+npp:
+  pkg:
+    {% if grains['cpuarch'] == 'x86'%}
+    - name: npp_x86
+    {% endif %}
+    - installed
+
+putty:
+  pkg:
+    {% if grains['cpuarch'] == 'x86'%}
+    - name: putty_x86
+    {% endif %}
+    - installed
+
+winscp:
+  pkg:
+    {% if grains['cpuarch'] == 'x86'%}
+    - name: winscp_x86
+    {% endif %}
+    - installed
+```
+
+And here is what happens on a **64-bit** machine called `'uk-it-20'`:
+
+``````
+uk-it-20 is a 64-bit AMD64 machine
+
+# salt uk-it-20 grains.item cpuarch
+
+uk-it-20:
+    ----------
+    cpuarch:
+        AMD64
+
+
+# salt uk-it-20 pkg.list_pkgs | grep -i -E '7zip|curl|npp|notepad|putty|winscp|'
+
+#
+(Which returns no matches.)
+# And now we install the ```'test-packages'```:
+``````
+
+```
+# salt uk-it-20 state.sls windows.test-packages
+
+uk-it-20:
+
+----------
+
+          ID: 7zip
+
+    Function: pkg.installed
+
+      Result: True
+
+     Comment: The following packages were installed/updated: 7zip=9.20.00.0
+
+     Started: 12:13:07.173000
+
+    Duration: 3839.0 ms
+
+     Changes:
+
+              ----------
+
+              7zip:
+
+                  ----------
+
+                  new:
+
+                      9.20.00.0
+
+                  old:
+
+----------
+
+          ID: curl
+
+    Function: pkg.installed
+
+      Result: True
+
+     Comment: The following packages were installed/updated: curl=7.43.0
+
+     Started: 12:13:11.027000
+
+    Duration: 2013.0 ms
+
+     Changes:
+
+              ----------
+
+              curl:
+
+                  ----------
+
+                  new:
+
+                      7.43.0
+
+                  old:
+
+----------
+
+          ID: npp
+
+    Function: pkg.installed
+
+      Result: False
+
+     Comment: The following packages failed to install/update: npp=6.7.9.2
+
+     Started: 12:13:13.056000
+
+    Duration: 4635.0 ms
+
+     Changes:
+
+              ----------
+
+              npp_x86:
+
+                  ----------
+
+                  new:
+
+                      6.7.9.2
+
+                  old:
+
+----------
+
+          ID: putty
+
+    Function: pkg.installed
+
+      Result: False
+
+     Comment: The following packages failed to install/update: putty=0.64
+
+     Started: 12:13:17.706000
+
+    Duration: 1842.0 ms
+
+     Changes:
+
+              ----------
+
+              putty_x86:
+
+                  ----------
+
+                  new:
+
+                      0.64
+
+                  old:
+
+----------
+
+          ID: winscp
+
+    Function: pkg.installed
+
+      Result: True
+
+     Comment: The following packages were installed/updated: winscp=5.7.4
+
+     Started: 12:13:19.563000
+
+    Duration: 7537.0 ms
+
+     Changes:
+
+              ----------
+
+              winscp:
+
+                  ----------
+
+                  new:
+
+                      5.7.4
+
+                  old:
+
+
+
+Summary
+
+------------
+
+Succeeded: 3 (changed=5)
+
+Failed:    2
+
+------------
+
+Total states run:     5
+```
+
+So it thinks only 3 succeeded and 2 failed.
+
+And to check what it actually installed we check which pkgs are on it.
+
+```
+# salt uk-it-20 state.sls windows.test-packages | grep -i -E '7zip|curl|npp|notepad|putty|winscp'
+
+    7zip:
+
+    curl:
+
+    npp_x86:
+
+    putty_x86:
+
+    winscp:
+
+#
+```
+
+So it actually installed all 5 pieces of software, but somehow believes it installed the **correct** files `'7zip'`, `'curl'`, and `'winscp'`and somehow the **incorrect** `'npp_x86'` and `'putty_x86'` files? Why?
+
+And here is what  it does on a 32-bit minion called `'uk-it-70'`:
+
+```
+uk-it-70 is a 32-bit x86 machine
+
+# salt uk-it-70 grains.item cpuarch
+
+uk-it-70:
+    ----------
+    cpuarch:
+        x86
+
+
+# salt uk-it-70 pkg.list_pkgs | grep -i -E '7zip|curl|npp|notepad|putty|winscp'
+
+#
+```
+
+(which returns no matches)
+
+```
+# salt uk-it-70 state.sls windows.test-packages
+
+uk-it-70:
+
+----------
+
+          ID: 7zip
+
+    Function: pkg.installed
+
+        Name: 7zip_x86
+
+      Result: True
+
+     Comment: The following packages were installed/updated: 7zip_x86=9.20.00.0
+
+     Started: 12:15:45.472000
+
+    Duration: 1684.0 ms
+
+     Changes:
+
+              ----------
+
+              7zip_x86
+
+                  ----------
+
+                  new
+
+                      9.20.00.0
+
+                  old
+
+----------
+
+          ID: curl
+
+    Function: pkg.installed
+
+        Name: curl_x86
+
+      Result: False
+
+     Comment: The following packages failed to install/update: curl_x86=7.43.0
+
+     Started: 12:15:47.172000
+
+    Duration: 2480.0 ms
+
+     Changes:
+
+              ----------
+
+              curl
+
+                  ----------
+
+                  new
+
+                      7.43.0
+
+                  old
+
+----------
+
+          ID: npp
+
+    Function: pkg.installed
+
+        Name: npp_x86
+
+      Result: True
+
+     Comment: The following packages were installed/updated: npp_x86=6.7.9.2
+
+     Started: 12:15:49.652000
+
+    Duration: 4868.0 ms
+
+     Changes:
+
+              ----------
+
+              npp_x86
+
+                  ----------
+
+                  new
+
+                      6.7.9.2
+
+                  old
+
+----------
+
+          ID: putty
+
+    Function: pkg.installed
+
+        Name: putty_x86
+
+      Result: True
+
+     Comment: The following packages were installed/updated: putty_x86=0.64
+
+     Started: 12:15:54.535000
+
+    Duration: 2075.0 ms
+
+     Changes:
+
+              ----------
+
+              putty_x86
+
+                  ----------
+
+                  new
+
+                      0.64
+
+                  old
+
+----------
+
+          ID: winscp
+
+    Function: pkg.installed
+
+        Name: winscp_x86
+
+      Result: False
+
+     Comment: The following packages failed to install/update: winscp_x86=5.7.4
+
+     Started: 12:15:56.626000
+
+    Duration: 7597.0 ms
+
+     Changes:
+
+              ----------
+
+              winscp
+
+                  ----------
+
+                  new
+
+                      5.7.4
+
+                  old
+
+
+
+Summary
+
+------------
+
+Succeeded: 3 (changed=5)
+
+Failed:    2
+
+------------
+
+Total states run:     5
+```
+
+So here it thinks 3 succeeded and 2 failed.
+
+But if we check , we can see that all 5 actually did install.
+
+```
+# salt uk-it-70 pkg.list_pkgs | grep -i -E '7zip|curl|npp|notepad|putty|winscp'
+
+    7zip_x86:
+
+    curl:
+
+    npp_x86:
+
+    putty_x86:
+
+    winscp:
+
+```
+
+And here it installed the **correct** 32-bit pkgs `'7zip_x86'`, `'npp_x86'`, and `'putty_x86'`, but also the **incorrect** ****AMD64**** `'curl'` and `'winscp'`.
+
+What is going on here? Why are the `'wires crossed'` for some pkgs and not for others?
+
+Here is a summary in a table:
+
+| Name | x86 platform | success/fail | AMD  platform | success/fail |
+| --- | --- | --- | --- | --- |
+| 7zip | 7zip_x86 | s | 7zip | s |
+| curl | curl_x86 | f | curl | s |
+| npp | npp_x86 | s | npp_x86 | f |
+| putty | putty_x86 | s | putty_x86 | f |
+| winscp | winscp_x86 | f | winscp | s |
+
+ping @jfindlay @UtahDave @twangboy any idea how I can avoid these crossed over wires? Why does pkg.installed think the 'other' pkg is installed, from the one it just installed itself?

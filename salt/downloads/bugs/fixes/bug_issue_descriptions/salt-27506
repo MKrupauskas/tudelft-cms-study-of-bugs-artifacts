@@ -1,0 +1,43 @@
+We're having a problem where puppet.run works, but prints out this error on the master:
+
+```
+ERROR: Minions returned with non-zero exit code
+```
+
+This happens when Puppet makes a change and returns a '2' instead of a 0.
+
+In puppet.py, run() properly modifies retcode to '0' when it sees a '2', since that indicates a successful run.
+
+However, in minion.py, _thread_return injects the original return code with this:
+
+``` python
+                ret['retcode'] = minion_instance.functions.pack['__context__'].get(
+                    'retcode',
+                    0
+                )
+```
+
+'ret' ends up being changed from:
+
+``` yaml
+{'return': {'pid': 7197,
+            'retcode': 0,
+            'stderr': '',
+            'stdout': "blah blah blah"},
+ 'success': False}
+```
+
+to:
+
+``` yaml
+{'retcode': 2,
+ 'return': {'pid': 7197,
+            'retcode': 0,
+            'stderr': '',
+            'stdout': "blah blah blah"},
+ 'success': True}
+```
+
+The salt master then uses the top level 'retcode' to print the misleading error above, causing operators and programs parsing the output to incorrectly conclude there was a failure.
+
+If I comment out the functions.pack section, everything works as expected.

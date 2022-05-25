@@ -1,0 +1,85 @@
+I have external auth configured as below:
+
+```
+# vim: sts=2 ts=2 sw=2 et ai
+external_auth:
+  pam:
+    xray%:
+      - '*':
+        - '.*'
+        - 'patch_report.list_packages'
+    foxtrot%:
+      - '*':
+        - pkg.upgrade
+        - pkg.list_pkgs
+        - pkg.list_upgrades
+        - pkg.version
+        - patch_report.*
+```
+
+With this in place, I (user rvankleeck in group xray) can run any command on the salt master, but I get an "authentication failed" error: 
+
+```
+rvankleeck@pepper /srv/master.d
+(master*)$ which salt
+alias salt='salt -a pam --username=`whoami`'
+        /usr/bin/salt
+rvankleeck@pepper /srv/master.d
+(master*)$ salt 'pep*' pkg.install binutils
+[WARNING ] Failed to open log file, do you have permission to write to /var/log/salt/master?
+password:
+Failed to authenticate!  This is most likely because this user is not permitted to execute commands, but there is a small possibility that a disk error occurred (check disk/inode usage).
+```
+
+The weird part is that the command actually executes on the minion:
+
+```
+-=# MASTER LOG #=-
+
+2015-01-23 14:46:33,154 [salt.master                                ][INFO    ] Clear payload received with command publish
+2015-01-23 14:46:33,231 [salt.loader                                ][DEBUG   ] LazyLoaded local_cache.prep_jid
+2015-01-23 14:46:33,233 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'_stamp': '2015-01-23T14:46:33.232889', 'minions': ['pepper.adi.apparatus.net']}
+2015-01-23 14:46:33,235 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150123144633231724', 'tgt': 'pep*', '_stamp': '2015-01-23T14:46:33.234228', 'user': 'rvankleeck', 'arg': ['binutils'], 'fun': 'pkg.install', 'minions': ['pepper.adi.apparatus.net']}
+2015-01-23 14:46:33,236 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150123144633231724', 'tgt': 'pep*', '_stamp': '2015-01-23T14:46:33.235677', 'user': 'rvankleeck', 'arg': ['binutils'], 'fun': 'pkg.install', 'minions': ['pepper.adi.apparatus.net']}
+2015-01-23 14:46:33,238 [salt.master                                ][INFO    ] User rvankleeck Published command pkg.install with jid 20150123144633231724
+2015-01-23 14:46:33,239 [salt.master                                ][DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20150123144633231724', 'tgt': 'pep*', 'ret': '', 'user': 'rvankleeck', 'arg': ['binutils'], 'fun': 'pkg.install'}
+2015-01-23 14:46:38,256 [salt.master                                ][INFO    ] Clear payload received with command publish
+2015-01-23 14:46:38,257 [salt.master                                ][WARNING ] Authentication failure of type "user" occurred.
+2015-01-23 14:46:43,700 [salt.master                                ][INFO    ] Clear payload received with command _auth
+2015-01-23 14:46:43,700 [salt.master                                ][INFO    ] Authentication request from pepper.adi.apparatus.net
+2015-01-23 14:46:43,701 [salt.master                                ][INFO    ] Authentication accepted from pepper.adi.apparatus.net
+2015-01-23 14:46:43,867 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'pepper.adi.apparatus.net', '_stamp': '2015-01-23T14:46:43.866900', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\n<snip>\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+2015-01-23 14:46:44,062 [salt.master                                ][INFO    ] AES payload received with command _return
+2015-01-23 14:46:44,064 [salt.master                                ][INFO    ] Got return from pepper.adi.apparatus.net for job 20150123144633231724
+2015-01-23 14:46:44,065 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': ['binutils'], 'jid': '20150123144633231724', 'return': {'binutils': {'new': '2.20.51.0.2-5.42.el6', 'old': '2.20.51.0.2-5.36.el6'}}, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-01-23T14:46:44.064177', 'fun': 'pkg.install', 'id': 'pepper.adi.apparatus.net'}
+2015-01-23 14:46:44,066 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': ['binutils'], 'jid': '20150123144633231724', 'return': {'binutils': {'new': '2.20.51.0.2-5.42.el6', 'old': '2.20.51.0.2-5.36.el6'}}, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-01-23T14:46:44.065906', 'fun': 'pkg.install', 'id': 'pepper.adi.apparatus.net'}
+
+-=# MINION LOG #=-
+
+2015-01-23 14:46:33,243 [salt.minion                                 ][INFO    ] User rvankleeck Executing command pkg.install with jid 20150123144633231724
+2015-01-23 14:46:33,244 [salt.minion                                 ][DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20150123144633231724', 'tgt': 'pep*', 'ret': '', 'user': 'rvankleeck', 'arg': ['binutils'], 'fun': 'pkg.install'}
+2015-01-23 14:46:33,272 [salt.minion                                 ][INFO    ] Starting a new job with PID 8797
+2015-01-23 14:46:33,283 [salt.loaded.int.module.cmdmod               ][INFO    ] Executing command 'repoquery --plugins --queryformat="%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}" --all --pkgnarrow=installed' in directory '/root'
+2015-01-23 14:46:33,969 [salt.loaded.int.module.cmdmod               ][INFO    ] Executing command 'yum -y     install binutils' in directory '/root'
+2015-01-23 14:46:42,823 [salt.loaded.int.module.cmdmod               ][INFO    ] Executing command 'repoquery --plugins --queryformat="%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}" --all --pkgnarrow=installed' in directory '/root'
+2015-01-23 14:46:43,693 [salt.minion                                 ][INFO    ] Returning information for job: 20150123144633231724
+2015-01-23 14:46:43,869 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-01-23 14:46:43,870 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+```
+
+I am able to fix the authentication error and get the return information by adding the following client_acl:
+
+```
+client_acl:
+    xray%:
+        - '.*'
+        - 'patch_report.list_packages'
+    foxtrot%:
+        - pkg.upgrade
+        - pkg.list_pkgs
+        - pkg.list_upgrades
+        - pkg.version
+        - patch_report.*
+```
+
+However, I find it kind of strange (and possibly buggy) that the command executes on the minion even after I receive an authentication failure.

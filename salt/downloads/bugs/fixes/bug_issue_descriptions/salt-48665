@@ -1,0 +1,179 @@
+### Description of Issue/Question
+Authentication is still successfull when setting binddn and bindpw and a valid token is still generated even though the password of the username passed via a login request is invalid.
+
+Also thought would mention the issues with auth ldap when using the rest api and complex passwords sent via curl when not encoding the data.
+
+https://docs.saltstack.com/en/latest/topics/eauth/index.html#external-authentication-system-configuration
+
+Authenticating to the LDAP Server
+
+There are two phases to LDAP authentication. First, Salt authenticates to search for a users' Distinguished Name and group membership. The user it authenticates as in this phase is often a special LDAP system user with read-only access to the LDAP directory. After Salt searches the directory to determine the actual user's DN and groups, it re-authenticates as the user running the Salt commands.
+
+As I understand: 
+1. bind with the user specified in binddn and bindpw
+2. check ldap tree for the given input of username= and password= from the request.
+3. deny request if bind with the user from the request fails - do not generate a valid token
+
+### Steps to Reproduce Issue
+```
+# api.conf
+rest_cherrypy:
+  port: 8000
+  ssl_crt: /etc/pki/salt.<domain>.cert.pem
+  ssl_key: /etc/pki/salt.<domain>.key.pem
+  ssl_chain: /etc/pki/ca-trust/source/anchors/<domain>-ca-chain.cert.pem
+
+```
+Valid binddn and bindpw. Am able to bind to the server.
+```
+# auth.conf
+auth.ldap.server: ldap.<domain>
+auth.ldap.port : 389
+auth.ldap.tls: True
+auth.ldap.no_verify: False
+auth.ldap.anonymous: False
+auth.ldap.groupou: "groups"
+auth.ldap.groupclass: "extensibleObject"
+auth.ldap.accountattributename: "uid"
+auth.ldap.activedirectory: False
+auth.ldap.basedn: <domaindc>
+auth.ldap.binddn: 'cn=salt_auth,ou=manager,<domaindc>'
+auth.ldap.bindpw: '<password>'
+auth.ldap.filter: uid={{ username }}
+
+external_auth:
+  ldap:
+    testdomainuser:
+      - "*":
+        - test.echo
+        - test.ping
+
+```
+
+Using an invalid password for testdomainuser:
+```
+$ curl -sSi https://salt:8000/login -H 'Accept: application/x-yaml' -d username=testdomainuser -d password="ican;not=deal;with=passwords" -d eauth=ldap
+HTTP/1.1 200 OK Content-Length: 200 Access-Control-Expose-Headers: GET, POST
+Vary: Accept-Encoding
+Server: CherryPy/5.6.0
+Allow: GET, HEAD, POST
+Access-Control-Allow-Credentials: true
+Date: Wed, 18 Jul 2018 22:08:03 GMT
+Access-Control-Allow-Origin: *
+X-Auth-Token: <token>
+Content-Type: application/x-yaml
+Set-Cookie: session_id=<token>; expires=Thu,
+19 Jul 2018 08:08:03 GMT; Path=/
+return:
+- eauth: ldap
+expire: 1531994884.143236
+perms:
+- '*':
+- test.echo
+- test.ping
+start: 1531951684.143235
+token: <token>
+user: testdomainuser
+```
+
+you get in the groups function https://github.com/saltstack/salt/blob/develop/salt/auth/ldap.py#L303
+kwargs = {
+"password": "ican",
+"not": "deal",
+"with": passwords",
+}
+
+The payload sent via curl when not encoded is getting parsed successfully and could possibly be manipulated to pass around the multiple functions without any issues? Thought I would mention it since I do not know if this has any impact and where else this data is being passed around.
+
+### Versions Report
+```
+$ salt --versions-report
+Salt Version:
+           Salt: 2018.3.2
+ 
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.26.3
+        libnacl: Not Installed
+       M2Crypto: 0.28.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, Jul 13 2018, 13:06:57)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 4.17.2-1-ARCH
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+ 
+```
+```
+
+$ salt-api --versions-report
+Salt Version:
+           Salt: 2018.3.2
+ 
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: 5.6.0
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.26.3
+        libnacl: Not Installed
+       M2Crypto: 0.28.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, Jul 13 2018, 13:06:57)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 4.17.2-1-ARCH
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+ 
+```
+
+

@@ -1,0 +1,52 @@
+This one is best articulated with an example. In short, if the `contents` param of `file.managed` is a function call that returns a multi-line string the template indentation is wrong.
+
+SLS file:
+
+``` yaml
+/tmp/zomg:
+  file:
+    - managed
+    - contents: |
+        {{ salt['pillar.get']('zomg:text') }}
+```
+
+Pillar file:
+
+``` yaml
+zomg:
+  text: |
+    This is a
+    multiline test.
+```
+
+Results in this traceback from the PyYAML parser:
+
+```
+    Rendering SLS main failed, render error: while scanning a simple key
+...
+could not found expected ':'
+  in "<unicode string>", line 7, column 1:
+```
+
+Because it is trying to render invalid yaml:
+
+``` yaml
+/tmp/zomg:
+  file:
+    - managed
+    - contents: |
+        This is a
+multiline test.
+```
+
+This can be worked around with a little Jinja magic:
+
+``` yaml
+/tmp/zomg:
+  file:
+    - managed
+    - contents: |
+        {{ salt['pillar.get']('zomg:text') | indent(8) }}
+```
+
+This works because the `indent` filter does not indent the first line by default. However it is less than ideal for obvious reasons, the least of which is you have to manually count how many spaces to indent by.

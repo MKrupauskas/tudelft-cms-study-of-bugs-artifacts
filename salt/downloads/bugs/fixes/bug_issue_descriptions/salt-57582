@@ -1,0 +1,91 @@
+**Description**
+The default behavior of filterwarnings is to push new rules to the top of the filter list.
+If filter are inplace before salt init (like pytest) it will override configuration
+
+** Test on **
+https://github.com/saltstack/salt/tree/v3000.2
+
+
+**Setup**
+test.py
+```
+import salt.module.config
+import pytest
+
+@pytest.mark.filterwarnings("ignore:DeprecationWarning")
+def test_dummy():
+    pass
+```
+
+pytest.ini
+```
+[pytest]
+filterwarnings = ignore::DeprecationWarning:^salt:%
+```
+
+**Steps to Reproduce the behavior**
+```
+$ pytest test.py
+
+=========================================================================================== test session starts ===========================================================================================
+platform linux -- Python 3.7.3, pytest-5.4.3, py-1.8.1, pluggy-0.13.1
+rootdir: /opt/salt_test, inifile: pytest.ini
+plugins: requests-mock-1.8.0
+collected 1 item
+
+test.py .                                                                                                                                                                     [100%]
+
+============================================================================================ warnings summary =============================================================================================
+vendor/salt/salt/ext/tornado/httputil.py:107
+  /opt/work/salt_custom/vendor/salt/salt/ext/tornado/httputil.py:107: DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc' is deprecated, and in 3.8 it will stop working
+    class HTTPHeaders(collections.MutableMapping):
+
+-- Docs: https://docs.pytest.org/en/latest/warnings.html
+====================================================================================== 1 passed, 1 warning in 0.30s =======================================================================================
+```
+
+**Expected behavior**
+```
+$ pytest test.py
+=========================================================================================== test session starts ===========================================================================================
+platform linux -- Python 3.7.3, pytest-5.4.3, py-1.8.1, pluggy-0.13.1
+rootdir: /opt/salt_test, inifile: pytest.ini
+plugins: requests-mock-1.8.0
+collected 1 item
+
+test.py .                                                                                                                                                                     [100%]
+
+============================================================================================ 1 passed in 0.32s ============================================================================================
+```
+
+**Fix**`
+Patch file content
+```
+--- salt/salt/__init__.py        2020-06-08 11:30:02.450452983 +0200
++++ patch.py  2020-06-08 11:33:09.276345191 +0200
+@@ -33,21 +33,23 @@
+     '',  # No deprecation message match
+     DeprecationWarning,  # This filter is for DeprecationWarnings
+-    r'^(salt|salt\.(.*))$'  # Match module(s) 'salt' and 'salt.<whatever>'
++    r'^(salt|salt\.(.*))$',  # Match module(s) 'salt' and 'salt.<whatever>'
++    append=True
+ )
+
+ # While we are supporting Python2.6, hide nested with-statements warnings
+ warnings.filterwarnings(
+     'ignore',
+     'With-statements now directly support multiple context managers',
+-    DeprecationWarning
++    DeprecationWarning,
++    append=True
+ )
+
+ # Filter the backports package UserWarning about being re-imported
+ warnings.filterwarnings(
+     'ignore',
+     '^Module backports was already imported from (.*), but (.*) is being added to sys.path$',
+-    UserWarning
++    UserWarning,
++    append=True
+ )
+```

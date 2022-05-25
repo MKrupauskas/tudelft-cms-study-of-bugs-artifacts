@@ -1,0 +1,10 @@
+Salt's CLI tools (e.g. `salt -a ldap 'some-minion' test.ping`) aren't able to communicate via `AF_UNIX` sockets with the master, but instead only talk via `AF_INET` sockets with the master's ZeroMQ.
+
+They use the `interface` option from the master's options to determine the communication socket for `salt.payload.SREQ()`, so when executing any Salt CLI tools from the same host as on which the master daemon is running, everything is fine as this will open an `AF_INET` socket to `tcp://0.0.0.0:4506`, but it will fail in environments where only the socket files are shared between the environment in which the master daemon runs and where the CLI tools are executed, e.g.:
+- a Docker container to run the daemon
+- a Docker container which shares directories/volumes with the 1st container (`/etc/salt`, `/run/salt/master`, `/srv/salt`, `/var/cache/salt/master`) and is used to work with the CLI tools
+
+To make it a bit more short:
+The methods `token_cli`, `mk_token` and `get_token` in `salt/auth/__init__.py` should not only allow to to initialize `sreq` with `tcp://{0[interface]}:{0[ret_port]}'.format(self.opts)` but should also be able to use IPC sockets in `/run/salt/master` when they're existent/writeable.
+
+The same applies probably to many other places where `SREQ()` is [used in a similar way](https://eliasprobst.eu/~elias/stuff/salt.payload.SREQ.html).

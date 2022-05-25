@@ -1,0 +1,108 @@
+The `test_symlink_list` test in `tests/unit/fileserver/test_roots.py` and `test_file_tree` fails:
+```
+======================================================================
+FAIL: test_symlink_list (unit.fileserver.test_roots.RootsTest)
+[CPU:0.0%|MEM:40.3%]
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "tests/unit/fileserver/test_roots.py", line 171, in test_symlink_list
+    self.assertDictEqual(ret, {'dest_sym': 'source_sym'})
+AssertionError: {} != {'dest_sym': 'source_sym'}
+- {}
++ {'dest_sym': 'source_sym'}
+======================================================================
+FAIL: test_file_tree (unit.modules.test_inspect_collector.InspectorCollectorTestCase)
+[CPU:0.0%|MEM:40.3%]
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/<<BUILDDIR>>/salt-2017.7.3+dfsg1/tests/unit/modules/test_inspect_collector.py", line 99, in test_file_tree
+    self.assertEqual(expected_tree, tree_result)
+AssertionError: Tuples differ: (['/a/a/dummy.a', '/a/b/dummy.b', '/b/b.1', '/b/b.2', '/b/b.3'][142 chars].3']) != (['/a/a/dummy.a', '/a/a/dummy.ln.a', '/a/b/dummy.b', '/a/b/dumm[144 chars], [])
+
+First differing element 0:
+['/a/a/dummy.a', '/a/b/dummy.b', '/b/b.1', '/b/b.2', '/b/b.3']
+['/a/a/dummy.a', '/a/a/dummy.ln.a', '/a/b/dummy.b', '/a/b/dumm[95 chars]b.3']
+
++ (['/a/a/dummy.a',
+- (['/a/a/dummy.a', '/a/b/dummy.b', '/b/b.1', '/b/b.2', '/b/b.3'],
+-  ['/a', '/a/a', '/a/b', '/a/c', '/b', '/c'],
+-  ['/a/a/dummy.ln.a',
+?  ^
+
++   '/a/a/dummy.ln.a',
+?  ^
+
++   '/a/b/dummy.b',
+    '/a/b/dummy.ln.b',
+    '/a/c/b.1',
++   '/b/b.1',
++   '/b/b.2',
++   '/b/b.3',
+    '/b/b.4',
+    '/b/b.5',
+    '/c/b.1',
+    '/c/b.2',
+-   '/c/b.3'])
+?            ^
+
++   '/c/b.3'],
+?            ^
+
++  ['/a', '/a/a', '/a/b', '/a/c', '/b', '/c'],
++  [])
+```
+
+The reason is that the symlink (which is used in this test) is not preserved when the release tarball salt-2017.7.3.tar.gz is generated:
+```sh
+bdrung@host:/tmp/upstream-git-repository$ ls -l tests/integration/files/file/base/*sym
+lrwxrwxrwx 1 bdrung bdrung 10 Dez  2  2014 tests/integration/files/file/base/dest_sym -> source_sym
+-rw-rw-r-- 1 bdrung bdrung  0 Dez  2  2014 tests/integration/files/file/base/source_sym
+bdrung@host:/tmp/salt-2017.7.3$ ls -l tests/integration/files/file/base/*sym
+-rw-r--r-- 1 bdrung bdrung 0 Feb 19 10:17 tests/integration/files/file/base/dest_sym
+-rw-r--r-- 1 bdrung bdrung 0 Feb 19 10:17 tests/integration/files/file/base/source_sym
+```
+
+```sh
+bdrung@host:/tmp/upstream-git-repository$ ls -l tests/unit/modules/inspectlib/tree_test/*
+tests/unit/modules/inspectlib/tree_test/a:
+insgesamt 12
+drwxr-xr-x 2 bdrung bdrung 4096 Mai 23  2017 a
+drwxr-xr-x 2 bdrung bdrung 4096 Mai 23  2017 b
+drwxr-xr-x 2 bdrung bdrung 4096 Mai 23  2017 c
+
+tests/unit/modules/inspectlib/tree_test/b:
+insgesamt 4
+-rw-r--r-- 1 bdrung bdrung 4 Mai 23  2017 b.1
+-rw-r--r-- 1 bdrung bdrung 0 Mai 23  2017 b.2
+-rw-r--r-- 1 bdrung bdrung 0 Mai 23  2017 b.3
+lrwxrwxrwx 1 bdrung bdrung 8 Mai 23  2017 b.4 -> ../c/b.1
+lrwxrwxrwx 1 bdrung bdrung 3 Mai 23  2017 b.5 -> b.4
+
+tests/unit/modules/inspectlib/tree_test/c:
+insgesamt 0
+lrwxrwxrwx 1 bdrung bdrung 8 Mai 23  2017 b.1 -> ../b/b.1
+lrwxrwxrwx 1 bdrung bdrung 8 Mai 23  2017 b.2 -> ../b/b.2
+lrwxrwxrwx 1 bdrung bdrung 8 Mai 23  2017 b.3 -> ../b/b.3
+bdrung@host:/tmp/salt-2017.7.3$ 
+ls -l tests/unit/modules/inspectlib/tree_test/*
+tests/unit/modules/inspectlib/tree_test/a:
+insgesamt 12
+drwxr-xr-x 2 bdrung bdrung 4096 Feb 19 10:17 a
+drwxr-xr-x 2 bdrung bdrung 4096 Feb 19 10:17 b
+drwxr-xr-x 2 bdrung bdrung 4096 Feb 19 10:17 c
+
+tests/unit/modules/inspectlib/tree_test/b:
+insgesamt 12
+-rw-r--r-- 1 bdrung bdrung 4 Feb 19 10:17 b.1
+-rw-r--r-- 1 bdrung bdrung 0 Feb 19 10:17 b.2
+-rw-r--r-- 1 bdrung bdrung 0 Feb 19 10:17 b.3
+-rw-r--r-- 1 bdrung bdrung 4 Feb 19 10:17 b.4
+-rw-r--r-- 1 bdrung bdrung 4 Feb 19 10:17 b.5
+
+tests/unit/modules/inspectlib/tree_test/c:
+insgesamt 4
+-rw-r--r-- 1 bdrung bdrung 4 Feb 19 10:17 b.1
+-rw-r--r-- 1 bdrung bdrung 0 Feb 19 10:17 b.2
+-rw-r--r-- 1 bdrung bdrung 0 Feb 19 10:17 b.3
+```
+Please either update the test case to create the symlink or ensure that the release tarball preserves the symlinks.

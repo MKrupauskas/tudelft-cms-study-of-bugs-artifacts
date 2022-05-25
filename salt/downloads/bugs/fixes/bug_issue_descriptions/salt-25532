@@ -1,0 +1,14 @@
+since the removal of _get_msi_software in win_pkg.py (https://github.com/saltstack/salt/compare/v2014.7.5...v2014.7.6) the pkg module in windows is not working as expected.
+I've tried it with 2015.5 and 2015.8 branches with the same results.
+
+The ''if key in name_map'' condition(https://github.com/saltstack/salt/blob/2015.8/salt/modules/win_pkg.py#L238) is not evaluated properly against the _get_reg_software() keys (I think its due to encoding issues) and therefor the keys are not properly replaces with the mappings and packages keeps trying to reinstalled themselves.
+to be more specific the name_map loaded from the repo cache (in get_repo_data) loads str and the keys returned from get_reg_software are unicodes so if you have a character like "®" it will fail to find it in the name_map.
+the function _get_msi_software was somehow replacing "®" with "r" so the bug wasn't visible...
+Adding those following lines before https://github.com/saltstack/salt/blob/2015.8/salt/modules/win_pkg.py#L236 solve the problem:
+
+```
+u_name_map = {}
+for k in name_map.keys():
+    u_name_map[unicode(k,'utf-8')] = name_map[k]
+name_map = u_name_map
+```

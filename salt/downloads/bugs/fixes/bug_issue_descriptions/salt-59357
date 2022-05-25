@@ -1,0 +1,109 @@
+**Description**
+
+When trying to add a repository in 3002.2+ds-1 installed via the saltstack apt repository on a fully up to date 16.04 machine I get an error
+
+```
+[WARNING ] Best guess at ppa format: ppa:<REDACTED>
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/states/pkgrepo.py", line 520, in managed
+    __salt__["pkg.mod_repo"](repo, saltenv=__env__, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/modules/aptpkg.py", line 2250, in mod_repo
+    owner_name, ppa_name
+  File "/usr/lib/python3/dist-packages/salt/modules/aptpkg.py", line 138, in _get_ppa_info_from_launchpad
+    return salt.utils.json.load(lp_page)
+  File "/usr/lib/python3/dist-packages/salt/utils/json.py", line 82, in load
+    return kwargs.pop("_json_module", json).load(fp, **kwargs)
+  File "/usr/lib/python3.5/json/__init__.py", line 268, in load
+    parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/lib/python3.5/json/__init__.py", line 312, in loads
+    s.__class__.__name__))
+TypeError: the JSON object must be str, not 'bytes'
+```
+
+And the highstate output as:
+```
+          ID: repo
+    Function: pkgrepo.managed
+        Name: repo
+      Result: False
+     Comment: Failed to configure repo 'repo': the JSON object must be str, not 'bytes'
+     Started: 21:06:56.691091
+    Duration: 681.629 ms
+     Changes:   
+----------
+```
+
+From what I can tell the error appears to be in _get_ppa_info_from_launchpad from modules/aptpkg.py, specifically the code block:
+
+```
+    lp_url = "https://launchpad.net/api/1.0/~{}/+archive/{}".format(
+        owner_name, ppa_name
+    )
+    request = _Request(lp_url, headers={"Accept": "application/json"})
+    lp_page = _urlopen(request)
+    return salt.utils.json.load(lp_page)
+```
+
+Throws an error, but using loads seems to work:
+
+```
+    lp_url = "https://launchpad.net/api/1.0/~{}/+archive/{}".format(
+        owner_name, ppa_name
+    )
+    request = _Request(lp_url, headers={"Accept": "application/json"})
+    lp_page = _urlopen(request)
+    return salt.utils.json.loads(lp_page.read())
+```
+
+
+**Setup**
+
+Attempt to setup a NEW PPA based package repo on ubuntu 16.04. This does not appear to happen on 18.04 or 20.04, only the older 16.04 machines.
+
+**Steps to Reproduce the behavior**
+
+**Expected behavior**
+A clear and concise description of what you expected to happen.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+```
+Salt Version:
+          Salt: 3002.2
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.4.2
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.8
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: 2.6.1
+  pycryptodome: 3.4.7
+        pygit2: Not Installed
+        Python: 3.5.2 (default, Oct  7 2020, 17:19:02)
+  python-gnupg: 0.3.8
+        PyYAML: 3.11
+         PyZMQ: 17.1.2
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.1.4
+ 
+System Versions:
+          dist: ubuntu 16.04 Xenial Xerus
+        locale: UTF-8
+       machine: x86_64
+       release: 4.4.0-1065-aws
+        system: Linux
+       version: Ubuntu 16.04 Xenial Xerus
+```
+</details>

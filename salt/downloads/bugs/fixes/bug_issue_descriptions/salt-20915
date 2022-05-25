@@ -1,0 +1,11 @@
+I was reviewing the code for the service.py state, and I think I stumbled into a conflict with the `changes` logic when `enable` is set. It has to do with how the `_enable()` and `_disable()` functions handle the `started` parameter.
+
+The `_enable()` and `_disable()` functions use the `started` parameter to gate whether `changes=True`. But `service.running` and `service.dead` both use `started` to report whether the service is running (regardless of whether they changed that state).
+
+There are two commits flip-flopping how `changes` is reported right now. https://github.com/saltstack/salt/commit/4b1413fc8ad953cabc04fb489042bd09f9bfdd03 and https://github.com/saltstack/salt/commit/2426c224a4eb1a01f3eb4f14c2f201c8c6e49468
+
+In the first, `service.running` will start the service, but will return the output of `_enable()` and if the service is already enabled then `_enable()` will return no changes.
+
+In the second, `service.dead` may not make changes (because it failed to stop the service), but it will return the output of `_enable()` saying that it did.
+
+I'm thinking that `service.running` and `service.dead` should not directly return the output of `_enable()` or `_disable()`, but should instead update the `ret` variable and then return `ret`.

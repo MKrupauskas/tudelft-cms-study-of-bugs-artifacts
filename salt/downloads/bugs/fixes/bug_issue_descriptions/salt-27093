@@ -1,0 +1,53 @@
+@UtahDave @twangboy 
+
+Not sure when exactly it started happening, but the new winrepo 2015.8.0 downloader code now corrupts some installers as it downloads them, or maybe it is the download sites that have introduced redirects, it is not necessarily something that has changed on the salt side.
+
+I have checked the md5sum of the same installer downloaded using the URL from the winrepo sls file by a browser and compared it to the file in the relevant local `C:\salt\var\cache\salt\minion\extrn_files\base\`  cache and they differ from each other.
+
+the winrepo sls files used to have 
+
+```
+http://download.macromedia.com/get/flashplayer/current/licensing/win/install_flash_player_18_plugin.msi
+and
+http://download.macromedia.com/get/flashplayer/current/licensing/win/install_flash_player_18_active_x.msi
+```
+
+as their `installer:` s set. 
+
+But those URLs have 302 re-directs to the actual download URLs which is what is now in the winrepo sls file, as of yesterday. 
+
+```
+http://fpdownload.macromedia.com/get/flashplayer/current/licensing/win/install_flash_player_18_plugin.msi
+and
+http://fpdownload.macromedia.com/get/flashplayer/current/licensing/win/install_flash_player_18_active_x.msi
+```
+
+After I discovered that, the file downloaded by the winrepo downloader and the files downloaded from any broswer (tested in safari, firefox, IE and chrome), I opened up the installer file with an editor and found html redirect code in the first few lines of the msi installer
+
+```
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<html><head>
+<title>302 Found</title>
+</head><body>
+<h1>Found</h1>
+<p>The document has moved <a href="http://fpdownload.macromedia.com/get/flashplayer/current/licensing/win/install_flash_player_18_plugin.msi">here</a>.</p>
+</body></html>
+ÐÏà¡±á                >  þÿ              1            8      €6         €                €  ÿ  €  ÿ                             ÿ      €
+```
+
+You can easily reproduce this by trying to install 
+adobeflashplayerplugin
+adobeflashplayeractivex
+using the winrepo files from before yesterday (13 Sept 2015). 
+
+on the salt master all you get is:
+
+```
+    adobeflashplayeractivex:
+        ----------
+        failed:
+            This installation package could not be opened.  Contact the application vendor to verify that this is a valid Windows Installer package.
+```
+
+I think the sooner we implement checksums/hashes for the installers in the sls file metadata, the better. As this should catch this sort of curruption and report the error accordingly. (any of the unix/linux pkg managers already have checksums built-in yum,apt,rpm, etc ...)
+But in the case of winrepo I think the salt project has to do the checksumming as it already does in having to provide the winrepo sls file in the first place.

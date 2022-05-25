@@ -1,0 +1,75 @@
+If i have the following state on my master:
+
+``` yaml
+check:
+  schedule.present:
+    - function: test.ping
+    - seconds: 30
+    - splay: 8
+    - return_job: true
+```
+
+and i run `state.highstate` on a fresh minion on a fresh machine that has never runned it before, the state will write the file `/etc/salt/minion.d/_schedule.conf` containing the new schedule.
+
+After that i decided that i wanted to change the time to some other values, for example: 
+
+``` yaml
+check:
+  schedule.present:
+    - function: test.ping
+    - seconds: 60
+    - splay: 12
+    - return_job: true
+```
+
+and i again run `state.highstate` i will get the following output 
+
+```
+          ID: check
+    Function: schedule.present
+      Result: True
+     Comment: Modifying job check in schedule
+     Started: 17:08:23.806123
+    Duration: 40.089 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -3,5 +3,5 @@
+                   maxrunning:1
+                   name:check
+                   return_job:True
+                  -seconds:30
+                  -splay:8
+                  +seconds:60
+                  +splay:12
+```
+
+but the problem is that the file `/etc/salt/minion.d/_schedule.conf` is never written again so when i restart the minion it will default back to the original schedule item that was written the first time and i have to run `state.highstate` again for the schedule to again be updated and used.
+
+The strange thing is that the schedule is updated after the highstate and it is using the new config that is somehow stored in runtime but not on disk.
+
+After some digging in the schedule module i see that it is only persisting to disk in `add_job()` https://github.com/saltstack/salt/blob/develop/salt/utils/schedule.py#L403 but in other functions like https://github.com/saltstack/salt/blob/develop/salt/utils/schedule.py#L441 i see no `persist()` call.
+
+Expected result would be that it should write down the config to disk because highstate returns that config was changed.
+
+Workaround i have found so far is that once you have added a job and you want to update a job is to acctually go into the minion and edit `/etc/salt/minion.d/_schedule.conf` and remove the line with the old job and then rerun `state.highstate` again to push out the new job. I guess this can be done with some other fancy cmd.run state to remove it. Not even `salt '*' state.single schedule.absent check` removes the job from the persisted file, even if the state says it was removed and when the minion is restarted again the schedule starts again.
+
+```
+# salt --versions-report
+           Salt: 2015.5.1
+         Python: 2.7.9 (default, May 20 2015, 09:02:19)
+         Jinja2: 2.7.2
+       M2Crypto: 0.22
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+            ZMQ: 4.0.3
+           Mako: Not Installed
+```

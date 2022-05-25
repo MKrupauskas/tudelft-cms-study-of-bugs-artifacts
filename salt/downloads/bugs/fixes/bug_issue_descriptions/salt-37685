@@ -1,0 +1,47 @@
+### Description of Issue/Question
+`timezone.system` does not properly reject invalid timezones, claiming all changes are successful. This causes errors to slip by undetected, unless one is watching the error output when running highstate.
+
+From my current investigation I think this should be fixed in the `timezone.zone_compare` function, since it never validates that the given timezone is valid. As can be seen on [line 283](https://github.com/saltstack/salt/blob/develop/salt/modules/timezone.py#L283), as long as the current zone is found and has a different name from the one given, it's just assumed to be unequal. However, [later in the function](https://github.com/saltstack/salt/blob/develop/salt/modules/timezone.py#L298) it raises a `SaltInvocationError` due to invalid timezone, which I believe also should also be raised when the given zone is invalid.
+
+I also noted while reading this function that at [some point](https://github.com/saltstack/salt/blob/develop/salt/modules/timezone.py#L291) it returns an error as a string, which also causes silent failure since the output is supposed to be boolean, and the string evaluates to `True`. That can probably easily be fixed to raise an exception while fixing the other issue reported here in the same function.
+
+### Setup
+This state succeeds:
+```yaml
+# timezone.sls
+timezone:
+    timezone.system:
+        - name: bogus
+```
+
+### Steps to Reproduce Issue
+```
+$ sudo salt-call state.sls timezone
+[ERROR   ] Command 'timedatectl set-timezone bogus' failed with return code: 1
+[ERROR   ] output: Failed to set time zone: Invalid time zone 'bogus'
+local:
+----------
+          ID: timezone
+    Function: timezone.system
+        Name: bogus
+      Result: True
+     Comment: Set timezone bogus
+     Started: 14:56:43.656404
+    Duration: 29.321 ms
+     Changes:
+              ----------
+              timezone:
+                  bogus
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  29.321 ms
+```
+The state should have had `Result: False`.
+
+### Versions Report
+2016.3.3 and develop.

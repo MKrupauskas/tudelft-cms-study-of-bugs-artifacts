@@ -1,0 +1,158 @@
+### Description of Issue/Question
+I created the setup as described in [the docs](https://docs.saltstack.com/en/latest/topics/topology/syndic.html#configuring-the-syndic-with-multimaster) - 3 syndics connected to a master-master pair.
+Each master returns different results for the same command, issued at different times. Results differ between masters too. 
+
+### Setup
+2 top-masters (top-master-01 and top-master-02)
+3 syndics + master + minion
+10 minions connected to syndics in failover mode, as directed in the docs.
+
+#### Master config (top-master-01): `/etc/salt/master.d/master.conf`
+```
+master_id: top-master-01
+
+master_sign_pubkey: True
+master_use_pubkey_signature: True
+
+# Needed for masters which have syndics attached
+order_masters: True
+```
+
+#### Syndic config
+3 machines having the same configuration, as follows:
+`/etc/salt/master.d/master.conf`
+```
+master_sign_pubkey: True
+master_use_pubkey_signature: True
+```
+`/etc/salt/master.d/syndic.conf`
+```
+syndic_master:
+  - top-master-01
+  - top-master-02
+syndic_failover: random
+```
+`/etc/salt/minion.d/minion.conf`
+```
+master:
+  - top-master-01
+  - top-master-02
+verify_master_pubkey_sign: True
+```
+
+#### Minion config
+10 machines having the same configuration, as follows:
+`etc/salt/minion.d/minion.conf`
+```
+master:
+  - syndic-master-01
+  - syndic-master-02
+  - syndic-master-03
+
+master_type: failover
+master_shuffle: True
+master_alive_interval: 5
+verify_master_pubkey_sign: True
+```
+
+All signing pub keys were exchanged, and all minions were accepted on all syndic masters, so no issues there, they can happily communicate
+
+### Steps to Reproduce Issue
+Include the setup above.
+
+When I issue `time salt-run manage.up` I get totally random results, please see below:
+
+```
+[root@top-master-01 ~]# time salt-run manage.up
+- salt-syndic-minion-03
+- salt-syndic-minion-02
+- salt-syndic-minion-01
+
+real    0m21.325s
+user    0m1.194s
+sys     0m0.205s
+[root@top-master-01 ~]# time salt-run manage.up
+- salt-syndic-minion-03
+- salt-syndic-minion-02
+- salt-syndic-minion-01
+- salt-minion-09
+- salt-minion-06
+- salt-minion-07
+- salt-minion-04
+- salt-minion-02
+- salt-minion-03
+- salt-minion-01
+
+real    0m21.212s
+user    0m1.070s
+sys     0m0.185s
+```
+```
+[root@top-master-02 ~]# time salt-run manage.up
+- salt-syndic-minion-03
+- salt-syndic-minion-02
+- salt-syndic-minion-01
+- salt-minion-09
+- salt-minion-06
+- salt-minion-02
+- salt-minion-01
+
+real    0m21.498s
+user    0m1.285s
+sys     0m0.244s
+[root@top-master-02 ~]# time salt-run manage.up
+- salt-syndic-minion-03
+- salt-syndic-minion-02
+- salt-syndic-minion-01
+
+real    0m21.371s
+user    0m1.183s
+sys     0m0.238s
+```
+
+**Please note**: If I use a single top-master, the problems disappear and it returns consistent results as follows:
+- If all minions are alive, in about 6 seconds;
+- If even one minion is stopped/dead/etc. it takes 21 seconds.
+
+Please let me know if you need more information.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 3.2.5
+
+System Versions:
+           dist: centos 7.3.1611 Core
+        machine: x86_64
+        release: 3.10.0-514.10.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```

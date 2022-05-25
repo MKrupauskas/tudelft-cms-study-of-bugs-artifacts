@@ -1,0 +1,134 @@
+### Description of Issue/Question
+
+Our Salt-setup runs on:
+-  Ubuntu 14.04 
+-  packages from the repo (generally always the latest available)
+- Automatic highstates via scheduler, every 15 minutes. 
+
+Today I installed a fresh server, with salt-minion on it but made a typo in the hostname, which I found after accepting the key on the master.
+
+In order to fix this typo this I have:
+1. Revoked the old key on the master
+2. Removed & recreated the `/etc/salt/pki/minion` folder on the minion
+3. Restarted the minion & accepted the new key on the master
+
+Afterwards the Salt-master remains functional (a telnet test worked) but the schedules stopped working. The logs show the following:
+
+```
+2016-04-26 11:47:26,270 [salt.transport.zeromq][ERROR   ][9583] Bad load from minion: AuthenticationError: message authentication failed
+2016-04-26 11:47:26,339 [salt.transport.zeromq][ERROR   ][9577] Bad load from minion: AuthenticationError: message authentication failed
+2016-04-26 11:47:26,359 [salt.transport.zeromq][ERROR   ][9578] Bad load from minion: AuthenticationError: message authentication failed
+2016-04-26 12:18:40,109 [salt.master      ][ERROR   ][9578] Error in function _mine:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 1411, in run_func
+    ret = getattr(self, func)(load)
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 1016, in _mine
+    load = self.__verify_load(load, ('id', 'data', 'tok'))
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 933, in __verify_load
+    if not self.__verify_minion(load['id'], load['tok']):
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 833, in __verify_minion
+    with salt.utils.fopen(pub_path, 'r') as fp_:
+  File "/usr/lib/python2.7/dist-packages/salt/utils/__init__.py", line 1204, in fopen
+    fhandle = open(*args, **kwargs)
+IOError: [Errno 2] No such file or directory: '/etc/salt/pki/master/minions/HOSTNAMEOFMINION'
+```
+
+The same message was repeated every hour and only went away after restarting salt-master. The "HOSTNAMEOFMINION" was the new hostname, for which the key was accepted on the master (after revoking the old one).
+
+Additionally, this resulted in odd behavior on a two of our other machines where there were 100+ defunct salt-minion processes running causing high CPU load on a these machines with the following error repeated frequently in their logs:
+
+```
+2016-04-26 14:54:31,122 [salt.minion      ][ERROR   ][21796] Exception [Errno 5] Input/output error occurred in scheduled job
+```
+
+and a few of these as well:
+
+```
+2016-04-26 13:54:29,584 [salt.minion      ][WARNING ][2226] Unable to send mine data to master.
+```
+
+Restarting salt-master resolved this behavior and scheduled highstates started working again.
+The affected minions had to fixed by hand (`killall salt-minion & service salt-minion start`)
+### Versions Report
+
+**Master**
+
+```
+Salt Version:
+           Salt: 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: 3.3.0
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: 1.4.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-83-generic
+         system: Ubuntu 14.04 trusty
+```
+
+**Affected minion:**
+
+```
+Salt Version:
+           Salt: 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-79-generic
+         system: Ubuntu 14.04 trusty
+```

@@ -1,0 +1,71 @@
+I can't get the yaml_utf8 option working properly at all, specifically with `file.directory` or `file.managed`. Unicode characters do work fine for my own custom states, and some other states depending on how they're used. I assembled a [simple repro example](https://github.com/twisty7867/salt-utf-fail).
+
+When using unicode in the state ID declaration, [like so](https://github.com/twisty7867/salt-utf-fail/tree/fb3a3abdb943d0b251d021eb8a012cc4e4ed1402), `vagrant provision` fails while calling `salt-call --local 'state.highstate' (and the state is not applied) with the following traceback:
+
+```
+UnicodeEncodeError: 'ascii' codec can't encode character u'\xe9' in position 5: ordinal not in range(128)
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 225, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/call.py", line 69, in run
+    caller.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 236, in run
+    ret = self.call()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 138, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/state.py", line 515, in highstate
+    whitelist=kwargs.get('whitelist')
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2962, in call_highstate
+    return self.state.call_high(high)
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2031, in call_high
+    chunks = self.compile_high_data(high)
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1143, in compile_high_data
+    chunks = self.order_chunks(chunks)
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1082, in order_chunks
+    chunks.sort(key=lambda chunk: (chunk['order'], '{0[state]}{0[name]}{0[fun]}'.format(chunk)))
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1082, in <lambda>
+    chunks.sort(key=lambda chunk: (chunk['order'], '{0[state]}{0[name]}{0[fun]}'.format(chunk)))
+UnicodeEncodeError: 'ascii' codec can't encode character u'\xe9' in position 5: ordinal not in range(128)
+```
+
+Assigning a bogus ID and moving the Unicode text to `- name:` [like so](https://github.com/twisty7867/salt-utf-fail/tree/53d2b2161424ad93779d037853356345fd6210c5) allows the state to be applied, but then, as described in #16139, the salt fails with the following traceback trying to output:
+
+```
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 225, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/call.py", line 69, in run
+    caller.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 246, in run
+    self.opts)
+  File "/usr/lib/python2.7/dist-packages/salt/output/__init__.py", line 94, in display_output
+    display_data = try_printout(data, out, opts)
+  File "/usr/lib/python2.7/dist-packages/salt/output/__init__.py", line 46, in try_printout
+    return get_printout(out, opts)(data).rstrip()
+  File "/usr/lib/python2.7/dist-packages/salt/output/highstate.py", line 80, in output
+    return _format_host(host, hostdata)[0]
+  File "/usr/lib/python2.7/dist-packages/salt/output/highstate.py", line 249, in _format_host
+    hstrs.extend([sline.format(**svars) for sline in state_lines])
+UnicodeDecodeError: 'ascii' codec can't decode byte 0xc3 in position 5: ordinal not in range(128)
+```
+
+A suggested workaround for this was to use `--out pprint` - which works for the `file.directory` state. However, it doesn't work for other states, like `file.recurse` ([example](https://github.com/twisty7867/salt-utf-fail/tree/5e5ccf1f0d80b244469c72d461f9fd0fca37f838)), which fails internally:
+
+```
+[INFO    ] Running state [/opt/répertoire-de-test] at time 17:58:21.882238
+[INFO    ] Executing state file.recurse for /opt/répertoire-de-test
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1562, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/states/file.py", line 2297, in recurse
+    dest = os.path.join(name, relname)
+  File "/usr/lib/python2.7/posixpath.py", line 80, in join
+    path += '/' + b
+UnicodeDecodeError: 'ascii' codec can't decode byte 0xc3 in position 6: ordinal not in range(128)
+```
+
+These fail in the same way whether calling `vagrant provision` or `sudo salt-call --local 'state.highstate'` from within the VM. The same errors occur when using the default Salt supplied by Vagrant (2014.7.5) or when getting v2015.2.0rc2 from git. Based on the notes in #16139, I checked the values of the `LANG` and `LC_ALL` environment variables, both of which are set to `en_US.UTF-8`. Based on the comments in #17227, I tried changing by box to `box-cutter/ubuntu1404`, but got the same results. 

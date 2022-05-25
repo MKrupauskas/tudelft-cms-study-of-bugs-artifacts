@@ -1,0 +1,90 @@
+Original thread - https://groups.google.com/forum/#!topic/salt-users/wU9Xz7QyhwQ
+
+I'm working on a project that provides a light web interface on top of Salt (and other things). One of the things the web interface can do is add and configure a host for Salt control using SSH. 
+
+When it adds a host for Salt control, the web interface will delete all existing keys on the salt master for that host (using salt-api), configure and start up the minion on the host (over SSH), wait for the key to appear before accepting it and pinging that host to confirm (all with salt-api). The web interface can do this on multiple hosts concurrently, however when I try that, nearly all the minions crash or become unresponsive. 
+
+On the unresponsive minions, I'll see the following exception repeated - 
+
+```
+2013-06-26 07:44:04,429 [salt.minion][INFO] Authentication with master 
+successful! 
+2013-06-26 07:44:04,429 [salt.minion][CRITICAL] An exception occurred 
+while polling the minion 
+Traceback (most recent call last): 
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 1015, in tune_in 
+    self._handle_payload(payload) 
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 514, in 
+_handle_payload 
+    'clear': self._handle_clear}[payload['enc']](payload['load']) 
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 525, in 
+_handle_aes 
+    data = self.crypticle.loads(load) 
+  File "/usr/lib/python2.7/site-packages/salt/crypt.py", line 413, in loads 
+    data = self.decrypt(data) 
+  File "/usr/lib/python2.7/site-packages/salt/crypt.py", line 396, in decrypt 
+    raise AuthenticationError('message authentication failed') 
+AuthenticationError: message authentication failed 
+```
+
+On the hosts where the minions have died (but left the pidfile behind), if I try to start the minion manually on the console, I'll get the following before it dies - 
+
+```
+<snip> 
+[DEBUG] Loaded minion key: /etc/salt/pki/minion/minion.pem 
+[DEBUG] Decrypting the current master AES key 
+[DEBUG] Loaded minion key: /etc/salt/pki/minion/minion.pem 
+[INFO] Authentication with master successful! 
+[DEBUG] Loaded minion key: /etc/salt/pki/minion/minion.pem 
+[DEBUG] Decrypting the current master AES key 
+[DEBUG] Loaded minion key: /etc/salt/pki/minion/minion.pem 
+[DEBUG] Loaded minion key: /etc/salt/pki/minion/minion.pem 
+Traceback (most recent call last): 
+  File "./salt-minion", line 11, in <module> 
+    load_entry_point('salt==0.15.9', 'console_scripts', 'salt-minion')() 
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 29, in 
+salt_minion 
+    minion.start() 
+  File "/usr/lib/python2.7/site-packages/salt/__init__.py", line 198, in start 
+    self.prepare() 
+  File "/usr/lib/python2.7/site-packages/salt/__init__.py", line 186, in prepare 
+    self.minion = salt.minion.Minion(self.config) 
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 455, in __init__ 
+    opts['environment'], 
+  File "/usr/lib/python2.7/site-packages/salt/pillar/__init__.py", 
+line 59, in compile_pillar 
+    aes = key.private_decrypt(ret['key'], 4) 
+TypeError: string indices must be integers, not str 
+```
+
+When this happens, on the master, I'll start seeing the following line appear multiple times in the log - 
+
+`[DEBUG] Failed to authenticate message`
+
+Restarting the minions does not help, however, if I restart the master (after they've all been added), then restart the minions, everything just works. 
+
+The 'add host' process also works fine if I add each host serially (i.e. one at a time). If I add hosts serially, then add others in parallel, then those hosts I add in serial will become uncontactable as well with the same symptoms. Adding 3 or more hosts in parallel consistently produces this problem (it occasionally works for 2 hosts). 
+
+I am therefore led to believe there is a threading issue somewhere inside Salt where the minion keys are stored, and if they're modified quickly within a very small timeframe with separate calls, corruption may occur that corrupts the entire in-memory store until the store is re-read when the master is restarted. 
+
+The version details are as follows (all hosts tested are identical) - 
+
+```
+Salt: 0.15.90 
+Python: 2.7.3 (default, Mar 6 2013, 17:02:04) 
+Jinja2: 2.6 
+M2Crypto: 0.21.1 
+msgpack-python: 0.3.0 
+msgpack-pure: Not Installed 
+pycrypto: 2.6 
+PyYAML: 3.10 
+PyZMQ: 13.0.0 
+ZMQ: 3.2.2 
+
+2.6.18-274.el5PAE #1 SMP Fri Jul 8 17:59:09 EDT 2011 i686 i686 i386 GNU/Linux 
+Red Hat Enterprise Linux Server release 5.7 (Tikanga) 
+```
+
+I'm not familiar enough with the encryption innards of Salt to debug there, but let me know if there's anything else I can provide that may help. 
+
+This issue maybe related to #5599.

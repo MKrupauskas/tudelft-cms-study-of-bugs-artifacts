@@ -1,0 +1,140 @@
+### Description of Issue/Question
+
+If I try to use a `file.managed` state with a `source` from S3 and the S3 call fails to authenticate, I get the following error message:
+
+``` yaml
+----------
+          ID: /my-file
+    Function: file.managed
+      Result: False
+     Comment: File sum set for file /my-file of f28dea6700763708e2aecb689ed22c0ad3f06e5d does not match real sum of b5d44cde7aa14c6b6ef793f19212a80d167c09ff
+     Started: 14:16:02.270682
+    Duration: 3252.121 ms
+     Changes:   
+              ----------
+              diff:
+                  New file
+```
+
+It's really misleading as it hides the underlying error and makes it difficult to track what the actual problem is.
+### Setup
+
+State:
+
+``` yaml
+/my-file:
+  file.managed:
+    - mode: 755
+    - user: root
+    - source: s3://my-bucket/my-file
+    - source_hash: sha1=f28dea6700763708e2aecb689ed22c0ad3f06e5d
+```
+
+See below for different pillar configuration.
+### Steps to Reproduce Issue
+
+Depending on the configuration, the actual error can be different.
+
+With an authentication problem (mistake or bad credentials):
+
+``` yaml
+s3:
+  # authentication problem
+  keyid: "wrong key id"
+  key: "wrong secret key"
+  location: eu-central-1
+```
+
+I get the following error:
+
+```
+[DEBUG   ] S3 Request: https://my-bucket.s3.amazonaws.com/my-file?
+[DEBUG   ] S3 Headers::
+[DEBUG   ]     Authorization: AWS4-HMAC-SHA256 Credential=XXXXXXXXXXXXXXXXXXXX/20160923/eu-central-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+[INFO    ] Starting new HTTPS connection (1): my-bucket.s3.amazonaws.com
+[DEBUG   ] "GET /my-file HTTP/1.1" 403 None
+[DEBUG   ]     Response content: None
+[DEBUG   ] S3 Response Status Code: 403
+[DEBUG   ] Saving to local file: /var/cache/salt/minion/extrn_files/base/my-bucket/my-file
+[ERROR   ] File changed:
+New file
+[INFO    ] Completed state [/my-file] at time 14:22:30.656761
+```
+
+If the location is not correctly set (I'm using `eu-central-1` but it defaults to `us-east-1`):
+
+``` yaml
+s3:
+  keyid: "good key id"
+  key: "good secret key"
+  # missing location
+```
+
+I get this error instead (note that I'm running this code not on a EC2 machine, hence the timeout error):
+
+```
+[INFO    ] Starting new HTTP connection (1): 169.254.169.254
+[WARNING ] Failed to get AWS region from instance metadata.
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/aws.py", line 538, in get_region_from_metadata
+    proxies={'http': ''}, timeout=AWS_METADATA_TIMEOUT,
+  File "/usr/lib/python2.7/dist-packages/requests/api.py", line 69, in get
+    return request('get', url, params=params, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/requests/api.py", line 50, in request
+    response = session.request(method=method, url=url, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/requests/sessions.py", line 465, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/usr/lib/python2.7/dist-packages/requests/sessions.py", line 573, in send
+    r = adapter.send(request, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/requests/adapters.py", line 419, in send
+    raise ConnectTimeout(e, request=request)
+ConnectTimeout: HTTPConnectionPool(host='169.254.169.254', port=80): Max retries exceeded with url: /latest/dynamic/instance-identity/document (Caused by ConnectTimeoutError(<requests.packages.urllib3.connection.HTTPConnection object at 0x7f5d70a97650>, 'Connection to 169.254.169.254 timed out. (connect timeout=3.05)'))
+[DEBUG   ] S3 Request: https://my-bucket.s3.amazonaws.com/my-file?
+[DEBUG   ] S3 Headers::
+[DEBUG   ]     Authorization: AWS4-HMAC-SHA256 Credential=XXXXXXXXXXXXXXXXXXXX/20160923/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+[INFO    ] Starting new HTTPS connection (1): my-bucket.s3.amazonaws.com
+[DEBUG   ] "GET /my-file HTTP/1.1" 400 None
+[DEBUG   ]     Response content: None
+[DEBUG   ] S3 Response Status Code: 400
+[DEBUG   ] Saving to local file: /var/cache/salt/minion/extrn_files/base/my-bucket/my-file
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.12
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.6 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 8.6 
+```

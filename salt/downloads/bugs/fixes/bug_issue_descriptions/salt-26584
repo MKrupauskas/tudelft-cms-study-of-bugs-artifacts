@@ -1,0 +1,175 @@
+I have asked this in [Stackoverflow too](http://stackoverflow.com/questions/32094600/salt-master-receives-attributeerror-module-object-has-no-attribute-fromstri)
+
+**Background**
+1. Salt version 2015.5.3
+2. Using salt-ssh
+3. Master is on CentOS 6.7 and target server Ubuntu 14.04
+4. Master has Python 2.6 in /usr/bin, whereas Target as Python 3, Python 2.7 and Python 2.6 in /usr/bin
+
+**Issue**
+When the test.ping command is issued via salt-ssh, an error is received. This is _probably_ because salt-ssh is creating the executable tar ball using Python 2.6 whereas in target it's trying to execute it using Python 2.7. See below for various outputs
+
+**Few Questions**
+- How do I make salt-master/salt-ssh use Python 2.7? I have python2.7 in my path installed in /usr/bin and /usr/local/bin.
+- Since the master (salt-ssh) know it's on 2.6 shouldn't it try to prioritize Python 2.6 over 2.7 and others when selecting target Python executable? I know there could my multiple combination - but we can always give preference for like-to-like version?
+
+I say this because, when I enable logging in salt-ssh, I can see this as priority order. 
+
+```
+PYTHON_CMDS="python27 python2.7 python26 python2.6 python2 python"
+for py_cmd in $PYTHON_CMDS
+```
+- In extreme cases, may be a flag to indicate a specific python binary to use? [In thin.py](https://github.com/saltstack/salt/blob/5cf19b19815fdb887e4458e8bff8c3ea99f44940/salt/utils/thin.py%20thin.py) I can see something about
+
+```
+   --python2-bin=
+```
+
+but the console doesn't let me pass any value. How do I use this?
+
+**Master Server related outputs**
+
+```
+[root@salt bin]# salt-ssh \* test.ping
+
+pocdb:
+    ----------
+    retcode:
+        1
+    stderr:
+        Traceback (most recent call last):
+          File "/tmp/.oracle_1ec649__salt/salt-call", line 4, in <module>
+            salt_call()
+          File "/tmp/.oracle_1ec649__salt/salt/scripts.py", line 221, in salt_call
+            import salt.cli.call
+          File "/tmp/.oracle_1ec649__salt/salt/cli/call.py", line 6, in <module>
+            from salt.utils import parsers
+          File "/tmp/.oracle_1ec649__salt/salt/utils/parsers.py", line 28, in <module>
+            import salt.config as config
+          File "/tmp/.oracle_1ec649__salt/salt/config.py", line 28, in <module>
+            import salt.utils.network
+          File "/tmp/.oracle_1ec649__salt/salt/utils/network.py", line 26, in <module>
+            from salt._compat import subprocess
+          File "/tmp/.oracle_1ec649__salt/salt/_compat.py", line 22, in <module>
+            import xml.etree.cElementTree as ElementTree
+          File "/tmp/.oracle_1ec649__salt/xml/etree/cElementTree.py", line 3, in <module>
+            from _elementtree import *
+          File "<string>", line 147, in <module>
+        AttributeError: 'module' object has no attribute 'fromstringlist'
+    stdout:
+
+[root@salt tmp]# salt-ssh --versions-report
+           Salt: 2015.5.3
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+         Jinja2: unknown
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+        Tornado: Not Installed
+
+[root@salt tmp]# cat /proc/version
+Linux version 4.0.9-boot2docker (root@b20c898782d0) (gcc version 4.9.2 (Debian 4.9.2-10) ) #1 SMP Thu Aug 13 03:05:44 UTC 2015
+
+[root@salt tmp]# uname -a
+Linux salt 4.0.9-boot2docker #1 SMP Thu Aug 13 03:05:44 UTC 2015 x86_64 x86_64 x86_64 GNU/Linux
+
+[root@salt bin]# whereis python
+python: /usr/bin/python2.6 /usr/bin/python /usr/lib/python2.6 /usr/lib64/python2.6 /usr/include/python2.6
+
+[root@salt python27]# pwd
+/opt/rh/python27
+
+[root@salt python27]# ls -ltr
+total 8
+-rw-r--r--  1 root root  440 Jul 10  2014 enable
+dr-xr-xr-x 21 root root 4096 Aug 18 15:05 root
+
+[root@salt python27]# cat /etc/*release*
+CentOS release 6.7 (Final)
+CentOS release 6.7 (Final)
+CentOS release 6.7 (Final)
+cpe:/o:centos:linux:6:GA    
+```
+
+**Target Server related outputs**
+
+```
+root@7de9ca25d430:/usr/bin# salt-minion --versions-report
+                  Salt: 2015.5.3
+                Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: Not Installed
+               Tornado: Not Installed
+ Debian source package: 2015.5.3+ds-1trusty1
+
+root@7de9ca25d430:/usr/bin# uname -a
+Linux 7de9ca25d430 4.0.9-boot2docker #1 SMP Thu Aug 13 03:05:44 UTC 2015 x86_64 x86_64 x86_64 GNU/Linux
+
+root@7de9ca25d430:/usr/bin# lsb_release -a
+No LSB modules are available.
+Distributor ID: Ubuntu
+Description:    Ubuntu 14.04.1 LTS
+Release:        14.04
+Codename:       trusty
+
+root@7de9ca25d430:/usr/bin# whereis python
+python: /usr/bin/python2.6 /usr/bin/python2.7 /usr/bin/python /usr/bin/python3.4 /usr/bin/python3.4m /etc/python2.6 /etc/python2.7 /etc/python /etc/python3.4 /usr/lib/python2.6 /usr/lib/python3.4 /usr/lib/python2.7 /usr/local/lib/python2.6 /usr/local/lib/python2.7 /usr/local/lib/python3.4 /usr/include/python2.6 /usr/share/python /usr/share/man/man1/python.1.gz
+```
+
+When I execute the thin ball directly on the target server
+
+```
+root@7de9ca25d430:/usr/bin# /usr/bin/python2.7 
+/tmp/.oracle_1ec649__salt/salt-call --local --metadata --out -c 
+/tmp/.oracle_1ec649__salt -- test.ping
+Traceback (most recent call last):
+  File "/tmp/.oracle_1ec649__salt/salt-call", line 4, in <module>
+salt_call()
+  File "/tmp/.oracle_1ec649__salt/salt/scripts.py", line 221, in salt_call
+import salt.cli.call
+  File "/tmp/.oracle_1ec649__salt/salt/cli/call.py", line 6, in <module>
+from salt.utils import parsers
+  File "/tmp/.oracle_1ec649__salt/salt/utils/parsers.py", line 28, in <module>
+import salt.config as config
+  File "/tmp/.oracle_1ec649__salt/salt/config.py", line 28, in <module>
+import salt.utils.network
+  File "/tmp/.oracle_1ec649__salt/salt/utils/network.py", line 26, in <module>
+from salt._compat import subprocess
+  File "/tmp/.oracle_1ec649__salt/salt/_compat.py", line 22, in <module>
+import xml.etree.cElementTree as ElementTree
+  File "/tmp/.oracle_1ec649__salt/xml/etree/cElementTree.py", line 3, in <module>
+from _elementtree import *
+  File "<string>", line 147, in <module>
+  AttributeError: 'module' object has no attribute 'fromstringlist'
+
+root@7de9ca25d430:/usr/bin# /usr/bin/python2.6 /tmp/.oracle_1ec649__salt/salt-call --local --metadata --out json -l quiet -c /tmp/.oracle_1ec649__salt -- test.ping
+[CRITICAL] Unable to import msgpack or msgpack_pure python modules
+{
+    "local": {
+        "fun_args": [],
+        "jid": "20150819112335469338",
+        "return": true,
+        "retcode": 0,
+        "fun": "test.ping",
+        "id": "pocdb"
+    }
+}
+```

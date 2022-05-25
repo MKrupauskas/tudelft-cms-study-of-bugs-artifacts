@@ -1,0 +1,98 @@
+### Description of Issue/Question
+
+The pkgrepo.managed state doesn't actually test anything when run with `test=True`. It just returns a text string stating that the repo is going to be configured. I've checked back as far as the 2014.1 branch and this same bug exists in all versions. Likely since the creation of this state function.
+
+As far as I can tell the `pkgrepo.managed` state does correctly manage the repo file, it just seems to be the reporting of the `test=True` check that is incorrect.
+### Setup
+
+```
+root@saltmaster:/srv/salt# cat saltstack2.sls 
+saltstack:
+  pkgrepo.managed:
+   - name: saltstack
+   - humanname: SaltStack repo for RHEL/CentOS 7
+   - baseurl: http://repo.saltstack.com/yum/redhat/7/x86_64/latest/
+   - gpgkey: https://repo.saltstack.com/yum/rhel7/SALTSTACK-GPG-KEY.pub
+   - disabled: False
+   - gpgcheck: 1
+
+```
+
+```
+[root@testcent7 ~]# cat /etc/yum.repos.d/saltstack.repo 
+
+[saltstack]
+name=SaltStack repo for RHEL/CentOS 7
+gpgkey=https://repo.saltstack.com/yum/rhel7/SALTSTACK-GPG-KEY.pub
+baseurl=http://repo.saltstack.com/yum/redhat/7/x86_64/latest/
+humanname=SaltStack repo for RHEL/CentOS 7
+gpgcheck=1
+```
+### Steps to Reproduce Issue
+
+I get the following output regardless of whether I've already run the state successfully:
+
+```
+root@elsapo:/srv/salt# salt testcent7 state.sls saltstack2 test=True
+testcent7:
+----------
+          ID: saltstack
+    Function: pkgrepo.managed
+      Result: None
+     Comment: Package repo 'saltstack' will be configured. This may cause pkg states to behave differently than stated if this action is repeated without test=True, due to the differences in the configured repositories.
+     Started: 20:48:17.882524
+    Duration: 6.464 ms
+     Changes:   
+
+Summary for testcent7
+------------
+Succeeded: 1 (unchanged=1)
+Failed:    0
+------------
+Total states run:     1
+```
+
+Here's the offending test for `test=True`:
+https://github.com/saltstack/salt/blob/8d84c636cf241237ca5e033beea6e3179e4de7d5/salt/states/pkgrepo.py#L323
+### Versions Report
+
+```
+root@elsapo:/srv/salt# salt testcent7 test.versions_report
+testcent7:
+    Salt Version:
+               Salt: 2015.8.7
+
+    Dependency Versions:
+             Jinja2: 2.7.2
+           M2Crypto: Not Installed
+               Mako: Not Installed
+             PyYAML: 3.11
+              PyZMQ: 14.7.0
+             Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+               RAET: Not Installed
+            Tornado: 4.2.1
+                ZMQ: 4.0.5
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: Not Installed
+              gitdb: Not Installed
+          gitpython: Not Installed
+              ioflo: Not Installed
+            libgit2: Not Installed
+            libnacl: Not Installed
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.6
+       mysql-python: Not Installed
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+             pygit2: Not Installed
+       python-gnupg: Not Installed
+              smmap: Not Installed
+            timelib: Not Installed
+
+    System Versions:
+               dist: centos 7.2.1511 Core
+            machine: x86_64
+            release: 3.13.0-83-generic
+             system: CentOS Linux 7.2.1511 Core
+```

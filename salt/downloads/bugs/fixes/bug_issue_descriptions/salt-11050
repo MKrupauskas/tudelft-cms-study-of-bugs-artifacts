@@ -1,0 +1,34 @@
+Salt version 2014.1.0
+
+The following state is failing because the package is provided by the RHN yum plugin:
+
+```
+yum-plugin-protectbase:
+  pkg.installed
+```
+
+Reviewing the debug info from `salt-call` on the minion, the problematic point is:
+
+```
+[INFO    ] Executing command 'repoquery --queryformat="%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}"  --all --quiet --whatprovides \'yum-plugin-protectbase\'' in directory '/root'
+[ERROR   ] The following package(s) were not found, and no possible matches were found in the package db: yum-plugin-protectbase
+```
+
+Manually running the same command but with `--plugins` provided resolves the issue:
+
+```
+$ repoquery --whatprovides yum-plugin-protectbase --verbose
+<no output>
+
+$ repoquery --whatprovides yum-plugin-protectbase --verbose --plugins
+Loaded plugins: rhnplugin
+This system is receiving updates from RHN Classic or RHN Satellite.
+yum-plugin-protectbase-0:1.1.30-17.el6_5.noarch
+yum-plugin-protectbase-0:1.1.30-6.el6.noarch
+yum-plugin-protectbase-0:1.1.26-11.el6.noarch
+yum-plugin-protectbase-0:1.1.30-10.el6.noarch
+yum-plugin-protectbase-0:1.1.30-17.el6_5.noarch
+yum-plugin-protectbase-0:1.1.30-14.el6.noarch
+```
+
+From an end-user perspective, I'd rather not be concerned with having to specify that the `--plugins` option needs to be specified for certain packages.  It's also very hard to track down the problem when first encountering it since running `yum info` & `yum list` show the package as being available and unless you're aware that salt is instead relying on repoquery internally, you'll be scratching your head for a bit.  That said, I'm not familiar enough with yum plugins to know if always specifying the `--plugins` directive could have drawbacks.

@@ -1,0 +1,104 @@
+### Description of Issue/Question
+
+### Setup
+
+The `network_settings` beacon has been configured in the Pillar with:
+
+```
+beacons:
+  network_settings:
+    interval: 5
+    # monitorize any change in IP addresses in eth0
+    eth0:
+      ipaddr:
+```
+
+### Steps to Reproduce Issue
+
+When using the `network_settings` beacon I get this error in the minions:
+
+```syslog
+May 26 13:16:52 ad3fed2f9a484579a8f61d96a19906f8.infra.caasp.local salt-minion[15528]: [CRITICAL] The beacon errored:
+May 26 13:16:52 ad3fed2f9a484579a8f61d96a19906f8.infra.caasp.local salt-minion[15528]: Traceback (most recent call last):
+May 26 13:16:52 ad3fed2f9a484579a8f61d96a19906f8.infra.caasp.local salt-minion[15528]:   File "/usr/lib/python2.7/site-packages/salt/minion.py", line 2169, in handle_beacons
+May 26 13:16:52 ad3fed2f9a484579a8f61d96a19906f8.infra.caasp.local salt-minion[15528]:     beacons = self.process_beacons(self.functions)
+May 26 13:16:52 ad3fed2f9a484579a8f61d96a19906f8.infra.caasp.local salt-minion[15528]:   File "/usr/lib/python2.7/site-packages/salt/minion.py", line 409, in process_beacons
+May 26 13:16:52 ad3fed2f9a484579a8f61d96a19906f8.infra.caasp.local salt-minion[15528]:     return self.beacons.process(b_conf, self.opts['grains'])  # pylint: disable=no-member
+May 26 13:16:52 ad3fed2f9a484579a8f61d96a19906f8.infra.caasp.local salt-minion[15528]:   File "/usr/lib/python2.7/site-packages/salt/beacons/__init__.py", line 100, in process
+May 26 13:16:52 ad3fed2f9a484579a8f61d96a19906f8.infra.caasp.local salt-minion[15528]:     raw = self.beacons[fun_str](b_config[mod])
+May 26 13:16:52 ad3fed2f9a484579a8f61d96a19906f8.infra.caasp.local salt-minion[15528]:   File "/usr/lib/python2.7/site-packages/salt/beacons/network_settings.py", line 135, in beacon
+May 26 13:16:52 ad3fed2f9a484579a8f61d96a19906f8.infra.caasp.local salt-minion[15528]:     _stats = _copy_interfaces_info(IP.by_name)
+May 26 13:16:52 ad3fed2f9a484579a8f61d96a19906f8.infra.caasp.local salt-minion[15528]:   File "/usr/lib/python2.7/site-packages/salt/beacons/network_settings.py", line 79, in _copy_interfaces_info
+May 26 13:16:52 ad3fed2f9a484579a8f61d96a19906f8.infra.caasp.local salt-minion[15528]:     attr_dict[attr] = repr(interfaces[interface][attr])
+May 26 13:16:52 ad3fed2f9a484579a8f61d96a19906f8.infra.caasp.local salt-minion[15528]: KeyError: 'change'
+```
+
+It seems the `change` attribute is no longer there, so the error disappears with the following patch:
+
+```diff
+diff --git a/salt/beacons/network_settings.py b/salt/beacons/network_settings.py
+index 5af71a0..78c387b 100644
+--- a/salt/beacons/network_settings.py
++++ b/salt/beacons/network_settings.py
+@@ -25,7 +25,7 @@ __virtual_name__ = 'network_settings'
+ ATTRS = ['family', 'txqlen', 'ipdb_scope', 'index', 'operstate', 'group',
+          'carrier_changes', 'ipaddr', 'neighbours', 'ifname', 'promiscuity',
+          'linkmode', 'broadcast', 'address', 'num_tx_queues', 'ipdb_priority',
+-         'change', 'kind', 'qdisc', 'mtu', 'num_rx_queues', 'carrier', 'flags',
++         'kind', 'qdisc', 'mtu', 'num_rx_queues', 'carrier', 'flags',
+          'ifi_type', 'ports']
+ 
+ LAST_STATS = {}
+```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.11.3
+ 
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Jan 11 2017, 10:56:06) [GCC]
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+ 
+System Versions:
+           dist:   
+        machine: x86_64
+        release: 4.4.59-92.17-default
+         system: Linux
+        version: Not Installed
+```
+
+The version of `pyroute2` is:
+
+```
+pyroute2 (0.4.14)
+```
+
+I've tried some previous versions and I got the same error...
+
+The OS distro was openSUSE SLE.

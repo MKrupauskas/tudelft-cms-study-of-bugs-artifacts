@@ -1,0 +1,86 @@
+### Description of Issue/Question
+I'm looking for some help with salt-ssh and returner using postgresql. If you've a postgresql returner configured (with returner.postgres.user set to a user other than root) and run a salt-ssh command it fails. 
+
+This seems to be happening because in _fetch_options in returners/\_\_init__.py, 
+https://github.com/saltstack/salt/blob/51eb07c13f9b0b39fd4242a23566fd5c3589561a/salt/returners/__init__.py#L140
+When attr_name is set to passwd, as it is not present in c_cfg when default_cfg_key is set to returner.postgres.passwd. So it ends up fetching it from cfg using returner.postgres.passwd key. However, when attr_name is set to "user" key, it's already present in c_cfg (set to root), so it doesn't look returner.postgres.user in cfg dict and ends up returning "root" for the user.
+
+### Setup
+Here is the returner.conf 
+```
+returner.postgres.host: 'localhost'
+returner.postgres.user: 'myuser'
+returner.postgres.passwd: 'QNIWwKiZF4HwtSa9'
+returner.postgres.db: 'mydb'
+returner.postgres.port: 5432
+master_job_cache: postgres
+```
+
+Here is the salt-ssh command which fails - 
+`salt-ssh '172.17.0.2' --roster=scan --user=root --passwd=password test.ping --ignore-host-keys
+`Here root and password are the credentials for machine 172.17.0.2.
+
+### Steps to Reproduce Issue
+Configure a postgresql returner with a returner.postgres.user set to any user other than root.
+Run salt-ssh 'target' test.ping 
+
+Here is the traceback produced by the salt-ssh command - 
+```
+[17:16:50.317] [ERROR   ] postgres returner could not connect to database: FATAL:  password authentication failed for user "root"
+Traceback (most recent call last):
+ File "/usr/lib/python2.7/site-packages/salt/client/ssh/__init__.py", line 619, in run
+   self.returners['{0}.save_load'.format(self.opts['master_job_cache'])](jid, job_load)
+ File "/usr/lib/python2.7/site-packages/salt/returners/postgres.py", line 267, in save_load
+   with _get_serv(commit=True) as cur:
+ File "/usr/lib64/python2.7/contextlib.py", line 17, in __enter__
+   return self.gen.next()
+ File "/usr/lib/python2.7/site-packages/salt/returners/postgres.py", line 204, in _get_serv
+   raise salt.exceptions.SaltMasterError('postgres returner could not connect to database: {exc}'.format(exc=exc))
+SaltMasterError: postgres returner could not connect to database: FATAL:  password authentication failed for user "root"
+```
+
+[17:16:50.318] [ERROR   ] Could not save load with returner postgres: postgres returner could not connect to database: FATAL:  password authentication failed for user "root",
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 0.8.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 3.10.0-693.11.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+```

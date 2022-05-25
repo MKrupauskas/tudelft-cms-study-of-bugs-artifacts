@@ -1,0 +1,93 @@
+Basically, if a minion is connected to multiple masters, and the primary master dies, the minion will not properly fail over to the other masters for state runs.
+
+To reproduce this issue, set up a multi-master setup with a minion connected to two or more masters.  Verify that you can run a state run of some sort on the minion from either master.  Then kill the primary master (the first in the list of masters in the minion config).  If you then try to do a state run from one of the other masters, it will fail with something like this (after a long time):
+
+```
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/local/lib/python2.7/dist-packages/salt/minion.py", line 978, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/local/lib/python2.7/dist-packages/salt/modules/state.py", line 385, in sls
+        st_ = salt.state.HighState(opts, pillar, kwargs.get('__pub_jid'))
+      File "/usr/local/lib/python2.7/dist-packages/salt/state.py", line 2855, in __init__
+        self.client = salt.fileclient.get_file_client(opts)
+      File "/usr/local/lib/python2.7/dist-packages/salt/fileclient.py", line 45, in get_file_client
+        }.get(opts['file_client'], RemoteClient)(opts)
+      File "/usr/local/lib/python2.7/dist-packages/salt/fileclient.py", line 900, in __init__
+        self.channel = salt.transport.Channel.factory(self.opts)
+      File "/usr/local/lib/python2.7/dist-packages/salt/transport/__init__.py", line 40, in factory
+        return ZeroMQChannel(opts, **kwargs)
+      File "/usr/local/lib/python2.7/dist-packages/salt/transport/__init__.py", line 159, in __init__
+        self.auth = salt.crypt.SAuth(opts)
+      File "/usr/local/lib/python2.7/dist-packages/salt/crypt.py", line 515, in __init__
+        self.crypticle = self.__authenticate()
+      File "/usr/local/lib/python2.7/dist-packages/salt/crypt.py", line 533, in __authenticate
+        self.opts.get('auth_tries', 1)
+      File "/usr/local/lib/python2.7/dist-packages/salt/crypt.py", line 354, in sign_in
+        raise SaltClientError('Failed sign in')
+    SaltClientError: Failed sign in
+```
+
+Normal remote execution continues to work fine.  In fact, the master continues to query the minion throughout the run with its normal `find_job` queries and the minion replies "Yep, I'm still running the job" every time.  But it appears to be stuck trying to auth with the first master, and times out repeatedly.  Here are some lines from the minion config:
+
+```
+2014-07-02 20:46:32,312 [salt.minion                                 ][INFO    ] Starting a new job with PID 28100
+2014-07-02 20:46:32,316 [salt.minion                                 ][INFO    ] Returning information for job: 20140702204540957526
+2014-07-02 20:46:32,498 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2014-07-02 20:46:32,498 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2014-07-02 20:46:37,627 [salt.minion                                 ][INFO    ] User root Executing command saltutil.find_job with jid 20140702204546294591
+2014-07-02 20:46:37,627 [salt.minion                                 ][DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20140702204546294591', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': ['20140702204535946030'], 'fun': 'saltutil.find_job'}
+2014-07-02 20:46:37,640 [salt.minion                                 ][INFO    ] Starting a new job with PID 28107
+2014-07-02 20:46:37,644 [salt.minion                                 ][INFO    ] Returning information for job: 20140702204546294591
+2014-07-02 20:46:37,825 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2014-07-02 20:46:37,825 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2014-07-02 20:46:42,959 [salt.minion                                 ][INFO    ] User root Executing command saltutil.find_job with jid 20140702204551625486
+2014-07-02 20:46:42,960 [salt.minion                                 ][DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20140702204551625486', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': ['20140702204535946030'], 'fun': 'saltutil.find_job'}
+2014-07-02 20:46:42,972 [salt.minion                                 ][INFO    ] Starting a new job with PID 28114
+2014-07-02 20:46:42,976 [salt.minion                                 ][INFO    ] Returning information for job: 20140702204551625486
+2014-07-02 20:46:43,154 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2014-07-02 20:46:43,155 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2014-07-02 20:46:48,289 [salt.minion                                 ][INFO    ] User root Executing command saltutil.find_job with jid 20140702204556956421
+search hit BOTTOM, continuing at TOP
+  File "/usr/local/lib/python2.7/dist-packages/salt/state.py", line 2855, in __init__
+    self.client = salt.fileclient.get_file_client(opts)
+  File "/usr/local/lib/python2.7/dist-packages/salt/fileclient.py", line 45, in get_file_client
+    }.get(opts['file_client'], RemoteClient)(opts)
+  File "/usr/local/lib/python2.7/dist-packages/salt/fileclient.py", line 900, in __init__
+    self.channel = salt.transport.Channel.factory(self.opts)
+  File "/usr/local/lib/python2.7/dist-packages/salt/transport/__init__.py", line 40, in factory
+    return ZeroMQChannel(opts, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/salt/transport/__init__.py", line 159, in __init__
+    self.auth = salt.crypt.SAuth(opts)
+  File "/usr/local/lib/python2.7/dist-packages/salt/crypt.py", line 515, in __init__
+    self.crypticle = self.__authenticate()
+  File "/usr/local/lib/python2.7/dist-packages/salt/crypt.py", line 533, in __authenticate
+    self.opts.get('auth_tries', 1)
+  File "/usr/local/lib/python2.7/dist-packages/salt/crypt.py", line 354, in sign_in
+    raise SaltClientError('Failed sign in')
+SaltClientError: Failed sign in
+```
+
+In `2014.1` (but not in `develop`) there are also periodic SaltReqTimeout errors:
+
+```
+2014-07-02 20:34:02,609 [salt.crypt                                  ][WARNING ] SaltReqTimeoutError: Waited 60 seconds
+```
+
+This issues occurs on `2014.1` and `develop`.  Versions report for develop below.
+
+```
+root@basepi-ubuntu2:~# salt --versions-report
+           Salt: 2014.1.0-9044-gdf2ab08
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.3.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+            ZMQ: 4.0.4
+```

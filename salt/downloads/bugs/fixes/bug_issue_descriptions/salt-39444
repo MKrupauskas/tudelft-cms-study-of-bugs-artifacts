@@ -1,0 +1,110 @@
+### Description of Issue/Question
+
+- In [salt/cloud/clouds/openstack.py](https://github.com/saltstack/salt/blob/develop/salt/cloud/clouds/openstack.py), `preferred_ip()` can return `False`.
+- when trying to get a public IP from private_ips, the returned value is sent to [salt.utils.cloud.is_public_ip()](https://github.com/saltstack/salt/blob/develop/salt/utils/cloud.py) :
+```python
+    for private_ip in private:
+        private_ip = preferred_ip(vm_, [private_ip])
+        if salt.utils.cloud.is_public_ip(private_ip):
+```
+- but `is_public_ip()` dont support `False` :
+```python
+def is_public_ip(ip):
+    '''
+    Determines whether an IP address falls within one of the private IP ranges
+    '''
+    if ':' in ip:
+```
+- resulting in :
+```
+ 'private_ips': ['an:ip:v6', 'an.ip.v4'],
+ 'public_ips': [],
+ 'size': None,
+ 'state': 0}
+[WARNING ] Private IPs returned, but not public... Checking for misidentified IPs
+[ERROR   ] There was a profile error: argument of type 'bool' is not iterable
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/cli.py", line 284, in run
+    self.config.get('names')
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 1458, in run_profile
+    ret[name] = self.create(vm_)
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 1288, in create
+    output = self.clouds[func](vm_)
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/clouds/openstack.py", line 774, in create
+    'wait_for_ip_interval', vm_, __opts__, default=10),
+  File "/usr/lib/python2.7/dist-packages/salt/utils/cloud.py", line 2371, in wait_for_ip
+    data = update_callback(*update_args, **update_kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/clouds/openstack.py", line 730, in __query_node_data
+    if salt.utils.cloud.is_public_ip(private_ip):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/cloud.py", line 2266, in is_public_ip
+    if ':' in ip:
+TypeError: argument of type 'bool' is not iterable
+```
+
+### Setup
+It seems to occure on a preferred IPv4 setup with a cloud provider (in my case openstack) returning an IPv6 first - see Traceback.
+
+
+### Versions Report
+```
+salt --versions-report
+Salt Version:
+           Salt: 2016.11.2
+
+Dependency Versions:
+           cffi: 1.7.0
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: 0.21.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.21.4
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.7
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.7
+```
+
+### Tempo fix
+
+- I dirty patched it in [salt/cloud/clouds/openstack.py](https://github.com/saltstack/salt/blob/develop/salt/cloud/clouds/openstack.py) by skipping falsy values :
+-  replace
+```
+            for private_ip in private:
+                private_ip = preferred_ip(vm_, [private_ip])
+                if salt.utils.cloud.is_public_ip(private_ip):
+```
+- with
+```
+            for private_ip in private:
+                private_ip = preferred_ip(vm_, [private_ip])
+                if not private_ip:
+                    continue
+                if salt.utils.cloud.is_public_ip(private_ip):
+```
+
+- But maybe a fix in [salt.utils.cloud.is_public_ip()](https://github.com/saltstack/salt/blob/develop/salt/utils/cloud.py) might be more relevant ?
+
+Thanks

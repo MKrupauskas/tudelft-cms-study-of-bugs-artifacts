@@ -1,0 +1,32 @@
+It makes no sense to enforce which local user salt-cloud et. al. run as if file_client is local and relative paths are used for configurations. 
+
+Forcing users to sudo to use a library (that is often installed in a virtualenv) as a non-privileged user in order to operate on a remote machine is unnecessary and goes against the principle of least privilege.
+
+Expecting all developers of a shared salt project to edit a file of the project and change it back before checking back in is cumbersome and error-prone, exactly the kind of issue that salt is supposed to eliminate.
+
+Steps to reproduce:
+Define a master, cloud, cloud.profiles and cloud.map files in the scope of a project (no user-defaults or system-wide).
+Ensure there is no "user" defined in any of these files.
+Ensure "file_client: local" is specified (e.g. in the 'cloud' file)
+Run salt-cloud with the -M, -C, -V and -m options to operate on these project-scoped config files.
+
+What actually happens:
+dev_user@dev_box:~$ cd ~/src/shared_salt_project
+dev_user:@dev_box:~/src/shared_salt_project$ salt-cloud -M etc/salt/master -C etc/salt/cloud -V etc/salt/cloud.profiles -m etc/salt/cloud.map
+...
+salt-cloud: error: salt-cloud needs to run as the same user as salt-master, 'root', but was unable to switch credentials. Please run salt-cloud as root or as 'root'
+
+What I expect to happen:
+...
+The following virtual machines are set to be created:
+...
+
+How this could be implemented:
+In the check_user() function of salt/utils/verify.py there exists:
+
+if salt.utils.is_windows():
+    return True
+if user == salt.utils.get_user():
+    return True
+
+A further check here to return True if file_client == "local" would likely fix this, though I'm not sure if there would be any wider impact to such a change.

@@ -1,0 +1,197 @@
+**Description**
+smtp.send_msg errors for an unknown reason. Recently the salt master was updated and a couple issues appear to have come from the update, including broken SMTP state and an unusually slow eventbus reaction time. I am writing this bug report for the SMTP issue only. 
+
+**Setup**
+A single master and minon with a beacon/reactor setup to send emails on service failure.
+
+**Steps to Reproduce the behavior**
+  
+**Create an email profile in the master config**
+``` yaml
+#############################################################
+###                         Emails                        ###
+#############################################################
+Email_Profile:
+  smtp.server: << amazon AWS SMTP >>
+  smtp.sender: salt@<<my domain>>.com
+  smtp.username: << a username >>
+  smtp.password: << a password >>
+```
+**Create a reactor to pick up a state**
+``` yaml
+reactor:
+# Firewalld
+  - 'salt/beacon/*/Firewall_Service/firewalld':
+    - salt://reactor/services/firewalld.sls
+```
+**Create a minion beacon**
+``` yaml
+beacons:
+  Firewall_Service:
+    - services:
+        firewalld:
+          onchangeonly: true
+    - beacon_module: service
+    - disable_during_state_run: True
+
+```
+
+**Create an email orchestration**  
+``` yaml
+Email DaemonSlayer2048 With firewalld Failure:
+  smtp.send_msg:
+      - profile: Email_Profile
+      - recipient: "DaemonSlayer2048@<<my domain>>.com"
+      - subject: "Firewalld is down on {{ data['id'] }}"
+      - name: "
+      \n
+      Firewalld on {{ data['id'] }} is down. At this time there is no generic state to handle Firewalld being down. Please investigate ASAP!\n
+      \n
+      Debug data: \n
+      {{ data }}"
+```
+With all the configs built make sure to reboot the master and minion, and ping the minion to confirm the connection is active.
+Now on the minion disable the firewall and you will receive an error like below. 
+
+**Event bus log**
+``` json
+salt/run/20201117170519997175/ret       {
+    "_stamp": "2020-11-17T17:07:59.459135",
+    "fun": "runner.state.orchestrate",
+    "fun_args": [
+        {
+            "mods": "orchestrate.services.firewalld",
+            "pillar": {
+                "data": {
+                    "_stamp": "2020-11-17T17:02:59.975904",
+                    "firewalld": {
+                        "running": false
+                    },
+                    "id": "DaemonSlayer2048s_Laptop",
+                    "service_name": "firewalld"
+                }
+            }
+        }
+    ],
+    "jid": "20201117170519997175",
+    "return": {
+        "data": {
+            "master.salt.local_master": {
+                "smtp_|-Email DaemonSlayer2048 With firewalld Failure_|- \n Firewalld on DaemonSlayer2048s_Laptop is down. At this time there is no generic state to handle Firewalld being down. Please investigate ASAP!\n \n Debug data: \n {'_stamp': '2020-11-17T17:02:59.975904', 'firewalld': {'running': False}, 'id': 'DaemonSlayer2048s_Laptop', 'service_name': 'firewalld'}_|-send_msg": {
+                    "__id__": "Email DaemonSlayer2048 With firewalld Failure",
+                    "__run_num__": 0,
+                    "__sls__": "orchestrate.services.firewalld",
+                    "changes": {},
+                    "comment": "An exception occurred in this state: Traceback (most recent call last):\n  File \"/usr/lib/python3.6/site-packages/salt/state.py\", line 2154, in call\n    *cdata[\"args\"], **cdata[\"kwargs\"]\n  File \"/usr/lib/python3.6/site-packages/salt/loader.py\", line 2188, in wrapper\n    return f(*args, **kwargs)\n  File \"/usr/lib/python3.6/site-packages/salt/states/smtp.py\", line 78, in send_msg\n    attachments=attachments,\n  File \"/usr/lib/python3.6/site-packages/salt/modules/smtp.py\", line 154, in send_msg\n    smtpconn.login(username, password)\n  File \"/usr/lib64/python3.6/smtplib.py\", line 697, in login\n    \"SMTP AUTH extension not supported by server.\")\nsmtplib.SMTPNotSupportedError: SMTP AUTH extension not supported by server.\n",
+                    "duration": 26041.974,
+                    "name": "  \n Firewalld on DaemonSlayer2048s_Laptop is down. At this time there is no generic state to handle Firewalld being down. Please investigate ASAP!\n \n Debug data: \n {'_stamp': '2020-11-17T17:02:59.975904', 'firewalld': {'running': False}, 'id': 'DaemonSlayer2048s_Laptop', 'service_name': 'firewalld'}",
+                    "result": false,
+                    "start_time": "11:07:33.372854"
+                }
+            }
+        },
+        "outputter": "highstate",
+        "retcode": 1
+    },
+    "success": false,
+    "user": "Reactor"
+}
+```
+
+**Expected behavior**
+When the firewall service goes down on a minion the beacon should notify the eventbus and trigger an orchestration. The orchestration will then call smtp.send_msg and an email should be sent explaining the service failed. 
+
+**Screenshots**
+N/A
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+**Salt Master**
+```
+Salt Version:
+           Salt: 3002.1
+ 
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10.1
+        libgit2: 0.99.0
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: Not Installed
+   pycryptodome: Not Installed
+         pygit2: 1.1.1
+         Python: 3.6.8 (default, Apr 16 2020, 01:36:27)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 19.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.3
+ 
+System Versions:
+           dist: centos 8 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 4.18.0-193.28.1.el8_2.x86_64
+         system: Linux
+        version: CentOS Linux 8 Core
+```
+
+**Salt Minion**
+```
+Salt Version:
+           Salt: 3001.3
+ 
+Dependency Versions:
+           cffi: 1.12.3
+       cherrypy: Not Installed
+       dateutil: 2.8.0
+      docker-py: 4.0.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10.3
+        libgit2: 0.28.4
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.1
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: 3.9.8
+         pygit2: 1.0.3
+         Python: 3.7.9 (default, Aug 19 2020, 17:05:11)
+   python-gnupg: Not Installed
+         PyYAML: 5.3.1
+          PyZMQ: 18.0.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+ 
+System Versions:
+           dist: fedora 31 
+         locale: UTF-8
+        machine: x86_64
+        release: 5.7.15-100.fc31.x86_64
+         system: Linux
+        version: Fedora 31 
+```
+</details>
+
+**Additional context**
+I would think my issue is only related to the SMTP server given the python error displayed however calling the salt smtp module works and sends email no problem when given the username, pass, server, etc. For example:
+```
+sudo salt '*' smtp.send_msg 'DaemonSlayer2048@<<my domain>>.com' 'This is a salt module test' username='<< a username >>' password='<< a password >>' sender='salt@<<my domain>>.com' server='<< amazon AWS SMTP >>
+```

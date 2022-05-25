@@ -1,0 +1,91 @@
+**Description**
+
+A custom beacon that uses dictionary-based configuration and works on 2019.2 stopped working on 300x (not sure about the exact version). Likely this is another manifestation of https://github.com/saltstack/salt/issues/59075
+
+The following exception will be visible in the minion log after a restart:
+
+```
+  File "c:\salt\bin\lib\site-packages\salt-3003.3-py3.7.egg\salt\beacons\__init__.py", line 72, in process
+    b_config[mod].append({"_beacon_name": mod})
+AttributeError: 'dict' object has no attribute 'append'
+```
+
+**Steps to Reproduce the behavior**
+
+I reproduced this problem without a custom beacon using the built-in `status` beacon (according to its source code, it clearly [supports dictionary-based config](https://github.com/saltstack/salt/blob/v3003.3/salt/beacons/status.py#L136-L138)).
+
+Add the following snippet to a minion pillar:
+
+```yaml
+beacons:
+  status: {}
+```
+
+Restart the minion (just in case), and observe the following traceback in the log:
+
+```
+2021-09-06 13:24:07,433 [salt.minion      :2947][CRITICAL][536] The beacon errored: 
+Traceback (most recent call last):
+  File "c:\salt\bin\lib\site-packages\salt-3003.3-py3.7.egg\salt\minion.py", line 2945, in handle_beacons
+    beacons = self.process_beacons(self.functions)
+  File "c:\salt\bin\lib\site-packages\salt-3003.3-py3.7.egg\salt\minion.py", line 513, in process_beacons
+    b_conf, self.opts["grains"]
+  File "c:\salt\bin\lib\site-packages\salt-3003.3-py3.7.egg\salt\beacons\__init__.py", line 72, in process
+    b_config[mod].append({"_beacon_name": mod})
+AttributeError: 'dict' object has no attribute 'append'
+```
+
+In my case it was a Windows 10 minion, but the same is happening on Linux minions as well.
+
+**Expected behavior**
+
+1. Built-in beacons that support dictionary-based configuration should still work (`status`, maybe `aix_account`, etc.)
+2. Existing custom beacons that use dictionary-based configuration should also be supported
+
+Alternatively, a clear deprecation/migration path should be implemented and documented.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+Minion version is 3003.3
+
+```
+Salt Version:
+          Salt: 3002.6
+
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: unknown
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.6
+     gitpython: 3.0.7
+        Jinja2: 2.10.1
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: 2.6.1
+  pycryptodome: 3.6.1
+        pygit2: Not Installed
+        Python: 3.8.5 (default, Jul 28 2020, 12:59:40)
+  python-gnupg: 0.4.5
+        PyYAML: 5.3.1
+         PyZMQ: 18.1.1
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.2
+
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 5.4.0-58-generic
+        system: Linux
+       version: Ubuntu 20.04 focal```
+</details>

@@ -1,0 +1,98 @@
+### Description of Issue/Question
+
+When running `salt-run` with a master that does not have a AAAA record in DNS, the loading of fqdn_ip grain adds significant execution time to the process.
+
+tcpdumps shown below illustrate the master attempting to query AAAA record for the master. When a blank answer or SERVFAIL is returned from the nameserver, salt does not ignore or skip the query. Instead it appears that some kind of timeout or delay is encountered. See examples below.
+
+### Setup
+1. Have a salt master running 2016.3.4
+2. Have minions capable of returning `test.ping`
+
+### Steps to Reproduce Issue
+1. Execute a job against some minions asynchronously. ex: `salt server* test.ping --async`
+2. Retrieve the jid, and use that in the execution of `salt-run jobs.lookup_jid [id]`
+3. Wait a long time.
+4. Add entries into `/etc/hosts` faking an AAAA address for the master.
+5. Execute `salt-run jobs.lookup_jid [id]` as before, and note the almost immediate execution.
+
+When I executed the `salt-run` command with the `trace` log level, I noticed that execution was hanging at 
+```
+[TRACE   ] Loading core.ip_fqdn grain
+```
+
+I `tcpdump`'ed while running the `salt-run` command, and noted the following logs. These logs were obtained by filtering on dest and source IP of my nameserver:
+
+```
+14:45:18.933037 IP salt.fq.dn.53121 > ns.fq.dn.domain: 13445+ AAAA? salt.fq.dn. (36)
+14:45:18.934015 IP ns.fq.dn.domain > salt.fq.dn.53121: 13445 0/1/0 (85)
+14:45:18.934086 IP salt.fq.dn.49265 > ns.fq.dn.domain: 37236+ AAAA? salt. (22)
+14:45:18.934870 IP ns.fq.dn.domain > salt.fq.dn.49265: 37236 ServFail 0/0/0 (22)
+```
+
+These queries were made against a Windows DNS server, with the fqdn being hosted on a Bind server running on linux. So, the queries of `salt.fq.dn` returned empty, while the queries of just the `salt.` hostname returned SERVFAILs. 
+
+The execution time of the `salt-run` command during these conditions:
+
+```
+real    0m37.082s
+user    0m0.728s
+sys     0m0.286s
+```
+
+I then faked AAAA records into `/etc/hosts`:
+
+```
+::1    salt
+::1    salt.fq.dn
+```
+
+I re-ran the `salt-run` command and noted the following execution times:
+
+```
+real    0m1.179s
+user    0m0.693s
+sys     0m0.274s
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.3.4
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.6.0
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Oct 26 2016, 20:30:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-46-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```
+
+Minions in this example are running 2015.8.8, but shouldn't matter much for a simple `test.ping` example used to illustrate the actual issue. 

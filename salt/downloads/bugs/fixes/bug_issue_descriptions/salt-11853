@@ -1,0 +1,62 @@
+I'm testing an upgrade to 2014.1.1 and am seeing problems with the file.recurse state. Example SLS below. The very first time I run a highstate on a new VM, I get a traceback and the state fails (the files are NOT copied in). If I run another highstate, the files are copied correctly with no errors. The same SLS ran fine in 0.16.3.
+
+Possibly relevant: we use gitfs on the masters. I've verified about 20 times that the files do exist in git on the appropriate branch :) And as I said if I do a second highstate, they are copied correctly.
+
+This is a serious issue for us since it means new hosts cannot be properly provisioned on boot.
+
+```
+/usr/lib/xymon/client/etc:
+  file.recurse:
+    - source: salt://xymon/etc
+    - user: root
+    - group: root
+    - dir_mode: 755
+    - file_mode: 644
+    - require:
+      - file: xymon-dirs
+    - watch:
+      - pkg: xymon-client
+```
+
+```
+2014-04-08 10:30:24,053 [salt.state       ][INFO    ] Running state [/usr/lib/xymon/client/etc] at time 10:30:24.052704
+2014-04-08 10:30:24,053 [salt.state       ][INFO    ] Executing state file.recurse for /usr/lib/xymon/client/etc
+2014-04-08 10:30:24,295 [salt.state       ][ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 1375, in call
+    self.verify_ret(ret)
+  File "/usr/lib64/python2.6/contextlib.py", line 34, in __exit__
+    self.gen.throw(type, value, traceback)
+  File "/usr/lib/python2.6/site-packages/salt/utils/context.py", line 43, in func_globals_inject
+    yield
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 1374, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.6/site-packages/salt/states/file.py", line 1878, in recurse
+    relname = os.path.relpath(fn_, srcpath)
+  File "/usr/lib64/python2.6/posixpath.py", line 405, in relpath
+    start_list = abspath(start).split(sep)
+  File "/usr/lib64/python2.6/posixpath.py", line 346, in abspath
+    cwd = os.getcwd()
+OSError: [Errno 2] No such file or directory
+
+2014-04-08 10:30:24,296 [salt.state       ][INFO    ] Completed state [/usr/lib/xymon/client/etc] at time 10:30:24.295691
+```
+
+```
+salt --versions-report
+           Salt: 2014.1.1
+         Python: 2.6.6 (r266:84292, Jul 10 2013, 22:48:45)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.9.final
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.2
+            ZMQ: 3.2.3
+
+cat /etc/redhat-release
+CentOS release 6.4 (Final)
+
+uname -a
+Linux hostname 2.6.32-358.23.2.el6.x86_64 #1 SMP Wed Oct 16 18:37:12 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux
+```

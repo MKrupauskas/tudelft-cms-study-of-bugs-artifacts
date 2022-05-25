@@ -1,0 +1,47 @@
+We have been seeing an issue with the reactor and event processing that seems to be causing us to intermittently miss certain events.   We are using a logging format that shows the process and thread ID as such.
+
+```
+log_fmt_logfile: '%(asctime)s,%(msecs)03.0f [%(name)-17s][%(levelname)-8s][%(process)d][%(thread)d] %(message)s'
+```
+
+What see in the log when we hit the error is exemplified as below...
+
+```
+015-12-02 15:49:31,860 [salt.utils.event                         ][DEBUG   ][1377][140129831433952] Sending event - data = {'fun': 'runner._lcm_orchestrator.react_to_salt_job_ret', 'jid': '20151202154931590652', 'user': 'Reactor', '_stamp': '2015-12-02T15:49:31.860161'}
+2015-12-02 15:49:31,860 [salt.utils.event                         ][DEBUG   ][1370][140129831433952] Sending event - data = {'fun': 'runner._lcm_orchestrator.react_to_salt_job_ret', 'jid': '20151202154931588834', 'user': 'Reactor', '_stamp': '2015-12-02T15:49:31.860251'}
+2015-12-02 15:49:31,860 [salt.utils.event                         ][DEBUG   ][1361][140129831433952] Sending event - data = {'_stamp': '2015-12-02T15:49:31.860403', 'minions': ['pod-minion-aus-yaf-admin-apps']}
+2015-12-02 15:49:31,861 [salt.utils.event                         ][DEBUG   ][1370][140129831433952] Sending event - data = {'_stamp': '2015-12-02T15:49:31.860539', 'tag': 'salt/run/20151202154931588834/ret', 'data': {'jid': '20151202154931588834', 'return': 'Exception occurred in runner _lcm_orchestrator.react_to_salt_job_ret: Traceback (most recent call last):\n  File "/usr/lib/python2.6/site-packages/salt/client/mixins.py", line 273, in low\n    _functions = copy.deepcopy(self.functions)\n  File "/usr/lib64/python2.6/copy.py", line 189, in deepcopy\n    y = _reconstruct(x, rv, 1, memo)\n  File "/usr/lib64/python2.6/copy.py", line 338, in _reconstruct\n    state = deepcopy(state, memo)\n  File "/usr/lib64/python2.6/copy.py", line 162, in deepcopy\n    y = copier(x, memo)\n  File "/usr/lib64/python2.6/copy.py", line 255, in _deepcopy_dict\n    y[deepcopy(key, memo)] = deepcopy(value, memo)\n  File "/usr/lib64/python2.6/copy.py", line 162, in deepcopy\n    y = copier(x, memo)\n  File "/usr/lib64/python2.6/copy.py", line 254, in _deepcopy_dict\n    for key, value in x.iteritems():\nRuntimeError: dictionary changed size during iteration\n', 'success': False, '_stamp': '2015-12-02T15:49:31.642172', 'user': 'Reactor', 'fun': 'runner._lcm_orchestrator.react_to_salt_job_ret'}}
+2015-12-02 15:49:31,861 [salt.utils.event                         ][DEBUG   ][1361][140129831433952] Sending event - data = {'_stamp': '2015-12-02T15:49:31.860622', 'tag': 'salt/job/20151202154931278854/new', 'data': {'tgt_type': 'glob', 'jid': '20151202154931278854', 'tgt': '*admin-apps', '_stamp': '2015-12-02T15:49:31.304048', 'user': 'saltdev', 'arg': ['_lcm:plugins:oracle_lcm_testXXX:parameter1'], 'fun': 'pillar.get', 'minions': ['pod-minion-aus-yaf-admin-apps']}}
+2015-12-02 15:49:31,861 [salt.utils.event                         ][DEBUG   ][1372][140129831433952] Sending event - data = {'_stamp': '2015-12-02T15:49:31.860698', 'tag': 'salt/run/20151202154931602850/ret', 'data': {'jid': '20151202154931602850', 'return': 'Exception occurred in runner oracle_lcm_orchestrator.react_to_salt_job_ret: Traceback (most recent call last):\n  File "/usr/lib/python2.6/site-packages/salt/client/mixins.py", line 273, in low\n    _functions = copy.deepcopy(self.functions)\n  File "/usr/lib64/python2.6/copy.py", line 189, in deepcopy\n    y = _reconstruct(x, rv, 1, memo)\n  File "/usr/lib64/python2.6/copy.py", line 338, in _reconstruct\n    state = deepcopy(state, memo)\n  File "/usr/lib64/python2.6/copy.py", line 162, in deepcopy\n    y = copier(x, memo)\n  File "/usr/lib64/python2.6/copy.py", line 255, in _deepcopy_dict\n    y[deepcopy(key, memo)] = deepcopy(value, memo)\n  File "/usr/lib64/python2.6/copy.py", line 162, in deepcopy\n    y = copier(x, memo)\n  File "/usr/lib64/python2.6/copy.py", line 254, in _deepcopy_dict\n    for key, value in x.iteritems():\nRuntimeError: dictionary changed size during iteration\n', 'success': False, '_stamp': '2015-12-02T15:49:31.642522', 'user': 'Reactor', 'fun': 'runner._lcm_orchestrator.react_to_salt_job_ret'}}
+2015-12-02 15:49:31,861 [salt.utils.event             
+```
+
+What is puzzling to us is that the same thread id seems to be showing up on different processes.    Seeing that this is a concurrency issue we are jumping to the conclusion below ;-)
+
+The key issue here seems to be that there is a race condition on the functions property of SaltMixin client which is using `@property`
+
+``` py
+try:
+    verify_fun(self.functions, fun)
+
+    # Inject some useful globals to *all* the function's global
+    # namespace only once per module-- not per func
+    completed_funcs = []
+    _functions = copy.deepcopy(self.functions)
+```
+
+functions in this case is that of the runner.py
+
+``` py
+@property
+def functions(self):
+    if not hasattr(self, '_functions'):
+        self._functions = salt.loader.runner(self.opts)  # Must be self.functions for mixin to work correctly :-/
+    return self._functions
+```
+
+The most likely explanation appears to be that the functions are being reassigned or processed while they are being copied.  Our understanding of some of this is somewhat limited, so we are asking that you help us find the right person to give it a triage.
+
+We are currently still at 2015.5.5 as we have not been able to adopt 2015.8.3 yet.  Looking at the code path in the latest it does not appear to be changed.
+
+A work around that does not require a patch to Salt would be the best option for us at this point.

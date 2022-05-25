@@ -1,0 +1,292 @@
+in the following state, the vaiables 'inst' and 'domain' are not always substituted, but sometimes.
+
+<pre>
+include:
+  - apache.common
+
+apache2:
+  pkg.installed:
+    - name: apache2-mpm-event
+  service:
+    - running
+    - watch:
+      - file: /etc/apache2/ssl/sub.class2.server.ca.pem
+      - file: /etc/apache2/ssl/wildcard.example.com.pem
+      - file: /etc/apache2/ssl/wildcard.example.com.crt
+      - file: /etc/apache2/ssl/x.key
+      - file: /etc/apache2/ssl/x.crt
+      - file: /etc/apache2/ssl/x.chain.crt
+      - file: /etc/apache2/ports.conf
+      - file: /etc/apache2/x_common.conf
+      - file: /etc/apache2/x_ssl_common.conf
+
+
+{% for inst in ['live', 'staging', 'presentation'] %}
+
+{% if inst == 'live' %}
+{%   set domain = 'assets.example.com' %}
+{%   set download_path = '/data' %}
+{% else %}
+{%   set domain = 'assets.{{ inst }}.example.com' %}
+{%   set download_path = '/data-snapshots' %}
+{% endif %}
+
+/etc/apache2/assets-common-{{ inst }}.inc:
+  file.managed:
+    - source: salt://apache/files/etc/apache2/assets-common.inc
+    - template: jinja
+    - defaults:
+        inst: {{ inst }}
+        domain: {{ domain }}
+        download_path: {{ download_path }}
+    - require:
+      - file: /etc/apache2/x_common.conf
+      - pkg: apache2
+    - watch_in:
+      - service: apache2
+
+
+/etc/apache2/sites-available/{{ domain }}/http:
+  file.managed:
+    - source: salt://apache/files/etc/apache2/sites-available/assets.example.com/http
+    - template: jinja
+    - inst: {{ inst }}
+    - makedirs: True
+    - require:
+      - file: /etc/apache2/assets-common-{{ inst }}.inc
+    - watch_in:
+      - service: apache2
+
+/etc/apache2/sites-enabled/{{ domain }}:
+  file.symlink:
+    - target: ../sites-available/{{ domain }}
+    - require:
+      - file: /etc/apache2/sites-available/{{ domain}}/http
+      - file: /etc/apache2/sites-available/{{ domain}}/https
+
+{% endfor %}
+</pre>
+
+
+this substitutes on the minion (via debug log) to:
+
+<pre>
+[INFO    ] Fetching file 'salt://apache/asset-host.sls'
+[DEBUG   ] Jinja search path: '['/var/cache/salt/minion/files/base']'
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/apache/asset-host.sls:
+
+include:
+  - apache.common
+
+apache2:
+  pkg.installed:
+    - name: apache2-mpm-event
+  service:
+    - running
+    - watch:
+      - file: /etc/apache2/ssl/sub.class2.server.ca.pem
+      - file: /etc/apache2/ssl/wildcard.example.com.pem
+      - file: /etc/apache2/ssl/wildcard.example.com.crt
+      - file: /etc/apache2/ssl/x.key
+      - file: /etc/apache2/ssl/x.crt
+      - file: /etc/apache2/ssl/x.chain.crt
+      - file: /etc/apache2/ports.conf
+      - file: /etc/apache2/x_common.conf
+      - file: /etc/apache2/x_ssl_common.conf
+
+
+
+
+
+
+
+
+
+/etc/apache2/assets-common-live.inc:
+  file.managed:
+    - source: salt://apache/files/etc/apache2/assets-common.inc
+    - template: jinja
+    - defaults:
+        inst: live
+        domain: assets.example.com
+        download_path: /data
+    - require:
+      - file: /etc/apache2/x_common.conf
+      - pkg: apache2
+    - watch_in:
+      - service: apache2
+
+
+/etc/apache2/sites-available/assets.example.com/http:
+  file.managed:
+    - source: salt://apache/files/etc/apache2/sites-available/assets.example.com/http
+    - template: jinja
+    - inst: live
+    - makedirs: True
+    - require:
+      - file: /etc/apache2/assets-common-live.inc
+    - watch_in:
+      - service: apache2
+
+                                                                                                                                                                                                                                                                              [82/5476]
+/etc/apache2/sites-available/assets.example.com/https:
+  file.managed:
+    - source: salt://apache/files/etc/apache2/sites-available/assets.example.com/https
+    - template: jinja
+    - inst: live
+    - makedirs: True
+    - require:
+      - file: /etc/apache2/assets-common-live.inc
+      - file: /etc/apache2/ssl/x.key
+      - file: /etc/apache2/ssl/x.crt
+      - file: /etc/apache2/ssl/x.chain.crt
+    - watch_in:
+      - service: apache2
+
+
+/etc/apache2/sites-enabled/assets.example.com:
+  file.symlink:
+    - target: ../sites-available/assets.example.com
+    - require:
+      - file: /etc/apache2/sites-available/assets.example.com/http
+      - file: /etc/apache2/sites-available/assets.example.com/https
+
+
+
+
+
+
+
+
+/etc/apache2/assets-common-staging.inc:
+  file.managed:
+    - source: salt://apache/files/etc/apache2/assets-common.inc
+    - template: jinja
+    - defaults:
+        inst: staging
+        domain: assets.{{ inst }}.example.com
+        download_path: /data-snapshots
+    - require:
+      - file: /etc/apache2/x_common.conf
+      - pkg: apache2
+    - watch_in:
+      - service: apache2
+
+
+/etc/apache2/sites-available/assets.{{ inst }}.example.com/http:
+  file.managed:
+    - source: salt://apache/files/etc/apache2/sites-available/assets.example.com/http
+    - template: jinja
+    - inst: staging
+    - makedirs: True
+    - require:
+      - file: /etc/apache2/assets-common-staging.inc
+    - watch_in:
+      - service: apache2
+
+
+/etc/apache2/sites-available/assets.{{ inst }}.example.com/https:
+  file.managed:
+    - source: salt://apache/files/etc/apache2/sites-available/assets.example.com/https
+    - template: jinja
+    - inst: staging
+    - makedirs: True
+    - require:
+      - file: /etc/apache2/assets-common-staging.inc
+      - file: /etc/apache2/ssl/x.key
+      - file: /etc/apache2/ssl/x.crt
+      - file: /etc/apache2/ssl/x.chain.crt
+    - watch_in:
+      - service: apache2
+
+        
+/etc/apache2/sites-enabled/assets.{{ inst }}.example.com:
+  file.symlink:
+    - target: ../sites-available/assets.{{ inst }}.example.com
+    - require:
+      - file: /etc/apache2/sites-available/assets.{{ inst }}.example.com/http
+      - file: /etc/apache2/sites-available/assets.{{ inst }}.example.com/https
+
+
+
+
+
+
+
+
+/etc/apache2/assets-common-presentation.inc:
+  file.managed:
+    - source: salt://apache/files/etc/apache2/assets-common.inc
+    - template: jinja
+    - defaults:
+        inst: presentation
+        domain: assets.{{ inst }}.example.com
+        download_path: /data-snapshots/current/downloads
+    - require:
+      - file: /etc/apache2/x_common.conf
+      - pkg: apache2
+    - watch_in:
+      - service: apache2
+
+
+/etc/apache2/sites-available/assets.{{ inst }}.example.com/http:
+  file.managed:
+    - source: salt://apache/files/etc/apache2/sites-available/assets.example.com/http
+    - template: jinja
+    - inst: presentation
+    - makedirs: True
+    - require:
+      - file: /etc/apache2/assets-common-presentation.inc
+    - watch_in:
+      - service: apache2
+
+
+/etc/apache2/sites-available/assets.{{ inst }}.example.com/https:
+  file.managed:
+    - source: salt://apache/files/etc/apache2/sites-available/assets.example.com/https
+    - template: jinja
+    - inst: presentation
+    - makedirs: True
+    - require:
+      - file: /etc/apache2/assets-common-presentation.inc
+      - file: /etc/apache2/ssl/x.key
+      - file: /etc/apache2/ssl/x.crt
+      - file: /etc/apache2/ssl/x.chain.crt
+    - watch_in:
+      - service: apache2
+
+
+/etc/apache2/sites-enabled/assets.{{ inst }}.example.com:
+  file.symlink:
+    - target: ../sites-available/assets.{{ inst }}.example.com
+    - require:
+      - file: /etc/apache2/sites-available/assets.{{ inst }}.example.com/http
+      - file: /etc/apache2/sites-available/assets.{{ inst }}.example.com/https
+
+
+
+[WARNING ] Duplicate Key: "/etc/apache2/sites-available/assets.{{ inst }}.example.com/http" found in salt://apache.asset-host environment=base
+[WARNING ] Duplicate Key: "/etc/apache2/sites-available/assets.{{ inst }}.example.com/https" found in salt://apache.asset-host environment=base
+[WARNING ] Duplicate Key: "/etc/apache2/sites-enabled/assets.{{ inst }}.example.com" found in salt://apache.asset-host environment=base
+[DEBUG   ] Results of YAML rendering: 
+{'/etc/apache2/sites-available/assets.example.com/https': {'file.managed': [{'source': 'salt://apache/files/etc/apache2/sites-available/assets.example.com/https'}, {'template': 'jinja'}, {'inst': 'live'}, {'makedirs': True}, {'require': [{'file': '/etc/apache2/assets-common-live
+.inc'}, {'file': '/etc/apache2/ssl/x.key'}, {'file': '/etc/apache2/ssl/x.crt'}, {'file': '/etc/apache2/ssl/x.chain.crt'}]}, {'watch_in': [{'service': 'apache2'}]}]}, '/etc/apache2/assets-common-staging.inc': {'file.managed': [{'source': 'salt://apache/files/etc/apache2/assets-co
+mmon.inc'}, {'template': 'jinja'}, {'defaults': {'domain': 'assets.{{ inst }}.example.com', 'inst': 'staging', 'download_path': '/data-snapshots/current/downloads'}}, {'require': [{'file': '/etc/apache2/x_common.conf'}, {'pkg': 'apache2'}]}, {'watch_in': [{'service': 'apache2'}]
+}]}, '/etc/apache2/sites-enabled/assets.example.com': {'file.symlink': [{'target': '../sites-available/assets.example.com'}, {'require': [{'file': '/etc/apache2/sites-available/assets.example.com/http'}, {'file': '/etc/apache2/sites-available/assets.example.com/https'}]}]}, '/et
+c/apache2/sites-available/assets.example.com/http': {'file.managed': [{'source': 'salt://apache/files/etc/apache2/sites-available/assets.example.com/http'}, {'template': 'jinja'}, {'inst': 'live'}, {'makedirs': True}, {'require': [{'file': '/etc/apache2/assets-common-live.inc'}]
+}, {'watch_in': [{'service': 'apache2'}]}]}, '/etc/apache2/sites-available/assets.{{ inst }}.example.com/https': {'file.managed': [{'source': 'salt://apache/files/etc/apache2/sites-available/assets.example.com/https'}, {'template': 'jinja'}, {'inst': 'presentation'}, {'makedirs'
+: True}, {'require': [{'file': '/etc/apache2/assets-common-presentation.inc'}, {'file': '/etc/apache2/ssl/x.key'}, {'file': '/etc/apache2/ssl/x.crt'}, {'file': '/etc/apache2/ssl/x.chain.crt'}]}, {'watch_in': [{'service': 'apache2'}]}]}, 'include': ['apache.common'], '/etc/apache
+2/assets-common-presentation.inc': {'file.managed': [{'source': 'salt://apache/files/etc/apache2/assets-common.inc'}, {'template': 'jinja'}, {'defaults': {'domain': 'assets.{{ inst }}.example.com', 'inst': 'presentation', 'download_path': '/data-snapshots/current/downloads'}}, {
+'require': [{'file': '/etc/apache2/x_common.conf'}, {'pkg': 'apache2'}]}, {'watch_in': [{'service': 'apache2'}]}]}, '/etc/apache2/sites-available/assets.{{ inst }}.example.com/http': {'file.managed': [{'source': 'salt://apache/files/etc/apache2/sites-available/assets.example.com
+/http'}, {'template': 'jinja'}, {'inst': 'presentation'}, {'makedirs': True}, {'require': [{'file': '/etc/apache2/assets-common-presentation.inc'}]}, {'watch_in': [{'service': 'apache2'}]}]}, 'apache2': {'service': ['running', {'watch': [{'file': '/etc/apache2/ssl/sub.class2.ser
+ver.ca.pem'}, {'file': '/etc/apache2/ssl/wildcard.example.com.pem'}, {'file': '/etc/apache2/ssl/wildcard.example.com.crt'}, {'file': '/etc/apache2/ssl/x.key'}, {'file': '/etc/apache2/ssl/x.crt'}, {'file': '/etc/apache2/ssl/x.chain.crt'}, {'file': '/etc/apache2/ports.conf'}, {'fi
+le': '/etc/apache2/x_common.conf'}, {'file': '/etc/apache2/x_ssl_common.conf'}]}], 'pkg.installed': [{'name': 'apache2-mpm-event'}]}, '/etc/apache2/sites-enabled/assets.{{ inst }}.example.com': {'file.symlink': [{'target': '../sites-available/assets.{{ inst }}.example.com'}, {'r
+equire': [{'file': '/etc/apache2/sites-available/assets.{{ inst }}.example.com/http'}, {'file': '/etc/apache2/sites-available/assets.{{ inst }}.example.com/https'}]}]}, '/etc/apache2/assets-common-live.inc': {'file.managed': [{'source': 'salt://apache/files/etc/apache2/assets-co
+mmon.inc'}, {'template': 'jinja'}, {'defaults': {'domain': 'assets.example.com', 'inst': 'live', 'download_path': '/data/live_nfs/downloads'}}, {'require': [{'file': '/etc/apache2/x_common.conf'}, {'pkg': 'apache2'}]}, {'watch_in': [{'service': 'apache2'}]}]}}
+</pre>
+
+
+as you can see only 'download_path' is always substituted correctly.
+even in the jinja-templated target-file.
+
+salt-0.16.4 (and also 0.16.0)

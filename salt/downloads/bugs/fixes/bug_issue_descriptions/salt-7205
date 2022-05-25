@@ -1,0 +1,138 @@
+We have a use case, where minion1 should be able to revoke the key from minion2, so that minion2 can be rebuilt at any time, but no one has to ssh into minion2 before it is shutdown.
+
+To be able to run saltutil.revoke_auth, the following configuration has been added to the salt master config:
+
+``` yaml
+peer:
+  minion1.example.com:
+    - saltutil.revoke_auth
+```
+
+The call that is being run from minion1 is as follows:
+
+``` bash
+vagrant@minion1:~$ sudo salt-call publish.publish 'minion2.example.com' saltutil.revoke_auth
+[INFO    ] Publishing 'saltutil.revoke_auth' to tcp://172.16.42.10:4506
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/pymodules/python2.7/salt/scripts.py", line 76, in salt_call
+    client.run()
+  File "/usr/lib/pymodules/python2.7/salt/cli/__init__.py", line 265, in run
+    caller.run()
+  File "/usr/lib/pymodules/python2.7/salt/cli/caller.py", line 132, in run
+    ret = self.call()
+  File "/usr/lib/pymodules/python2.7/salt/cli/caller.py", line 73, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/pymodules/python2.7/salt/modules/publish.py", line 137, in publish
+    return _publish(tgt, fun, arg, expr_form, returner, timeout, 'clean')
+  File "/usr/lib/pymodules/python2.7/salt/modules/publish.py", line 79, in _publish
+    sreq.send('aes', auth.crypticle.dumps(load), 5))
+  File "/usr/lib/pymodules/python2.7/salt/crypt.py", line 412, in loads
+    data = self.decrypt(data)
+  File "/usr/lib/pymodules/python2.7/salt/crypt.py", line 389, in decrypt
+    raise AuthenticationError('message authentication failed')
+salt.exceptions.AuthenticationError: message authentication failed
+```
+
+Following is the log from the salt master:
+
+```
+[INFO    ] Clear payload received with command _auth
+[DEBUG   ] This salt-master instance has accepted 3 minion keys.
+[INFO    ] Authentication request from minion1.example.com
+[INFO    ] Authentication accepted from minion1.example.com
+[INFO    ] AES payload received with command _pillar
+[DEBUG   ] loading module in ['/var/cache/salt/master/extmods/modules', '/usr/lib/pymodules/python2.7/salt/modules']
+[DEBUG   ] Skipping /var/cache/salt/master/extmods/modules, it is not a directory
+[DEBUG   ] Loaded localemod as virtual locale
+[DEBUG   ] Loaded groupadd as virtual group
+[DEBUG   ] Loaded linux_sysctl as virtual sysctl
+[DEBUG   ] Loaded parted as virtual partition
+[DEBUG   ] Loaded apt as virtual pkg
+[DEBUG   ] Loaded sysmod as virtual sys
+[DEBUG   ] Loaded djangomod as virtual django
+[DEBUG   ] Loaded upstart as virtual service
+[DEBUG   ] Loaded useradd as virtual user
+[DEBUG   ] Loaded dpkg as virtual lowpkg
+[DEBUG   ] Loaded grub_legacy as virtual grub
+[DEBUG   ] Loaded debconfmod as virtual debconf
+[DEBUG   ] Loaded cmdmod as virtual cmd
+[DEBUG   ] loading render in ['/var/cache/salt/master/extmods/renderers', '/usr/lib/pymodules/python2.7/salt/renderers']
+[DEBUG   ] Skipping /var/cache/salt/master/extmods/renderers, it is not a directory
+[DEBUG   ] loading pillar in ['/var/cache/salt/master/extmods/pillar', '/usr/lib/pymodules/python2.7/salt/pillar']
+[DEBUG   ] Skipping /var/cache/salt/master/extmods/pillar, it is not a directory
+[INFO    ] Clear payload received with command _auth
+[DEBUG   ] This salt-master instance has accepted 3 minion keys.
+[INFO    ] Authentication request from minion1.example.com
+[INFO    ] Authentication accepted from minion1.example.com
+[INFO    ] AES payload received with command minion_pub
+[INFO    ] Clear payload received with command publish
+[INFO    ] User sudo_vagrant Published command saltutil.revoke_auth with jid 20130912205644298658
+[DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20130912205644298658', 'tgt': 'minion2.example.com', 'ret': '', 'user': 'sudo_vagrant', 'arg': [], 'fun': 'saltutil.revoke_auth', 'id': 'minion1.example.com'}
+[INFO    ] Clear payload received with command _auth
+[DEBUG   ] This salt-master instance has accepted 3 minion keys.
+[INFO    ] Authentication request from salt.example.com
+[INFO    ] Authentication accepted from salt.example.com
+[INFO    ] Clear payload received with command _auth
+[DEBUG   ] This salt-master instance has accepted 3 minion keys.
+[INFO    ] Authentication request from minion2.example.com
+[INFO    ] Authentication accepted from minion2.example.com
+[INFO    ] AES payload received with command revoke_auth
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Failed to authenticate message
+[INFO    ] Clear payload received with command _auth
+[DEBUG   ] This salt-master instance has accepted 2 minion keys.
+[INFO    ] Authentication request from minion2.example.com
+[INFO    ] Authentication accepted from minion2.example.com
+[INFO    ] AES payload received with command _return
+[INFO    ] Got return from minion2.example.com for job 20130912205644298658
+[DEBUG   ] Failed to authenticate message
+```
+
+Following is the debug log from minion2:
+
+```
+[INFO    ] User sudo_vagrant Executing command saltutil.revoke_auth with jid 20130912205644298658
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20130912205644298658', 'tgt': 'minion2.example.com', 'ret': '', 'user': 'sudo_vagrant', 'arg': [], 'fun': 'saltutil.revoke_auth', 'id': 'minion1.example.com'}
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Returning information for job: 20130912205644298658
+[DEBUG   ] Attempting to authenticate with the Salt Master at 172.16.42.10
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Authentication with master successful!
+```
+
+This is the salt version report:
+
+``` bash
+salt --versions-report
+           Salt: 0.16.4
+         Python: 2.7.3 (default, Apr 10 2013, 06:20:15)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```
+
+The problem is reproducible in a mint salt-sandbox environment from https://github.com/elasticdog/salt-sandbox.
+
+Should it be possible for one minion to revoke the key of another?
+
+The weirdest part is, that the master debug log says it only has 2 accepted minion keys now. But running salt-key -L still shows all the 3 keys as before.
+When I run the same from minion2 directly, I only see 2 keys in salt-key after that:
+
+``` bash
+vagrant@minion2:~$ sudo salt-call saltutil.revoke_auth
+local:
+    True
+```

@@ -1,0 +1,79 @@
+Ubuntu 14.04, masterless setup from git, versions-report:
+
+```
+           Salt: 2014.1.0-7706-g060f34f
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.3.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+            ZMQ: 4.0.4
+```
+### How to reproduce
+
+Delete grains (test1, test2) and run sls:
+
+```
+test1:
+  grains.present:
+    - value: value1
+
+# This state was originally pkg.installed, but significant part is modules reload.
+reload_modules:
+  cmd.run:
+    - reload_modules: true
+    - name: echo reload_modules
+    - require:
+      - grains: test1
+
+test2:
+  grains.present:
+    - value: value2
+    - require:
+      - cmd: reload_modules
+
+grains1:
+  module.run:
+    - name: grains.get
+    - key: test1
+    - default: no value
+    - require:
+      - grains: test2
+
+grains2:
+  module.run:
+    - name: grains.get
+    - key: test2
+    - default: no value
+    - require:
+      - grains: test2
+```
+
+The last state should return new value:
+
+```
+Changes:
+         ----------
+         ret:
+             value2
+```
+
+but I get default value instead:
+
+```
+Changes:
+         ----------
+         ret:
+             no value
+```
+### Workarounds
+- Remove `saltutil.sync_grains` call from `setvals()` in [modules/grains.py](https://github.com/saltstack/salt/blob/develop/salt/modules/grains.py#L238)
+
+OR
+- Put `__opts__['grains'] = __grains__` before `salt.state.HighState()` in [modules/saltutil.py](https://github.com/saltstack/salt/blob/develop/salt/modules/saltutil.py#L55) to prevent the call of `salt.loader.grains()` from [state.py](https://github.com/saltstack/salt/blob/develop/salt/state.py#L551)

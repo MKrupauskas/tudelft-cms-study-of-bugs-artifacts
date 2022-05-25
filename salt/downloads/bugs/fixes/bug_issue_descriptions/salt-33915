@@ -1,0 +1,169 @@
+ I've run into an issue with the orchestration runner in the new 2016.3.0 version.
+
+We use the orchestration runner heavily and the fixes to this runner are the main reason we're trying to upgrade ASAP; however, this issue is somewhat of a blocker.
+
+The orchestration runner seems to not return the 'highstate' formatted output when everything succeeds but it does return it when there is a failure in one of the states.
+
+Quick example:
+
+install_vim.sls contains:
+
+```
+vim-enhanced:
+  pkg.installed
+```
+
+test_orch.sls contains:
+
+```
+test_orchestartion:
+  salt.state:
+    - tgt: '*'
+    - sls: install_vim
+```
+
+This is what I get when I run it:
+
+```
+salt-run state.orchestrate test_orch
+[INFO    ] Found minion id from generate_minion_id(): master
+[INFO    ] Found minion id from generate_minion_id(): master
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://test_orch.sls'
+[INFO    ] Running state [test_orchestartion] at time 15:32:06.558517
+[INFO    ] Executing state salt.state for test_orchestartion
+[INFO    ] {'ret': {'minion1.releng.net': {'pkg_|-vim-enhanced_|-vim-enhanced_|-installed': {'comment': 'The following packages were installed/updated: vim-enhanced', 'name': 'vim-enhanced', 'start_time': '10:32:09.946535', 'result': True, 'duration': 6298.6019999999999, '__run_num__': 0, 'changes': {'vim-enhanced': {'new': '2:7.4.629-5.el6', 'old': ''}}, '__id__': 'vim-enhanced'}}}, 'out': 'highstate'}
+[INFO    ] Completed state [test_orchestartion] at time 15:32:16.329084 duration_in_ms=9770.567
+retcode:
+    0
+[INFO    ] Runner completed: 20160609153206097107
+```
+
+Now if I change the vim package name in install_vim.sls to 'bad_package_name':
+
+```
+salt-run state.orchestrate test_orch
+[INFO    ] Found minion id from generate_minion_id(): master
+[INFO    ] Found minion id from generate_minion_id(): master
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://test_orch.sls'
+[INFO    ] Running state [test_orchestartion] at time 15:25:15.963114
+[INFO    ] Executing state salt.state for test_orchestartion
+[ERROR   ] Run failed on minions: minion1.releng.net
+Failures:
+    minion1.releng.net:
+    ----------
+              ID: bad_package_name
+        Function: pkg.installed
+          Result: False
+         Comment: Error occurred installing package(s). Additional info follows:
+
+                  errors:
+                      - Loaded plugins: fastestmirror
+                        Setting up Install Process
+                        Loading mirror speeds from cached hostfile
+                         * base: mirrors.gigenet.com
+                         * epel: mirror.nexcess.net
+                         * extras: centos.chicago.waneq.com
+                         * updates: mirror.tzulo.com
+                        No package bad_package_name available.
+                        Error: Nothing to do
+         Started: 10:25:19.533628
+        Duration: 4618.207 ms
+         Changes:  
+
+    Summary for minion1.releng.net
+    ------------
+    Succeeded: 0
+    Failed:    1
+    ------------
+    Total states run:     1
+
+[INFO    ] Completed state [test_orchestartion] at time 15:25:24.288673 duration_in_ms=8325.559
+retcode:
+    1
+[INFO    ] Runner completed: 20160609152515482353
+```
+
+Master:
+
+```
+           Salt: 2016.3.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 6.7 Final
+        machine: x86_64
+        release: 2.6.32-573.el6.x86_64
+         system: Linux
+        version: CentOS 6.7 Final
+```
+
+Minion:
+
+```
+    Salt Version:
+               Salt: 2016.3.0
+
+    Dependency Versions:
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: Not Installed
+              gitdb: Not Installed
+          gitpython: Not Installed
+              ioflo: Not Installed
+             Jinja2: 2.7.3
+            libgit2: Not Installed
+            libnacl: Not Installed
+           M2Crypto: 0.20.2
+               Mako: Not Installed
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.6
+       mysql-python: Not Installed
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+             pygit2: Not Installed
+             Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+       python-gnupg: Not Installed
+             PyYAML: 3.11
+              PyZMQ: 14.5.0
+               RAET: Not Installed
+              smmap: Not Installed
+            timelib: Not Installed
+            Tornado: 4.2.1
+                ZMQ: 4.0.5
+
+    System Versions:
+               dist: centos 6.8 Final
+            machine: x86_64
+            release: 2.6.32-573.el6.x86_64
+             system: Linux
+            version: CentOS 6.8 Final
+```

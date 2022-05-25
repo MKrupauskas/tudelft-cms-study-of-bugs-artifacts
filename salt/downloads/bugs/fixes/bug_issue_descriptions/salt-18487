@@ -1,0 +1,85 @@
+Per discussion with @basepi on the salt google group, the py renderer ignores input from any upstream renderer. Here is an example:
+
+```
+webserver2.sls
+
+#!jinja|py
+{% include "someinclude.sls" %}
+
+def run():
+    config = {}
+    return config
+```
+
+```
+someinclude.sls
+
+def test1():
+    pass
+```
+
+running:
+`#salt-call --local state.sls webserver2 test=True`
+
+gives following output/error:
+
+```
+[DEBUG   ] Rendered data from file: /srv/salt/webserver2.sls:
+#!jinja|py
+def test1():
+    pass
+
+def run():
+    config = {}
+    return config
+
+[CRITICAL] Rendering SLS webserver2 failed, render error: invalid syntax (webserver2.sls, line 2)
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2350, in render_state
+    sls, rendered_sls=mods
+  File "/usr/lib/python2.7/dist-packages/salt/template.py", line 84, in compile_template
+    ret = render(input_data, saltenv, sls, **render_kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/renderers/py.py", line 108, in render
+    **kws)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/templates.py", line 369, in py
+    sfn
+  File "/srv/salt/webserver2.sls", line 2
+    {% include "someinclude.sls" %}
+     ^
+SyntaxError: invalid syntax
+[DEBUG   ] LazyLoaded .returner
+
+```
+
+First this template is processed by the jinja renderer and then the output is passed to the py renderer. However the py renderer ignores the input content, instead it uses the template path as its input and then process it.
+
+If you the check source code of the py renderer you can see that the variable _'template'_ is immediately overwritten with a path to the template file being rendered. Normally this variable contains content produced by a previous renderer (if any):
+
+https://github.com/saltstack/salt/blob/develop/salt/renderers/py.py
+
+```
+def render(template, saltenv='base', sls='', tmplpath=None, **kws):
+
+template = tmplpath
+```
+
+The reason for that may be in salt.utils.templates.py.py()
+
+https://github.com/saltstack/salt/blob/develop/salt/utils/templates.py
+
+```
+def py(sfn, string=False, **kwargs):
+....
+mod = imp.load_source(os.path.basename(sfn).split('.')[0], sfn)
+```
+
+where 'imp' is a python builtin.
+
+According to the official documentation, `imp.load_source()` requires _"a real file object"_:
+
+https://docs.python.org/2/library/imp.html
+_"...It must currently be a real file object, not a user-defined class emulating a file"_
+
+Possible solution would require either replacing imp.load_source with something that would accepts content instead of a file system path. Another possible solution would be to save content to a temporary file first. Both solution would need to take into account relative imports (although I do not think that is supported at the moment anyway).
+
+If this going to be marked as _won't fix_ then possibly py renderer should throw an exception if py renderer receives any input.

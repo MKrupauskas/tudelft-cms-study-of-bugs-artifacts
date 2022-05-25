@@ -1,0 +1,150 @@
+### Description of Issue/Question
+
+I have created an reactor system to listen for the event tag 'salt/presence/change' and delete all the lost minion key using the wheel.key.delete. This was working until recent in the same major release (2017.7.1) . But now I come across the below error. The salt master was recently rebuild using the below command 
+ 
+**Error:**
+salt/wheel/20170818045716097720/ret     {
+    "_stamp": "2017-08-18T04:57:16.099381",
+    "fun": "wheel.key.delete",
+    "fun_args": [],
+    "jid": "20170818045716097720",
+    "return": "Exception occurred in wheel key.delete: Traceback (most recent call last):\n  File \"/usr/lib/python2.7/site-packages/salt/client/mixins.py\", line 392, in _low\n    data['return'] = self.functions[fun](*args, **kwargs)\nTypeError: delete() takes exactly 1 argument (0 given)\n",
+    "success": false,
+    "user": "Reactor"
+}
+
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+**Install command**
+yum install https://repo.saltstack.com/yum/redhat/salt-repo-2017.7-1.el7.noarch.rpm -y
+yum clean expire-cache
+yum install salt-syndic -y
+```
+_master.conf_
+autosign_file: /etc/salt/autosign.conf
+file_roots:
+  base:
+    - /srv/salt/all_state_files
+pillar_roots:
+  base:
+    - /srv/salt/pillars
+presence_events: True
+reactor:
+#Listen to presence event changes. call the delete-key-stopped-minion.sls
+  - 'salt/presence/change':
+    - salt://_reactor/delete-key-stopped-minion.sls
+```
+
+```
+_/srv/salt/all_state_files/_reactor/delete-key-stopped-minion.sls_
+{% for minion_id in data['lost'] %}
+remove_unused_keys_{{ minion_id }}: # avoid duplicate key error
+  wheel.key.delete:
+    - match: {{ minion_id }}
+{% endfor %}
+```
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+
+Whenever a minion services is stopped. the output of _salt-run state.event pretty=True_
+
+salt/presence/change    {
+    "_stamp": "2017-08-18T04:57:15.344679",
+    "lost": [
+        "apigw-test-cust1-apigw-01",
+        "apigw-test-cust1-apigw-03",
+        "apigw-test-cust1-apigw-02"
+    ],
+    "new": []
+}
+salt/wheel/20170818045716021447/new     {
+    "_stamp": "2017-08-18T04:57:16.024579",
+    "fun": "wheel.key.delete",
+    "fun_args": [],
+    "jid": "20170818045716021447",
+    "user": "Reactor"
+}
+salt/wheel/20170818045716021447/ret     {
+    "_stamp": "2017-08-18T04:57:16.025079",
+    "fun": "wheel.key.delete",
+    "fun_args": [],
+    "jid": "20170818045716021447",
+    "return": "Exception occurred in wheel key.delete: Traceback (most recent call last):\n  File \"/usr/lib/python2.7/site-packages/salt/client/mixins.py\", line 392, in _low\n    data['return'] = self.functions[fun](*args, **kwargs)\nTypeError: delete() takes exactly 1 argument (0 given)\n",
+    "success": false,
+    "user": "Reactor"
+}
+salt/wheel/20170818045716097720/new     {
+    "_stamp": "2017-08-18T04:57:16.098938",
+    "fun": "wheel.key.delete",
+    "fun_args": [],
+    "jid": "20170818045716097720",
+    "user": "Reactor"
+}
+salt/wheel/20170818045716097720/ret     {
+    "_stamp": "2017-08-18T04:57:16.099381",
+    "fun": "wheel.key.delete",
+    "fun_args": [],
+    "jid": "20170818045716097720",
+    "return": "Exception occurred in wheel key.delete: Traceback (most recent call last):\n  File \"/usr/lib/python2.7/site-packages/salt/client/mixins.py\", line 392, in _low\n    data['return'] = self.functions[fun](*args, **kwargs)\nTypeError: delete() takes exactly 1 argument (0 given)\n",
+    "success": false,
+    "user": "Reactor"
+}
+salt/wheel/20170818045716160847/new     {
+    "_stamp": "2017-08-18T04:57:16.162079",
+    "fun": "wheel.key.delete",
+    "fun_args": [],
+    "jid": "20170818045716160847",
+    "user": "Reactor"
+}
+salt/wheel/20170818045716160847/ret     {
+    "_stamp": "2017-08-18T04:57:16.162517",
+    "fun": "wheel.key.delete",
+    "fun_args": [],
+    "jid": "20170818045716160847",
+    "return": "Exception occurred in wheel key.delete: Traceback (most recent call last):\n  File \"/usr/lib/python2.7/site-packages/salt/client/mixins.py\", line 392, in _low\n    data['return'] = self.functions[fun](*args, **kwargs)\nTypeError: delete() takes exactly 1 argument (0 given)\n",
+    "success": false,
+    "user": "Reactor"
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+Salt Version:
+           Salt: 2017.7.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.3.1611 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-514.16.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core

@@ -1,0 +1,76 @@
+### Description of Issue/Question
+
+The documentation on `macpackage.installed` was bit unclear when macos "dmg" contains single "pkg" package.  Incorrectly guessing `mpkg: True` resulted in weird state failure.
+```
+[INFO    ] Executing command 'find '/tmp/dmg-AGgS_D -name *.pkg' in directory '/Users/bob'
+[ERROR   ] Command 'find '/tmp/dmg-AGgS_D -name *.pkg' failed with return code: 2
+[ERROR   ] stdout: /bin/sh: -c: line 0: unexpected EOF while looking for matching `''
+/bin/sh: -c: line 1: syntax error: unexpected end of file
+```
+After debugging the corruption occurs at line 269 in `modules\mac_package.py`.
+```
+268     '''
+269     mpkg = _quote(mpkg)    #< pipes.quote returns 'string instead of string
+```
+
+### Setup
+Observed testing [this PR](https://github.com/saltstack-formulas/mysql-formula/pull/198)
+```
+mysql-macos-{{ product }}-install:
+  macpackage.installed:
+    - name: "mysql-8.0.11-macos10.13-x86_64.dmg"
+    - dmg: True
+    - app: False
+    - mpkg: True                 #<---- To fix my PR I removed this line
+    - force: True
+    - allow_untrusted: True
+```
+### Workaround
+None - but this hack helped.
+```
+269     mpkg = _quote(mpkg).lstrip("'")              #<--- strip leading single-quote from result
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.2
+ 
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.27.2
+        libnacl: Not Installed
+       M2Crypto: 0.30.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.27.1
+         Python: 2.7.15 (default, Aug 22 2018, 16:36:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: x86_64
+        release: 17.7.0
+         system: Darwin
+        version: 10.13.6 x86_64
+```

@@ -1,0 +1,99 @@
+I'm having an issue with the installation of yum packages using the built-in pkg state on CentOS. Packages are found but it seem that the command send to Yum isn't correct. Manual cmd commands are working perfectly.
+
+```
+# CentOS 6.5
+salt --versions-report
+           Salt: 2014.1.4
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+         Jinja2: 2.7.3
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 14.3.1
+            ZMQ: 3.2.4
+```
+
+Repro Steps when package isn't installed :
+- to concentrate on the bug add a new Yum repo for 10gen manually
+- create a new state with the state mongo_install_fail : database.test
+- salt-call state.sls database.test
+- state failed
+
+Repro Steps when package is installed :
+- add a new Yum repo for 10gen manually
+- create a new state with the state mongo_install_working : database.working
+- salt-call state.sls database.working
+- mongo should be installed, state is working!
+- create a new state with the state mongo_install_fail : database.test
+- salt-call state.sls database.test
+- state failed
+
+Mongo Repo
+
+```
+[mongodb]
+name=MongoDB Repository
+baseurl=http://downloads-distro.mongodb.org/repo/redhat/os/x86_64/
+gpgcheck=0
+enabled=1
+```
+
+Mongo installation with cmd state (working, patch):
+
+```
+{% set version = "2.4.8" -%}
+mongo_install_working:
+    cmd.run:
+        - names:
+          - yum install -y mongo-10gen-{{ version }}
+          - yum install -y mongo-10gen-server-{{ version }}
+        - timeout: 600
+```
+
+Mongo installation with pkg state (not working):
+
+```
+{% set version = "2.4.8" -%}
+mongo_install_fail:
+    pkg.installed:
+        - pkgs:
+          - mongo-10gen: {{ version }}
+          - mongo-10gen-server: {{ version }}
+        - refresh: True
+```
+
+```
+# salt-call state.sls database.test
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://database/test.sls'
+[INFO    ] Running state [mongo_install] at time 08:33:22.147055
+[INFO    ] Executing state pkg.installed for mongo_install
+[INFO    ] Executing command 'repoquery --queryformat="%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}" --all --pkgnarrow=installed' in directory '/home/xxx'
+[INFO    ] Executing command 'repoquery --queryformat="%{NAME}_|-%{ARCH}"  --pkgnarrow=all --all --plugins' in directory '/home/xxx'
+[INFO    ] Executing command 'yum -q clean expire-cache && yum -q check-update' in directory '/home/xxx'
+[INFO    ] Executing command 'yum -y   downgrade "mongo-10gen-server-2.4.8" "mongo-10gen-2.4.8"' in directory '/home/xxx'
+[INFO    ] Executing command 'repoquery --queryformat="%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}" --all --pkgnarrow=installed' in directory '/home/xxx'
+[ERROR   ] The following packages failed to install/update: mongo-10gen-server=2.4.8, mongo-10gen=2.4.8.
+```
+
+When I run the state at the trace level, I can see in the log the following yum output :
+
+```
+[INFO    ] Executing command 'yum -y   downgrade "mongo-10gen-server-2.4.8" "mongo-10gen-2.4.8"' in directory '/home/xxx'
+2014-06-27 08:31:56,196 [salt.loaded.int.module.cmdmod][DEBUG   ] output: Loaded plugins: fastestmirror, versionlock
+Setting up Downgrade Process
+Loading mirror speeds from cached hostfile
+ * base: centos.mirror.netelligent.ca
+ * epel: fedora-epel.mirror.iweb.com
+ * extras: centos.marz.ca
+ * updates: centos.bhs.mirrors.ovh.net
+Only Upgrade available on package: mongo-10gen-server-2.4.8-mongodb_1.x86_64
+Only Upgrade available on package: mongo-10gen-2.4.8-mongodb_1.x86_64
+Nothing to do
+# ...
+# a complete listing of installed package follow and we can saw that packages are installed
+mongo-10gen_|-2.4.8_|-mongodb_1_|-x86_64_|-installed
+mongo-10gen-server_|-2.4.8_|-mongodb_1_|-x86_64_|-installed
+```

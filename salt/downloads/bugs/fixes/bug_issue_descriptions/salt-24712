@@ -1,0 +1,48 @@
+Hey all,
+
+Can someone take a look at this?
+
+https://bugs.archlinux.org/task/45345
+
+```
+I started to report on this in https://bugs.archlinux.org/task/45316 but it seems that these are two separate issues, hence the new report.
+
+After upgrading zeromq (4.0.5-1 -> 4.1.1-1) and python2-pyzmq (14.6.0-1 -> 14.6.0-2) salt-zmq does not work anymore. The client gets stuck in an infinite loop with the uninformative error message »invalid argument«. Downgrading both packages makes the same setup work again instantly.
+
+I've tried with the just-released zeromq 4.1.2-1 and python2-pyzmq 14.6.0-3, but no dice.
+
+I've narrowed it down to the problem only occurring if IPv6 support is enabled and used. Otherwise salt-zmq seems to work just fine.
+
+Here's a minimal test case which I've just verified produces the problem:
+
+1. pacstrap a minimal installation, e.g. »mkdir ~/tmp/salt-zeromq-test && pacstrap -c -d ~/tmp/salt-zeromq-test base«
+2. set a password for root in side the container
+3. start a container with that installation: »systemd-nspawn -bD ~/tmp/salt-zeromq-test«
+4. Login in as root
+5. Install salt-zmq, don't start salt just yet
+6. make sure »localhost« resolves to both IPv4 and IPv6 addresses
+7. configure salt-master to use IPv6, e.g. create /etc/salt/master.d/test.conf with the following content:
+
+ipv6: true
+listen: "::"
+
+8. Start salt-master
+9. configure salt-minion to use »localhost« as the master, but no IPv6 yet, e.g. create /etc/salt/minion.d/test.conf with the following content:
+
+master: localhost
+
+10. Start the minion; accept the minion's key with »salt-key -A«
+11. Stop the minion and configure it to use IPv6 by adjusting the content of /etc/salt/minion.d/test.conf to the following content:
+
+master: localhost
+ipv6: true
+
+12. start the minion and observe the aforementioned »invalid argument« message
+
+If you want to verify that the downgrade fixes things: stop the master and the minion, downgrade zeromq to 4.0.5-x and python2-pyzmq to 14.6.0-1, start the master, start the minion.
+```
+
+Is this something that can be fixed in salt, or does it need to go to zmq?
+
+Thanks!
+Daniel

@@ -1,0 +1,57 @@
+**Description**
+When Windows timezone cannot be determined for any reason, if defaults to `Unknown`, which is invalid timezone for pytz and exception is raised. Due to scheduler relying on `timezone.get_offset` not raising exception, it then fails in initialization, hence whole minion fails to start.
+
+**Setup**
+Windows system where timezone is unknown (the exact reason is not clear).
+
+**Steps to Reproduce the behavior**
+Possibly empty values in following registry keys:
+```
+HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Time Zones 
+HKLM\System\CurrentControlSet\Control\TimeZoneInformation
+```
+
+Then start minion and encounter:
+```
+2020-09-02 11:10:37,702 [salt.minion      :1050][CRITICAL][972] Unexpected error while connecting to <master>
+Traceback (most recent call last):
+  File "c:\salt\bin\lib\site-packages\salt\minion.py", line 1027, in _connect_minion
+    yield minion.connect_master(failed=failed)
+  File "c:\salt\bin\lib\site-packages\tornado\gen.py", line 1055, in run
+    value = future.result()
+  File "c:\salt\bin\lib\site-packages\tornado\concurrent.py", line 238, in result
+    raise_exc_info(self._exc_info)
+  File "<string>", line 4, in raise_exc_info
+  File "c:\salt\bin\lib\site-packages\tornado\gen.py", line 1063, in run
+    yielded = self.gen.throw(*exc_info)
+  File "c:\salt\bin\lib\site-packages\salt\minion.py", line 1226, in connect_master
+    yield self._post_master_init(master)
+  File "c:\salt\bin\lib\site-packages\tornado\gen.py", line 1055, in run
+    value = future.result()
+  File "c:\salt\bin\lib\site-packages\tornado\concurrent.py", line 238, in result
+    raise_exc_info(self._exc_info)
+  File "<string>", line 4, in raise_exc_info
+  File "c:\salt\bin\lib\site-packages\tornado\gen.py", line 1069, in run
+    yielded = self.gen.send(value)
+  File "c:\salt\bin\lib\site-packages\salt\minion.py", line 1273, in _post_master_init
+    cleanup=[master_event(type='alive')])
+  File "c:\salt\bin\lib\site-packages\salt\utils\schedule.py", line 105, in __new__
+    utils=utils)
+  File "c:\salt\bin\lib\site-packages\salt\utils\schedule.py", line 152, in __singleton_init__
+    self.time_offset = self.functions.get('timezone.get_offset', lambda: '0000')()
+  File "c:\salt\bin\lib\site-packages\salt\modules\win_timezone.py", line 241, in get_offset
+    tz_object = pytz.timezone(get_zone())
+  File "c:\salt\bin\lib\site-packages\pytz\__init__.py", line 181, in timezone
+    raise UnknownTimeZoneError(zone)
+pytz.exceptions.UnknownTimeZoneError: 'Unknown'
+```
+
+
+**Expected behavior**
+Minion starts and connects to master, even with default timezone.
+
+**Versions Report**
+At least 2019.2 through 3001 minions on Windows (found on Windows 2008 R2)
+
+**Additional context**
+Related to https://support.microsoft.com/en-us/help/2562433/the-timezonekeyname-registry-entry-value-changes-to-a-null-value-in-wi and https://github.com/saltstack/salt/issues/50667

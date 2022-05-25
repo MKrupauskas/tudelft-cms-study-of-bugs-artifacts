@@ -1,0 +1,74 @@
+Hi,
+
+When I use salt service module or a watch statement on minon configuration file to restart salt-minion service, it ends up running two instances which breaks the communication between master and minion. (I recognized that PID is different after restart command)
+
+This is required in order to be able to do mass changes on minions like editing mine configuration.
+
+Below you can see how it behaves;
+
+```
+[root@mar-pre-ord-web-03 marconi]# ps -fe|grep salt
+root     21507     1  7 16:43 ?        00:00:00 /usr/bin/python /usr/bin/salt-minion -d
+
+root@salt01:# salt mar-pre-ord-web-03 service.restart salt-minion
+
+[root@mar-pre-ord-web-03 marconi]# ps -fe|grep salt
+root     21583     1  1 16:44 ?        00:00:00 /usr/bin/python /usr/bin/salt-minion -d
+root     21601     1 25 16:44 ?        00:00:00 /usr/bin/python /usr/bin/salt-minion -d
+```
+
+This was the sls formula, which also doesn't work.
+
+```
+salt-minion:
+  pkg:
+    - installed
+    - name: salt-minion
+  file:
+    - managed
+    - name: /etc/salt/minion
+    - template: jinja
+    - source: salt://common/files/minion.jinja
+    - require:
+      - pkg: salt-minion
+  service:
+    - running
+    - enable: True
+    - require:
+      - pkg: salt-minion
+    - watch:
+      - file: salt-minion
+```
+
+test with salt-call
+
+```
+[root@mar-pre-ord-web-03 marconi]# ps -fe|grep salt
+root     22690     1  2 16:59 ?        00:00:00 /usr/bin/python /usr/bin/salt-minion -d
+root     22755  2229  0 17:00 pts/0    00:00:00 grep salt
+[root@mar-pre-ord-web-03 marconi]# salt-call  service.restart salt-minion
+[INFO    ] Configuration file path: /etc/salt/minion
+[INFO    ] Executing command '/sbin/runlevel' in directory '/root'
+[INFO    ] Executing command '/sbin/chkconfig --list' in directory '/root'
+[INFO    ] Executing command '/sbin/service salt-minion restart' in directory '/root'
+
+^C (hangs here)
+Exiting gracefully on Ctrl-c
+[root@mar-pre-ord-web-03 marconi]# ps -fe|grep salt
+root     22788     1 19 17:00 ?        00:00:00 /usr/bin/python /usr/bin/salt-minion -d
+root     22821  2229  0 17:00 pts/0    00:00:00 grep salt
+```
+
+If I restart salt-minion on the server it works fine.
+
+```
+[root@mar-pre-ord-web-03 marconi]# ps -fe|grep salt
+root     22253     1 18 16:56 ?        00:00:00 /usr/bin/python /usr/bin/salt-minion -d
+
+[root@mar-pre-ord-web-03 marconi]# service salt-minion restart
+Stopping salt-minion daemon:                               [  OK  ]
+Starting salt-minion daemon:                               [  OK  ]
+
+[root@mar-pre-ord-web-03 marconi]# ps -fe|grep salt
+root     22302     1 38 16:56 ?        00:00:00 /usr/bin/python /usr/bin/salt-minion -d
+```

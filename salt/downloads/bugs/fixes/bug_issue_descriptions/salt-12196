@@ -1,0 +1,104 @@
+Looks like ~~#10640~~ (that issue appears to not be at fault) may have broken functionality in the cmd.script module and the `runas` parameter (see: http://docs.saltstack.com/en/latest/ref/modules/all/salt.modules.cmdmod.html#salt.modules.cmdmod.script).
+
+For example:
+
+```
+{% set user = args.get('user', 'test_user') -%}
+
+{{ repo_name }}_{{ user }}_user:
+  file.directory:
+    - name: /home/{{ user }}
+    - user: {{ user }}
+    - group: {{ user }}
+    - mode: 0755
+    - require:
+      - user: {{ user }}
+      - group: {{ user }}
+  group.present:
+    - name: {{ user }}
+  user.present:
+    - name: {{ user }}
+    - home: /home/{{ user }}
+    - shell: /bin/bash
+    - gid_from_name: True
+    - groups:
+        - {{ user }}
+    - require:
+        - group: {{ user }}
+{% set commit_id = args.get('git_commit_id', salt['cmd.script']('salt://deploy/files/git_revision.sh', args=' %s %s ' % (repository_url,revision), runas=user, shell='/bin/bash').get('stdout', '')) %}
+```
+
+This user (default: test_user) exists in the system, but it appears the fix from issue #10640 may have broken converting this to/from a uid.
+
+I'm getting this error:
+
+```
+local:
+    Data failed to compile:
+----------
+    Rendering SLS "base:deploy.engine" failed: Jinja error: an integer is required
+Traceback (most recent call last):
+  File "/usr/lib/pymodules/python2.7/salt/utils/templates.py", line 261, in render_jinja_tmpl
+    output = jinja_env.from_string(tmplstr).render(**unicode_context)
+  File "/usr/lib/python2.7/dist-packages/jinja2/environment.py", line 894, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "<template>", line 41, in top-level template code
+  File "/usr/lib/pymodules/python2.7/salt/modules/cmdmod.py", line 984, in script
+    os.chown(path, __salt__['file.user_to_uid'](runas), -1)
+TypeError: an integer is required
+
+; line 41
+
+---
+[...]
+        - {{ user }}
+    - require:
+        - group: {{ user }}
+
+
+{% set commit_id = args.get('git_commit_id', salt['cmd.script']('salt://deploy/files/git_revision.sh', args=' %s %s ' % (repository_url,revision), runas=user, shell='/bin/bash').get('stdout', '')) %}   <======================
+
+{% set deploy_ruby = pillar.get('ruby', {}) -%}
+{% set deploy_ruby_version = deploy_ruby.get('version', '') -%}
+
+deploy-prereq_{{ company }}_{{ repo_name }}:
+[...]
+
+---
+
+```
+
+Here's my minion version:
+
+```
+# salt-call --versions
+           Salt: 2014.1.3
+         Python: 2.7.3 (default, Feb 27 2014, 19:58:35)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```
+
+And here's my salt-master versions:
+
+```
+# salt --versions
+           Salt: 2014.1.1
+         Python: 2.7.3 (default, Feb 27 2014, 19:58:35)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```
+
+Issue is here I believe:
+https://github.com/saltstack/salt/blob/develop/salt/modules/cmdmod.py#L1051

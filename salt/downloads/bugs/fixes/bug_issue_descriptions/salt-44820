@@ -1,0 +1,88 @@
+### Description of Issue/Question
+
+With my `master_job_cache` configured to use a custom returner, all the returner functionality seems to work, but the `manage` runner always reports all minions as down, even when they are known to be up.
+
+### Setup
+
+I have one master configured with my returner, and one minion (`minion1`) connected to it.
+
+### Steps to Reproduce Issue
+
+`salt minion1 test.ping` returns `True` for `minion1`.
+`salt manage.status tgt='minion1'` times out and reports `minion1` as down.
+
+Watching the event bus shows that the `test.ping` job started by the manage runner is running and `minion1` is returning.
+
+```javascript
+salt/job/20171204113250371849/new       {
+    "_stamp": "2017-12-04T18:32:50.377095",
+    "arg": [],
+    "fun": "test.ping",
+    "jid": "20171204113250371849",
+    "minions": [
+        "minion1"
+    ],
+    "tgt": "minion1",
+    "tgt_type": "glob",
+    "user": "root"
+}
+salt/job/20171204113250371849/ret/minion1       {
+    "_stamp": "2017-12-04T18:32:50.460292",
+    "cmd": "_return",
+    "fun": "test.ping",
+    "fun_args": [],
+    "id": "minion1",
+    "jid": "20171204113250371849",
+    "retcode": 0,
+    "return": true,
+    "success": true
+}
+```
+
+Could this be a race condition in the manage runner? The runner runs a `test.ping` job and then starts an event listener (https://github.com/saltstack/salt/blob/develop/salt/runners/manage.py#L40-L69) to collect returns. If `LocalClient.run_job()` takes a while to return, is it possible that the `ret` event is arriving before the event listener is started?
+
+cc: @thatch45 
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.27.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.14 (default, Sep 20 2017, 01:25:59)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.3
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.2
+            ZMQ: 4.2.2
+
+System Versions:
+           dist:
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 4.14.3-1-ARCH
+         system: Linux
+        version: Not Installed
+```

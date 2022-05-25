@@ -1,0 +1,47 @@
+This happens with 2015.5.7 as well as with 2015.8.2
+
+```
+ssh_known_hosts_foo.example.com:
+  ssh_known_hosts.present:
+    - hash_known_hosts: False
+    - name: foo.example.com
+    - port: 2222
+    - fingerprint: 00:b2:9e:d2:c2:5e:1e:22:cb:50:dc:aa:6a:6f:b7:a2
+    - enc: ssh-ed25519
+```
+
+This state will create a _wrong_ line in `/etc/ssh/ssh_known_hosts` like this:
+
+```
+[[foo.example.com]:2222]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1AAE5AAAAIGllWa0M0xaAbSZgTpMAsILmZTUWViE6txdeLIgvIjNP
+```
+
+And because the ssh commands salt uses to find the desired lines will of cource not find the wrong line, salt will add it every time the state runs.
+
+Correct would be:
+
+```
+[foo.example.com]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1AAE5AAAAIGllWa0M0xaAbSZgTpMAsILmZTUWViE6txdeLIgvIjNP
+```
+
+So it seems, that the port is being added to the hostname part twice.
+
+relevant debug output:
+
+```
+[DEBUG   ] LazyLoaded ssh_known_hosts.present
+[INFO    ] Running state [foo.example.com] at time 19:32:23.883400
+[INFO    ] Executing state ssh_known_hosts.present for foo.example.com
+[DEBUG   ] LazyLoaded ssh.set_known_host
+[INFO    ] Executing command 'ssh-keygen -F "[foo.example.com]:2222" -f "/etc/ssh/ssh_known_hosts"' in directory '/root'
+[DEBUG   ] output:
+[INFO    ] Executing command 'ssh-keyscan -p 2222 -t ssh-ed25519 foo.example.com' in directory '/root'
+[DEBUG   ] output: # foo.example.com:2222 SSH-2.0-OpenSSH_7.1p1-hpn14v9
+[foo.example.com]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1AAE5AAAAIGllWa0M0xaAbSZgTpMAsILmZTUWViE6txdeLIgvIjNP
+[INFO    ] Executing command 'ssh-keygen -R "foo.example.com" -f "/etc/ssh/ssh_known_hosts"' in directory '/root'
+[DEBUG   ] output: Host foo.example.com not found in /etc/ssh/ssh_known_hosts
+[DEBUG   ] Ensuring ssh config dir "/etc/ssh" exists
+[DEBUG   ] /etc/ssh already exists, no need to create it
+[INFO    ] {'new': {'port': 2222, 'hostname': '[foo.example.com]:2222', 'enc': 'ssh-ed25519', 'key': 'AAAAC3NzaC1lZDI1AAE5AAAAIGllWa0M0xaAbSZgTpMAsILmZTUWViE6txdeLIgvIjNP', 'fingerprint': '00:b2:9e:d2:c2:5e:1e:22:cb:50:dc:aa:6a:6f:b7:a2'}, 'old': None}
+[INFO    ] Completed state [foo.example.com] at time 19:32:23.986815
+```

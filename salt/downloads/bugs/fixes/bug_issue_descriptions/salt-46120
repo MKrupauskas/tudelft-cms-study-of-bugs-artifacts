@@ -1,0 +1,88 @@
+### Description of Issue/Question
+
+There are some trivial bugs in the tagify and fire_args functions (suggested fixes submitted in 
+https://github.com/saltstack/salt/pull/46024). The TypeError exception is triggered in tagify by the `tag_suffix = [jid, 'args']` assigment in the fire_args function, and that exception triggers the UnboundLocalError exception in fire_args:
+
+```
+Traceback (most recent call last):
+  File "/usr/lib64/python2.7/site-packages/salt/minion.py", line 1493, in _thread_return
+    return_data = executor.execute()
+  File "/usr/lib64/python2.7/site-packages/salt/executors/direct_call.py", line 28, in execute
+    return self.func(*self.args, **self.kwargs)
+  File "/usr/lib64/python2.7/site-packages/salt/modules/saltutil.py", line 1437, in runner
+    prefix='run'
+  File "/usr/lib64/python2.7/site-packages/salt/utils/event.py", line 175, in fire_args
+    tag = tagify(tag_suffix, prefix)
+  File "/usr/lib64/python2.7/site-packages/salt/utils/event.py", line 203, in tagify
+    return TAGPARTER.join([part for part in parts if part])
+TypeError: sequence item 2: expected string, long found
+```
+
+```
+Traceback (most recent call last):
+  File "/usr/lib64/python2.7/site-packages/salt/minion.py", line 1493, in _thread_return
+    return_data = executor.execute()
+  File "/usr/lib64/python2.7/site-packages/salt/executors/direct_call.py", line 28, in execute
+    return self.func(*self.args, **self.kwargs)
+  File "/usr/lib64/python2.7/site-packages/salt/modules/saltutil.py", line 1437, in runner
+    prefix='run'
+  File "/usr/lib64/python2.7/site-packages/salt/utils/event.py", line 181, in fire_args
+    tag, tag_data, exc
+UnboundLocalError: local variable 'tag' referenced before assignment
+```
+
+### Setup
+Create a salt master, and make the salt master a minion of itself.
+
+### Steps to Reproduce Issue
+The code that triggered these bugs was a call to the salt.client.LocalClient.cmd method like this:
+```python
+client.cmd(socket.getfqdn(), 'saltutil.runner', ['jobs.list_job'], kwarg={'arg': [jid]})
+```
+I have since changed my code to instead use the salt.runner.RunnerClient.cmd method, in order to achieve a similar result without triggering the bugs:
+```python
+client.cmd('jobs.list_job', arg=[jid])
+```
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.3
+
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: 1.7.4
+         Jinja2: 2.9.5
+        libgit2: Not Installed
+        libnacl: 1.6.1
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.14 (default, Jan 30 2018, 03:06:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: 0.6.8
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.2.2
+
+System Versions:
+           dist: gentoo 2.4.1
+         locale: UTF-8
+        machine: x86_64
+        release: 4.14.18-vanilla-base-4
+         system: Linux
+        version: Gentoo Base System 2.4.1
+```

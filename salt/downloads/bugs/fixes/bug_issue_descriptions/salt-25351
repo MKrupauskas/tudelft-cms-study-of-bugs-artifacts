@@ -1,0 +1,121 @@
+win_servermanager.list_installed appears to be failing on Windows 2008r2, running Minion 2015.5.2. This also affects states.win_servermanager.installed, but not modules.win_servermanager.install. This issue does not appear when testing the same modules/states on a Windows 2012r2 minion.
+
+Versions:
+
+```
+m03@salt01:/srv/salt/wintest$ sudo salt-master --versions-report
+                  Salt: 2015.5.2
+                Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2015.5.2+ds-1trusty1
+m03@salt01:/srv/salt/wintesttwo$ sudo salt 'win2008r2-test' test.versions_report
+win2008r2-test:
+               Salt: 2015.5.2
+             Python: 2.7.8 (default, Jun 30 2014, 16:08:48) [MSC v.1500 64 bit (AMD64)]
+             Jinja2: 2.7.3
+           M2Crypto: 0.21.1
+     msgpack-python: 0.4.5
+       msgpack-pure: Not Installed
+           pycrypto: 2.6
+            libnacl: Not Installed
+             PyYAML: 3.11
+              ioflo: Not Installed
+              PyZMQ: 14.6.0
+               RAET: Not Installed
+                ZMQ: 4.0.5
+               Mako: Not Installed
+m03@salt01:/srv/salt/wintesttwo$ sudo salt 'win2008r2-test' grains.get osrelease
+win2008r2-test:
+    2008ServerR2
+```
+
+Issues:
+
+```
+m03@salt01:/srv/salt/wintesttwo$ sudo salt 'win2008r2-test' win_servermanager.list_installed
+win2008r2-test:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "c:\salt\bin\lib\site-packages\salt\minion.py", line 1146, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "c:\salt\bin\lib\site-packages\salt\modules\win_servermanager.py", line 86, in list_installed
+        if splt[0] != 'Installed' and splt[1] in ret:
+    IndexError: list index out of range
+m03@salt01:/srv/salt/wintesttwo$ cat init.sls
+telnetclientfeature:
+  win_servermanager.installed:
+    - name: Telnet-Client
+    - force: True
+    - recurse: False
+m03@salt01:/srv/salt/wintesttwo$ sudo salt 'win2008r2-test' state.sls wintesttwo
+win2008r2-test:
+----------
+          ID: telnetclientfeature
+    Function: win_servermanager.installed
+        Name: Telnet-Client
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "C:\salt\bin\lib\site-packages\salt\state.py", line 1563, in call
+                  **cdata['kwargs'])
+                File "C:\salt\bin\lib\site-packages\salt\states\win_servermanager.py", line 52, in installed
+                  if name not in __salt__['win_servermanager.list_installed']():
+                File "C:\salt\bin\lib\site-packages\salt\modules\win_servermanager.py", line 86, in list_installed
+                  if splt[0] != 'Installed' and splt[1] in ret:
+              IndexError: list index out of range
+     Started: 00:02:45.080000
+    Duration: 3520.0 ms
+     Changes:
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+m03@salt01:/srv/salt/wintesttwo$ sudo salt 'win2008r2-test' win_servermanager.install Telnet-Client
+win2008r2-test:
+    ----------
+    ExitCode:
+        Success
+    FeatureResult:
+        {Telnet
+    RestartNeeded:
+        No
+    Success:
+        True
+m03@salt01:/srv/salt/wintesttwo$ sudo salt 'win2008r2-test' state.sls wintesttwo
+win2008r2-test:
+----------
+          ID: telnetclientfeature
+    Function: win_servermanager.installed
+        Name: Telnet-Client
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "C:\salt\bin\lib\site-packages\salt\state.py", line 1563, in call
+                  **cdata['kwargs'])
+                File "C:\salt\bin\lib\site-packages\salt\states\win_servermanager.py", line 52, in installed
+                  if name not in __salt__['win_servermanager.list_installed']():
+                File "C:\salt\bin\lib\site-packages\salt\modules\win_servermanager.py", line 86, in list_installed
+                  if splt[0] != 'Installed' and splt[1] in ret:
+              IndexError: list index out of range
+     Started: 08:42:20.477000
+    Duration: 21279.0 ms
+     Changes:
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+```

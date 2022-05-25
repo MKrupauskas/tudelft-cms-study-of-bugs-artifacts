@@ -1,0 +1,91 @@
+### Description of Issue/Question
+
+Using a external pillar module following https://docs.saltstack.com/en/latest/topics/development/external_pillars.html
+
+We observe a memory leak that slowly consumes all the memory of the server running the master.
+
+The code of the external pillar module is 
+
+``` py
+from __future__ import absolute_import
+import os
+import sys
+import logging
+
+log = logging.getLogger(__name__)
+
+
+pil = {'root_private_pillar' : {'vms':{'master1' : 1}}}
+
+def ext_pillar(minion_id, pillar, command):
+    my_pillar = pil
+    '''
+    minion_id is hostname-xxxxxxxx random string of 33 characters
+    '''
+    m = minion_id[:len(minion_id) - 33]
+    if m in my_pillar['root_private_pillar']['vms']:
+        my_pillar['root_private_pillar']['my_self'] = my_pillar['root_private_pillar']['vms'][m]
+    else:
+        log.critical('%s not present in pillar' % m)
+    return my_pillar
+```
+### Setup
+
+master config:
+
+``` sls
+file_recv: True
+interface: 0.0.0.0
+interface: '::'
+ipv6: True
+worker_threads: 10
+extension_modules: /srv/private_mods/
+auto_accept: True
+log_level: info
+log_level_logfile: info
+master_id: master1
+ext_pillar:
+  - private_pillar: getPillar.xml
+rest_cherrypy:
+  port: 8000
+  host: '::'
+  ssl_crt: /etc/pki/tls/certs/cert.pem
+  ssl_key: /etc/pki/tls/certs/key.pem
+external_auth:
+  pam:
+    saltuser:
+      - .*
+      - '@runner'
+file_roots:
+   base:
+     - /srv/salt/
+```
+### Steps to Reproduce Issue
+
+To accelerate memory leak consumption run
+
+```
+while true; do salt '*' saltutil.refresh_pillar; done
+```
+### Versions Report
+
+``` yaml
+salt --versions-report
+           Salt: 2015.5.8
+         Python: 2.6.6 (r266:84292, May 22 2015, 08:34:51)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+        Tornado: Not Installed
+        timelib: Not Installed
+       dateutil: 1.4.1
+```

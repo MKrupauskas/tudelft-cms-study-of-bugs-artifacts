@@ -1,0 +1,122 @@
+## Background
+
+_Originally posted to salt-users mailing list group:_
+Trying to create a raid array on an AWS EC2 instance running AMI Linux. The devices are /dev/xvdf and /dev/xvdg  and they should get put into a raid array at /dev/md127. (Normally it would be /dev/md0 but for whatever reason Amazon's Linux AMI renames and forces them into md127 on reboot so it is easier to just start with that). After the raid is created I want to format the fs on it using ext4 and then mount it to /mnt/md127/.
+
+After running my salt-cloud call using a map, my EC2 servers are created and the "created" event is sent, the Reactor handles it and it is filtered properly to call the correct orchestration run. Part way through my script I get an error. The result on the minion is that there is infact a raid array created with my two drives, but they're not mounted (probably because the mounting step requires the raid.present state before it to succeed. If I manually trigger the orchestration again on that same server, it completes properly (again, likely because when it hits the "raid.present" state it sees an actual raid array there and succeeds, passing on the mounting state and so on. So really it seems that this error is tripping up my entire orchestration without any actual error occurring. I suppose I could try to use an ON_FAIL requisite in my mounting step and re-trigger the raid.present step which possibly will succeed on that second call and move forward - but that seems slightly hackish and I'd like to get some insight into what this error might be related to? Any ideas? Thanks.
+
+_Reply Recevied_
+It appears that the `mdadm` module is iterating over lines in the `scan` object, and at least one of those lines doesn't have any spaces in it, so the resulting list only has one member and indexing with `1` fails. 
+## ...
+
+Colton Myers
+
+---
+## Supplied Debug Info
+# 
+#   Errors
+
+```
+[INFO    ][2889] Executing state raid.present for /dev/md127
+[INFO    ][2889] Executing command ['mdadm', '--detail', '--scan'] in directory '/root'
+[INFO    ][2889] Executing command 'mdadm -E /dev/xvdf' in directory '/root'
+[ERROR   ][2889] Command 'mdadm -E /dev/xvdf' failed with return code: 1
+[ERROR   ][2889] output: mdadm: No md superblock detected on /dev/xvdf.
+[INFO    ][2889] Executing command 'mdadm -E /dev/xvdg' in directory '/root'
+[ERROR   ][2889] Command 'mdadm -E /dev/xvdg' failed with return code: 1
+[ERROR   ][2889] output: mdadm: No md superblock detected on /dev/xvdg.
+[INFO    ][2889] Executing command ['mdadm', '-C', '/dev/md127', '-R', '-v', '--run', '-l', '0', '-e', 'default', '-n', '2', '/dev/xvdf', '/dev/xvdg'
+[INFO    ][2889] Executing command ['mdadm', '--detail', '--scan'] in directory '/root'
+[INFO    ][2889] Executing command 'mdadm --detail --scan' in directory '/root'
+[ERROR   ][2889] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 1563, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.6/site-packages/salt/states/mdadm.py", line 144, in present
+    __salt__['raid.save_config']()
+  File "/usr/lib/python2.6/site-packages/salt/modules/mdadm.py", line 291, in save_config
+    vol_d = dict([(line.split()[1], line) for line in scan])
+
+IndexError: list index out of range
+```
+
+---
+# 
+#   raid/init.sls
+
+``` yaml
+raid-create:
+  raid.present:
+    - require:
+      - module: raid-mod-sync
+    - name: /dev/md127
+    - level: 0
+    - devices:
+      - /dev/xvdf
+      - /dev/xvdg
+    - run: True
+
+raid-fs-mount:
+  module.run:
+    - require:
+      - raid: raid-create
+    - name: extfs.mkfs
+    - device: /dev/md127
+    - fs_type: ext4
+    - opts:
+      - defaults
+      - nofail
+    - user: root
+```
+
+---
+# 
+
+ Orchestration file: (invoked with Reactor event)
+#  orchestration-create/mongodb-server.sls
+
+``` yaml
+mongodb-server-setup:
+  salt.state:
+    - tgt: {{ pillar['minion'] }}
+    - sls:
+      - setup
+      - raidarray
+```
+
+---
+# 
+# SaltStack versions-report
+
+``` yaml
+Salt: 2015.5.0
+         Python: 2.6.9 (unknown, Apr  1 2015, 18:16:00)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+```
+
+---
+# 
+# OS Environment Info
+
+```
+NAME="Amazon Linux AMI"
+VERSION="2015.03"
+ID="amzn"
+ID_LIKE="rhel fedora"
+VERSION_ID="2015.03"
+PRETTY_NAME="Amazon Linux AMI 2015.03"
+ANSI_COLOR="0;33"
+CPE_NAME="cpe:/o:amazon:linux:2015.03:ga"
+HOME_URL="http://aws.amazon.com/amazon-linux-ami/"
+Amazon Linux AMI release 2015.03
+```

@@ -1,0 +1,94 @@
+### Description of Issue/Question
+When using m2crypto python3 alongside >=2018.3.1 python3 versions I see this error when accepting the minion key: 
+
+```
+2018-06-26 16:15:19,369 [salt.transport.mixins.auth:438 ][ERROR   ][9189] Corrupt public key "/etc/salt/pki/master/minions/qapkgtestrs-redhat7qavk": Can't convert 'bytes' object to str implicitly
+```
+
+And then going forward I cannot run any commands against that minion. 
+
+```
+[root@qapkgtestrs-redhat7qavk ~]# salt '*' test.ping
+qapkgtestrs-redhat7qavk:
+    Minion did not return. [No response]
+```
+
+
+### Steps to Reproduce Issue
+1. install m2crypto: `yum install python34-m2crypto`
+2. install python3 salt-master/salt-minion
+3. point minion to master.
+4. accept key `salt-key -a <keyname> -y`
+5. look at logs on master: 
+
+```
+[root@qapkgtestrs-redhat7qavk ~]# grep -i corrup /var/log/salt/master 
+2018-06-26 16:15:19,369 [salt.transport.mixins.auth:438 ][ERROR   ][9189] Corrupt public key "/etc/salt/pki/master/minions/qapkgtestrs-redhat7qavk": Can't convert 'bytes' object to str implicitly
+```
+
+This was due to this change https://github.com/saltstack/salt/pull/46930
+
+You can also quickly replicate it by running this script:
+
+```
+import salt.utils.files
+from M2Crypto import RSA, EVP, BIO
+path = '/etc/salt/pki/master/minions/qapkgtestrs-redhat7qavk'
+with salt.utils.files.fopen(path) as f:
+    data = f.read().replace(b'RSA ', '')
+bio = BIO.MemoryBuffer(data)
+key = RSA.load_pub_key_bio(bio)
+print(key)
+```
+
+Which grabs code from salt/crypt.py here: https://github.com/saltstack/salt/blob/v2018.3.1/salt/crypt.py#L208-L212
+
+currently working on fix
+
+### Versions Report
+
+```
+[root@qapkgtestrs-redhat7qavk ~]# salt --versions-report
+Salt Version:
+           Salt: 2018.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.28.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.1
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.4.8 (default, Mar 23 2018, 10:04:27)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: redhat 7.5 Maipo
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.3.2.el7.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 7.5 Maipo
+```
+
+but also affects 2018.3.2

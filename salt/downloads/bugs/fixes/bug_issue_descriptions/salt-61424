@@ -1,0 +1,81 @@
+We noticed that this setuptools issue https://github.com/pypa/setuptools/issues/3002 also affected the pip module in saltstack today: https://github.com/saltstack/salt/blob/22d5aee67fb41729f10001f5928553a5469ce507/salt/modules/pip.py#L165
+
+with a sufficiently old version of virtualenv the yanked metadata isn't handled and the salt module will error with:
+```bash
+          ID: ensure somepackage python virtualenv
+    Function: virtualenv.managed
+        Name: /usr/local/venv/somepackage
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/salt/state.py", line 2154, in call
+                  *cdata["args"], **cdata["kwargs"]
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2106, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/states/virtualenv_mod.py", line 298, in managed
+                  before = set(__salt__["pip.freeze"](bin_env=name, user=user, use_vt=use_vt))
+                File "/usr/lib/python3/dist-packages/salt/modules/pip.py", line 1209, in freeze
+                  cur_version = version(bin_env, cwd)
+                File "/usr/lib/python3/dist-packages/salt/modules/pip.py", line 1336, in version
+                  raise CommandNotFoundError("Could not find a `pip` binary")
+              salt.exceptions.CommandNotFoundError: Could not find a `pip` binary
+```
+
+for something like:
+```bash
+ensure python virtualenv directory:
+  file.directory:
+    - name: /usr/local/venv/somepackage
+    - user: root
+    - group: root
+    - mode: 0755
+    - makedirs: true
+
+ensure somepackage python virtualenv:
+  virtualenv.managed:
+    - name: /usr/local/venv/somepackage
+    - system_site_package: false
+    - python: /usr//bin/python3.7
+    - pip_pkgs:
+      - something
+  require:
+    - file: /usr/local/venv/somepackage
+```
+
+because it does `python -m pip`.
+
+a temporary workaround is to pin setuptools to `60.2.0` manually before using `virtualenv.managed` to install any pip pkgs:
+```bash
+ensure python virtualenv directory:
+  file.directory:
+    - name: /usr/local/venv/somepackage
+    - user: root
+    - group: root
+    - mode: 0755
+    - makedirs: true
+
+ensure somepackage python virtualenv:
+  virtualenv.managed:
+    - name: /usr/local/venv/somepackage
+    - system_site_package: false
+    - python: /usr//bin/python3.7
+  require:
+    - file: /usr/local/venv/somepackage
+
+pin setuptools in virtualenv:
+  cmd.run:
+    - name: /usr/local/venv/somepackage/bin/pip install --upgrade setuptools==60.2.0
+  require:
+    - virtualenv: /usr/local/venv/somepackage
+
+install dependencies in virtualenv:
+  virtualenv.managed:
+    - name: /usr/local/venv/somepackage
+    - system_site_package: false
+    - python: /usr//bin/python3.7
+    - pip_pkgs:
+      - something
+  require:
+    - virtualenv: /usr/local/venv/somepackage
+```
+
+the setuptools people will probably publish a new not broken version soon and this won't be a problem anymore, but in the mean time I wanted to report this here in case people are running into this issue and are looking for answers on google.

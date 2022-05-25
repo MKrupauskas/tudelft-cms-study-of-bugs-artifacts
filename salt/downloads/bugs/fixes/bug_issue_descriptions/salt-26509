@@ -1,0 +1,33 @@
+While debugging a salt reactor, I discovered that the data structure passed to reactor differs and depends on Salt topology.
+
+For example consider the following event:
+
+```
+salt-call -l debug --metadata --master=saltmaster  event.send 'tag/myevent' '{ foo:bar }'
+```
+
+When looking for the key foo in a sls, in case of a single salt master and minion interaction. we need to use `{{   data[‘data’][’foo’]   }}` e.g.
+
+``` saltstack
+{% if data['tag'] == 'tag/mytag' %}
+do_something:
+  local.cmd.run:
+    - tgt: 'target-host'
+    - arg:
+       - "/bin/dosomething {{ data['data']['keys'] }}"
+{% endif %}
+```
+
+Now, if there is a two tier master setup, a master and an intermediate masters (syndic) between the salt master and the minion. You would need to use {{   data[‘data’][‘data’][’key’]   }}
+
+``` saltstack
+{% if data['tag'] == 'tag/mytag' %}
+do_something:
+  local.cmd.run:
+    - tgt: 'target-host'
+    - arg:
+       - "/bin/dosomething {{   data[‘data’][‘data’][’key’]   }}"
+{% endif %}
+```
+
+The current behavior results in a non-standard sls and makes it difficult to port it between various environments. e.g single master staging vs, multi master production. Is there a way to make the SLS more portable? or is it possible to make the master understand that the data comes from another master and needs to be stripped of wrappers.

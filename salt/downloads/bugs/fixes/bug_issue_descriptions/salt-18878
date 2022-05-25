@@ -1,0 +1,90 @@
+When I executing mine.get or publish.publish using grain targeting it woks as expected, but when using compound targeting no results are returned. See below log:
+
+```
+$ salt '*' mine.get 'roles:hadoop_slave' network.interfaces grain
+   mesos-master-slave:
+        ----------
+        eth0:
+            ----------
+            hwaddr:
+                fa:16:3e:8a:e4:66
+            inet:
+                |_
+                  ----------
+                  address:
+                      192.168.111.211
+.....
+$ salt '*' mine.get 'G@roles:hadoop_slave' network.interfaces compound
+mesos-master-slave:
+    .... is empty, I'm expecting same result as when using grains targeting here.
+```
+
+ Ok I have a 100% way to reproduce also using publish.publish so most likely this is affecting many other parts where compound targeting is available. Just run the following state file reproduce.sls and add a grain roles: [hadoop_master]:
+
+```
+{% if salt.match.compound("G@roles:hadoop_master") %}
+
+{% for host in salt['publish.publish']('*', 'network.interfaces') %}
+echo {{ host }}:
+  cmd.run
+{% endfor %}
+
+{% for host in salt['publish.publish']('roles:hadoop_master', 'network.interfaces', expr_form='grain') %}
+echo with grain targeting {{ host }}:
+  cmd.run
+{% endfor %}
+
+{% for host in salt['publish.publish']('G@roles:hadoop_master', 'network.interfaces', expr_form='compound') %}
+echo with compound targeting {{ host }}:
+  cmd.run
+{% endfor %}
+
+{% endif %}
+```
+
+This is the result of the above sls file:
+
+```
+salt '*' state.sls reproduce
+mesos-master-slave:
+----------
+          ID: echo mesos-master-slave
+    Function: cmd.run
+      Result: True
+     Comment: Command "echo mesos-master-slave" run
+     Started: 14:50:58.754659
+    Duration: 5.284 ms
+     Changes:   
+              ----------
+              pid:
+                  22764
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  mesos-master-slave
+----------
+          ID: echo with grain targeting mesos-master-slave
+    Function: cmd.run
+      Result: True
+     Comment: Command "echo with grain targeting mesos-master-slave" run
+     Started: 14:50:58.760093
+    Duration: 4.893 ms
+     Changes:   
+              ----------
+              pid:
+                  22765
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  with grain targeting mesos-master-slave
+
+Summary
+------------
+Succeeded: 2 (changed=2)
+Failed:    0
+------------
+```

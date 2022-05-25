@@ -1,0 +1,57 @@
+You can specify version comparison operators to pkg.installed and in test mode it works as expected but when it comes to driving apt-get it fails.
+
+Perhaps best illustrated as an example:
+
+```
+$ sudo salt-call state.single pkg.installed ntp version='>=1:4.2.6.p5+dfsg-3ubuntu2.14.04.2' test=true
+[...]
+local:
+----------
+          ID: ntp
+    Function: pkg.installed
+      Result: None
+     Comment: The following packages are set to be installed/updated: ntp>=1:4.2.6.p5+dfsg-3ubuntu2.14.04.2.
+     Changes:
+
+```
+
+Which is all good so far, I've asked for greater than or equal to a version not installed. Similarly for '<=':
+
+```
+$ sudo salt-call state.single pkg.installed ntp version='<=1:4.2.6.p5+dfsg-3ubuntu2.14.04.2' test=true
+[...]
+local:
+----------
+          ID: ntp
+    Function: pkg.installed
+      Result: True
+     Comment: All specified packages are already installed and are at the desired version.
+     Changes:
+```
+
+But when I come to try to actually install I get this:
+
+```
+$ sudo salt-call state.single pkg.installed ntp version='>=1:4.2.6.p5+dfsg-3ubuntu2.14.04.2'
+[some logs trimmed]
+[INFO    ] Executing command ['apt-get', '-q', '-y', '-o', 'DPkg::Options::=--force-confold', '-o', 'DPkg::Options::=--force-confdef', 'install', 'ntp=>=1:4.2.6.p5+dfsg-3ubuntu2.14.04.2'] in directory '/home/vagrant'
+[ERROR   ] Command ['apt-get', '-q', '-y', '-o', 'DPkg::Options::=--force-confold', '-o', 'DPkg::Options::=--force-confdef', 'install', 'ntp=>=1:4.2.6.p5+dfsg-3ubuntu2.14.04.2'] failed with return code: 100
+[ERROR   ] output: Reading package lists...
+Building dependency tree...
+Reading state information...
+E: Unable to locate package ntp=>
+[INFO    ] Executing command "dpkg-query --showformat='${Status} ${Package} ${Version} ${Architecture}\n' -W" in directory '/home/vagrant'
+[ERROR   ] The following packages failed to install/update: ntp>=1:4.2.6.p5+dfsg-3ubuntu2.14.04.2.
+[INFO    ] Completed state [ntp] at time 12:03:25.190073
+local:
+----------
+          ID: ntp
+    Function: pkg.installed
+      Result: False
+     Comment: The following packages failed to install/update: ntp>=1:4.2.6.p5+dfsg-3ubuntu2.14.04.2.
+     Changes:
+```
+
+I'm not quite sure the behaviour I _would_ expect here, but I was after was basically this: ensure that ntp is at least this version, but if it's more recent then that's good too.
+
+In terms of implementation that would require stripping the '>=' off inside the state and passing no version to the module. That would work for apt but I don't know if that would break for other package modules.

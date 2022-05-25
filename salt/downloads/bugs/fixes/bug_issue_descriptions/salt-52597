@@ -1,0 +1,128 @@
+
+```
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/master.py", line 1838, in run_func
+    ret = getattr(self, func)(load)
+  File "/usr/lib/python2.7/site-packages/salt/master.py", line 1543, in _pillar
+    data = pillar.compile_pillar()
+  File "/usr/lib/python2.7/site-packages/salt/pillar/__init__.py", line 1005, in compile_pillar
+    matches = self.top_matches(top)
+  File "/usr/lib/python2.7/site-packages/salt/pillar/__init__.py", line 675, in top_matches
+    self.opts.get('nodegroups', {}),
+  File "/usr/lib/python2.7/site-packages/salt/matchers/confirm_top.py", line 36, in confirm_top
+    return m(match)
+  File "/usr/lib/python2.7/site-packages/salt/matchers/pillar_match.py", line 24, in match
+    __opts__['pillar'], tgt, delimiter=delimiter
+KeyError: u'pillar'
+```
+
+For this test, we are using an external pillar to hold our server roles and a (release) phase 
+
+```yaml
+# from /etc/salt/master.d/base.conf
+# ext_pillar_first is required so that we can read our role and phase values
+# from our csv file and then later read that in /srv/pillar/top
+ext_pillar_first: true
+ext_pillar:
+  - csv: /srv/salt/defaults/alpha.csv
+  - csv: /srv/salt/defaults/beta.csv
+  - csv: /srv/salt/defaults/release.csv
+```
+
+An example of one of our pillars shows the list of salt IDs with a phase and a role
+
+```csv
+id,phase,role
+example1,alpha,database
+example2,alpha,web
+example3,alpha,other
+```
+
+In our regular pillar top, we have some default, global pillars (mostly our scheduled jobs) and then a pillar for each phase we want to support (to hold database settings and passwords different across different (release) phases
+
+```yaml
+# /srv/pillar/top.sls
+# This requires ext_pillar_first: true so that our environment pillars are
+# read in first. Without that, we cannot match these pillars on our
+# environment pillars. Please see /etc/salt/master.d/base.conf
+base:
+  '*':
+    - defaults
+  'phase:alpha':
+    - match: pillar
+    - phase.alpha
+  'phase:beta':
+    - match: pillar
+    - phase.beta
+  'phase:release':
+    - match: pillar
+    - phase.release
+```
+
+Under 2018.x this worked fine, but noticing issues like #52567 and #51360 it seems like this broke somewhere in between there.
+
+Looking through our stacktrace, we see that when we call compile_pillar, we load our `ext_pillar` and it works fine up until this point
+
+```python
+if self.opts.get('ext_pillar_first', False):
+   self.opts['pillar'], errors = self.ext_pillar(self.pillar_override)
+```
+
+we would get something similar to `{"id": "example1", "phase": "alpha", "role": "database"}`
+
+we then go into our `top_matches` which pulls up `salt/matchers/confirm_top.py` which seeing our `- match: pillar` in our `/srv/pillar/top.sls` also calls `salt/matchers/pillar_match.py` which throws an exception trying to read our pillars from `__opts__['pillar']`
+Though we successfully loaded our ext_pillar `self.opts['pillar'], errors = self.ext_pillar(self.pillar_override)` this value never makes it to `confirm_top` or `pillar.match` because our ext_pillar is never loaded into the `__opts__` dunder dictionary
+
+Our external pillar is never loaded into ` __opts__['pillar']` so we crash here
+
+```python
+    return salt.utils.data.subdict_match(
+        __opts__['pillar'], tgt, delimiter=delimiter
+    )
+```
+
+I'm still trying to figure out the exact commits that have affected this change, but hopefully this is enough to help someone else to also confirm
+
+
+```
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.28.2
+           Mako: 0.8.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: 1.2.5
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Jul 13 2018, 13:06:57)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.14.4.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```

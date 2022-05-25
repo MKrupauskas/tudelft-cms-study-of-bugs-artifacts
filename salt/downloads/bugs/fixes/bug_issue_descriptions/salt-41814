@@ -1,0 +1,71 @@
+### Description of Issue
+
+Engines running in the minion context (setup in the minion config) cannot execute `__salt__` commands which require communication with the Salt Master.
+
+The issue is when modules attempt to use certain keys in `__opts__`, such as `master_uri`. These keys are populated by the `eval_master` method in `minion.py`, but `eval_master` is only called *after* the engines have already been started, thus engines see an incomplete `__opts__` dictionary.
+
+I would make a PR to fix it, but I'm not familiar enough with the minion startup to be confident that I won't break it all .
+
+### Setup
+Only need one master and one minion to reproduce the issue
+
+### Steps to Reproduce Issue
+Simple engine:
+
+```python
+# _engines/fail_example.py
+def start():
+    __salt__['cp.get_file_str']('salt://foo.txt')
+```
+
+An engines config:
+```yaml
+# minion.d/failing-engine.conf
+engines:
+    - fail_example: {}
+```
+
+Upon startup, the engine will fail when the `crypt.py` module attempts to access `__opts__['master_uri']` during `cp.get_file_str`.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.5
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-66-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

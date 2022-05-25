@@ -1,0 +1,117 @@
+### Description of Issue/Question
+
+I am writing a state to pull docker images from AWS ECR registry. The way the credentials passed out by AWS are only valid for 12 hours, so I wrote a custom python pillar to run the proper awscli commands to fetch the credentials and build the pillar data for the registry. Assuming the pillar data is refreshed and with valid credentials for the run the minion still fails with an execption. 
+
+The problem is fixed by manually going onto the minion and running docker login, so I would guess it sees the configured auth credentials from a previous docker login and uses them even if they are invalid. 
+### Setup
+
+Here are the relevant salt files for the issue (w/ private info redacted)
+This build the docker-registries pillar data
+
+```
+#!py
+
+import subprocess
+import re
+
+def run():
+    '''
+    builds the data structure used by docker states
+    '''
+
+    docker = {
+        'docker-pkg': {
+            'lookup': {
+                'version': '1.9.1-0~'+__grains__['oscodename'],
+                'config': ['DOCKER_OPTS=" --host=unix:///var/run/docker.sock --storage-driver=aufs"']
+            }
+        },
+        'docker-registries': {
+            'https://xxxxxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com': {
+                'email': 'none',
+                'password': fetchAWSECRCreds(),
+                'username': 'AWS'
+            }           
+        },
+        'install_docker_py': True
+    }
+
+    return docker
+
+#fetches aws credentials for ecr
+#requires awscli to be installed and configured with valid credentials
+def fetchAWSECRCreds():
+    r = subprocess.Popen(["aws","ecr","get-login"],stdout=subprocess.PIPE)
+    p = re.compile(ur'-p (.*) -e')
+    test_str = r.stdout.read()
+    return re.search(p,test_str).group(1)
+```
+### Steps to Reproduce Issue
+
+Easiest method to reproduce (using AWS ECR):
+1. Setup pillar data to login with valid credentials and do dockerng.pull (works fine)
+2. Invalidate credentials and try pull again (fails as expected)
+3. Update the credentials making sure to refresh pillar data
+4. Try to pull again and it should fail with the following message
+
+minion log
+
+```
+2016-04-25 15:37:25,231 [requests.packages.urllib3.connectionpool][DEBUG   ][19156] "GET /v1.21/images/json?only_ids=0&all=1 HTTP/1.1" 200 None
+2016-04-25 15:37:25,318 [docker.auth.auth ][DEBUG   ][19156] Looking for auth entry for '364535168108.dkr.ecr.us-east-1.amazonaws.com'
+2016-04-25 15:37:25,319 [docker.auth.auth ][DEBUG   ][19156] Found u'https://364535168108.dkr.ecr.us-east-1.amazonaws.com'
+2016-04-25 15:37:25,319 [docker.api.image ][DEBUG   ][19156] Looking for auth config
+2016-04-25 15:37:25,319 [docker.auth.auth ][DEBUG   ][19156] Looking for auth entry for '364535168108.dkr.ecr.us-east-1.amazonaws.com'
+2016-04-25 15:37:25,320 [docker.auth.auth ][DEBUG   ][19156] Found u'https://364535168108.dkr.ecr.us-east-1.amazonaws.com'
+2016-04-25 15:37:25,320 [docker.api.image ][DEBUG   ][19156] Found auth config
+2016-04-25 15:37:25,449 [requests.packages.urllib3.connectionpool][DEBUG   ][19156] "POST /v1.21/images/create?tag=search_alpha&fromImage=364535168108.dkr.ecr.us-east-1.amazonaws.com%2Fjs-sessions HTTP/1.1" 200 None
+2016-04-25 15:37:25,467 [salt.minion      ][WARNING ][19156] The minion function caused an exception
+Traceback (most recent call last):
+  File "/usr/local/lib/python2.7/dist-packages/salt/minion.py", line 1071, in _thread_return
+    return_data = func(*args, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/salt/modules/dockerng.py", line 3865, in pull
+    _error_detail(errors, item)
+  File "/usr/local/lib/python2.7/dist-packages/salt/modules/dockerng.py", line 1058, in _error_detail
+    item['errorDetail']['message'],
+IndexError: tuple index out of range
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.2
+           cffi: 1.5.0
+       cherrypy: 3.2.2
+       dateutil: 2.4.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: 0.23.4
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: 1.2.3
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.23.1
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-71-generic
+         system: Ubuntu 14.04 trusty
+```

@@ -1,0 +1,84 @@
+### Description of Issue/Question
+
+The `archive.extracted` salt state does not work with `.tar.xz` files under CentOS 6 
+
+### Setup
+
+```
+{% if not salt['file.directory_exists']('/opt/android/sdk_v3') %}
+android_v3_present:
+  archive.extracted:
+    - name: /opt/android/
+    - if_missing: /opt/android/sdk_v3
+    - source: http://internal-repo/android_v3.tar.xz
+    # - source_hash: sha256=omitted
+    - archive_format: tar
+    - tar_options: J
+    - options: J
+    - require:
+      - file: /opt/android
+{% endif %}
+```
+Unrelated to this bug report, but note that `file.directory_exists` is used to guard the installation, rather than just `if_missing`. It was found that `if_missing` would still download the archive, and the archive in question is about 2GB large so that should be avoided if possible.
+
+### Steps to Reproduce Issue
+
+1. Use CentOS 6 or any other OS providing an `xz` implementation without `-l`.
+2. Call the relevant sls for `archive.extracted` (or even do a `state.single`)
+
+It will call an internal function `_list_tar` in `salt/modules/archive.py`. This has some logic relying on `xz -l`, which always fails on CentOS 6.
+
+Other notes:
+
+* Invoking the system tar, `tar tJf file.tar.xz` or just `tar tf file.tar.xz`, would have worked and provided enough information to complete the state
+* This can probably be worked around with `list_options`, but that should not be necessary in the common case.
+* Since there's already an `if_missing`, surely it's fine to skip the listing step? Maybe if `enforce_toplevel` is also false it could be skipped. Or perhaps the listing could be somehow made lazy, executing only when required and essentially getting that for free.
+
+### Versions Report
+
+```
+root@ash:~ # salt-call --versions-report
+Salt Version:
+           Salt: 2016.11.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.4.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.6
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3c1
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Aug 18 2016, 15:13:37)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: centos 6.8 Final
+        machine: x86_64
+        release: 2.6.32-642.11.1.el6.x86_64
+         system: Linux
+        version: CentOS 6.8 Final
+ 
+root@ash:~ # xz --version
+xz (XZ Utils) 4.999.9beta
+liblzma 4.999.9beta
+root@ash:~ # xz -l asdf
+xz: --list is not implemented yet.
+```

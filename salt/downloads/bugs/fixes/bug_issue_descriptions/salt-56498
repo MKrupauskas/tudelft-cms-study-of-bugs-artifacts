@@ -1,0 +1,151 @@
+### Description of Issue
+I didn't look at the code for previous versions. In v3000.1  `salt/states/service.py` has `SYSTEMD_ONLY` variable with the list of arguments which are valid only for systems running `systemd`. And then the code checks if those arguments are present in the state functions.
+
+However, the check doesn't work correctly on CentOS 7 at least. That OS is using `systemd`, but salt code doesn't detect it properly and warns that `systemd` specific arguments are not supported.
+
+I don't know if there are more serious issues than warnings.
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+`test.sls`:
+```
+firewall_service_run:
+  service.running:
+    - name: "iptables.service"
+    - enable: True
+    - unmask: True
+```
+When I run this on CentOS 7 minion with salt v3000.1 I get:
+
+```
+# salt test-dbsnap-02.xdc state.apply test         
+test-dbsnap-02.xdc:
+----------
+          ID: firewall_service_run
+    Function: service.running
+        Name: iptables.service
+      Result: True
+     Comment: The service iptables.service is already running
+              Service iptables.service was already unmasked
+     Started: 14:37:52.031491
+    Duration: 46.795 ms
+     Changes:   
+    Warnings: The 'unmask' argument is not supported by this platform/action
+
+Summary for test-dbsnap-02.xdc
+------------
+Succeeded: 1
+Failed:    0
+Warnings:  1
+------------
+Total states run:     1
+Total run time:  46.795 ms
+```
+The warning shouldn't be there because the OS has `systemd` and that service is being managed by `systemd`.
+
+OS info:
+```
+{test-dbsnap-02}~> cat /etc/redhat-release 
+CentOS Linux release 7.7.1908 (Core)
+```
+
+For a test, I'll stop and mask the service:
+```
+{test-dbsnap-02}~# systemctl stop iptables.service    
+{test-dbsnap-02}~# systemctl disable iptables.service 
+Removed symlink /etc/systemd/system/basic.target.wants/iptables.service.
+{test-dbsnap-02}~# systemctl mask iptables.service   
+Created symlink from /etc/systemd/system/iptables.service to /dev/null.
+```
+And if I run `test.sls` from above I get:
+```
+# salt test-dbsnap-02.xdc state.apply test
+test-dbsnap-02.xdc:
+----------
+          ID: firewall_service_run
+    Function: service.running
+        Name: iptables.service
+      Result: True
+     Comment: Service iptables.service has been enabled, and is running
+              Service iptables.service was unmasked
+     Started: 15:24:48.832743
+    Duration: 446.925 ms
+     Changes:   
+              ----------
+              iptables.service:
+                  True
+    Warnings: The 'unmask' argument is not supported by this platform/action
+
+Summary for test-dbsnap-02.xdc
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+Warnings:  1
+------------
+Total states run:     1
+Total run time: 446.925 ms
+```
+It unmasked the service correctly, but complained that `unmask` argument is not supported.
+I don't know if this is only a cosmetic issue (ie. if only a bogus warning is returned). The `_get_systemd_only` function is returning a dictionary with sanitized arguments (in this case without arguments allegedly not supported) and that doesn't look harmless.
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+
+The above setup should suffice. I didn't test on v3000 because I had `slspath` issues, so couldn't use it. On version 2019.2.2 this warning isn't shown.
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+Master is running 2019.2.1, but I don't think that affects this issue.
+
+On the minion:
+```
+{test-dbsnap-02}~> salt-minion --versions-report
+Salt Version:
+           Salt: 3000.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.8.1
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Aug  7 2019, 17:28:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 15.3.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.7.1908 Core
+         locale: ISO-8859-2
+        machine: x86_64
+        release: 5.6.1-1.el7.elrepo.x86_64
+         system: Linux
+        version: CentOS Linux 7.7.1908 Core
+ 
+```
+P.S.
+Your version reports code is buggy. Locale reported above is the locale of the shell in which I ran the command. It is not the default system locale and it is not the locale in which salt minion runs.
+
+To prove:
+```
+{test-dbsnap-02}~> LC_ALL=C salt-minion --versions-report | grep locale
+         locale: ANSI_X3.4-1968
+```

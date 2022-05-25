@@ -1,0 +1,132 @@
+I am having a problem with file.managed on CentOS7 and Amazon Linux. The file.managed does not appear to work from a local template file when using state.template
+
+Here's my versions from the CentOS7 box:
+
+``` yaml
+    # salt-call --versions
+               Salt: 2015.5.3
+             Python: 2.7.5 (default, Jun 24 2015, 00:41:19)
+             Jinja2: 2.7.2
+           M2Crypto: 0.21.1
+     msgpack-python: 0.4.6
+       msgpack-pure: Not Installed
+           pycrypto: 2.6.1
+            libnacl: Not Installed
+             PyYAML: 3.10
+              ioflo: Not Installed
+              PyZMQ: 14.3.1
+               RAET: Not Installed
+                ZMQ: 3.2.5
+               Mako: Not Installed
+            Tornado: Not Installed
+```
+
+The following sls file is the one I am trying:
+
+``` saltstack
+/root/file_to_write:
+  file.managed:
+    - source: salt://top.sls
+    - user: root
+    - group: root
+    - mode: 0755
+```
+
+Here's the output from "salt-call -ldebug state.template blah.sls":
+
+``` ...
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded cmd.run
+[DEBUG   ] Rendered data from file: blah.sls:
+/root/file_to_write:
+  file.managed:
+    - source: salt://top.sls
+    - user: root
+    - group: root
+    - mode: 0755
+
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('/root/file_to_write', OrderedDict([('file.managed', [OrderedDict([('source', 'salt://top.sls')]), OrderedDict([('user', 'root')]), OrderedDict([('group', 'root')]), OrderedDict([('mode', 755)])])]))])
+[DEBUG   ] LazyLoaded file.managed
+[INFO    ] Running state [/root/file_to_write] at time 20:54:02.768911
+[INFO    ] Executing state file.managed for /root/file_to_write
+[DEBUG   ] LazyLoaded file.user_to_uid
+[DEBUG   ] LazyLoaded cp.hash_file
+[DEBUG   ] Re-using SAuth for ('/etc/salt/pki/minion', '<hostname>', '<dest>')
+[ERROR   ] Source file salt://top.sls not found
+[INFO    ] Completed state [/root/file_to_write] at time 20:54:02.776480
+[DEBUG   ] File /var/cache/salt/minion/accumulator/54946192 does not exist, no need to cleanup.
+[DEBUG   ] Re-using SAuth for ('/etc/salt/pki/minion', '<hostname>', '<dest>')
+[DEBUG   ] LazyLoaded highstate.output
+local:
+----------
+          ID: /root/file_to_write
+    Function: file.managed
+      Result: False
+     Comment: Source file salt://top.sls not found
+     Started: 20:54:02.768911
+    Duration: 7.569 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+
+```
+
+Here's the output of "salt-call cp.list_master | grep top.sls":
+
+```
+    - top.sls
+```
+
+Here's the output of "salt-call cp.get_file_str salt://top.sls":
+
+```
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'top.sls'
+local:
+    <contents of top.sls file>
+```
+
+This is the output of using state.template_str instead, which works:
+
+```
+salt-call state.template_str "$(cat blah.sls )"
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Running state [/root/file_to_write] at time 21:01:23.439786
+[INFO    ] Executing state file.managed for /root/file_to_write
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'top.sls'
+[INFO    ] File changed:
+New file
+[INFO    ] Completed state [/root/file_to_write] at time 21:01:23.470001
+local:
+----------
+          ID: /root/file_to_write
+    Function: file.managed
+      Result: True
+     Comment: File /root/file_to_write updated
+     Started: 21:01:23.439786
+    Duration: 30.215 ms
+     Changes:   
+              ----------
+              diff:
+                  New file
+              mode:
+                  0755
+
+Summary
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+```
+
+Shouldn't the state.template version work?

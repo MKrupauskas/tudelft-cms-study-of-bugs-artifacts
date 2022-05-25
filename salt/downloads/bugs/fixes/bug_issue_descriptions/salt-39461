@@ -1,0 +1,51 @@
+### Description of Issue/Question
+
+The 'os' grain for Solaris 10 & 11 on Boron (specifically 2016.3.3) reports back 'Solaris'.
+
+The 'os' grain for Solaris 10 & 11 on Carbon (specifically 2016.11.2) reports back as 'Oracle Solaris'.
+
+The above discrepancy breaks things like salt.module.solarisips because `__virtual__` checks for 'Solaris'.
+
+We've implemented a temporary workaround by way of defining providers in /etc/salt/minion as documented in https://docs.saltstack.com/en/latest/ref/modules/index.html#module-provider-override
+
+Looking at the other exec modules that check for 'Solaris', they all use the 'os_family' grain.  If that's the proper fix for these modules, let me know and I'll put together a PR.
+
+### Steps to Reproduce Issue
+
+```
+# uname -a
+SunOS host2 5.11 21892881-idr-sru13 sun4v sparc sun4v
+
+# salt-call --version
+salt-call 2016.3.3 (Boron)
+
+# salt-call grains.get os
+local:
+    Solaris
+```
+
+```
+# uname -a
+SunOS host3 5.11 21892881-idr-sru13 sun4v sparc sun4v
+
+# salt-call --version
+salt-call 2016.11.2 (Carbon)
+
+# salt-call grains.get os
+local:
+    Oracle Solaris
+```
+
+```
+def __virtual__():
+    '''
+    Set the virtual pkg module if the os is Solaris 11
+    '''
+    if __grains__['os'] == 'Solaris' \
+            and float(__grains__['kernelrelease']) > 5.10 \
+            and salt.utils.which('pkg'):
+        return __virtualname__
+    return (False,
+            'The solarisips execution module failed to load: only available '
+            'on Solaris >= 11.')
+```

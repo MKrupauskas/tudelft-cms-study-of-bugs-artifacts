@@ -1,0 +1,87 @@
+### Description of Issue/Question
+
+### Setup
+
+```bash
+touch test
+aws s3 cp test s3://my-bucket/test+test
+salt-call s3.get my-bucket test+test
+```
+
+The AWS cli handles this fine:
+
+```
+$ aws s3 cp s3://my-bucket/test+test test2
+download: s3://my-bucket/test+test to ./test2
+```
+
+Salt works fine if there is not a `+` in the object name.
+
+I'm guessing there is some escaping happening somewhere that is breaking the signature algorithm.
+
+### Steps to Reproduce Issue
+
+```
+[DEBUG   ] LazyLoaded s3.query
+[DEBUG   ] S3 Request: https://my-bucket.s3.amazonaws.com/test+test?
+[DEBUG   ] S3 Headers::
+[DEBUG   ]     Authorization: AWS4-HMAC-SHA256 Credential=xxx/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=xxx
+[DEBUG   ] Starting new HTTPS connection (1): my-bucket.s3.amazonaws.com
+[DEBUG   ] https://my-bucket.s3.amazonaws.com:443 "GET /test+test HTTP/1.1" 403 None
+[DEBUG   ]     Response content: b'<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>SignatureDoesNotMatch</Code><Message>The request signature we calculated does not match the signature you provided. Check your key and signing method.</Message><AWSAccessKeyId>xxx</AWSAccessKeyId><StringToSign>AWS4-HMAC-SHA256\n20180622T190441Z\n20180622/us-east-1/s3/aws4_request\nxxx</StringToSign><SignatureProvided>xxx</SignatureProvided><StringToSignBytes>xxx</StringToSignBytes><CanonicalRequest>GET\n/test%20test\n\nhost:my-bucket.s3.amazonaws.com\nx-amz-content-sha256:xxx\nx-amz-date:20180622T190441Z\n\nhost;x-amz-content-sha256;x-amz-date\nxxx</CanonicalRequest><CanonicalRequestBytes>xxx</CanonicalRequestBytes><RequestId>xxx</RequestId><HostId>xxx</HostId></Error>'
+[DEBUG   ] S3 Response Status Code: 403
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/cli/caller.py", line 212, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/modules/s3.py", line 204, in get
+    https_enable=https_enable)
+  File "/usr/lib/python3/dist-packages/salt/utils/s3.py", line 247, in query
+    'Failed s3 operation. {0}: {1}'.format(err_code, err_msg))
+salt.exceptions.CommandExecutionError: Failed s3 operation. SignatureDoesNotMatch: The request signature we calculated does not match the signature you provided. Check your key and signing method.
+Error running 's3.get': Failed s3 operation. SignatureDoesNotMatch: The request signature we calculated does not match the signature you provided. Check your key and signing method.
+```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2018.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.5 (default, Apr  1 2018, 05:46:30)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 4.9.87-linuxkit-aufs
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```

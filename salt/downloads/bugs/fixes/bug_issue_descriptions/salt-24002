@@ -1,0 +1,32 @@
+Moving this comment to a fresh issue from the closed #15587 
+
+I'm hitting this as well on Windows minions, but the patch proposed only catches IOError, the error I'm observing is the same as reported here, WindowsError, which is a subclass of OSError, not IOError.
+
+IOError was already being caught in the code that invokes _read_proc_file()
+
+The specific exception I'm getting:
+
+```
+Traceback (most recent call last):
+  File "c:\\salt\\bin\\lib\\site-packages\\salt\\minion.py", line 1020, in _thread_return
+    return_data = func(*args, **kwargs)
+  File "c:\\salt\\bin\\lib\\site-packages\\salt\\modules\\state.py", line 286, in highstate
+    conflict = _check_queue(queue, kwargs)
+  File "c:\\salt\\bin\\lib\\site-packages\\salt\\modules\\state.py", line 138, in _check_queue
+    conflict = running()
+  File "c:\\salt\\bin\\lib\\site-packages\\salt\\modules\\state.py", line 101, in running
+    active = __salt__[\'saltutil.is_running\'](\'state.*\')
+  File "c:\\salt\\bin\\lib\\site-packages\\salt\\modules\\saltutil.py", line 443, in is_running
+    run = running()
+  File "c:\\salt\\bin\\lib\\site-packages\\salt\\modules\\saltutil.py", line 461, in running
+    return salt.utils.minion.running(__opts__)
+  File "c:\\salt\\bin\\lib\\site-packages\\salt\\utils\\minion.py", line 23, in running
+    data = _read_proc_file(path, opts)
+  File "c:\\salt\\bin\\lib\\site-packages\\salt\\utils\\minion.py", line 49, in _read_proc_file
+    os.remove(path)
+WindowsError: [Error 32] The process cannot access the file because it is being used by another process: \'c:\\\\salt\\\\var\\\\cache\\\\salt\\\\minion\\\\proc\\\\20150520073442710319\'
+```
+
+Still getting this on 2014.7.5 and the current code looks like the develop branch is affected as well (https://github.com/saltstack/salt/blob/develop/salt/utils/minion.py#L27). It only happens maybe one in 10 times, but is a showstopper when it does.
+
+I've worked around it locally by overriding saltutil and fixing the running() to catch OSError.

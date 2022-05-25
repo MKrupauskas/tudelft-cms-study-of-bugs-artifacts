@@ -1,0 +1,105 @@
+### Description of Issue/Question
+
+### Setup
+LXD Container host:
+* Ubuntu 16.04 w/HWE kernel 
+```
+# uname -a
+Linux localhost 4.8.0-56-generic #61~16.04.1-Ubuntu SMP Wed Jun 14 11:58:22 UTC 2017 x86_64 x86_64 x86_64 GNU/Linux
+
+$ dpkg-query -W linux-image-generic-hwe-16.04
+linux-image-generic-hwe-16.04	4.10.0.33.35
+
+$ tree /sys/bus/xen
+/sys/bus/xen
+ devices
+ drivers
+ drivers_autoprobe
+ drivers_probe
+ uevent
+
+$ ls /proc/sys
+abi  debug  dev  fs  kernel  net  vm
+
+$ ls /proc/bus
+input  pc
+```
+
+LXD container:
+* Ubuntu 14.04 w/salt installed from mirror of saltstack deb repo
+* /sys, /proc/sys, /proc/bus are bind-mounted from host 
+* no states and pillars are applied
+
+### Steps to Reproduce Issue
+```
+# virt-what
+lxc
+
+# salt-call --local grains.get virtual
+local:
+    xen
+
+# salt-call --local grains.get virtual_subtype
+local:
+    Xen PV DomU
+```
+### Versions Report
+```# salt-call --versions-report
+Salt Version:
+           Salt: 2016.3.4
+
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: 0.24.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.24.0
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.8.0-56-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```
+
+The problematic detection is here:
+https://github.com/saltstack/salt/blob/237e5ce697895844ba0c8b0deaecbc4e37afb5b6/salt/grains/core.py#L781
+
+that test is tripped by this randomly named veth on my *host* machine (containers share a ring buffer).
+
+```
+# dmesg | grep -i xen:
+[4650609.480364] IPv6: ADDRCONF(NETDEV_UP): vethSV3XEN: link is not ready
+[4650609.624532] IPv6: ADDRCONF(NETDEV_CHANGE): vethSV3XEN: link becomes ready
+```
+
+
+
+Also, it is an lxc container created by lxd, so it has a /dev/lxd/sock file.
+So maybe the grains should be:
+```
+virtual: lxc
+virtual_subtype: lxd
+```

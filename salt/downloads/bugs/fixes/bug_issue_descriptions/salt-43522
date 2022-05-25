@@ -1,0 +1,58 @@
+### Description of Issue/Question
+From PY3 Doco for subprocess
+
+> On Windows, the class uses the Windows CreateProcess() function. If args is a string, the interpretation is platform-dependent and described below
+> On Windows, if args is a sequence, it will be converted to a string in a manner described in Converting an argument sequence to a string on Windows. This is because the underlying CreateProcess() operates on strings.
+
+Doing this is bad for windows
+```
+if not isinstance(cmd, list):
+      cmd = salt.utils.shlex_split(cmd, posix=False)
+```
+Because subprocess turns it back into a string.
+
+Here you can see the " have been escaped by subprocess.call trying to turn the command into a string
+```
+>>> print subprocess.call(['cmd.exe','/c','echo "hello world"'], shell=False)
+\"hello world\"
+0
+```
+Here you can see passing a string the command is executed correctly.
+```
+>>> print subprocess.call('cmd.exe /c echo "hello world"', shell=False)
+"hello world"
+0
+C:\>echo "hello world"
+"hello world"
+```
+
+```
+>>> print subprocess.call(['c:\\test file.bat','"hello"','"hello jim"'])
+C:\salt\var\cache\salt\minion>echo \"hello\"
+\"hello\"
+C:\salt\var\cache\salt\minion>echo "\"hello
+"\"hello
+C:\salt\var\cache\salt\minion>echo jim\""
+jim\""
+```
+VS
+```
+>>> print subprocess.call('c:\\test file.bat "hello" "hello jim"')
+C:\salt\var\cache\salt\minion>echo "hello"
+"hello"
+C:\salt\var\cache\salt\minion>echo "hello jim"
+"hello jim"
+```
+The above is all PY2
+
+cmdmod needs to be modified so that strings are not converted to lists on windows platforms. Currently the code converts it to a list and subprocess converts it back to a string for Windows and the more conversion back and forwards happens the more outcome is different.
+
+From the doco, if you provide a list instead of a string, python will do the following:
+> 17.5.8.1. Converting an argument sequence to a string on Windows
+> On Windows, an args sequence is converted to a string that can be parsed using the following rules (which correspond to the rules used by the MS C runtime):
+> 
+> 1.  Arguments are delimited by white space, which is either a space or a tab.
+> 2.  A string surrounded by double quotation marks is interpreted as a single argument, regardless of white space contained within. A quoted string can be embedded in an argument.
+> 3.  A double quotation mark preceded by a backslash is interpreted as a literal double quotation mark.
+> 4.  Backslashes are interpreted literally, unless they immediately precede a double quotation mark.
+> 5.  If backslashes immediately precede a double quotation mark, every pair of backslashes is interpreted as a literal backslash. If the number of backslashes is odd, the last backslash escapes the next double quotation mark as described in rule 3.

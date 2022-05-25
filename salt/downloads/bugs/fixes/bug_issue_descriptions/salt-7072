@@ -1,0 +1,52 @@
+somewhere in the postgres module the port option gets converted to an int. Then when it tries to escape it with pipes.quote you get an execption.
+
+```
+salt-call postgres.psql_query query='select 1' port='5433'
+Traceback (most recent call last):
+  File "/usr/bin/salt-call-python2.7", line 11, in <module>
+    salt_call()
+  File "/usr/lib64/python2.7/site-packages/salt/scripts.py", line 76, in salt_call
+    client.run()
+  File "/usr/lib64/python2.7/site-packages/salt/cli/__init__.py", line 265, in run
+    caller.run()
+  File "/usr/lib64/python2.7/site-packages/salt/cli/caller.py", line 132, in run
+    ret = self.call()
+  File "/usr/lib64/python2.7/site-packages/salt/cli/caller.py", line 73, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib64/python2.7/site-packages/salt/modules/postgres.py", line 191, in psql_query
+    password=password)
+  File "/usr/lib64/python2.7/site-packages/salt/modules/postgres.py", line 166, in _psql_cmd
+    cmdstr = ' '.join(map(pipes.quote, cmd))
+  File "/usr/lib64/python2.7/pipes.py", line 269, in quote
+    for c in file:
+TypeError: 'int' object is not iterable
+```
+
+I was able to get it functional by doing str(port) when it adds it to the command string. Heres a diff, but I think the actual solution is to find out where it's changing and stop it.
+
+```
+From b7faea612f2648e860072a46ea060920935913d3 Mon Sep 17 00:00:00 2001
+From: Joseph D Rivera <joseph.d.rivera@us.army.mil>
+Date: Thu, 5 Sep 2013 17:21:27 +0000
+Subject: [PATCH] convert the port to a string
+
+---
+ salt/modules/postgres.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/salt/modules/postgres.py b/salt/modules/postgres.py
+index 4479648..f5e0893 100644
+--- a/salt/modules/postgres.py
++++ b/salt/modules/postgres.py
+@@ -164,7 +164,7 @@ def _psql_cmd(*args, **kwargs):
+     if host:
+         cmd += ['--host', host]
+     if port:
+-        cmd += ['--port', port]
++        cmd += ['--port', str(port)]
+     if not maintenance_db:
+         maintenance_db = 'postgres'
+     cmd += ['--dbname', maintenance_db]
+-- 
+1.8.1.5
+```

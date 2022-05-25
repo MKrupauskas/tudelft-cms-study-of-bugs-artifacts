@@ -1,0 +1,228 @@
+### Description of Issue/Question
+
+Running a state.apply or state.sls with netconfig.managed with test and debug variables results in unexpected behaviour. Test: True variable set in SLS seems to be ignored, while debug=true variable set on CLI seems to be ignored. 
+
+When bypassing state module and calling net.load_config directly using cli, behaviour is as expected.
+
+### Setup
+
+Vagrant environment with Salt Master/Minion/Proxy and vSRX. Custom ext_pillar set up to IPAM using http.query.
+
+```
+init.sls
+include:
+    - config_juniper.configure
+```
+
+```
+configure.sls
+configure:
+    netconfig.managed:
+      - template_name: salt://templates/junos.jinja
+      - network: {{salt['pillar.get']('network')}}
+      - device: {{salt['pillar.get']('device')}}
+      - ip: {{salt['pillar.get']('ip')}}
+```
+
+### Steps to Reproduce Issue
+
+Baseline, neither test nor debug applied and state applies as expected.
+```
+ubuntu@saltmaster:~$ sudo salt 'srx1' state.apply
+srx1:
+----------
+          ID: configure
+    Function: netconfig.managed
+      Result: True
+     Comment: Configuration changed!
+     Started: 04:58:54.090764
+    Duration: 5571.34 ms
+     Changes:   
+              ----------
+              diff:
+                  [edit system]
+                  -  host-name baseline.lab;
+                  +  host-name srx1.lab;
+
+Summary for srx1
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   5.571 s
+```
+Adding the following variables to configure.sls:
+test: True
+debug: True
+
+Appears as though debug is working (loaded_config is displayed) but test mode is not working (configuration change occurred).
+
+```
+ubuntu@saltmaster:~$ sudo salt 'srx1' state.apply
+srx1:
+----------
+          ID: configure
+    Function: netconfig.managed
+      Result: True
+     Comment: Configuration changed!
+     Started: 05:03:12.328063
+    Duration: 5504.173 ms
+     Changes:   
+              ----------
+              diff:
+                  [edit system]
+                  -  host-name baseline.lab;
+                  +  host-name srx1.lab;
+              loaded_config:
+                  system {
+                      host-name srx1.lab;
+                  }
+
+Summary for srx1
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   5.504 s
+```
+
+Remove 'test: True' from configure.sls but add to the command line, however 'debug: True' left in SLS. Works as expected.
+
+```
+ubuntu@saltmaster:~$ sudo salt 'srx1' state.apply test=True
+srx1:
+----------
+          ID: configure
+    Function: netconfig.managed
+      Result: None
+     Comment: Configuration discarded.
+              
+              Configuration diff:
+              
+              [edit system]
+              -  host-name baseline.lab;
+              +  host-name srx1.lab;
+              
+              Loaded config:
+              
+              system {
+                  host-name srx1.lab;
+              }
+              
+     Started: 05:06:57.948617
+    Duration: 1082.001 ms
+     Changes:   
+
+Summary for srx1
+------------
+Succeeded: 1 (unchanged=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   1.082 s
+
+```
+
+Remove 'debug: True' from configure.sls, and apply instead on the cli along with test=True. Loaded_config disappears, doesn't appear that debug mode is running. Test mode working
+
+```
+ubuntu@saltmaster:~$ sudo salt 'srx1' state.apply test=True debug=True
+srx1:
+----------
+          ID: configure
+    Function: netconfig.managed
+      Result: None
+     Comment: Configuration discarded.
+              
+              Configuration diff:
+              
+              [edit system]
+              -  host-name baseline.lab;
+              +  host-name srx1.lab;
+     Started: 05:10:20.753379
+    Duration: 1149.269 ms
+     Changes:   
+
+Summary for srx1
+------------
+Succeeded: 1 (unchanged=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   1.149 s
+```
+
+Final test case - test: True applied to SLS and debug=True applied via CLI. Neither works
+
+```
+ubuntu@saltmaster:~$ sudo salt 'srx1' state.apply debug=True
+srx1:
+----------
+          ID: configure
+    Function: netconfig.managed
+      Result: True
+     Comment: Configuration changed!
+     Started: 05:16:18.180135
+    Duration: 5281.746 ms
+     Changes:   
+              ----------
+              diff:
+                  [edit system]
+                  -  host-name baseline.lab;
+                  +  host-name srx1.lab;
+
+Summary for srx1
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   5.282 s
+```
+
+
+### Versions Report
+
+ubuntu@saltmaster:~$ salt --versions-report
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: 1.11.2
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 20 2017, 18:23:56)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-101-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial

@@ -1,0 +1,413 @@
+**Description**
+It was found that network.managed does not bring down lo interface ip alias when enabled = False
+
+**Setup**
+```
+[root@test-centos7 salt]# ifconfig
+ens192: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 10.0.3.132  netmask 255.255.254.0  broadcast 10.0.3.255
+        inet6 fe80::630c:776:fac6:ef13  prefixlen 64  scopeid 0x20<link>
+        ether 00:0c:29:b0:b4:0a  txqueuelen 1000  (Ethernet)
+        RX packets 110639  bytes 6757115 (6.4 MiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 1456  bytes 257842 (251.7 KiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        inet6 ::1  prefixlen 128  scopeid 0x10<host>
+        loop  txqueuelen 1000  (Local Loopback)
+        RX packets 13  bytes 1132 (1.1 KiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 13  bytes 1132 (1.1 KiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo:alias1: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 192.168.180.180  netmask 255.255.255.0
+        loop  txqueuelen 1000  (Local Loopback)
+
+[root@test-centos7 salt]# cat /tmp/saltstack/srv/salt/ip_alias.sls
+"lo:alias1":
+  network.managed:
+    - enabled: False
+    - onboot: no
+    - type: eth
+    - ipaddr: 192.168.180.180
+    - netmask: 255.255.255.0
+
+
+
+[root@test-centos7 salt]# salt-call --local --file-root $(pwd) state.apply ip_alias
+[WARNING ] The 'onboot' option is controlled by the 'enabled' option. Interface: lo:alias1 Enabled: False
+local:
+----------
+          ID: lo:alias1
+    Function: network.managed
+      Result: True
+     Comment: Interface lo:alias1 updated.
+     Started: 02:39:11.781351
+    Duration: 1593.822 ms
+     Changes:
+              ----------
+              interface:
+                  ---
+                  +++
+                  @@ -1,7 +1,7 @@
+                   DEVICE="lo:alias1"
+                   USERCTL="no"
+                   TYPE="Ethernet"
+                  -ONBOOT="yes"
+                  +ONBOOT="no"
+                   IPADDR="192.168.180.180"
+                   NETMASK="255.255.255.0"
+                   NM_CONTROLLED="no"
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   1.594 s
+
+[root@test-centos7 salt]# ifconfig
+ens192: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 10.0.3.132  netmask 255.255.254.0  broadcast 10.0.3.255
+        inet6 fe80::630c:776:fac6:ef13  prefixlen 64  scopeid 0x20<link>
+        ether 00:0c:29:b0:b4:0a  txqueuelen 1000  (Ethernet)
+        RX packets 111027  bytes 6786186 (6.4 MiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 1560  bytes 282346 (275.7 KiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        inet6 ::1  prefixlen 128  scopeid 0x10<host>
+        loop  txqueuelen 1000  (Local Loopback)
+        RX packets 13  bytes 1132 (1.1 KiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 13  bytes 1132 (1.1 KiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo:alias1: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 192.168.180.180  netmask 255.255.255.0
+        loop  txqueuelen 1000  (Local Loopback)
+
+p.s. Bring the interface up was OK though
+```
+
+**Steps to Reproduce the behavior**
+(Include debug logs if possible and relevant)
+```[root@test-centos7 salt]# cd /tmp/saltstack/srv/salt
+
+[root@test-centos7 salt]# cat ip_alias.sls
+"lo:alias1":
+  network.managed:
+    - enabled: True
+    - onboot: yes
+    - type: eth
+    - ipaddr: 192.168.180.180
+    - netmask: 255.255.255.0
+
+[root@test-centos7 salt]# salt-call --local --file-root $(pwd) state.apply ip_alias
+[WARNING ] The 'onboot' option is controlled by the 'enabled' option. Interface: lo:alias1 Enabled: True
+local:
+----------
+          ID: lo:alias1
+    Function: network.managed
+      Result: True
+     Comment: Interface lo:alias1 added.
+     Started: 02:37:58.572666
+    Duration: 1685.079 ms
+     Changes:
+              ----------
+              interface:
+                  Added network interface.
+              status:
+                  Interface lo:alias1 is up
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   1.685 s
+[root@test-centos7 salt]# cat /etc/sysconfig/network-scripts/ifcfg-lo\:alias1
+DEVICE="lo:alias1"
+USERCTL="no"
+TYPE="Ethernet"
+ONBOOT="yes"
+IPADDR="192.168.180.180"
+NETMASK="255.255.255.0"
+NM_CONTROLLED="no"
+[root@test-centos7 salt]# ifconfig
+ens192: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 10.0.3.132  netmask 255.255.254.0  broadcast 10.0.3.255
+        inet6 fe80::630c:776:fac6:ef13  prefixlen 64  scopeid 0x20<link>
+        ether 00:0c:29:b0:b4:0a  txqueuelen 1000  (Ethernet)
+        RX packets 110639  bytes 6757115 (6.4 MiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 1456  bytes 257842 (251.7 KiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        inet6 ::1  prefixlen 128  scopeid 0x10<host>
+        loop  txqueuelen 1000  (Local Loopback)
+        RX packets 13  bytes 1132 (1.1 KiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 13  bytes 1132 (1.1 KiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo:alias1: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 192.168.180.180  netmask 255.255.255.0
+        loop  txqueuelen 1000  (Local Loopback)
+
+
+
+[root@test-centos7 salt]# vim ip_alias.sls
+[root@test-centos7 salt]# cat /tmp/saltstack/srv/salt/ip_alias.sls
+"lo:alias1":
+  network.managed:
+    - enabled: False
+    - onboot: no
+    - type: eth
+    - ipaddr: 192.168.180.180
+    - netmask: 255.255.255.0
+
+
+
+[root@test-centos7 salt]# salt-call --local --file-root $(pwd) state.apply ip_alias
+[WARNING ] The 'onboot' option is controlled by the 'enabled' option. Interface: lo:alias1 Enabled: False
+local:
+----------
+          ID: lo:alias1
+    Function: network.managed
+      Result: True
+     Comment: Interface lo:alias1 updated.
+     Started: 02:39:11.781351
+    Duration: 1593.822 ms
+     Changes:
+              ----------
+              interface:
+                  ---
+                  +++
+                  @@ -1,7 +1,7 @@
+                   DEVICE="lo:alias1"
+                   USERCTL="no"
+                   TYPE="Ethernet"
+                  -ONBOOT="yes"
+                  +ONBOOT="no"
+                   IPADDR="192.168.180.180"
+                   NETMASK="255.255.255.0"
+                   NM_CONTROLLED="no"
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   1.594 s
+
+
+
+[root@test-centos7 salt]# ifconfig
+ens192: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 10.0.3.132  netmask 255.255.254.0  broadcast 10.0.3.255
+        inet6 fe80::630c:776:fac6:ef13  prefixlen 64  scopeid 0x20<link>
+        ether 00:0c:29:b0:b4:0a  txqueuelen 1000  (Ethernet)
+        RX packets 111027  bytes 6786186 (6.4 MiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 1560  bytes 282346 (275.7 KiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        inet6 ::1  prefixlen 128  scopeid 0x10<host>
+        loop  txqueuelen 1000  (Local Loopback)
+        RX packets 13  bytes 1132 (1.1 KiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 13  bytes 1132 (1.1 KiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo:alias1: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 192.168.180.180  netmask 255.255.255.0
+        loop  txqueuelen 1000  (Local Loopback)
+```
+
+
+**Expected behavior**
+The interface should be shutdown, e.g. 
+```
+local:
+----------
+          ID: lo:alias1
+    Function: network.managed
+      Result: True
+     Comment: Interface lo:alias1 updated.
+     Started: 02:58:44.011744
+    Duration: 1662.188 ms
+     Changes:
+              ----------
+              interface:
+                  ---
+                  +++
+                  @@ -1,7 +1,7 @@
+                   DEVICE="lo:alias1"
+                   USERCTL="no"
+                   TYPE="Ethernet"
+                  -ONBOOT="yes"
+                  +ONBOOT="no"
+                   IPADDR="192.168.180.180"
+                   NETMASK="255.255.255.0"
+                   NM_CONTROLLED="no"
+              status:
+                  Interface lo:alias1 down
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   1.662 s
+
+```
+
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+[root@test-centos7 ~]# salt-call --versions-report
+Salt Version:
+           Salt: 3000.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  7 2019, 00:51:29)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 15.3.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.7.1908 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1062.18.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.7.1908 Core
+```
+</details>
+
+**Additional context**
+I believe it's because network.interfaces does not have 'secondary' for lo ip alias like other interfaces, therefore code at salt/states/network.py#490 did not work on lo.
+```
+[root@test-centos7 salt]# salt-call --local network.interfaces
+local:
+    ----------
+    ens192:
+        ----------
+        hwaddr:
+            00:0c:29:b0:b4:0a
+        inet:
+            |_
+              ----------
+              address:
+                  10.0.3.132
+              broadcast:
+                  10.0.3.255
+              label:
+                  ens192
+              netmask:
+                  255.255.254.0
+        inet6:
+            |_
+              ----------
+              address:
+                  fe80::630c:776:fac6:ef13
+              prefixlen:
+                  64
+              scope:
+                  link
+        up:
+            True
+    lo:
+        ----------
+        hwaddr:
+            00:00:00:00:00:00
+        inet:
+            |_
+              ----------
+              address:
+                  127.0.0.1
+              broadcast:
+                  None
+              label:
+                  lo
+              netmask:
+                  255.0.0.0
+            |_
+              ----------
+              address:
+                  192.168.180.180
+              broadcast:
+                  192.168.180.255
+              label:
+                  lo:alias1
+              netmask:
+                  255.255.255.0
+        inet6:
+            |_
+              ----------
+              address:
+                  ::1
+              prefixlen:
+                  128
+              scope:
+                  host
+        up:
+            True
+```
+After adding below code it can bring down the IP alias
+```
+                if iface == 'lo':
+                    if 'inet' in interfaces[iface]:
+                        inet_data = interfaces[iface]['inet']
+                        if len(inet_data) > 1:
+                            for data in inet_data:
+                                if data.get('label', '') == name:
+                                    interface_status = True
+                    if 'inet6' in interfaces[iface]:
+                        inet6_data = interfaces[iface]['inet6']
+                        if len(inet6_data) > 1:
+                            for data in inet6_data:
+                                if data.get('label', '') == name:
+                                    interface_status = True
+```

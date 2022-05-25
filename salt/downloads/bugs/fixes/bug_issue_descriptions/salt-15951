@@ -1,0 +1,191 @@
+### I'm attempting to have Salt-cloud bootstrap a VM using a private IP on Rackspace.
+
+When I leave out the option to use `ssh_interface: private_ips` then the build and bootstrap will go fine. (Separate issue: I need to tell it which version of Salt to use. I'm testing the Release candidate, and it instead will install stable **2014.1.10 (Hydrogen)** , which is usually good, but I need  **2014.7.0rc1 (Helium)** to continue testing )
+
+The problem I have when attempting to use the `ssh_interface: private_ips` is that **salt-cloud** will never attempt to connect to the VM. It always says something like the following (repeated for 10 minutes, which is the standard timeout).
+##### I enter the following command:
+
+`$ salt-cloud -p loadbalancer_1gb normal3-loadbalancer-staging -l debug`
+##### The following is repeated over and over for 10 minutes until the timeout period.
+
+```
+[DEBUG   ] Waiting for VM IP. Giving up in 00:-1:50
+[DEBUG   ] OpenStack authenticating using apikey
+[DEBUG   ] Loaded node data for normal3-loadbalancer-staging:
+{'extra': {'access_ip': u'104.130.206.210',
+           'availability_zone': None,
+           'created': u'2014-09-18T23:17:46Z',
+           'disk_config': u'MANUAL',
+           'flavorId': u'performance1-1',
+           'hostId': u'3d738b960b8bc26ba4fb70d5cdab69a275bdb291cf93ccc8cc011c55',
+           'imageId': u'255df5fb-e3d4-45a3-9a07-c976debf7c14',
+           'key_name': u'saltmaster-staging',
+           'metadata': {},
+           'password': None,
+           'tenantId': u'465507',
+           'updated': u'2014-09-18T23:18:22Z',
+           'uri': u'https://ord.servers.api.rackspacecloud.com/v2/465507/servers/9322c3e3-fa01-49fc-8fe8-58b24972a102'},
+ 'id': '9322c3e3-fa01-49fc-8fe8-58b24972a102',
+ 'image': None,
+ 'private_ips': [u'10.210.129.202', u'192.168.2.15'],
+ 'public_ips': [u'2001:4801:7827:102:be76:4eff:fe10:dae2', u'104.130.206.210'],
+ 'size': None,
+ 'state': 'RUNNING'}
+```
+##### After the timeout period, the following is output to the console:
+
+```
+[DEBUG   ] SaltEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] SaltEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'_stamp': '2014-09-18T23:29:23.707859', 'name': 'normal3-loadbalancer-staging', 'event': 'destroying instance'}
+[DEBUG   ] OpenStack authenticating using apikey
+[INFO    ] Destroying VM: normal3-loadbalancer-staging
+[INFO    ] Destroyed VM: normal3-loadbalancer-staging
+[DEBUG   ] SaltEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] SaltEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] SaltEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] SaltEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'_stamp': '2014-09-18T23:29:25.069792', 'name': 'normal3-loadbalancer-staging', 'event': 'destroyed instance'}
+Error: There was a profile error: Unable to get IP for 00:10:00
+```
+##### Even when it builds properly, it still doesn't seem to see the Private IP addresses.
+
+Below is an example where it has a 10.209.xxx.xxx address AND a 192.168.2.14 address in the final VM without any intervention from myself. But these addresses aren't show, and the **private_ips:** section is blank. It looks like somehow the private_ips aren't getting parsed right. ( In this case it did bootstrap on the public IP. I don't want that, but it does work right now:)
+##### Successfully built VM, but doesn't recognize private_ips:
+
+```
+normal-loadbalancer-staging:
+    ----------
+    _uuid:
+        None
+    driver:
+    extra:
+        ----------
+        access_ip:
+
+        availability_zone:
+            None
+        created:
+            2014-09-18T23:22:23Z
+        disk_config:
+            MANUAL
+        flavorId:
+            performance1-1
+        hostId:
+
+        imageId:
+            255df5fb-e3d4-45a3-9a07-c976debf7c14
+        key_name:
+            saltmaster-staging
+        metadata:
+            ----------
+        password:
+            *************
+        tenantId:
+            123456
+        updated:
+            2014-09-18T23:22:23Z
+        uri:
+            https://ord.servers.api.rackspacecloud.com/v2/465507/servers/1bb6b7bf-3952-47e3-975f-a9dfbf3d3a25
+    id:
+        1bb6b7bf-3952-47e3-975f-a9dfbf3d3a25
+    image:
+        None
+    name:
+        normal-loadbalancer-staging
+    private_ips:
+    public_ips:
+        - 2001:4801:7827:102:2bd3:a754:89aa:6fa6
+        - 104.130.203.72
+    size:
+        None
+    state:
+        3
+```
+#### I have the following cloud provider set up:
+
+```
+#Place in /etc/salt/cloud.providers.d/rackspace.conf
+
+staging-rackspace:
+  # Set the location of the salt-master
+  #
+  minion:
+    master: 192.168.2.1
+
+  # Configure Rackspace using the OpenStack plugin
+  #
+  identity_url: 'https://identity.api.rackspacecloud.com/v2.0/tokens'
+  compute_name: cloudServersOpenStack
+  protocol: ipv4
+
+  # Set the compute region:
+  #
+  compute_region: ORD
+
+  # Set Rackspace authentication credentials
+  #
+  user: username
+  tenant: 123456
+  apikey: 1234567891234596789123459789
+
+  provider: openstack
+
+  #Set up machine settings
+  #ssh_key_file: /etc/salt/pki/master/master.pem
+  ssh_key_name: saltmaster-staging
+  ssh_key_file: /etc/salt/pki/master/ssh/salt-ssh.rsa
+
+#####################################################
+# Tell salt-cloud to use the internal IP to SSH 
+# I have to comment out the line below --- 
+# or else salt-cloud will wait until timeout and destroy the VM.
+#####################################################
+  ssh_interface: private_ips
+
+
+  #Ignore IP addresses matching the CIDR block for use as ssh bootstrap targets.
+  ignore_cidr: 10.210.0.0/16
+  #Networks
+
+  networks:
+    - fixed:
+      #This refers to our internal "hosting" network. The number below is just an example.
+      - 22222222-2222-2222-2222-222222222222
+      # This is Rackspace's "PublicNet"
+      - 00000000-0000-0000-0000-000000000000
+      # This is Rackspace's "ServiceNet"
+      - 11111111-1111-1111-1111-111111111111
+```
+#### With the following cloud profiles:
+
+```
+# /etc/salt/cloud.profiles.d/openstack.conf
+
+web_1gb:
+  provider: staging-rackspace
+  size: 1 GB Performance
+  image: Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
+  grains:
+    roles: webserver
+    env: staging
+
+loadbalancer_1gb:
+  provider: staging-rackspace
+  size: 1 GB Performance
+  image: Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
+  grains:
+    roles: loadbalancer
+    env: staging
+
+1gb_performance:
+  provider: staging-rackspace
+  size: 1 GB Performance
+  image: Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
+
+512mb_standard:
+  provider: staging-rackspace
+  size: 512MB Standard Instance
+  image: Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
+
+```

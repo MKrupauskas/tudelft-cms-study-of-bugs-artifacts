@@ -1,0 +1,90 @@
+Hi,
+
+I'm writing on a returner script for my salt infrastructure.
+While working with the return data of different states I found that the return data of 'cmd.run' is different than others.
+#### Explanation
+
+When 'cmd.run' results in an error the error output is stored in ret['return'][state]['changes']['stderr'].
+Other states, e.g. 'file.append', store their error output in ret['return'][state]['comment']. (examples below)
+That why it's impossible to handle the result of 'cmd.run' in an returner the same way as of other states.
+
+According to the salt documentation ( http://docs.saltstack.com/en/latest/ref/states/writing.html ) the behaviour of 'cmd.run' is wrong as:
+
+> changes: A dict describing the changes made. Each thing changed should be a key, with its value being another dict with keys called "old" and "new" containing the old/new values. 
+> comment: A string containing a summary of the result.
+
+Thus I would suggest to change the return data of the state 'cmd' thus the error output is stored in the key 'comment'. (['comment'] = ['changes']['stderr'])
+
+If you approve this change but don't have time I would try to implement it and create a pull request.
+
+Regards,
+Andrwe
+#### Examples
+##### file.append
+- create a file /bla
+- add immutable flag for /bla (chattr +i /bla)
+- run file_append_error.sls:
+
+```
+/bla:
+  file.append:
+    - text:
+      - asd
+```
+- return data of file_append_error.sls:
+
+```
+'file_|-/bla_|-/bla_|-append': {
+    'comment': 'Anexceptionoccurredinthisstate: Traceback(mostrecentcalllast): \nFile"/usr/lib/python2.7/dist-packages/salt/state.py", line1560, incall\n**cdata[\'kwargs\'])\nFile"/usr/lib/python2.7/dist-packages/salt/states/file.py", line3054, inappend\n__salt__[\'file.append\'](name, line)\nFile"/usr/lib/python2.7/dist-packages/salt/modules/file.py", line1858, inappend\nwithsalt.utils.fopen(path, "r+")asofile: \nFile"/usr/lib/python2.7/dist-packages/salt/utils/__init__.py", line1045, infopen\nfhandle=open(*args, **kwargs)\nIOError: [Errno13]Permissiondenied: \'/bla\'\n',
+    'name': '/bla',
+    'start_time': '15: 34: 04.520992',
+    'result': False,
+    'duration': 6.005,
+    '__run_num__': 0,
+    'changes': {}
+}
+```
+##### cmd.run
+- run cmd_run_error.sls:
+
+```
+invalid_command:
+  cmd.run:
+    - cwd: /root/
+```
+- return data of cmd_run_error.sls:
+
+```
+'cmd_|-invalid_command_|-invalid_command_|-run': {
+    'comment': 'Command"invalid_command"run',
+    'name': 'invalid_command',
+    'start_time': '15: 43: 13.264183',
+    'result': False,
+    'duration': 3.516,
+    '__run_num__': 0,
+    'changes': {
+        'pid': 18676,
+        'retcode': 127,
+        'stderr': '/bin/sh: 1: invalid_command: notfound',
+        'stdout': ''
+    }
+}
+```
+- expected return data of cmd_run_error.sls:
+
+```
+'cmd_|-invalid_command_|-invalid_command_|-run': {
+    'comment': '/bin/sh: 1: invalid_command: notfound',
+    'name': 'invalid_command',
+    'start_time': '15: 43: 13.264183',
+    'result': False,
+    'duration': 3.516,
+    '__run_num__': 0,
+    'changes': {
+        'pid': 18676,
+        'retcode': 127,
+        'stderr': '/bin/sh: 1: invalid_command: notfound',
+        'stdout': ''
+    }
+}
+```

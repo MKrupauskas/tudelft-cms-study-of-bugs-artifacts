@@ -1,0 +1,66 @@
+The provisioning of a machine on GCE fails when the call is executed via rest_cherrypy and the master is running as service on Debian 7 Wheezy. This works as expected when using `salt-run cloud.profile`. The call/return  is the following:
+
+```
+curl -ksS https://remote-host:8000/run \
+-H 'Accept: application/x-yaml' \
+-d client='runner' \
+-d fun='cloud.profile' \
+-d prof='salt-minion-014-prof' \
+-d instances='salt-minion-014' \
+-d username='foo' \
+-d password='bar' \
+-d eauth='pam'
+return:
+- 'Exception occurred in runner cloud.profile: TypeError: unsupported operand type(s)
+  for +: ''NoneType'' and ''str'''
+```
+
+The machine is provisioned on GCE and the minion is created in the master, but Salt is not installed in it. We can call `cloud.destroy`, even through rest_cherrypy and the machine is destroyed, but it does not respond to `test.ping`.
+
+Trying to debug the problem, I found  that if the Salt master is started with `/usr/bin/python /usr/bin/salt-master -d` instead of `service salt-master start` the call suceeds :) It's only when the Salt master is started as a service that the problem appears. This is in the master log file enabling debugging:
+
+```
+2015-04-29 16:51:51,593 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'profile': 'salt-minion-014-prof', 'event': 'create instance', '_stamp': '2
+015-04-29T16:51:51.592921', 'name': 'salt-minion-014', 'provider': 'gce-config:gce'}
+2015-04-29 16:52:18,901 [salt.utils.cloud                           ][INFO    ] Rendering deploy script: /usr/lib/python2.7/dist-packages/salt/cloud/deploy/bootstrap-salt.sh
+2015-04-29 16:52:18,977 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'jid': '20150429165147317507', 'return': "Exception occurred in runner cloud.profile: TypeError: unsupported operand type(s) for +: '
+NoneType' and 'str'", 'success': False, '_stamp': '2015-04-29T16:52:18.977081', 'user': 'myuser', 'fun': 'runner.cloud.profile'}
+```
+
+My version of Debian is the following:
+
+```
+root@salt-master:~# cat /etc/*-release
+PRETTY_NAME="Debian GNU/Linux 7 (wheezy)"
+NAME="Debian GNU/Linux"
+VERSION_ID="7"
+VERSION="7 (wheezy)"
+ID=debian
+ANSI_COLOR="1;31"
+HOME_URL="http://www.debian.org/"
+SUPPORT_URL="http://www.debian.org/support/"
+BUG_REPORT_URL="http://bugs.debian.org/"
+```
+
+And this is my version of Salt:
+
+```
+root@salt-master:~# salt --versions-report
+                  Salt: 2014.7.5
+                Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+                Jinja2: 2.6
+              M2Crypto: 0.21.1
+        msgpack-python: 0.1.10
+          msgpack-pure: Not Installed
+              pycrypto: 2.6
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 13.1.0
+                  RAET: Not Installed
+                   ZMQ: 3.2.3
+                  Mako: 0.7.0
+ Debian source package: 2014.7.5+ds-1~bpo70+1
+```
+
+I'm also running CherryPy 3.7.0, Tornado 4.1. 

@@ -1,0 +1,168 @@
+I'm attempting to add a private RSA key to a salt-minion's user's `~/.ssh/id_rsa` file. The format of these must not exceed 64 characters line length due to the standard. This means I have to use a multiline string that includes new line characters.
+
+I have a users state file located at `/srv/salt/user/init.sls` with the contents:
+
+```
+{% for user in pillar['users'] %}
+user_{{user.name}}:
+  group.present:
+    - name: {{user.name}}
+    - gid: {{user.gid}}
+
+  user.present:
+    - name: {{user.name}}
+    - fullname: {{user.fullname}}
+    - password: {{user.shadow}}
+    - shell: {{user.shell}}
+    - uid: {{user.uid}}
+    - gid: {{user.gid}}
+    {% if user.groups %}
+    - optional_groups:
+      {% for group in user.groups %}
+      - {{group}}
+      {% endfor %}
+    {% endif %}
+    - require:
+      - group: user_{{user.name}}
+
+  file.directory:
+    - name: /home/{{user.name}}
+    - user: {{user.name}}
+    - group: {{user.name}}
+    - mode: 0751
+    - makedirs: True
+
+user_{{user.name}}_forward:
+  file.managed:
+    - name: /home/{{user.name}}/.forward
+    - user: {{user.name}}
+    - group: {{user.name}}
+    - mode: 775
+    - create: True
+    - contents: {{user.email}}
+
+user_{{user.name}}_sshdir:
+  file.directory:
+    - name: /home/{{user.name}}/.ssh
+    - user: {{user.name}}
+    - group: {{user.name}}
+    - mode: 0700
+
+{% if 'authkey' in user %}
+user_{{user.name}}_authkeys:
+  ssh_auth.present:
+    - user: {{user.name}}
+    - name: {{user.authkey}}
+{% endif %}
+
+{% if 'sshpriv' in user %}
+user_{{user.name}}_sshpriv:
+  file.managed:
+    - name: /home/{{user.name}}/.ssh/id_rsa
+    - user: {{user.name}}
+    - group: {{user.name}}
+    - mode: 0600
+    - contents_pillar: {{user.sshpriv}}
+
+  cmd.script:
+    - source: salt://user/ssh-add-key.sh
+    - template: jinja
+    - username: {{user.name}}
+{% endif %}
+
+{% if 'sshpub' in user %}
+user_{{user.name}}_sshpub:
+  file.managed:
+    - name: /home/{{user.name}}/.ssh/id_rsa.pub
+    - user: {{user.name}}
+    - group: {{user.name}}
+    - mode: 0600
+    - contents_pillar: {{user.sshpub}}
+
+user_{{user.name}}_github_com:
+    ssh_known_hosts.present:
+        - name: 'github.com'
+        - user: {{user.name}}
+        - fingerprint: '16:27:ac:a5:76:28:2d:36:63:1b:56:4d:eb:df:a6:48'
+{% endif %}
+{% endfor %} # user in users
+# vim: ft=yaml tabstop=2 sts=2 sw=2 et ai si
+```
+
+I have a pillar file located at `/srv/pillar/users.sls` on the salt-master with the following contents (sanitized):
+
+```
+users:
+
+  - name: user
+    fullname: User Mcuser
+    email: User@Mcuser.com
+    uid: 1000
+    gid: 1000
+    shell: /bin/bash
+    groups:
+        - ci
+        - docker
+        - jenkins
+    shadow: $6$91234567891234567891234567891234567891234567891234568791231564891321589618919918123
+    sshpub: ssh-rsa averylongpublickey
+    sshpriv: |+
+        -----BEGIN RSA PRIVATE KEY-----
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        1234567812345678123456781234567812345678123456781234578123456781
+        123456789123456789123456789123456789123456789--
+        -----END RSA PRIVATE KEY-----
+    authkey: ssh-rsa averylongpublickey
+```
+
+This yields the log:
+
+```
+[CRITICAL] Rendering SLS "base:user" failed: Unknown yaml render error; line 66
+
+---
+[...]
+    - user: user
+    - group: user
+    - mode: 0600
+    - contents_pillar: -----BEGIN RSA PRIVATE KEY-----
+1234567812345678123456781234567812345678123456781234578123456781
+1234567812345678123456781234567812345678123456781234578123456781    <======================
+1234567812345678123456781234567812345678123456781234578123456781
+1234567812345678123456781234567812345678123456781234578123456781
+1234567812345678123456781234567812345678123456781234578123456781
+1234567812345678123456781234567812345678123456781234578123456781
+1234567812345678123456781234567812345678123456781234578123456781
+[...]
+
+---
+[INFO    ] Returning information for job: 20150609104700502380
+```
+
+This issue seems to occur regardless of using Folded style `key: >` or literal style `key: |` blocks.
+
+Versions:
+salt-minion 0.17.5
+salt master 0.17.5

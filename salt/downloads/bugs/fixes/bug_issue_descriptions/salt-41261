@@ -1,0 +1,126 @@
+I have run into an issue when trying to execute an orchestrate state on a Syndic from the MoM. The command I am issuing is:
+
+`# salt 'or-syndic-node-test2' saltutil.runner state.orch mods=orch_new_instance`
+
+The log error in the syndic minion log is:
+
+```
+[salt.pillar      ][CRITICAL][18742] Rendering SLS 'default' failed, render error:
+'config_dir'
+```
+
+I traced this down to the GPG renderer:
+/usr/lib/python2.7/site-packages/salt/renderers/gpg.py
+
+In particular this function:
+
+```
+def _get_key_dir():
+    '''
+    return the location of the GPG key directory
+    '''
+    if 'config.get' in __salt__:
+        gpg_keydir = __salt__['config.get']('gpg_keydir')
+    else:
+        gpg_keydir = __opts__.get('gpg_keydir')
+    return gpg_keydir or os.path.join(__opts__['config_dir'], 'gpgkeys')
+```
+
+I have verified that the __opts__ dict does not include the gpg_keydir. I modified the config.get call to add a default directory and this resolves the issue.
+        `gpg_keydir = __salt__['config.get']('gpg_keydir', '/etc/salt/gpgkeys')`
+
+This is just a temporary solution for me and i was hoping there was a better solution. The same orchestrate state works perfectly when called directly on the syndic using salt-run. I have been unable to tell for sure why the dict is missing the gpg_keydir, and possibly other entries, however I have a guess. From what I can tell the minion does not have gpg_keydir set. Since the minion is actually executing the orch runner via saltutil, is it possible that the __opts__ dict from the minion is being used, which doesn't contain the gpg_keydir? Can the gpg_keydir be set in the minion? I also do not have the gpg_keydir set explicitly in the Syndic or MoM, the default is being used. 
+
+In addition to this, I discovered the the custom GPG render module with the above fix was also not being used. The module was being sync'd to the nodes, however I had to edit the version in site-packages in order for this fix to work properly.
+
+
+### Attempted Remediation Steps:
+Add gpg_keydir to pillar
+Add gpg_keydir to master config
+Add gpg_keydir to minion config on syndic
+Add gpg_keydir to syndic config
+
+None of the above steps resulted in the gpg_keydir from being present in __opts__ dict.
+
+
+### Setup
+
+Pillar with GPG data in it:
+
+```
+#!yaml|gpg
+
+auth_backend: ldap
+
+mail_relay:
+  hostname: MAILRELAY
+  aliases:
+    - util
+  ip: IP.ADD.DRE.SS
+
+global_env:
+  cert_bucket: S3-Bucket
+  cert_bucket_location: us-west-2
+  GPG_VALUE: |
+    -----BEGIN PGP MESSAGE-----
+    Version: GnuPG v2.0.22 (GNU/Linux)
+
+    hQEMA6d0aUubuDkUAQgAoAFGtacnoT1ZYzTDja6E+5s549I08or7FEG7QyhqYZMW
+    O6loHyg3h/d8cEMy5ZiCY103uttbDUodca/4IJRSccVwVFi73N5wHza1dmTWGmhv
+    zn68ryOYrQSsPk+pDD5ytPRG9gd6x/PnvtwCW0IoI7qmxos95QCFFvmUGkDTYW4e
+    W2oMshuuhH7MJbbGGC4GfmWtfRRu1d4Z8du0cQuUB6I8qL2m3w2o0N7WAxEiNyxH
+    i9sXXPiCtJHOUWRyhnuttgncZKBaeWtv5fDYK3Z46cp3QyCoSOFdzisVts6BwlyE
+    1pSHVe8rdffSyHgjNQBDrmDEKgDgSs9XvqtTM/xSgdJTATwx3ygICLH1MkrKQHKq
+    M9ylKnNXMfAxVv1NeqoL+fEypnxn7cVEGCSNDhd5xVqaEVNxJ449E6P9RK/mc4mO
+    hgeO+d+KjEQuLLoOUvQeWVKzmt8=
+    =aeyq
+    -----END PGP MESSAGE-----
+```
+
+### Steps to Reproduce Issue
+Run The following from the MoM:
+`salt 'or-salt-syndic' saltutil.runner state.orch mods=orch_new_thingworx_instance 'pillar={cust_name: acme-sbox2, instance_type: dev, ext_dns: acme-sbox2, region: or, environmentId: 2112, rds_pool_num: 1}'`
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.11.4
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.4.3
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.3.1611 Core
+        machine: x86_64
+        release: 3.10.0-514.10.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```

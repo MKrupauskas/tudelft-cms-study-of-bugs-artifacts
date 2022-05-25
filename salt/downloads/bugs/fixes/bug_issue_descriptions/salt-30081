@@ -1,0 +1,101 @@
+I'm currently using the win_update module to manage updates on some Windows boxes: I set it up following the documentation for the [module](https://docs.saltstack.com/en/latest/ref/modules/all/salt.modules.win_update.html) whenever possible and then relying on the win_update [state](https://docs.saltstack.com/en/latest/ref/states/all/salt.states.win_update.html) docs for the `includes` parameter which is undocumented in the module.
+I set it to avoid updates that required reboot, but yet I still needed to reboot the machine.
+
+I dug more into this, so I found some weird things within the module/state code itself and weird differences between them. 
+I appreciate there's no _technical need_ to have them as similar as possible, but having different default values or different behaviours makes it a bit confusing to me.
+
+I _think_ the confusion begins with the parameter name "includes" and its internal variable names (skip*): if I understand correctly, if I either set `UI`, `downloaded`, `present`, `installed`, `reboot`, `hidden` to `True`, Salt will skip those categories of updates; yet if I set `software` or `driver` to `True`, that will include them. This is confusing and undocumented.
+
+**TL;DR** jump to Conclusion
+### SALT.STATES.WIN_UPDATE
+
+**Default values**
+
+| Name | Value |
+| --- | --- |
+| UI | True |
+| Downloaded | True |
+| Installed | True |
+| Reboot | False |
+| Present | True |
+|  |  |
+| Software | True |
+| Driver | False |
+|  |  |
+
+**Behaviour**
+Behaviour seems to be correct: if `skipInstalled` is set to `True` it will add `IsInstalled=0` to the search string; **however** when it comes to `skipReboot` it seems to be the other way round and broken:
+[source](https://github.com/saltstack/salt/blob/develop/salt/states/win_update.py#L203)
+
+```
+        if self.skipReboot:
+            searchParams.append('RebootRequired=1')
+        else:
+            searchParams.append('RebootRequired=0')
+```
+
+Also setting **UI** doesn't seem to make any difference as the only logic that concerns that variable is simply its declaration and assignment.
+### SALT.MODULES.WIN_UPDATE
+
+**Default values**
+
+Default values are different from the _state_ and this is not documented (well, there's no documentation at all for the module).
+
+| Name | Value |
+| --- | --- |
+| UI | True |
+| Downloaded | **FALSE** |
+| Installed | True |
+| Reboot | False |
+| Present | **FALSE** |
+|  |  |
+| Software | True |
+| Driver | False |
+|  |  |
+
+**Behaviour**
+Behaviour seems to be fully correct this time, however while in the _state_ there's an _if/else_ logic:
+
+```
+if variable:
+   set("variable", 1)
+else:
+  set("variable", 0)
+```
+
+in the _module_ we simply have an _if_ logic:
+
+```
+if variable:
+   set("variable", 1)
+```
+
+Not sure how Windows Update handles the missing search string and what default values it has: if unset means `0` or a default value.
+
+Setting **UI** doesn't seem to make any difference in the module as well as the only logic that concerns that variable is simply its declaration and assignment (just like in the _state_).
+### One more missing thing
+
+After installing updates, Salt Minion will return a list of updates with the result code + update name following the installation, similarly to this:
+
+```
+    2 : Windows Server 2012 Update (KB123456)
+    4 : Internet Explorer Security Update (KB098765)
+    2 : Malware Definition Update (KB321456)
+    ...
+```
+
+yet those return codes are not documented and if you do a quick search on the Internet you'll get web results that link to pages similar to [this](https://support.microsoft.com/en-us/kb/938205), [this](http://serverfault.com/questions/576154/is-there-the-full-list-of-return-codes-for-wusa-exe/592000),...  instead of unofficial [source codes](https://social.technet.microsoft.com/Forums/exchange/en-US/29448283-0d4f-4bc1-b5e2-59048a348902/windows-update-script-percentage-progress-help?forum=winserverpowershell) that appear to finally shed some light.
+### Conclusion
+
+I think there are a few issues:
+- Inconsistent default values between win_update module and state;
+- The _module_ has no documentation regarding `includes`;
+- _State_'s `skipReboot` seems to be the other way round;
+- UI (skipUI) apparently has no effect;
+- `includes` parameter name is confusing as, except `software` and `driver`, nothing is really "included" but rather "excluded" if set to `True` or `False` as it _skips_ those items;
+- Windows Update's return codes are undocumented and hard to find, providing documentation or official links from Microsoft Knowledge Base would be beneficial
+
+I might have got it all wrong, in fact this is just the result of a series of doubts of mine :smile: . 
+So all of this is up for discussion of course, in fact I'd like to hear some feedback on this.
+
+Many thanks!

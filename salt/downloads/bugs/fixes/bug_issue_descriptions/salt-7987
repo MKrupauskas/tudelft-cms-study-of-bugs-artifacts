@@ -1,0 +1,74 @@
+When we have a remote fileclient cached and the salt master is restarted in - between the execution, the fileclient becomes unusable.
+
+Consider this sls:
+
+```
+test:
+  file.managed:
+    - name: /tmp/test-restart-salt0
+    - source: salt://test.sls
+    - require_in:
+      - cmd: trigger-restart
+
+test2:
+  file.managed:
+    - name: /tmp/test-restart-salt2
+    - source: salt://test.sls
+    - require_in:
+      - cmd: trigger-restart
+
+trigger-restart:
+  cmd.run:
+    - name: rm -f /tmp/test-restart-salt{0,1,2}
+    - require_in:
+      - service: salt-master
+
+salt-master:
+  cmd.run:
+    - name: service salt-master stop;service salt-master start
+    - require_in:
+      - cmd: test-1
+
+test-1:
+  file.managed:
+    - name: /tmp/test-restart-salt1
+    - source: salt://test.sls
+
+cleanup:
+  cmd.run:
+    - name: rm -f /tmp/test-restart-salt{0,1,2}
+    - order: last
+
+```
+
+It will actually fail with
+
+```
+----------
+    State: - file
+    Name:      /tmp/test-restart-salt1
+    Function:  managed
+        Result:    False
+        Comment:   An exception occurred in this state: Traceback (most recent call last):
+  File "/srv/salt/makina-states/src/salt/salt/state.py", line 1260, in call
+    *cdata['args'], **cdata['kwargs'])
+  File "/srv/salt/makina-states/src/salt/salt/states/file.py", line 1115, in managed
+    **kwargs
+  File "/srv/salt/makina-states/src/salt/salt/modules/file.py", line 1605, in get_managed
+    source_sum = __salt__['cp.hash_file'](source, env)
+  File "/srv/salt/makina-states/src/salt/salt/modules/cp.py", line 424, in hash_file
+    return __context__['cp.fileclient'].hash_file(path, env)
+  File "/srv/salt/makina-states/src/salt/salt/fileclient.py", line 796, in hash_file
+    60)
+  File "/srv/salt/makina-states/src/salt/salt/crypt.py", line 424, in loads
+    data = self.decrypt(data)
+  File "/srv/salt/makina-states/src/salt/salt/crypt.py", line 401, in decrypt
+    raise AuthenticationError('message authentication failed')
+AuthenticationError: message authentication failed
+
+        Changes:
+----------
+
+```
+
+This can be easily mitigated by renogating the authentication crypticle with the restarted master, see incoming attached pull request

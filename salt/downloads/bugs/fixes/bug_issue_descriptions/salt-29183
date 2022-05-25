@@ -1,0 +1,71 @@
+Hi!
+
+This happens when trying to create a container with dockerng and bind a file from the host when a file with the same name already exists inside the image:
+
+```
+# salt-call state.single dockerng.running name=test image='debian:jessie' binds='["/etc/passwd:/etc/passwd"]'
+local:
+----------
+          ID: test
+    Function: dockerng.running
+      Result: False
+     Comment: Failed to create new container: Error 500: file exists at /var/lib/docker/aufs/mnt/9eeaf4a5f2ebcb6489d1b10dd47e09c091969f4d88f0c29ddd87cac0889a3470/etc/passwd, can't create volume there
+     Started: 08:41:53.489985
+    Duration: 781.056 ms
+     Changes:
+```
+
+The above works fine if the destination path inside the image does not exist.
+
+FYI, I found a bug with the exact same error reported for docker-compose (https://github.com/docker/compose/issues/1326) and I suspect that this error happens due to the way Salt is using docker-py, because the following python code works fine for me:
+
+```
+import docker
+cli = docker.Client(base_url='unix:///var/run/docker.sock', version='auto')
+container = cli.create_container(name='test', image='debian:jessie', command='/bin/sleep 600', volumes=['/etc/passwd'], host_config=docker.Client.create_host_config(cli, binds=['/etc/passwd:/etc/passwd'], network_mode='bridge'))
+cli.start(container=container.get('Id'))
+```
+
+And here are the Salt and Docker version infos:
+
+```
+# salt-call --versions-report
+Salt Version:
+           Salt: 2015.8.1
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.2 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 8.2
+
+# docker -v
+Docker version 1.6.2, build 7c8fca2
+```

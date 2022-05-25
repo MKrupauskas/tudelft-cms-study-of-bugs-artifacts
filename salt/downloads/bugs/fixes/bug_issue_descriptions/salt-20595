@@ -1,0 +1,135 @@
+master:
+
+```
+$ cat /etc/redhat-release ; salt --version
+Red Hat Enterprise Linux Server release 6.6 (Santiago)
+salt 2014.7.0 (Helium)
+```
+
+minions:
+
+```
+os:
+    OEL
+saltversion:
+    2014.7.0
+```
+
+(These are using the enterprise version of saltstack.)
+
+I am having problems with the kmod salt state I created for a Linux
+module named with a dash '-' .
+
+Originally, I had:
+
+```
+dm_multipath:
+  kmod.present:
+    - persist: True
+```
+
+But this gave me:
+
+```
+      ID: dm_multipath
+Function: kmod.present
+  Result: False
+ Comment: Kernel module dm_multipath is unavailable
+ Started:
+Duration:
+ Changes:  
+```
+
+So, looking at the kernel modules that were loaded on another machine:
+
+```
+$ lsmod |grep multipath
+dm_multipath           18562  0
+dm_mod                 85047  6 dm_multipath,dm_mirror,dm_log
+```
+
+Which corresponds with the file:
+
+```
+/lib/modules/2.6.32-431.el6.x86_64/kernel/drivers/md/dm-multipath.ko
+```
+
+I realized the weirdness that is "the Linux kernel modules subsystem",
+which is that the files that have a dash ('-') in the name get listed
+with the dash replaced with an underscore ('_').  So, since the module
+was "unavailable", I changed the init.sls:
+
+```
+dm-multipath:
+  kmod.present:
+    - persist: True
+```
+
+And that worked:
+
+```
+      ID: dm-multipath
+Function: kmod.present
+  Result: True
+ Comment: Loaded kernel module dm-multipath
+ Started:
+Duration:
+ Changes:  
+          ----------
+          dm-multipath:
+              loaded
+          dm_multipath:
+              loaded
+```
+
+(Notice that both the one with the dash and the one with the
+underscore get checked.)
+
+But I rerun, and get:
+
+```
+      ID: dm-multipath
+Function: kmod.present
+  Result: False
+ Comment: Failed to load kernel module dm-multipath
+ Started:
+Duration:
+ Changes:
+```
+
+So now, neither works:
+
+```
+      ID: dm_multipath
+Function: kmod.present
+  Result: False
+ Comment: Kernel module dm_multipath is unavailable
+ Started:
+Duration:
+ Changes:  
+
+      ID: dm-multipath
+Function: kmod.present
+  Result: False
+ Comment: Failed to load kernel module dm-multipath
+ Started:
+Duration:
+ Changes:
+```
+
+There was a patch (#13239) that I guess is what gives the 2 "loaded"s
+above.  But now, I either get an "unavailable" or an unloadable.  Also
+possibly related:  #13240
+
+@nmadhok
+
+...  (passing of time before submitting issue...)
+
+I just looked at this again, and did an 'rmmod dm_multipath' before
+calling the salt state, and the one with a dash worked, but the one
+with the underscore failed.  My conclusion from this is that once the
+above is fixed, in addition, 'kmod.present' needs to check if the
+module is already loaded, and fail with a comment "already loaded" or
+something like that.  Perhaps add a flag to unload then load, but not
+allow that by default, because you wouldn't necessarily always want to
+reload a kernel module.

@@ -1,0 +1,117 @@
+**Description**
+Targeting ext_pillar in git_pillar top.sls is not working.
+
+I am trying to implement a custom ext_pillar called `d42` that looks up Device42 metadata and device roles and then sets them as pillar data for minions. This module works individually and I get pillar like this:
+
+```
+# salt-call pillar.get d42
+local:
+    ----------
+    device_id:
+        6518
+    env:
+        Development
+    roles:
+        - pentaho
+    rundeck-user:
+    vault-env:
+```
+
+I target minions using the `d42:roles` pillar in my standard /srv/pillar pillar_roots top.sls and this works as in this example:
+
+```
+base:
+  '*':
+    - test
+  'I@d42:roles:pentaho and not I@d42:roles:db':
+    - match: compound
+    - auth.sssd.pentaho
+    - test.pentaho
+```
+
+I can get the `test.pentaho` pillar fine with this config:
+
+```
+# salt-call pillar.get test
+local:
+    ----------
+    base:
+        this is test/init.sls
+    pentaho:
+        this is test/pentaho.sls
+```
+
+However, if I disable pillar_roots and pull the same pillar files via git_pillar instead, the `d42:roles` matching no longer works. Here is my pillar config:
+
+```
+ext_pillar:
+  - d42:
+      d42_url: https://myd42.company.com
+      d42_user: user
+      d42_pass: password
+      ca_certs: /etc/pki/tls/certs/DigiCertCA.crt
+  - git:
+      - ssh://git@ghe.company.com/user/salt-pillar.git:
+        - pubkey: /etc/salt/pki/master/ssh/salt-ghe.rsa.pub
+        - privkey: /etc/salt/pki/master/ssh/salt-ghe.rsa
+ext_pillar_first: True
+```
+
+And here are the pillar results I now get:
+
+```
+# salt-call pillar.get test
+local:
+    ----------
+    base:
+        this is test/init.sls
+```
+
+It seems that git_pillar is not matching the `d42:roles` pillar from `d42` ext_pillar. My understanding is that the `d42` ext_pillar should be evaluated first, then the `git` ext_pillar next which should then be merged with the `d42` data. That should mean the `d42:roles` pillar should be available to `git` ext_pillar to match against?
+
+This seems very similar to https://github.com/saltstack/salt/issues/52567. I do not receive any error messages in the log but I do see the message `No pillar found, fallback to ext_pillar` printed in the Salt Master log when I run pillar.get.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 3002
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: 4.1.0
+          gitdb: 2.0.6
+      gitpython: 3.0.7
+         Jinja2: 2.10.1
+        libgit2: 0.28.3
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: 3.6.1
+         pygit2: 1.0.3
+         Python: 3.8.5 (default, Jul 28 2020, 12:59:40)
+   python-gnupg: 0.4.5
+         PyYAML: 5.3.1
+          PyZMQ: 18.1.1
+          smmap: 2.0.5
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+
+System Versions:
+           dist: ubuntu 20.04 focal
+         locale: utf-8
+        machine: x86_64
+        release: 5.4.0-52-generic
+         system: Linux
+        version: Ubuntu 20.04 focal
+```
+</details>

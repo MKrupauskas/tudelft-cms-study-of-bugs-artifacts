@@ -1,0 +1,56 @@
+**Description**
+If a xenserver cluster has multiple machines with the same name, the xen integration will throw a error and break.
+
+This happens also if a template and a machine share the same name, e.g. there's a CentOS template and a machine with the name CentOS, salt will break.
+
+The debug log contains the following message:
+
+```
+[DEBUG   ] Failed to execute 'xen.list_nodes()' while querying for running nodes: ['INTERNAL_ERROR', '(Failure "Expected string, got \'N\'")']
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/cloud/__init__.py", line 2367, in run_parallel_map_providers_query
+    salt.utils.data.simple_types_filter(cloud.clouds[data["fun"]]()),
+  File "/usr/lib/python3.6/site-packages/salt/cloud/clouds/xen.py", line 201, in list_nodes
+    "private_ips": get_vm_ip(record["name_label"], session),
+  File "/usr/lib/python3.6/site-packages/salt/cloud/clouds/xen.py", line 226, in get_vm_ip
+    vifs = session.xenapi.VM.get_VIFs(vm)
+  File "/usr/lib/python3.6/site-packages/XenAPI.py", line 264, in __call__
+    return self.__send(self.__name, args)
+  File "/usr/lib/python3.6/site-packages/XenAPI.py", line 160, in xenapi_request
+    result = _parse_result(getattr(self, methodname)(*full_params))
+  File "/usr/lib/python3.6/site-packages/XenAPI.py", line 238, in _parse_result
+    raise Failure(result['ErrorDescription'])
+XenAPI.Failure: ['INTERNAL_ERROR', '(Failure "Expected string, got \'N\'")']
+```
+
+This happens with latest 3002.6 and is due to the following flow in `salt/cloud/clouds/xen.py`:
+
+1. list_nodes() calls get_vm_ip(record["name_label"], session)
+2. get_vm_ip() calls _get_vm(name, session=session)
+3. _get_vm() that does the lookup from name to uuid has the following code that returns none in the case that get_by_name_label() returns a list of more than 1.
+```    vms = session.xenapi.VM.get_by_name_label(name)
+    if len(vms) == 1:
+        return vms[0]
+    return None
+```
+4. get_vm_ip() passes None effectively calls session.xenapi.VM.get_VIFs(None) that results in the malformed error from XenAPI: Failure "Expected string, got 'N'" which should be None.
+
+A quick workaround would be the change the _get_vm() logic a slight bit:
+
+```
+def _get_vm(name=None, session=None):
+    """
+    Get XEN vm instance object reference
+    """
+    if session is None:
+        session = _get_session()
+    vms = session.xenapi.VM.get_by_name_label(name)
+    vms = [x for x in vms if not session.xenapi.VM.get_is_a_template(x)]
+    if len(vms) == 1:
+        return vms[0]
+    else:
+	log.error("VM %s returned %s matches. 1 match expected.", name, len(vms))
+    return None
+```
+
+This is not ideal but at least it filters templates from causing duplicate problems and alerts about the issue.

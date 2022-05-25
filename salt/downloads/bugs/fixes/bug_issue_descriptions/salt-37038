@@ -1,0 +1,120 @@
+### Description of Issue/Question
+
+I installed two packages with `pip.installed`. It succeeds, no problem, installed correctly, but I get the following message when doing `state.apply`:
+
+```
+----------
+          ID: synapse
+    Function: pip.installed
+      Result: True
+     Comment: There was no error installing package 'systemd-python' although it does not show when calling 'pip.freeze'.
+     Started: 00:37:13.344863
+    Duration: 16562.359 ms
+     Changes:   
+              ----------
+              systemd-python==232:
+                  Installed
+----------
+```
+
+However, its there, and it _does_ show up with pip.freeze:
+
+```
+$ salt pearson pip.freeze bin_env=/var/lib/synapse
+peason:
+    - ...
+    - systemd-python==232
+    - ...
+```
+### Setup
+
+Here are the relevant states I use:
+
+``` yaml
+synapse:
+  pkg.installed:
+    - pkgs:
+      - python2-virtualenv
+      - python2-pip
+  group.present:
+    - system: true
+  user.present:
+    - home: /var/lib/synapse
+    - system: true
+    - shell: /sbin/nologin
+    - groups:
+      - synapse
+    - require:
+      - group: synapse
+  virtualenv.managed:
+    - name: /var/lib/synapse
+    - user: synapse
+    - system_site_packages: false
+    - require:
+      - group: synapse
+  pip.installed:
+    - pkgs:
+      - git+https://github.com/matrix-org/synapse.git@v0.18.1#egg=synapse
+      - systemd-python
+    - user: synapse
+    - bin_env: /var/lib/synapse
+    - upgrade: true
+  file.managed:
+    - name: /etc/systemd/system/synapse.service
+    - source: salt://synapse/synapse.service
+    - makedirs: true
+  module.wait:
+    - name: service.systemctl_reload
+    - watch:
+      - file: synapse
+    - require:
+      - pkg: synapse
+  service.running:
+    - enable: true
+    - watch:
+      - pip: synapse
+      - file: synapse
+```
+### Versions Report
+
+Running on Arch Linux:
+
+```
+Salt Version:
+           Salt: 2016.3.0
+
+Dependency Versions:
+           cffi: 1.8.3
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Jun 28 2016, 08:31:05)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.1.5
+
+System Versions:
+           dist:   
+        machine: x86_64
+        release: 4.7.4.201609152234-1-grsec
+         system: Linux
+        version: Not Installed
+```

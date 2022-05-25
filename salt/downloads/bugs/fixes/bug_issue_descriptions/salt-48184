@@ -1,0 +1,99 @@
+### Description of Issue/Question
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+Salt is setup with the default settings, except the master and master_finger settings.
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+
+I've only been able to see this bug on one machine. I've deployed an identical setup on other machines without issue. 
+
+When I try to start the salt-minion service or start salt-minion direct, it fails to start and give this traceback:
+
+```
+Process Process-1:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/multiprocessing/process.py", line 267, in _bootstrap
+    self.run()
+  File "/usr/lib/python2.7/multiprocessing/process.py", line 114, in run
+    self._target(*self._args, **self._kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 144, in minion_process
+    minion.start()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/daemons.py", line 348, in start
+    self.minion.tune_in()
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1029, in tune_in
+    self._spawn_minions()
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 978, in _spawn_minions
+    jid_queue=self.jid_queue,
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 959, in _create_minion_object
+    jid_queue=jid_queue)
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1099, in __init__
+    self.opts['grains'] = salt.loader.grains(opts)
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 734, in grains
+    ret = funcs[key]()
+  File "/usr/lib/python2.7/dist-packages/salt/grains/core.py", line 1788, in os_data
+    grains.update(_virtual(grains))
+  File "/usr/lib/python2.7/dist-packages/salt/grains/core.py", line 872, in _virtual
+    if 'VirtualBox' in output:
+UnicodeDecodeError: 'ascii' codec can't decode byte 0xff in position 0: ordinal not in range(128)
+```
+
+I've traced this back and I see that the contents of /sys/devices/virtual/dmi/id/product_name is actually
+`<FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF><FF> `
+
+I've temporarily solved this by modifying the code and forcing _virtual to return early ({'virtual': 'physical'}). However, when I do this, I run into a very similar issue later on with _hw_info. Again, I forced that to return early and the problem was solved. This is OK as a temporary fix, but it's not a good fix.
+
+This is a physical machine not a virtual machine. It's an Intel NUC from around 2014, with a Celeron N2830 processor.
+
+You may be interested to see this bug in Puppet: https://tickets.puppetlabs.com/browse/FACT-1140
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+```
+Salt Version:
+           Salt: 2018.3.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.15rc1 (default, Apr 15 2018, 21:51:34)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-23-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+
+
+
+```

@@ -1,0 +1,93 @@
+ZD-#122
+
+network.managed throws an error when bonding interfaces using v2014.7.0
+
+Here is the command: salt <target> state.sls network test=true
+
+Here is the exception generated from the 2014.7.0 release:
+
+```
+----------
+          ID: bond0
+    Function: network.managed
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1533, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/states/network.py", line 213, in managed
+                  new = __salt__['ip.build_interface'](name, type, enabled, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/debian_ip.py", line 1546, in build_interface
+                  opts = _parse_settings_eth(settings, iface_type, enabled, iface)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/debian_ip.py", line 1189, in _parse_settings_eth
+                  iface_data['inet']['bonding']['slaves'] = opts['slaves']
+              KeyError: 'slaves'
+     Started: 17:20:20.879210
+    Duration: 1.304 ms
+     Changes:
+```
+
+There was no exception/error when running the same network.sls on v2014.1.13
+
+Here is a sanitized version of the state file used:
+
+```
+eth0:
+  network.managed:
+    - ipaddr: 10.1.1.80
+    - type: slave
+    - master: bond0
+    - mode: ipip
+
+eth2:
+  network.managed:
+    - ipaddr: 10.1.1.81
+    - type: slave
+    - master: bond0
+    - mode: ipip
+
+bond0:
+  network.managed:
+    - type: bond
+    - ipaddr: 10.1.1.82
+# {{ salt['pillar.get']('prod.ip') }}
+    - netmask: 255.255.255.0
+#    - mode: balance-xor TODO?  worth it?
+    - mode: active-backup
+    - miimon: 100
+    - use_in:
+      - network: eth0
+      - network: eth2
+    - require:
+      - network: eth0
+      - network: eth2
+
+#{% set bondedips=salt['pillar.get']('bonded.ips') %}
+#{% for ip in bondedips %}
+#bond0.{{ loop.index0 }}:
+#  network.managed:
+#    - type: vlan
+#    - ipaddr: {{ ip }}
+#    - use:
+#      - network: bond0
+#    - require:
+#      - network: bond0
+#    - watch_in:
+#      - service: network
+#{% endfor %}
+
+
+#bond0.12:
+#  network.managed:
+#    - type: vlan
+#    - ipaddr: {{ salt['pillar.get']('prod.ip2') }}
+#    - use:
+#      - network: bond0
+#    - require:
+#      - network: bond0
+
+#network:
+#  service.running:
+#    - watch:
+#      - network: bond0
+#      - network: bond0.12
+```

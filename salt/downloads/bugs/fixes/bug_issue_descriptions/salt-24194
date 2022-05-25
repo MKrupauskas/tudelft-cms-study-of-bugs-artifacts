@@ -1,0 +1,14 @@
+The salt-minion init script for the RPM package (pkg/rpm/salt-minion) has a condrestart action that uses `$LOCKFILE`. `$LOCKFILE` is only otherwise used under the Debian conditionals (in the start function and the status case) and RHEL is not defined by default.
+
+The conditional is `[ -f $LOCKFILE ] && restart || :`
+Since `$LOCKFILE` is not quoted, when it is undefined the check passes the restart is called.
+
+This is a problem because the salt.spec file has `%postun` actions that call condrestart after the RPM package is upgraded. This causes the salt services to be (re)started regardless.
+
+The workaround is to set `$LOCKFILE` to a non-existent path in /etc/default/salt.
+
+A potential partial fix is to quote `$LOCKFILE` in the conditional, and if it is undefined, the check will fail, but I'm not sure if instead the check should be made more robust to actually check if the service is running on Red Hat-derived systems.
+
+This issue has presented itself in one environment for us, because salt-minion is deployed with the provided services disabled because we run it as non-root, and there was a prior issue with a recurring bug with the "-u USER" argument being passed to salt-minion. Coupled with stop() using checking and killing anything matching "salt-minion" means an RPM upgrade kills the non-root salt-minion and starts up an new process running as root pointed at a different configuration directory.
+
+I'm submitting this without a pull request, since I'm not sure what the preferred way of addressing this would be (simply using `[ -f "$LOCKFILE" ]` or something more to make condrestart useful on RHEL).

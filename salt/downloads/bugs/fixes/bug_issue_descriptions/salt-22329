@@ -1,0 +1,42 @@
+If we have minion with installed stable version of varnish, and we want to upgrade it to the newest version (unstable) We need to change accept_keywords then reinstall package.
+I run:
+
+``` yaml
+www-servers/varnish:
+  pkg.latest:
+    - onchanges:
+      - portage_config: www-servers/varnish
+  portage_config.flags:
+    - name: www-servers/varnish
+    - accept_keywords: ['~amd64']
+```
+
+But unfortunately pkg.latest couldn't see that accept_keywords was changed because of python module portage can't see this changes.
+in minion in python console I run next (like in modules/ebuild.py):
+
+``` python
+>>>import portage
+>>>_porttree = portage.db[portage.root]['porttree']
+>>>_porttree.dep_bestmatch('www-servers/varnish')
+Out[48]: u'www-servers/varnish-3.0.5-r3'
+```
+
+Then We are changing accept_keyword from 'amd64' to '~amd64' and run again
+
+``` python
+>>>_porttree.dep_bestmatch('www-servers/varnish')
+returns 'www-servers/varnish-3.0.5-r3'
+```
+
+but we need to have www-servers/varnish-4.0.2
+For enforce portage to reread configs I found one way:
+
+``` python
+>>>portage = reload(portage)
+>>>_porttree = portage.db[portage.root]['porttree']
+>>>_porttree.dep_bestmatch('www-servers/varnish')
+Out:  www-servers/varnish-4.0.2
+```
+
+So I pasted reloading into modules/ebuild.py in _porttree function...
+May be exist best way to avoid this issue, but I couldn't find it(

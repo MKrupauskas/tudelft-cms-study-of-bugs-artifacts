@@ -1,0 +1,123 @@
+### Description of Issue/Question
+
+While Trying to track down an issue with rest_tornado not having return data in 2018.3.2. I happened on https://github.com/saltstack/salt/pull/48193. To test this I put the saltnado.py file from the PR into my salt directory and fired up salt. Worked well, except in the /var/log/salt/api log is this traceback
+
+```
+2018-09-07 19:06:22,631 [tornado.application:1495][ERROR   ][998] Uncaught exception POST /run (127.0.0.1)
+HTTPServerRequest(protocol='http', host='localhost:8000', method='POST', uri='/run', version='HTTP/1.1', remote_ip='127.0.0.1', headers={'Host': 'localhost:8000', 'Content-Type': 'application/json', 'Content-Length': '125', 'Accept': 'application/x-yaml', 'User-Agent': 'curl/7.29.0'})
+Traceback (most recent call last):
+  File "/usr/lib64/python2.7/site-packages/tornado/web.py", line 1368, in _stack_context_handle_exception
+    raise_exc_info((type, value, traceback))
+  File "/usr/lib64/python2.7/site-packages/tornado/stack_context.py", line 313, in wrapped
+    ret = fn(*args, **kwargs)
+  File "/usr/lib64/python2.7/site-packages/tornado/gen.py", line 770, in <lambda>
+    IOLoop.current().call_later(duration, lambda: f.set_result(None))
+  File "/usr/lib64/python2.7/site-packages/tornado/concurrent.py", line 253, in set_result
+    self._set_done()
+  File "/usr/lib64/python2.7/site-packages/tornado/concurrent.py", line 297, in _set_done
+    for cb in self._callbacks:
+TypeError: 'NoneType' object is not iterable
+```
+
+To test this code in it's natural system I did a fresh install of git develop and had exactly the same effect. The api returns, with the non-fatal traceback in the log. 
+
+From the message of the error it looks like it is trying to call the callbacks after everything is done.
+
+if https://github.com/saltstack/salt/pull/48193 is merged into another branch of salt it should be checked for this traceback as well. 
+
+### Setup
+Install develop, setup rest_tornado as normal. 
+
+```
+ cat /etc/salt/master.d/salt-api.conf
+rest_tornado:
+  port: 8000
+  address: 0.0.0.0
+  backlog: 128
+  debug: True
+  disable_ssl: True
+  webhook_disable_auth: False
+  cors_origin: null
+```
+
+```
+cat /etc/salt/master.d/eauth.conf
+external_auth:
+  pam:
+    vagrant:
+      - .*
+      - '@runner'
+      - '@wheel'
+```
+
+### Steps to Reproduce Issue
+
+```
+curl 'http://localhost:8000/run' -H 'Accept: application/x-yaml' -H 'Content-type:application/json' -d '[{"client": "local", "tgt": "minion-0", "fun": "test.version", "username": "vagrant", "password": "vagrant", "eauth": "pam"}]'
+return:
+- {minion-0: 2018.3.2}
+```
+```
+cat /var/log/salt/api
+2018-09-07 20:10:20,534 [tornado.application:1495][ERROR   ][998] Uncaught exception POST /run (127.0.0.1)
+HTTPServerRequest(protocol='http', host='localhost:8000', method='POST', uri='/run', version='HTTP/1.1', remote_ip='127.0.0.1', headers={'Host': 'localhost:8000', 'Content-Type': 'application/json', 'Content-Length': '125', 'Accept': 'application/x-yaml', 'User-Agent': 'curl/7.29.0'})
+Traceback (most recent call last):
+  File "/usr/lib64/python2.7/site-packages/tornado/web.py", line 1368, in _stack_context_handle_exception
+    raise_exc_info((type, value, traceback))
+  File "/usr/lib64/python2.7/site-packages/tornado/stack_context.py", line 313, in wrapped
+    ret = fn(*args, **kwargs)
+  File "/usr/lib64/python2.7/site-packages/tornado/gen.py", line 770, in <lambda>
+    IOLoop.current().call_later(duration, lambda: f.set_result(None))
+  File "/usr/lib64/python2.7/site-packages/tornado/concurrent.py", line 253, in set_result
+    self._set_done()
+  File "/usr/lib64/python2.7/site-packages/tornado/concurrent.py", line 297, in _set_done
+    for cb in self._callbacks:
+TypeError: 'NoneType' object is not iterable
+```
+
+
+### Versions Report
+
+```
+salt-api --versions
+Salt Version:
+           Salt: 2018.11.0-1452-g7d5637c
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.28.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Jul 13 2018, 13:06:57)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.11.6.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```

@@ -1,0 +1,102 @@
+**Description**
+
+After upgrading from Salt 3003 to 3003.3, access to Salt-API using CherryPy does not work anymore. Login seems to never work.
+*(in previous attempts, login was working but queries not... I can't reproduce this now)*
+
+**Setup**
+
+- server runs on Debian 9
+- Salt version was 3003 before upgrading to 3003.3. I tested all versions between those and it breaks since 3003.2
+- API uses file backend for external auth
+
+**Steps to Reproduce the behavior**
+
+- salt-master in version 3003.2 or 3003.3
+- configuration of the master
+```
+rest_cherrypy:
+  disable_ssl: False
+  host: 0.0.0.0
+  ssl_crt: /etc/ssl/certs/<your_cert>.pem
+  ssl_key: /etc/ssl/private/<your_key>.key
+  port: <port_number>
+
+external_auth:
+  file:
+    ^filename: '/etc/salt/eauth_users.txt'
+```
+
+Using `httpie` to query salt-api
+
+```
+$ http POST https://salt-dev.fraudbuster.mobi:15847/login username=<username> password='<password>' eauth=file -j
+HTTP/1.1 500 Internal Server Error
+Content-Length: 0
+Content-Type: text/plain
+```
+logs on server side
+```
+2021-09-06 13:42:14,074 [cherrypy.error   :216 ][ERROR   ][7066] [06/Sep/2021:13:42:14] ENGINE AttributeError("module 'six.moves.urllib_parse
+' has no attribute 'unquote_to_bytes'",)
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.5/dist-packages/cheroot/server.py", line 1269, in communicate
+    req.parse_request()
+  File "/usr/local/lib/python3.5/dist-packages/cheroot/server.py", line 720, in parse_request
+    success = self.read_request_line()
+  File "/usr/local/lib/python3.5/dist-packages/cheroot/server.py", line 936, in read_request_line
+    for x in QUOTED_SLASH_REGEX.split(path)
+  File "/usr/local/lib/python3.5/dist-packages/cheroot/server.py", line 936, in <listcomp>
+    for x in QUOTED_SLASH_REGEX.split(path)
+AttributeError: module 'six.moves.urllib_parse' has no attribute 'unquote_to_bytes'
+```
+
+**Expected behavior**
+
+I expect the login process to complete and return me a Token usable in another query on salt-api.
+
+**Versions Report**
+
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+          Salt: 3003.3
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: unknown
+      dateutil: 2.5.3
+     docker-py: Not Installed
+         gitdb: 2.0.0
+     gitpython: 2.1.1
+        Jinja2: 2.9.4
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: 1.3.7
+     pycparser: Not Installed
+      pycrypto: 2.6.1
+  pycryptodome: 3.6.1
+        pygit2: Not Installed
+        Python: 3.5.3 (default, Nov 18 2020, 21:09:16)
+  python-gnupg: Not Installed
+        PyYAML: 3.12
+         PyZMQ: 17.1.2
+         smmap: 2.0.1
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.2.1
+ 
+System Versions:
+          dist: debian 9 stretch
+        locale: UTF-8
+       machine: x86_64
+       release: 4.14.0-0.bpo.3-amd64
+        system: Linux
+       version: Debian GNU/Linux 9 stretch
+```
+</details>
+

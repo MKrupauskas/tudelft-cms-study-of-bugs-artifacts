@@ -1,0 +1,55 @@
+It looks like archives are being downloading when they don't need to be and duplicated in the cache. In this case I've got a large zip file to extract; I don't want to have the contents of this file checked every time state is applied (there are 1000's of files in there) so I'm using `if_missing` to indicate when the archive is already extracted.
+<pre># cat my_program_archive.sls
+
+extract_my_program_essentials:
+  archive.extracted:
+    - name: C:\ProgramData\My Program\The Essentials
+    - source: salt://software_files/my_program/The Essentials.zip
+    - source_hash: md5=adc5ffd796615c6811f54e6eb1dc660c
+    - archive_format: zip
+    - enforce_toplevel: False
+    - if_missing: C:\ProgramData\My Program\The Essentials\manifest.xml</pre>
+I've previously applied this state but the cache contents have been now been cleared i.e. I don't have this archive in the cache any longer:
+<pre># salt salt-test cmd.run 'dir /s C:\salt\var\cache\*Essentials*'
+salt-test:
+    File Not Found
+ERROR: Minions returned with non-zero exit code
+</pre>
+...but that's fine because the archive is already extracted.
+
+Bug 1: In test mode I would expect the test to pass, since my `if_missing` file is already present, but the test results suggest the whole archive will be downloaded again:
+<pre># salt salt-test state.apply my_program_archive test=True
+
+salt-test:
+          ID: extract_my_program_essentials
+    Function: archive.extracted
+        Name: C:\ProgramData\My Program\The Essentials
+      Result: None
+     Comment: Archive salt://software_files/my_program/The Essentials.zip would be downloaded to cache</pre>
+When actually applying the state the comment is correct. The manifest exists so it didn't need to do anything:
+<pre># salt salt-test state.apply my_program_archive
+
+salt-test:
+          ID: extract_my_program_essentials
+    Function: archive.extracted
+        Name: C:\ProgramData\My Program\The Essentials
+      Result: True
+     Comment: C:\ProgramData\My Program\The Essentials\manifest.xml exists
+
+Total run time: 113.092 s</pre>
+Bug 2: ...but note the run time. It's downloaded the whole thing to the cache again when it didn't need to.
+<pre># salt salt-test cmd.run 'dir C:\salt\var\cache\salt\minion\files\base\software_files\my_program\*Essentials*'
+
+salt-test:
+     Directory of C:\salt\var\cache\salt\minion\files\base\software_files\my_program   
+    26/01/2017  16:46       565,283,690 The Essentials.zip</pre>
+Bug 3: Worse still, it's duplicated it and hashed it, even though I've provided the hash in the state:
+<pre># salt salt-test cmd.run 'dir C:\salt\var\cache\salt\minion\files\base\*Essentials*'
+
+salt-test:
+     Directory of C:\salt\var\cache\salt\minion\files\base
+    26/01/2017  16:46       565,283,690 _my_program_The Essentials.zip
+    26/01/2017  16:46                37 _my_program_The Essentials.zip.hash</pre>
+I don't know why the archive would have to be duplicated, why it choose to place these files in the base folder (seems a strange location, are they meant to be temporary?), or why the archive had to be re-hashed (the hash value in the file is the same md5 value that I supplied in the state).
+
+Tested on 2016.11.1

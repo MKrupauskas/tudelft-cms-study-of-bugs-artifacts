@@ -1,0 +1,44 @@
+### Description of Issue/Question
+### Setup
+
+_Please provide relevant configs and/or SLS files (Be sure to remove sensitive info)._
+
+`/etc/salt/cloud.profiles.d/my-instance`
+
+```
+
+server/us-east-1b:
+  extends: aws-defaults
+  size: t2.micro
+  grains:
+  availability_zone: us-east-1b
+  network_interfaces:
+    - DeviceIndex: 0
+      PrivateIpAddresses:
+        - Primary: True
+      SubnetId: <redacted>
+      SecurityGroupId:
+        - <redacted>
+```
+### Steps to Reproduce Issue
+
+If I try and create an instance with this configuration, then `salt-cloud` reports `AttributeError: 'NoneType' object has no attribute 'copy'`. It's happening here, on like 2510:
+
+```
+salt/config.py
+
+2505 |     if vm_ and name:
+2506 |         # Let's get the value from the profile, if present
+2507 |         if 'profile' in vm_ and vm_['profile'] is not None:
+2508 |             if name in opts['profiles'][vm_['profile']]
+2509 |                 if isinstance(value, dict):
+2510 |                     value.update(opts['profiles'][vm_['profile']][name].copy())
+2511 |                 else:
+2512 |                     value = deepcopy(opts['profiles'][vm_['profile']][name])
+2513 | 
+```
+
+The issue is that a valueless key is interpretted as None. While this is an error, the error message being reported is very cryptic and hard to debug. We've encountered this twice.
+### Versions Report
+
+Seen in salt `2015.8.3`, but code still looks the same as of `2015.8.7`

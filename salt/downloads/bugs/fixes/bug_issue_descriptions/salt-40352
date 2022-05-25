@@ -1,0 +1,115 @@
+### Description of Issue/Question
+Use acme.cert state, failure to issue a certificate causes a Traceback when it attempts to get the certificate information
+
+### Setup
+State for acme.cert to issue certificate for applyrandomdomain.com and www.applyrandomdomain.com
+```
+certbot_applyrandomdomain:
+  acme.cert:
+    - name: applyrandomdomain.com
+    - renew: 60
+    - aliases:
+      - www.applyrandomdomain.com
+```
+
+### Steps to Reproduce Issue
+Certificate failed to issue due to error from certbot. The state doesn't capture the error and continues to attempt to get the information of the certificate as part of the return. Due to the certificate not existing (file not found), the acme.info module throws a Traceback.
+
+```
+Starting new HTTPS connection (1): acme-v01.api.letsencrypt.org
+Skipped user interaction because Certbot doesn't appear to be running in a terminal. You should probably include --non-interactive or --force-interactive on the command line.
+Obtaining a new certificate
+Performing the following challenges:
+http-01 challenge for applyrandomdomain.com
+http-01 challenge for www.applyrandomdomain.com
+Using the webroot path /var/lib/letsencrypt/webroot for all unmatched domains.
+Waiting for verification...
+Cleaning up challenges
+Failed authorization procedure. www.applyrandomdomain.com (http-01): urn:acme:error:connection :: The server could not connect to the client to verify the domain :: DNS problem: NXDOMAIN looking up A for www.applyrandomdomain.com
+[ERROR   ] retcode: 1
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 1746, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1703, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/states/acme.py", line 118, in cert
+    'new': __salt__['acme.info'](name)
+  File "/usr/lib/python2.7/site-packages/salt/modules/acme.py", line 221, in info
+    info = __salt__['tls.cert_info'](cert_file)
+  File "/usr/lib/python2.7/site-packages/salt/modules/tls.py", line 1554, in cert_info
+    with salt.utils.fopen(cert_path) as cert_file:
+  File "/usr/lib/python2.7/site-packages/salt/utils/__init__.py", line 1288, in fopen
+    fhandle = open(*args, **kwargs)
+IOError: [Errno 2] No such file or directory: '/etc/letsencrypt/live/applyrandomdomain.com/cert.pem'
+```
+
+states/acme.py has the following code, which is failing to detect the error from the acme.cert module, and blindly attempts to run the acme.info module on a non-existent certificate
+```python
+    res = __salt__['acme.cert'](
+        name,
+        aliases=aliases,
+        email=email,
+        webroot=webroot,
+        test_cert=test_cert,
+        renew=renew,
+        keysize=keysize,
+        server=server,
+        owner=owner,
+        group=group
+    )
+
+    ret = {
+        'name': name,
+        'result': res['result'] is not False,
+        'comment': res['comment']
+    }
+
+    if res['result'] is None:
+        ret['changes'] = {}
+    else:
+        ret['changes'] = {
+            'old': old,
+            'new': __salt__['acme.info'](name)
+        }
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.3
+ 
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.3.1611 Core
+        machine: x86_64
+        release: 3.10.0-514.10.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```

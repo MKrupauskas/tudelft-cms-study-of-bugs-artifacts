@@ -1,0 +1,82 @@
+## Problem
+
+When using salt-cloud with the keyring provider for Openstack providers, the error is seen below.
+
+> Error from salt-cloud -l debug --list-images <provider>
+> 
+> ``` bash
+> [ERROR   ] Failed to get the output of 'openstack.avail_locations()': local variable 'actual_password' referenced before assignment
+> Traceback (most recent call last):
+>   File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 767, in location_list
+>     data[alias][driver] = self.clouds[fun]()
+>   File "/usr/lib/python2.7/site-packages/salt/cloud/libcloudfuncs.py", line 136, in avail_locations
+>     conn = get_conn()   # pylint: disable=E0602
+>   File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/openstack.py", line 300, in get_conn
+>     actual_password,
+> UnboundLocalError: local variable 'actual_password' referenced before assignment
+> ```
+> 
+> salt version report
+> 
+> ``` bash
+>            Salt: 2014.7.5
+>          Python: 2.7.5 (default, Jun 17 2014, 18:11:42)
+>          Jinja2: 2.7.2
+>        M2Crypto: 0.21.1
+>  msgpack-python: 0.4.6
+>    msgpack-pure: Not Installed
+>        pycrypto: 2.6.1
+>         libnacl: Not Installed
+>          PyYAML: 3.10
+>           ioflo: Not Installed
+>           PyZMQ: 14.3.1
+>            RAET: Not Installed
+>             ZMQ: 3.2.5
+>            Mako: Not Installed
+> ```
+
+This error also appears to be present on 2015.5
+## Solution
+
+Fix the else logic as seen below in order to set `actual_password` to `driver_password` when the first attempt to get the driver password from the keyring succeeds.
+
+> fix
+> 
+> ```
+>         if password == 'USE_KEYRING':
+>             # retrieve password from system keyring
+>             credential_id = "salt.cloud.provider.{0}".format(__active_provider_name__)
+>             logging.debug("Retrieving keyring password for {0} ({1})".format(
+>                 credential_id,
+>                 user)
+>             )
+>             # attempt to retrieve driver specific password first
+>             driver_password = salt.utils.cloud.retrieve_password_from_keyring(
+>                 credential_id,
+>                 user
+>             )
+>             if driver_password is None:
+>                 provider_password = salt.utils.cloud.retrieve_password_from_keyring(
+>                     credential_id.split(':')[0],  # fallback to provider level
+>                     user)
+>                 if provider_password is None:
+>                     raise SaltCloudSystemExit(
+>                         "Unable to retrieve password from keyring for provider {0}".format(
+>                             __active_provider_name__
+>                         )
+>                     )
+>                 else:
+>                     actual_password = provider_password
+>             else:
+>                 actual_password = driver_password
+>         else:
+>             actual_password = password
+>         return driver(
+>             user,
+>             actual_password,
+>             **authinfo
+>         )
+> ```
+
+```
+```

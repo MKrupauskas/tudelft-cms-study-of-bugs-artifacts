@@ -1,0 +1,165 @@
+Hi guys,
+
+I am running this state on my test box trying to un-mount all the mounts for one device, then right after that, mount the device on the right mount point.
+
+version of salt:
+salt-call 2015.8.1 (Beryllium)
+
+this is how my state looks:
+
+```
+/mnt1:
+  mount.unmounted:
+    - name: /mnt1
+    - device: /dev/xvdb
+    - persist: True
+
+/mnt3:
+  mount.unmounted:
+    - name: /mnt3
+    - device: /dev/xvdb
+    - persist: True
+
+/mnt2:
+  mount.unmounted:
+    - name: /mnt2
+    - device: /dev/xvdb
+    - persist: True
+
+/var/lib/cassandra:
+  mount.mounted:
+    - device: /dev/xvdb
+    - fstype: ext3
+    - mkmnt: True
+    - opts: nobootwait,noatime,nodiratime,nobarrier
+    - dump: 0
+    - pass_num: 2
+    - persist: True
+    - require:
+      - mount: /mnt1
+      - mount: /mnt3
+      - mount: /mnt2
+  file.directory:
+    - name: /var/lib/cassandra
+    - user: cassandra
+    - group: cassandra
+    - mode: 755
+    - makedirs: True
+```
+
+after running: sudo salt-call --local state.sls test -l debug
+
+i can see salt unmounted some mountpoints, not all of them, plues the result looks like it is not correct as /mnt1 is still mounted.
+
+```
+local:
+----------
+          ID: /mnt1
+    Function: mount.unmounted
+      Result: True
+     Comment: Target was successfully unmounted. fstab entry not found
+     Started: 01:31:53.818750
+    Duration: 306.563 ms
+     Changes:   
+              ----------
+              umount:
+                  True
+----------
+          ID: /mnt2
+    Function: mount.unmounted
+      Result: True
+     Comment: Target was successfully unmounted. fstab entry not found
+     Started: 01:31:54.269434
+    Duration: 299.889 ms
+     Changes:   
+              ----------
+              umount:
+                  True
+----------
+          ID: /var/lib/cassandra
+    Function: mount.mounted
+      Result: True
+     Comment: Target was successfully mounted. Entry already exists in the fstab.
+     Started: 01:31:54.570068
+    Duration: 357.509 ms
+     Changes:   
+              ----------
+              mount:
+                  True
+```
+
+```
+/dev/xvdb on /mnt1 type ext3 (rw)
+/dev/xvdb on /var/lib/cassandra type ext3 (rw,noatime,nodiratime,nobarrier,_netdev)
+```
+
+looking at the debug i can see salt is running umount [device] but not specifying the mountpoint
+
+```
+[INFO    ] Executing command 'umount /dev/xvdb' in directory '/home/dfernandez'
+[INFO    ] {'umount': True}
+```
+
+I tried to remove device from the state to see if salt would unmount the drive by its mount point, but looks like it is needed by the function.
+
+just to try i modified the function mount.umounted adding None as a default value for devices, so i can force salt to use names and see if that would solve the problem.
+
+```
+def unmounted(name,
+              device=None,
+              config='/etc/fstab',
+```
+
+looks like that did the trick:
+
+```
+local:
+----------
+          ID: /mnt1
+    Function: mount.unmounted
+      Result: True
+     Comment: Target was successfully unmounted. fstab entry not found
+     Started: 01:40:24.781914
+    Duration: 307.86 ms
+     Changes:   
+              ----------
+              umount:
+                  True
+----------
+          ID: /mnt3
+    Function: mount.unmounted
+      Result: True
+     Comment: Target was successfully unmounted. fstab entry not found
+     Started: 01:40:25.090082
+    Duration: 303.182 ms
+     Changes:   
+              ----------
+              umount:
+                  True
+----------
+          ID: /mnt2
+    Function: mount.unmounted
+      Result: True
+     Comment: Target was successfully unmounted. fstab entry not found
+     Started: 01:40:25.393552
+    Duration: 304.292 ms
+     Changes:   
+              ----------
+              umount:
+                  True
+----------
+          ID: /var/lib/cassandra
+    Function: mount.mounted
+      Result: True
+     Comment: Target was successfully mounted. Entry already exists in the fstab.
+     Started: 01:40:25.698596
+    Duration: 373.526 ms
+     Changes:   
+              ----------
+              mount:
+                  True
+```
+
+is this something you could fix guys? , please also let me know if this is not a good idea, I know that having several mounts mounting the same volume doesn't make  much sense but still.
+
+thanks!

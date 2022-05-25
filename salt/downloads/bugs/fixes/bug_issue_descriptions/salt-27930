@@ -1,0 +1,55 @@
+We are using reclass adapter to generate our top and pillar data, this works well with salt master. Recently we found some use cases where we would like to run salt minion in masterless mode. We have it largely working, and we can use commends such as:
+
+```
+salt-call --local pillar.items
+or
+salt-call --local state.sls pki.host_certs (running single state that uses pillar data).
+```
+
+But we are unable to run state.highstate on the minion, because the minion is looking for top.sls and its either empty or doesn't exist. It does not seem to try to fetch top data using the reclass adapter. I can confirm its generating top data as expected as when i run salt-call in local mode I get the usual:
+
+```
+pillar:
+  __reclass__
+       ----------
+                applications:
+                    - apps here
+```
+
+Here is our minion config:
+
+```
+file_client: local
+test: True
+log_level: debug
+rejected_retry: True
+auth_tries: 10080
+reclass: &reclass
+    storage_type: yaml_fs
+    inventory_base_uri: /srv/metadata
+    reclass_source_path: /srv/salt-common/reclass
+
+master_tops:
+    reclass: *reclass
+
+top_file_merging_strategy: merge
+
+ext_pillar:
+    - reclass: *reclass
+
+pillar_opts: True
+
+runner_dirs:
+    - /srv/salt/salt-common/_runners
+
+
+module_dirs:
+    - /srv/salt-common/base/_modules/
+
+file_roots:
+  base:
+    - /srv/salt-common/base
+  dev:
+    - /srv/salt-common/base/dev
+    - /srv/salt-common/base
+```

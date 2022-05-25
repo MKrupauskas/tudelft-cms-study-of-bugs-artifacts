@@ -1,0 +1,50 @@
+This is not a new issue #3846 but it seems this keeps regressing so here some more details:
+#### Setup and rationale
+
+I have multiple cloud accounts (AWS) with syndics all managed from a single master on corporate premises. For stupid reasons our IT team refuses to set up a proper VPN so instead I use ssh to build a tunnel from on-premise to the syndics like so:
+
+```
+# Note: this requires setting GatewayPorts: clientspecified in sshd_config on the remote machine
+ssh -R 4505:127.0.0.2:4505 -R 4506:127.0.0.2:4506 syndic 
+```
+
+Using 127.0.0.2 solves two related problems:
+- it is possible to set the RET port for the minion but there does not seem to be a way to set the PUB port, which means the "master" needs to be on a separate IP. 
+- the syndic-master can still listen on the local interface 127.0.0.1
+
+This setup works just fine in 2014.1 but fails in 2014.7 and 2015.2. #3846 suggests that this might be because the "interfaces" setting is not properly honored. As per my comment in #3846 I don't have a good way of testing this.
+#### Validation and regression tests
+
+What I did test is the behavior of minion/syndic where the master-master is 2014.7 (EPEL 2014.7.0-3) with different syndic versions directly from github:
+##### 2014.1 @ 67e5bfd
+
+minion works, syndic works
+##### 2014.7 @ 0679522
+
+minion works, syndic does not. See my comments in #3846 for details of the timeout messages the syndic creates. I have validated that the Syndic and not the MultiSyndic module is used.
+##### develop @ 0452b43
+
+minon works, syndic fails, similar to 2014.7
+##### 2015.2 @ 05089e1
+
+minion works, syndic blows up:
+
+```
+2015-01-04 20:44:37,746 [salt.minion                                ][DEBUG   ][5715] User root Executing syndic command saltutil.find_job with jid 20150104134437732087
+2015-01-04 20:44:37,748 [salt.minion                                ][DEBUG   ][5715] Command details: {'tgt_type': 'glob', 'jid': '20150104134437732087', 'tgt': 'calsmmsg01prod-v', 'ret': '', 'to': 4, 'user': 'root', 'arg': ['20150104134432717425'], 'fun': 'saltutil.find_job'}
+2015-01-04 20:44:37,749 [salt.minion                                ][CRITICAL][5715] An exception occurred while polling the syndic
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 2058, in tune_in
+    self._process_cmd_socket()
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 2093, in _process_cmd_socket
+    self._handle_payload(payload)
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 893, in _handle_payload
+    payload['sig'] if 'sig' in payload else None)
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1909, in _handle_aes
+    self._handle_decoded_payload(data)
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1916, in _handle_decoded_payload
+    self.syndic_cmd(data)
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1943, in syndic_cmd
+    **kwargs)
+TypeError: pub() got multiple values for keyword argument 'user'
+```

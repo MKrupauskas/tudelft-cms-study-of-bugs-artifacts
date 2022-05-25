@@ -1,0 +1,121 @@
+### Description of Issue/Question
+
+I am trying to write a configuration file with a password in it based on a jinja template. The jinja template imports a customer/map.jinja. The customer/map.jinja imports an inventory/map.jinja. Then depending on if I specify the variables individually or as a set I got two different outputs in the results from the jinja template. Also inventory/map.jinja overrides defaults in the map.jinja with data from pillars.
+
+The fails way gives me `u''` wrapped around the string, and the works way doesn't. Which is the bug. It seems like python type handling leaking through to the results. One way it thinks it is a string(works), and the other it things it is unicode(fails.
+### Setup
+
+```
+pillars/inventory/us-west-2/dev/ci/config.sls:
+inventory:
+  us-west-2:
+    dev:
+      ci:
+        config:
+          basicauth:
+            password: abcdefghijkl
+```
+
+```
+pillars/top.sls:
+ 'foo*-ci-*.dev.us-west-2.aws.acme.com':
+    - inventory.us-west-2.dev.ci.config
+```
+
+```
+formulas/inventory/map.jinja:
+{% import '_grains/map.jinja' as grain %}
+
+{% load_yaml as defaults %}
+  config:
+    basicauth:
+      username: admin
+      password: password
+  state:
+    name: inventory
+{% endload %}
+
+{% set toplevel = salt['pillar.get'](defaults.state.name, default=defaults, merge=True) %}
+{% set region_env_cluster = salt['pillar.get'](defaults.state.name ~ ':' ~ grain.region ~ ':' ~ grain.env ~ ':' ~ grain.cluster, default=toplevel, merge=True) %}
+{% do region_env_cluster['config'].update(config_apiurl) %}
+{% set inventory = region_env_cluster %}
+```
+
+```
+formulas/customer/files/etc/customer/config.json:
+{%- from "customer/map.jinja" import customer with context -%}
+{
+  "inventory": {
+    "basicAuth" : {
+      "username": "{{ customer.inventory.config.basicauth.username }}",
+      "password": "{{ customer.inventory.config.basicauth.password }}"
+    }
+  }
+}
+```
+# Fails
+
+```
+formulas/customer/map.jinja:
+{% import '_grains/map.jinja' as grain %}
+{% from "inventory/map.jinja" import inventory with context %}
+
+{% load_yaml as defaults %}
+  inventory:
+    config:
+      {{ inventory.config }}
+  state:
+    name: customer
+{% endload %}
+
+{% set toplevel = salt['pillar.get'](defaults.state.name, default=defaults, merge=True) %}
+{% set region_env_cluster = salt['pillar.get'](defaults.state.name ~ ':' ~ grain.region ~ ':' ~ grain.env ~ ':' ~ grain.cluster, default=toplevel, merge=True) %}
+{% set customer = region_env_cluster %}
+```
+
+```
+/etc/customer/config.json:
+  "inventory": {
+    "basicAuth" : {
+      "username": "admin",
+      "password": "u'abcdefghijkl'"
+    }
+  }
+```
+# Works
+
+```
+customer/map.jinja:
+{% import '_grains/map.jinja' as grain %}
+{% from "inventory/map.jinja" import inventory with context %}
+
+{% load_yaml as defaults %}
+  inventory:
+    config:
+      basicauth:
+        username: {{ inventory.config.basicauth.username }}
+        password: {{ inventory.config.basicauth.password }}
+  state:
+    name: customer
+{% endload %}
+
+{% set toplevel = salt['pillar.get'](defaults.state.name, default=defaults, merge=True) %}
+{% set region_env_cluster = salt['pillar.get'](defaults.state.name ~ ':' ~ grain.region ~ ':' ~ grain.env ~ ':' ~ grain.cluster, default=toplevel, merge=True) %}
+{% set customer = region_env_cluster %}
+```
+
+```
+/etc/customer/config.json:
+  "inventory": {
+    "basicAuth" : {
+      "username": "admin",
+      "password": "abcdefghijkl"
+    }
+  },
+
+```
+### Steps to Reproduce Issue
+1. Run a highstate
+### Versions Report
+
+2016.3.3

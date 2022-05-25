@@ -1,0 +1,89 @@
+### Description of Issue/Question
+
+Configuring the network on CentOS 7.2 via `network.manage` causes minion to stop responding. It won't respond to e.g. `salt 'minion' test.ping` or anything. The `salt-minion` service requires a manual restart.
+
+The minion does receive its new network settings and these settings are activated just fine. I can see how the minion is available on a new IP address and I can SSH into the minion to verify that all the settings has been applied properly.
+
+However, the minion doesn't re-establish contact with the salt-master.
+
+~~I assume there's no way to use `network.managed` and not have the configuration applied, and instead require e.g. a reboot to make them go into effect?~~ In the development branch, the [network.py](https://github.com/saltstack/salt/blob/develop/salt/states/network.py) offers the `- noifupdown: True` option, which helps me workaround this issue, as I can then decide myself when to e.g. reboot and make the changes go into effect.
+### Setup
+
+``` yaml
+# /etc/salt/master
+
+worker_threads: 80
+```
+
+``` yaml
+# /srv/salt/centos/network/init.sls
+
+{{ interface }}:
+  network.managed:
+    - enabled: True
+    - type: eth
+    - proto: none
+    - ipaddr: {{ ip_addr }}
+    - netmask: {{ netmask }}
+    - gateway: 192.168.0.1
+    - dns:
+      - 8.8.8.8
+      - 8.8.4.4
+```
+### Steps to Reproduce Issue
+
+```
+salt 'minion' state.apply centos.network -t 120
+```
+
+or 
+
+```
+salt 'minion' state.highstate -t 120
+```
+
+both results in:
+
+```
+Minion did not return. [No response]
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.2
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-123.el7.x86_64
+         system: CentOS Linux 7.2.1511 Core
+```

@@ -1,0 +1,85 @@
+### Description of Issue/Question
+When modifying the hosts file using [states.host](https://github.com/saltstack/salt/blob/develop/salt/states/host.py) the entire file is rewritten to use 1 IP entry and a number of aliases.
+
+Example:
+```
+127.0.0.1 alias1
+127.0.0.1 alias2
+127.0.0.1 alias3
+```
+
+Gets rewritten into:
+```
+127.0.0.1 alias1 alias2 alias3
+```
+
+Problems start appearing with large numbers of host aliases pointing to the same IP, [since the number of characters in a hosts file line is limited to 256](https://www.uow.edu.au/~blane/netapp/ontap/nag/networking/concept/c_oc_netw_maintaining_host_file_limits.html) (can anyone find an RFC for this?) which essentially becomes 254 because of \n\r line endings under windows.
+
+Besides, there is [undocumented behaviour](https://superuser.com/questions/932112/is-there-a-maxium-number-of-hostname-aliases-per-line-in-a-windows-hosts-file) under Windows that limits the number of aliases in a hosts entry to 8 (1 host + 8 aliases). I was able to reproduce this under Windows Server 2016 with the following:
+
+![image](https://user-images.githubusercontent.com/10566425/46439080-7c856800-c757-11e8-81da-c83f052609df.png)
+
+"alias" host entries stop being loaded into dns cache with alias10 (`ipconfig /displaydns`).
+
+Same behaviour not present in Ubuntu Xenial, where I am able to ping alias10:
+
+![image](https://user-images.githubusercontent.com/10566425/46439831-77291d00-c759-11e8-81b3-6ae27374096f.png)
+
+I am happy to submit a patch for [modules.hosts](https://github.com/saltstack/salt/blob/develop/salt/modules/hosts.py) where this is handled. However I would like to discuss the approach.
+
+Regarding line character limit:
+1. Stop using aliases, and have one `IP Hostname` entry per line;
+2. Add aliases until the character limit is passed, at which point we break to the following line;
+
+Regarding windows handling of aliases:
+1. Identify if we are running under windows (via os grain) and handle hosts file differently;
+2. Apply window's undocumented limits to all OSs and err on the safe side;
+
+### Setup
+1 sls file with:
+```
+hosts_updater.set_windows_routes.{{redacted}}: 
+  host.present:
+    - ip: 127.0.0.1
+    - names:
+      - "{{redacted}}.redacted.info"
+```
+
+### Steps to Reproduce Issue
+Mentioned above
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.4
+
+Dependency Versions:
+           cffi: 1.11.2
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.7
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.5
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 20 2017, 18:23:56)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+```

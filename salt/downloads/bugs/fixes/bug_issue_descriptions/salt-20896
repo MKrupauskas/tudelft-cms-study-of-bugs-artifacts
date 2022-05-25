@@ -1,0 +1,152 @@
+Since 2014.7.2, I think related to the gitfs related changes like in #20141, I've unable to run `state.highstate` on multiple host without issues. Usually all but a few of the minions will fail. Running against each machine individually works.
+
+I've created a [test repo](https://github.com/jasonrm/salt-gitfs-locks) which I hope will help with reproducing the error. Using a larger git repo such as the salt repo seems to increase the likelihood of triggering the issue. On my production master I have about 15+ repos in my `gitfs_remotes`.
+
+For example, in this run all but one minion failed,
+
+```
+$ salt -G location:tuz02.us state.highstate test=True
+energy.lan.example.com:
+    TypeError encountered executing state.highstate: string indices must be integers, not str. See debug log for more info.
+flex.lan.example.com:
+    TypeError encountered executing state.highstate: string indices must be integers, not str. See debug log for more info.
+violet.lan.example.com:
+    TypeError encountered executing state.highstate: string indices must be integers, not str. See debug log for more info.
+remark.lan.example.com:
+    TypeError encountered executing state.highstate: string indices must be integers, not str. See debug log for more info.
+cliff.lan.example.com:
+    TypeError encountered executing state.highstate: string indices must be integers, not str. See debug log for more info.
+avenue.lan.example.com:
+  Name: ldap - Function: pkg.installed - Result: Clean
+
+  [snip]
+
+Summary
+-------------
+Succeeded: 87 (unchanged=2, changed=1)
+Failed:     0
+-------------
+Total states run:     87
+```
+
+Server side, the error has been similar to:
+
+```
+Feb 21 11:32:38 energy salt-master[3017]: [ERROR   ] Error in function _serve_file:
+Feb 21 11:32:38 energy salt-master[3017]: Traceback (most recent call last):
+Feb 21 11:32:38 energy salt-master[3017]: File "/usr/lib/python2.7/site-packages/salt/master.py", line 1336, in run_func
+Feb 21 11:32:38 energy salt-master[3017]: ret = getattr(self, func)(load)
+Feb 21 11:32:38 energy salt-master[3017]: File "/usr/lib/python2.7/site-packages/salt/fileserver/__init__.py", line 400, in serve_file
+Feb 21 11:32:38 energy salt-master[3017]: fnd = self.find_file(load['path'], load['saltenv'])
+Feb 21 11:32:38 energy salt-master[3017]: File "/usr/lib/python2.7/site-packages/salt/fileserver/__init__.py", line 377, in find_file
+Feb 21 11:32:38 energy salt-master[3017]: fnd = self.servers[fstr](path, saltenv, **kwargs)
+Feb 21 11:32:38 energy salt-master[3017]: File "/usr/lib/python2.7/site-packages/salt/fileserver/gitfs.py", line 1353, in find_file
+Feb 21 11:32:38 energy salt-master[3017]: return fnd
+Feb 21 11:32:38 energy salt-master[3017]: File "/usr/lib/python2.7/contextlib.py", line 24, in __exit__
+Feb 21 11:32:38 energy salt-master[3017]: self.gen.next()
+Feb 21 11:32:38 energy salt-master[3017]: File "/usr/lib/python2.7/site-packages/salt/fileserver/gitfs.py", line 916, in _aquire_update_lock_for_repo
+Feb 21 11:32:38 energy salt-master[3017]: yield
+Feb 21 11:32:38 energy salt-master[3017]: File "/usr/lib/python2.7/contextlib.py", line 24, in __exit__
+Feb 21 11:32:38 energy salt-master[3017]: self.gen.next()
+Feb 21 11:32:38 energy salt-master[3017]: File "/usr/lib/python2.7/site-packages/salt/fileserver/gitfs.py", line 932, in wait_for_write_lock
+Feb 21 11:32:38 energy salt-master[3017]: os.remove(filename)
+Feb 21 11:32:38 energy salt-master[3017]: OSError: [Errno 2] No such file or directory: '/var/cache/salt/master/gitfs/dd9031d336391396524f56f075f78b37/update.lk'
+```
+### Versions
+
+``` yaml
+$ uname -a
+Linux energy 3.18.6-1-ARCH #1 SMP PREEMPT Sat Feb 7 08:44:05 CET 2015 x86_64 GNU/Linux
+
+$ salt -G location:tuz02.us test.versions_report
+avenue.lan.example.com:
+               Salt: 2014.7.2
+             Python: 2.7.9 (default, Dec 11 2014, 04:42:00)
+             Jinja2: 2.7.3
+           M2Crypto: 0.22
+     msgpack-python: 0.4.5
+       msgpack-pure: Not Installed
+           pycrypto: 2.6.1
+            libnacl: Not Installed
+             PyYAML: 3.11
+              ioflo: Not Installed
+              PyZMQ: 14.5.0
+               RAET: Not Installed
+                ZMQ: 4.0.5
+               Mako: Not Installed
+energy.lan.example.com:
+               Salt: 2014.7.2
+             Python: 2.7.9 (default, Dec 11 2014, 04:42:00)
+             Jinja2: 2.7.3
+           M2Crypto: 0.22
+     msgpack-python: 0.4.5
+       msgpack-pure: Not Installed
+           pycrypto: 2.6.1
+            libnacl: Not Installed
+             PyYAML: 3.11
+              ioflo: Not Installed
+              PyZMQ: 14.5.0
+               RAET: Not Installed
+                ZMQ: 4.0.5
+               Mako: Not Installed
+flex.lan.example.com:
+               Salt: 2014.7.2
+             Python: 2.7.9 (default, Dec 11 2014, 04:42:00)
+             Jinja2: 2.7.3
+           M2Crypto: 0.22
+     msgpack-python: 0.4.5
+       msgpack-pure: Not Installed
+           pycrypto: 2.6.1
+            libnacl: Not Installed
+             PyYAML: 3.11
+              ioflo: Not Installed
+              PyZMQ: 14.5.0
+               RAET: Not Installed
+                ZMQ: 4.0.5
+               Mako: Not Installed
+cliff.lan.example.com:
+               Salt: 2014.7.2
+             Python: 2.7.9 (default, Dec 11 2014, 04:42:00)
+             Jinja2: 2.7.3
+           M2Crypto: 0.22
+     msgpack-python: 0.4.2
+       msgpack-pure: Not Installed
+           pycrypto: 2.6.1
+            libnacl: Not Installed
+             PyYAML: 3.11
+              ioflo: Not Installed
+              PyZMQ: 14.4.1
+               RAET: Not Installed
+                ZMQ: 4.0.5
+               Mako: Not Installed
+remark.lan.example.com:
+               Salt: 2014.7.2
+             Python: 2.7.9 (default, Dec 11 2014, 04:42:00)
+             Jinja2: 2.7.3
+           M2Crypto: 0.22
+     msgpack-python: 0.4.5
+       msgpack-pure: Not Installed
+           pycrypto: 2.6.1
+            libnacl: Not Installed
+             PyYAML: 3.11
+              ioflo: Not Installed
+              PyZMQ: 14.5.0
+               RAET: Not Installed
+                ZMQ: 4.0.5
+               Mako: Not Installed
+violet.lan.example.com:
+               Salt: 2014.7.2
+             Python: 2.7.9 (default, Dec 11 2014, 04:42:00)
+             Jinja2: 2.7.3
+           M2Crypto: 0.22
+     msgpack-python: 0.4.5
+       msgpack-pure: Not Installed
+           pycrypto: 2.6.1
+            libnacl: Not Installed
+             PyYAML: 3.11
+              ioflo: Not Installed
+              PyZMQ: 14.5.0
+               RAET: Not Installed
+                ZMQ: 4.0.5
+               Mako: Not Installed
+```

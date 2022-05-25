@@ -1,0 +1,267 @@
+### Description of Issue/Question
+
+salt-cloud delete of a mapped environment fails when more than one provider is defined. 
+
+Example failing run: 
+
+```
+[root@s-cdc-jbsalt-01 cloud.maps.d]# salt-cloud -m /etc/salt/cloud.maps.d/map-uat2-jb -d
+[INFO    ] salt-cloud starting
+[INFO    ] Applying map from '/etc/salt/cloud.maps.d/map-uat2-jb'.
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+KeyError: 'u-jbdom-201.adesa.com'
+Traceback (most recent call last):
+  File "/usr/bin/salt-cloud", line 10, in <module>
+    salt_cloud()
+  File "/usr/lib/python2.6/site-packages/salt/scripts.py", line 425, in salt_cloud
+    client.run()
+  File "/usr/lib/python2.6/site-packages/salt/cloud/cli.py", line 186, in run
+    matching = mapper.delete_map(query='list_nodes')
+  File "/usr/lib/python2.6/site-packages/salt/cloud/__init__.py", line 1673, in delete_map
+    query_map = self.interpolated_map(query=query)
+  File "/usr/lib/python2.6/site-packages/salt/cloud/__init__.py", line 1656, in interpolated_map
+    names.remove(vm_name)
+KeyError: 'u-jbdom-201.adesa.com'
+Traceback (most recent call last):
+  File "/usr/bin/salt-cloud", line 10, in <module>
+    salt_cloud()
+  File "/usr/lib/python2.6/site-packages/salt/scripts.py", line 425, in salt_cloud
+    client.run()
+  File "/usr/lib/python2.6/site-packages/salt/cloud/cli.py", line 186, in run
+    matching = mapper.delete_map(query='list_nodes')
+  File "/usr/lib/python2.6/site-packages/salt/cloud/__init__.py", line 1673, in delete_map
+    query_map = self.interpolated_map(query=query)
+  File "/usr/lib/python2.6/site-packages/salt/cloud/__init__.py", line 1656, in interpolated_map
+    names.remove(vm_name)
+KeyError: 'u-jbdom-201.adesa.com'
+```
+
+The workaround I have come up with is to hide all of the providers except for the one used by the map. The delete then works.
+
+I'm wondering if there is perhaps some nuance with the cloud.providers.d file format that I am not seeing? All of my sanitized cloud files are below.
+### Setup
+
+Add the following cloud configuration files
+
+/etc/salt/cloud.maps.d/map-uat2-jb
+
+```
+prof-vmware-nonprod-jbdom:
+  - u-jbdom-201.adesa.com:
+      grains:
+        environment: uat2
+```
+
+/etc/salt/cloud.profiles.d/prof-vmware-nonprod-jb.conf
+
+```
+prof-vmware-nonprod-jb-instances:
+  provider: prov-vmware-nonprod-jb
+
+  clonefrom: rhel6xnonprodtemplate.company.com
+
+  datacenter: CAR
+  datastore: Pure-CDC
+  cluster: CVEP-LX
+  folder: JBOSS
+
+  ssh_username: Brad.Thurber
+  password: SANITIZED
+  deploy: True
+  domain: company.com
+
+prof-vmware-nonprod-jbdom:
+  cores_per_socket: 2
+  devices:
+    network:
+      Network adapter 1:
+        name: VLAN641
+        switch_type: standard
+  extends: prof-vmware-nonprod-jb-instances
+  grains:
+    jboss_domain_controller: True
+    platform:
+      name: jboss
+      ou: adesac
+      realm: nonprod 
+    roles:
+      - jboss
+  memory: 8GB
+  num_cpus: 2
+
+prof-vmware-nonprod-jbapp:
+  cores_per_socket: 2
+  devices:
+    network:
+      Network adapter 1:
+        name: VLAN641
+        switch_type: standard
+  extends: prof-vmware-nonprod-jb-instances
+  grains:
+    platform:
+      name: jboss
+      ou: adesac
+      realm: nonprod
+    roles:
+      - jboss
+      - mod-cluster-node
+  memory: 64GB
+  num_cpus: 8
+
+prof-vmware-nonprod-jbweb:
+  devices:
+    network:
+      Network adapter 1:
+        name: VLAN230
+        switch_type: standard
+  extends: prof-vmware-nonprod-jb-instances
+  grains:
+    platform:
+      name: jboss
+      ou: adesac
+      realm: nonprod
+    roles:
+      - webserver
+      - mod-cluster-server
+  memory: 4GB
+  num_cpus: 1
+
+```
+
+/etc/salt/cloud.profiles.d/prof-vmware-prod-jb.conf
+
+```
+prof-vmware-prod-jb-instances:
+  provider: prov-vmware-prod-jb
+
+  clonefrom: rhel6xnonprodtemplate.company.com
+
+  datacenter: LIFELINE
+  datastore: Pure-CDC
+  cluster: PVEP-LX
+  folder: JBOSS
+
+  ssh_username: Brad.Thurber
+  password: SANITIZED
+  deploy: True
+  domain: company.com
+
+prof-vmware-prod-jbdom:
+  extends: prof-vmware-prod-jb-instances
+  cores_per_socket: 2
+  devices:
+    network:
+      Network adapter 1:
+        name: VLAN170
+        switch_type: standard
+  grains:
+    jboss_domain_controller: True
+    roles:
+      - jboss
+  memory: 8GB
+  num_cpus: 2
+
+prof-vmware-prod-jbapp:
+  extends: prof-vmware-prod-jb-instances
+  cores_per_socket: 2
+  devices:
+    network:
+      Network adapter 1:
+        name: VLAN170
+        switch_type: standard
+  grains:
+    roles:
+      - jboss
+      - mod-cluster-node
+  memory: 64GB
+  num_cpus: 8
+
+prof-vmware-prod-jbweb:
+  extends: prof-vmware-prod-jb-instances
+  devices:
+    network:
+      Network adapter 1:
+        name: VLAN765
+        switch_type: standard
+  grains:
+    roles:
+      - webserver
+      - mod-cluster-server
+  memory: 4GB
+  num_cpus: 1
+```
+
+/etc/salt/cloud.providers.d/prov_vmware_nonprod.conf
+
+```
+prov-vmware-nonprod-jb:
+  driver: vmware
+  user: 'DOMAIN\username'
+  password: 'SANITIZED'
+  url: 'p-corp-vcntr.company.com'
+  protocol: 'https'
+  port: 443
+  minion:
+    master: saltmaster.company.com
+```
+
+/etc/salt/cloud.providers.d/prov_vmware_prod.conf
+
+```
+prov-vmware-prod-jb:
+  driver: vmware
+  user: 'DOMAIN\username'
+  password: 'SANITIZED'
+  url: 'p-corp-vcntr.company.com'
+  protocol: 'https'
+  port: 443
+  minion:
+    master: saltmaster.company.com
+```
+### Steps to Reproduce Issue
+
+Run salt-cloud map delete as shown in the description above. You should get the failure as in the description above. 
+
+Now hide the prov_vmware_prod.conf file (this is the one that is NOT used by the map) by renaming it to prov_vmware_prod.confHIDDEN. The salt cloud map delete operation will now work.
+### Versions Report
+
+_Provided by running_ `salt --versions-report`
+
+```
+[root@s-cdc-jbsalt-01 salt]# salt --versions-report                                                                                                     [2/9611]Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: 0.20.2
+           Mako: 0.3.4
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+         Python: 2.6.6 (r266:84292, Nov 21 2013, 10:50:32)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 1.4.1
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: 0.20.0
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: 0.20.3
+   python-gnupg: Not Installed
+          smmap: 0.8.1
+        timelib: Not Installed
+
+System Versions:
+           dist: redhat 6.6 Santiago
+        machine: x86_64
+        release: 2.6.32-504.el6.x86_64
+         system: Red Hat Enterprise Linux Server 6.6 Santiago
+```

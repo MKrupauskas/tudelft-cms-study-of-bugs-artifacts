@@ -1,0 +1,101 @@
+### Description of Issue
+
+If you `sysctl.present` some values and the name arguments are not unicode strings (e.g. with the pydsl renderer) the following error occurs:
+
+```
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1878, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1823, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/states/sysctl.py", line 114, in present
+    update = __salt__['sysctl.persist'](name, value, config)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/linux_sysctl.py", line 254, in persist
+    assign(name, value)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/linux_sysctl.py", line 138, in assign
+    tran_tab = name.translate(*trans_args)
+TypeError: translate expected at most 2 arguments, got 256
+```
+
+E.g. this patch fixes this error:
+
+```patch
+--- a/salt/modules/linux_sysctl.py
++++ b/salt/modules/linux_sysctl.py
+@@ -129,13 +129,13 @@ def assign(name, value):
+         tran_tab = name.translate(''.maketrans('./', '/.'))
+     else:
+         if isinstance(name, unicode):  # pylint: disable=incompatible-py3-code
+-            trans_args = ({
++            trans_arg = {
+                 ord('/'): '.',
+                 ord('.'): '/'
+-            },)
++            }
+         else:
+-            trans_args = string.maketrans('./', '/.')
+-        tran_tab = name.translate(*trans_args)
++            trans_arg = string.maketrans('./', '/.')
++        tran_tab = name.translate(trans_arg)
+ 
+     sysctl_file = '/proc/sys/{0}'.format(tran_tab)
+     if not os.path.exists(sysctl_file):
+```
+
+### Setup
+
+test-sysctl.sls
+```python
+#!pydsl
+state('net.ipv4.tcp_tw_recycle').sysctl.present(value=1)
+```
+
+### Steps to Reproduce Issue
+```shell
+salt-call sysctl.assign net.ipv4.tcp_tw_recycle 0
+salt-call state.sls test-sysctl
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.3.7
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Dec  4 2017, 14:50:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.2.3
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-119-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

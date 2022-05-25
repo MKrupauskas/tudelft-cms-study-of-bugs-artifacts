@@ -1,0 +1,158 @@
+I just upgraded to 2014.1.13 on CentOS and salt-cloud calls failing on KeyError.
+
+```
+$ cat /etc/redhat-release
+CentOS release 6.5 (Final)
+
+$ salt --versions-report
+           Salt: 2014.1.13
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+         PyYAML: 3.10
+          PyZMQ: 2.2.0.1
+            ZMQ: 3.2.4
+```
+
+My map file is fine, rolling back 2014.1.11 works.
+
+```
+DEBUG   ] EC2 Response Status Code: 200
+[ERROR   ] There was an error actioning machines: 'dev.eu-west-1.compute.internal'
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/cloud/cli.py", line 299, in run
+    ret = mapper.do_action(names, kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/cloud/__init__.py", line 1000, in do_action
+    names.remove(vm_name)
+  File "/usr/lib64/python2.6/contextlib.py", line 34, in __exit__
+    self.gen.throw(type, value, traceback)
+  File "/usr/lib/python2.6/site-packages/salt/utils/context.py", line 43, in func_globals_inject
+    yield
+  File "/usr/lib/python2.6/site-packages/salt/cloud/__init__.py", line 998, in do_action
+    vm_name, call='action'
+  File "/usr/lib/python2.6/site-packages/salt/cloud/clouds/ec2.py", line 1639, in start
+    instance_id = _get_node(name)[name]['instanceId']
+KeyError: 'dev.eu-west-1.compute.internal'
+```
+
+The JSON from AWS looks like this:
+
+```
+{'amiLaunchIndex': '0',
+ 'architecture': 'x86_64',
+ 'blockDeviceMapping': {'item': {'deviceName': '/dev/xvda',
+                                 'ebs': {'attachTime': '2014-09-01T03:34:04.000Z',
+                                         'deleteOnTermination': 'true',
+                                         'status': 'attached',
+                                         'volumeId': 'vol-v35716c4'}}},
+ 'clientToken': None,
+ 'dnsName': None,
+ 'ebsOptimized': 'false',
+ 'groupSet': {'item': {'groupId': 'sg-5c2fdg19', 'groupName': 'default'}},
+ 'hypervisor': 'xen',
+ 'id': 'i-166dh3i6',
+ 'image': 'ami-5a14e13a',
+ 'imageId': 'ami-5a14e13a',
+ 'instanceId': 'i-166dh3i6',
+ 'instanceState': {'code': '80', 'name': 'stopped'},
+ 'instanceType': 't2.medium',
+ 'keyName': 'saltdev',
+ 'launchTime': '2014-10-31T02:30:12.000Z',
+ 'monitoring': {'state': 'disabled'},
+ 'networkInterfaceSet': {'item': {'attachment': {'attachTime': '2014-09-01T03:34:01.000Z',
+                                                 'attachmentId': 'eni-attach-11f46w56',
+                                                 'deleteOnTermination': 'true',
+                                                 'deviceIndex': '0',
+                                                 'status': 'attached'},
+                                  'description': None,
+                                  'groupSet': {'item': {'groupId': 'sg-5c2fdg19',
+                                                        'groupName': 'default'}},
+                                  'macAddress': '02:fc:5f:4f:11:2a',
+                                  'networkInterfaceId': 'eni-10b2ea65',
+                                  'ownerId': '825119411234',
+                                  'privateIpAddress': '10.10.1.11',
+                                  'privateIpAddressesSet': {'item': {'primary': 'true',
+                                                                     'privateIpAddress': '10.10.1.11'}},
+                                  'sourceDestCheck': 'true',
+                                  'status': 'in-use',
+                                  'subnetId': 'subnet-d45f71b9',
+                                  'vpcId': 'vpc-1b11e7a9'}},
+ 'placement': {'availabilityZone': 'eu-west-1c',
+               'groupName': None,
+               'tenancy': 'default'},
+    result = query(params)
+ 'privateDnsName': 'ip-10-10-1-11.eu-west-1.compute.internal',
+ 'privateIpAddress': '10.10.1.11',
+ 'private_ips': '10.10.1.11',
+ 'productCodes': None,
+ 'public_ips': [],
+ 'reason': 'User initiated (2014-10-31 05:37:14 GMT)',
+ 'rootDeviceName': '/dev/xvda',
+ 'rootDeviceType': 'ebs',
+ 'size': 't2.medium',
+ 'sourceDestCheck': 'true',
+ 'state': 'stopped',
+ 'stateReason': {'code': 'Client.UserInitiatedShutdown',
+                 'message': 'Client.UserInitiatedShutdown: User initiated shutdown'},
+ 'subnetId': 'subnet-d45f71b9',
+ 'tagSet': {'item': {'key': 'Name',
+                     'value': 'dev.eu-west-1.compute.internal'}},
+ 'virtualizationType': 'hvm',
+ 'vpcId': 'vpc-1b11e7a9'}
+```
+
+Removing the [name] key from the dict call fixes the problem.
+
+```
+$ diff -u /usr/lib/python2.6/site-packages/salt/cloud/clouds/ec2.py.dist /usr/lib/python2.6/site-packages/salt/cloud/clouds/ec2.py
+--- /usr/lib/python2.6/site-packages/salt/cloud/clouds/ec2.py.dist  2014-10-31 06:34:34.499223178 +0000
++++ /usr/lib/python2.6/site-packages/salt/cloud/clouds/ec2.py   2014-10-31 06:37:13.234158926 +0000
+@@ -1541,7 +1541,7 @@
+         )
+
+     if 'instance_id' not in kwargs:
+-        kwargs['instance_id'] = _get_node(name)[name]['instanceId']
++        kwargs['instance_id'] = _get_node(name)['instanceId']
+
+     if type(kwargs['volumes']) is str:
+         volumes = yaml.safe_load(kwargs['volumes'])
+@@ -1616,7 +1616,7 @@
+
+     log.info('Stopping node {0}'.format(name))
+
+-    instance_id = _get_node(name)[name]['instanceId']
++    instance_id = _get_node(name)['instanceId']
+
+     params = {'Action': 'StopInstances',
+               'InstanceId.1': instance_id}
+@@ -1636,7 +1636,7 @@
+
+     log.info('Starting node {0}'.format(name))
+
+-    instance_id = _get_node(name)[name]['instanceId']
++    instance_id = _get_node(name)['instanceId']
+
+     params = {'Action': 'StartInstances',
+               'InstanceId.1': instance_id}
+@@ -1748,7 +1748,7 @@
+             'A tag or tags must be specified using tags=list,of,tags'
+         )
+
+-    instance_id = _get_node(name)[name]['instanceId']
++    instance_id = _get_node(name)['instanceId']
+     params = {'Action': 'DeleteTags',
+               'ResourceId.1': instance_id}
+
+@@ -1869,7 +1869,7 @@
+
+         salt-cloud -a reboot mymachine
+     '''
+-    instance_id = _get_node(name)[name]['instanceId']
++    instance_id = _get_node(name)['instanceId']
+     params = {'Action': 'RebootInstances',
+               'InstanceId.1': instance_id}
+     result = query(params)
+```

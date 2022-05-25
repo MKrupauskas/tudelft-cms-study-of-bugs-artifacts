@@ -1,0 +1,104 @@
+### Description of Issue/Question
+dockerng.network_present with specified containers is not idempotent for docker engine >= v1.28.
+A second call results in a failure to connect the already connected container:
+
+          ID: test
+    Function: dockerng.network_present
+      Result: False
+     Comment: Failed to connect container '...' to network 'mynetwork' Error 500: {"message":"endpoint with name mycontainer already exists in network mynetwork"}
+     Started: 05:11:45.107676
+    Duration: 432.294 ms
+     Changes:
+	 
+This seems to be caused by docker-py's following call to the docker-API, which does not return nested container information:
+
+ ```
+[DEBUG   ] Attempting to run docker-py's "networks" function with args=() and kwargs={'names': ['mynetwork'], 'ids': None}
+[DEBUG   ] "GET /v1.29/networks?filters=%7B%22name%22%3A+%5B%22mynetwork%22%5D%7D HTTP/1.1" 200 382
+
+```
+A request that would return the network's containers is:
+`/v1.29/networks?filters=%7B%22name%22%3A+%5B%7B%22mynetwork%22%3Atrue%7D%5D%7D
+`
+or
+`/v1.29/networks/mynetwork?verbose=true`
+
+So instead of {"name": ["mynetwork"]} the filter should read {"name": [{"mynetwork":true}]} to enable verbose output, which was introduced with v1.28.
+
+### Setup
+
+```
+#./mynetwork.sls:
+mynetwork:
+    dockerng.network_present:
+        - containers:
+            - mycontainer
+```
+
+### Steps to Reproduce Issue
+Execute twice:
+`salt '<host-name>' state.apply
+`
+### Versions Report
+```
+Docker Version:
+Client:
+ Version:      17.05.0-ce
+ API version:  1.29
+ Go version:   go1.7.5
+ Git commit:   89658be
+ Built:        Thu May  4 22:04:27 2017
+ OS/Arch:      linux/amd64
+
+Server:
+ Version:      17.05.0-ce
+ API version:  1.29 (minimum version 1.12)
+ Go version:   go1.7.5
+ Git commit:   89658be
+ Built:        Thu May  4 22:04:27 2017
+ OS/Arch:      linux/amd64
+ Experimental: false
+ ```
+ ```
+ Salt Version:
+           Salt: 2016.11.5
+
+  Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+      docker-py: 1.10.6
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.8
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.8
+
+
+```

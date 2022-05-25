@@ -1,0 +1,82 @@
+### Description of Issue/Question
+
+We set grains_cache true, but the loader.py code sets the cfn after it tests if grains_cache is true, but then later in the grains def, you test for it again and it seems to have changed, therefore cfn isn't defined and it pops on that state.  If we move the definition of cfn up 3 lines, it works fine.  I am not completely sure this is the best approach however.
+
+Here is my patch.
+
+``` diff
+diff  /tmp/loader.py /usr/lib/python2.7/site-packages/salt/loader.py
+
+
+558a559,562
+>     cfn = os.path.join(
+>         opts['cachedir'],
+>         'grains.cache.p'
+>     )
+561,564d564
+<             cfn = os.path.join(
+<                 opts['cachedir'],
+<                 'grains.cache.p'
+<             )
+```
+### Steps to Reproduce Issue
+
+``` py
+          ID: dummy0
+    Function: network.managed
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/site-packages/salt/state.py", line 1624, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1491, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/states/network.py", line 413, in managed
+                  grains_info = salt.loader.grains(__opts__, True)
+                File "/usr/lib/python2.7/site-packages/salt/loader.py", line 656, in grains
+                  with salt.utils.fopen(cfn, 'w+b') as fp_:
+              UnboundLocalError: local variable 'cfn' referenced before assignment
+     Started: 19:21:47.301853
+    Duration: 2632.383 ms
+     Changes:   
+```
+### Versions Report
+
+``` yaml
+# salt-call --versions
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Feb 11 2014, 07:46:25)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: redhat 7.1 Maipo
+        machine: x86_64
+        release: 3.10.0-229.7.2.el7.jump2.x86_64
+         system: Red Hat Enterprise Linux Server 7.1 Maipo
+```

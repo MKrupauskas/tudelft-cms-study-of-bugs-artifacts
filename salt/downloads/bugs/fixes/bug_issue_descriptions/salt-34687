@@ -1,0 +1,130 @@
+[http://stackoverflow.com/questions/38390216/salt-master-salt-cloud-not-acting-idempotent](http://stackoverflow.com/questions/38390216/salt-master-salt-cloud-not-acting-idempotent)
+I am trying to test salt-cloud saltify to deploy/install salt-minions on target machines.
+
+I created three vagrant machines and names them master, minion-01and minion-02.
+
+all the machines were same like this;
+
+```
+root@master:/home/vagrant# lsb_release -a
+No LSB modules are available.
+Distributor ID: Ubuntu
+Description:    Ubuntu 14.04.4 LTS
+Release:    14.04
+Codename:   trusty
+```
+
+then on master I followed this http://repo.saltstack.com/#ubuntu to install salt-master(manually of course).
+
+then in master I added these three files.
+
+**in /etc/salt/cloud.providers:**
+
+```
+root@master:/etc/salt/cloud.providers.d# cat bare_metal.conf 
+my-saltify-config:
+  minion:
+    master: 192.168.33.10
+  driver: saltify
+```
+
+**in /etc/salt/cloud.profiles.d:**
+
+```
+root@master:/etc/salt/cloud.profiles.d# cat saltify.conf 
+make_salty:
+  provider: my-saltify-config
+  script_args: git v2016.3.1
+```
+
+**/etc/salt/saltify-map**
+
+```
+
+root@master:/etc/salt# cat saltify-map 
+make_salty:
+  - minion-01:
+      ssh_host: 192.168.33.11
+      ssh_username: vagrant
+      password: vagrant
+  - minion-02:
+      ssh_host: 192.168.33.12
+      ssh_username: vagrant
+      password: vagrant
+```
+
+then on minion I ran `salt-cloud -m /etc/salt/saltify-map` It was very slow but It ran without errors. keys of both minion-01 and minion-02 was accepted by salt master.
+
+I could do this:
+
+```
+   root@master:/home/vagrant# salt 'minion*' test.ping
+    minion-01:
+        True
+    minion-02:
+        True
+
+```
+
+and this;
+
+```
+root@master:/home/vagrant# salt-key 
+Accepted Keys:
+minion-01
+minion-02
+Denied Keys:
+Unaccepted Keys:
+Rejected Keys:
+The Problem;
+
+```
+
+Now when I again executed this **salt-cloud -m /etc/salt/saltify-map** salt-master re-ran the whole execution and then I had this;
+
+```
+
+root@master:/home/vagrant# salt 'minion*' test.ping
+minion-02:
+    Minion did not return. [No response]
+minion-01:
+    Minion did not return. [No response]
+```
+
+and this;
+
+```
+root@master:/etc/salt# salt-key 
+Accepted Keys:
+minion-01
+minion-02
+Denied Keys:
+minion-01
+minion-02
+Unaccepted Keys:
+Rejected Keys:
+```
+
+In short salt-cloud is not acting idempotent.
+
+What am I doing wrong ?
+
+The second problem is, though on the first run salt-cloud -m /etc/salt/saltify-map installs and accepts key of minion-01 and minion-02 on salt-master, but the minion machines have all these things installed along with salt-minion
+
+```
+root@minion-02:/home/vagrant# salt
+salt         salt-call    salt-cp      salt-master  salt-proxy   salt-ssh     salt-unity
+salt-api     salt-cloud   salt-key     salt-minion  salt-run     salt-syndic 
+```
+
+How do I make sure that only salt-minion gets installed.
+
+Thanks.
+
+PS:
+
+```
+
+root@master:/etc/salt# salt-master --version
+salt-master 2016.3.1 (Boron)
+```

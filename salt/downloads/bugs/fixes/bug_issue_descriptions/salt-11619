@@ -1,0 +1,42 @@
+The core module is preventing proper startup which will cause errors like this later on:
+
+```
+State pkg.installed found in sls sudo is unavailable
+```
+
+This is correlated to error messages like this:
+
+```
+2014-03-28 16:25:41,142 [salt.loader                              ][CRITICAL] Failed to load grains defined in grain file core.os_data in function <function os_data at 0x23b21b8>, error:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1026, in gen_grains
+    ret = fun()
+  File "/usr/lib/python2.7/dist-packages/salt/grains/core.py", line 966, in os_data
+    grains.update(_virtual(grains))
+  File "/usr/lib/python2.7/dist-packages/salt/grains/core.py", line 513, in _virtual
+    if ':/lxc/' in salt.utils.fopen('/proc/1/cgroup', 'r').read():
+  File "/usr/lib/python2.7/dist-packages/salt/utils/__init__.py", line 1037, in fopen
+    fhandle = open(*args, **kwargs)
+IOError: [Errno 1] Operation not permitted: '/proc/1/cgroup'
+```
+
+Patching `/usr/lib/python2.7/dist-packages/salt/grains/core.py` like this helps:
+
+```
+--- /tmp/core.py.old    2014-03-28 16:29:24.000000000 +0100
++++ /tmp/core.py    2014-03-28 16:29:04.000000000 +0100
+@@ -510,8 +510,11 @@
+     sysctl = salt.utils.which('sysctl')
+     if osdata['kernel'] in choices:
+         if os.path.isfile('/proc/1/cgroup'):
+-            if ':/lxc/' in salt.utils.fopen('/proc/1/cgroup', 'r').read():
+-                grains['virtual_subtype'] = 'LXC'
++            try:
++                if ':/lxc/' in salt.utils.fopen('/proc/1/cgroup', 'r').read():
++                    grains['virtual_subtype'] = 'LXC'
++            except:
++                pass
+         if isdir('/proc/vz'):
+             if os.path.isfile('/proc/vz/version'):
+                 grains['virtual'] = 'openvzhn'
+```

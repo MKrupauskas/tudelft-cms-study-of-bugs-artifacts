@@ -1,0 +1,114 @@
+### Description of Issue/Question
+
+`salt.cloud.clouds.ec2._get_node` returns data inconsistent with what `salt.utils.cloud.cache_node` expects.  It is returning a dictionary with a single key, value pair, whose key seems to be the `name` the `cache_node` function is looking for:
+
+``` py
+{'jmoney-git-ec2-amazon-6':
+  {'amiLaunchIndex': '0',
+   ...
+   'keyName': 'jmoney',
+   'launchTime': '2016-05-10T23:00:26.000Z',
+   'monitoring': {'state': 'disabled'},
+   'name': 'jmoney-git-ec2-amazon-6',
+   ...
+   'virtualizationType': 'hvm'}
+}
+```
+
+Contrast this with a digital ocean node dictionary, which has the required `name` attribute in the top level dictionary and does not cause the stack trace:
+
+``` py
+{
+  ...
+  u'kernel': None,
+  u'locked': True,
+  u'memory': 2048,
+  u'name': u'jmoney-stable-do-fedora-23',
+  u'networks': {u'v4': [], u'v6': []},
+  u'next_backup_window': None,
+  ...
+}
+```
+### Setup
+
+Provision an amazon VM: `salt-cloud -p amazon-6 jmoney-git-ec2-amazon-6`.
+### Steps to Reproduce Issue
+
+``` py
+# salt-call --local cloud.has_instance jmoney-git-ec2-amazon-6
+[INFO    ] Starting new HTTPS connection (1): api.digitalocean.com
+[INFO    ] Starting new HTTPS connection (1): ec2.us-east-1.amazonaws.com
+[INFO    ] Starting new HTTPS connection (1): identity.api.rackspacecloud.com
+[INFO    ] Starting new HTTPS connection (1): ec2.us-east-1.amazonaws.com
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+KeyError: 'name'
+Traceback (most recent call last):
+  File "/usr/local/bin/salt-call", line 6, in <module>
+    exec(compile(open(__file__).read(), __file__, 'exec'))
+  File "/root/salt/scripts/salt-call", line 11, in <module>
+    salt_call()
+  File "/root/salt/salt/scripts.py", line 341, in salt_call
+    client.run()
+  File "/root/salt/salt/cli/call.py", line 53, in run
+    caller.run()
+  File "/root/salt/salt/cli/caller.py", line 133, in run
+    ret = self.call()
+  File "/root/salt/salt/cli/caller.py", line 196, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/root/salt/salt/modules/cloud.py", line 149, in has_instance
+    data = get_instance(name, provider)
+  File "/root/salt/salt/modules/cloud.py", line 175, in get_instance
+    data = action(fun='show_instance', names=[name], provider=provider)
+  File "/root/salt/salt/modules/cloud.py", line 234, in action
+    info = client.action(fun, cloudmap, names, provider, instance, kwargs)
+  File "/root/salt/salt/cloud/__init__.py", line 482, in action
+    return mapper.do_action(names, kwargs)
+  File "/root/salt/salt/cloud/__init__.py", line 1511, in do_action
+    vm_name, call='action'
+  File "/root/salt/salt/cloud/clouds/ec2.py", line 3171, in show_instance
+    salt.utils.cloud.cache_node(node, __active_provider_name__, __opts__)
+  File "/root/salt/salt/utils/cloud.py", line 2821, in cache_node
+    path = os.path.join(prov_dir, '{0}.p'.format(node['name']))
+KeyError: 'name'
+```
+### Versions Report
+
+``` yaml
+# salt-call --versions
+Salt Version:
+           Salt: 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: 0.21.1
+           Mako: 1.0.0
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.4
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 8.4
+```

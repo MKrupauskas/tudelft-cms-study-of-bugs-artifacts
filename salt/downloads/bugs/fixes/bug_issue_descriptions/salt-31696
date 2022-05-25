@@ -1,0 +1,252 @@
+### Description of Issue/Question
+
+First of all thanks for Your help and for bringing **salt** to life, a really great system!
+
+I set up a simple **salt-proxy** to expose the newer boto3-API for managing AWS.
+I made a connection module, a custom execution module (both currently very simple),
+and a first custom state (also simple for tests).
+Everything works fine including calling **state.highstate** on the proxy for the first time.
+But when I call **state.highstate** again, I get a strange _KeyError_ like:
+`KeyError: 'master_uri'`
+### Setup
+
+srv://_proxy/aws_account.py:
+
+```
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# AWS-Proxy
+from __future__ import absolute_import
+
+import salt.exceptions
+import logging
+import boto3
+
+# This must be present or the Salt loader won't load this module
+__virtualname__ = 'aws_account'
+__proxyenabled__ = [__virtualname__]
+
+# Variables are scoped to this module so we can have persistent data
+# across calls to fns in here.
+DETAILS = {}
+
+# Want logging!
+log = logging.getLogger(__file__)
+
+# This does nothing, it's here just as an example and to provide a log
+# entry when the module is loaded.
+def __virtual__():
+    '''
+    Only return if all the modules are available
+    '''
+    log.debug('aws proxy __virtual__() called...')
+    return __virtualname__
+
+# Every proxy module needs an 'init', though you can
+# just put a 'pass' here if it doesn't need to do anything.
+def init(opts):
+    log.debug('aws_account proxy init() aufgerufen')
+
+    # Save the REST URL
+    DETAILS['session'] = boto3.session.Session(**opts['proxy']['session'])
+
+
+def session():
+    '''Returns the session'''
+    return DETAILS['session']
+
+
+def ping():
+    '''
+    Is AWS up?
+    '''
+    verbindung = DETAILS['session']
+    try:
+        region = session.region_name
+        return True
+    except:
+        return False
+
+
+def shutdown(opts):
+    '''
+    For this proxy shutdown is a no-op
+    '''
+    log.debug('aws_account proxy shutdown()')
+    pass
+
+# eof
+```
+
+srv://_modules/aws_account.py:
+
+```
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# AWS Account Execution Modules
+
+import salt.exceptions
+import subprocess
+import boto3
+
+# Define the module's virtual name
+__virtualname__ = 'aws_account'
+
+def __virtual__():
+    '''
+    Confine this module to Mac OS with Homebrew.
+    '''
+    return __virtualname__
+
+
+def session():
+    '''Returns the session object'''
+    return __proxy__['aws_account.session']()
+
+# eof
+```
+
+srv://_states/aws_account.py:
+
+```
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# State AWS-Accounts
+
+import salt.exceptions
+
+# Define the module's virtual name
+__virtualname__ = 'aws_account'
+
+
+def __virtual__():
+    '''
+    Confine this module to Mac OS with Homebrew.
+    '''
+    return __virtualname__
+
+
+def test(name, internet_gateway=True):
+    '''...'''
+    result = {'name': name, 'changes': {}, 'result': False, 'comment': 'AWS Account not ready!'}
+    try:
+        session = __salt__['aws_account.session']()
+    except:
+        return result
+
+    result['comment'] = "Test successful"
+    result['result'] = True
+    return result
+
+# eof
+```
+
+My simple state looks like:
+
+```
+aws_architektur_konfiguriert:
+  aws_account.test:
+    - name: test1
+```
+### Steps to Reproduce Issue
+
+The first call works as expected:
+`sudo salt '<Proxy-ID>` state.highstate`
+
+```
+<Proxy-ID>:
+----------
+ID: aws_architektur_konfiguriert
+Function: aws_account.test
+Name: test1
+Result: True
+Comment: Test successful
+Started: 07:48:59.870824
+Duration: 0.829 ms
+Changes:   
+
+Summary for <Proxy-ID>
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+```
+
+But then calling again doesn't work like expected:
+
+`sudo salt '<Proxy-ID>` state.highstate`
+
+```
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1071, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/state.py", line 554, in highstate
+        mocked=kwargs.get('mock', False))
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 3198, in __init__
+        self.client = salt.fileclient.get_file_client(self.opts)
+      File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 56, in get_file_client
+        }.get(client, RemoteClient)(opts)
+      File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 951, in __init__
+        self.channel = salt.transport.Channel.factory(self.opts)
+      File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 29, in factory
+        return ReqChannel.factory(opts, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/transport/client.py", line 22, in factory
+        sync = SyncWrapper(AsyncReqChannel.factory, (opts,), kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/utils/async.py", line 59, in __init__
+        self.async = method(*args, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/transport/client.py", line 105, in factory
+        return salt.transport.zeromq.AsyncZeroMQReqChannel(opts, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 78, in __new__
+        new_obj.__singleton_init__(opts, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 121, in __singleton_init__
+        self.auth = salt.crypt.AsyncAuth(self.opts, io_loop=self._io_loop)
+      File "/usr/lib/python2.7/dist-packages/salt/crypt.py", line 317, in __new__
+        key = cls.__key(opts)
+      File "/usr/lib/python2.7/dist-packages/salt/crypt.py", line 334, in __key
+        opts['master_uri'],  # master ID
+    KeyError: 'master_uri'
+```
+### Versions Report
+
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.4.0
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: 1.3.1
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: 0.23.2
+        libnacl: 1.4.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.23.1
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-77-generic
+         system: Ubuntu 14.04 trusty
+
+I am completely lost here, perhaps You got an idea here?
+
+A side question (not an issue):
+Is there a possibility to access ****proxy**** directly in a custom state?

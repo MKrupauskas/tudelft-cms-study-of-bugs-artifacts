@@ -1,0 +1,113 @@
+This is for salt service states that are running on CentOS 6.6,
+
+The output is consistently returning service changes fields even when the service doesn't change, see the ip6tables state output below.
+
+tldr, ip6tables (and some other services) are already disabled and not running, but when executing the state it will return a comment like "Service iptables is already disabled, and is dead", which indicates no changes, but then the "changes" field is populated like 'changes': {'ip6tables': True}
+
+This is reproducible and I can provide full debug/tracing output if needed.
+
+Salt Version Info:
+
+``` console
+[root@vwc-es87 ~]# salt --versions-report
+           Salt: 2014.7.4
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+         Jinja2: 2.7.3
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.4
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+```
+
+Operating System Info:
+
+``` yaml
+    os:
+        CentOS
+    os_family:
+        RedHat
+    osarch:
+        x86_64
+    oscodename:
+        Final
+    osfinger:
+        CentOS-6
+    osfullname:
+        CentOS
+    osmajorrelease:
+        6
+    osrelease:
+        6.6
+    osrelease_info:
+        - 6
+        - 6
+```
+
+Salt State:
+
+``` yaml
+multipath-service:
+    service.running:
+        - name: multipathd
+        - require:
+            - sls: sf_client.packages
+            - file: /etc/multipath.conf
+        - watch:
+            - file: /etc/multipath.conf
+        - enable: True
+
+apiserver-service:
+    service.running:
+        - name: apiserver
+        - enable: True
+        - require:
+            - file: apiserver-service-file
+
+iptables:
+    service.dead:
+        - enable: False
+
+ip6tables:
+    service.dead:
+        - enable: False
+```
+
+State Output:
+
+``` python
+ 'service_|-apiserver-service_|-apiserver_|-running': {'__run_num__': 30,
+  'changes': {'apiserver': True},
+  'comment': 'Service apiserver is already enabled, and is running',
+  'duration': 27.232,
+  'name': 'apiserver',
+  'result': True,
+  'start_time': '15:32:43.664127'},
+ 'service_|-ip6tables_|-ip6tables_|-dead': {'__run_num__': 34,
+  'changes': {'ip6tables': True},
+  'comment': 'Service ip6tables is already disabled, and is dead',
+  'duration': 141.265,
+  'name': 'ip6tables',
+  'result': True,
+  'start_time': '15:32:44.251660'},
+ 'service_|-iptables_|-iptables_|-dead': {'__run_num__': 33,
+  'changes': {'iptables': True},
+  'comment': 'Service iptables is already disabled, and is dead',
+  'duration': 474.938,
+  'name': 'iptables',
+  'result': True,
+  'start_time': '15:32:43.776549'},
+ 'service_|-multipath-service_|-multipathd_|-running': {'__run_num__': 29,
+  'changes': {},
+  'comment': 'Service multipathd is already enabled, and is in the desired state',
+  'duration': 111.791,
+  'name': 'multipathd',
+  'result': True,
+  'start_time': '15:32:43.551560'},
+```

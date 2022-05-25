@@ -1,0 +1,204 @@
+**Description**
+
+`require_in`/`watch+in` etc are compiled to corresponding `require` / `watch` before providing the final `lowstate`. Currently, if the `name` specified in `require_in` conflicts with an `id` of the same name, despite both having different state types, the corresponding `require` statement is never generated and a silent failure occurs.
+
+**Setup**
+
+PoC sls:
+
+```
+install-pkg:
+  pkg.installed:
+  - name: docker
+
+docker:
+  user.present
+
+create-group:
+  group.present:
+  - name: test_group
+  - require_in:
+    - pkg: docker
+```
+
+**Expected behavior**
+
+<details>
+<summary>Expected lowstate </summary>
+
+```
+      __env__:
+          base
+      __id__:
+          install-pkg
+      __sls__:
+          test-group
+      fun:
+          installed
+      name:
+          docker
+      order:
+          10000
+      require:
+          |_
+            ----------
+            group:
+                create-group
+      state:
+          pkg
+    |_
+      ----------
+      __env__:
+          base
+      __id__:
+          docker
+      __sls__:
+          test-group
+      fun:
+          present
+      name:
+          docker
+      order:
+          10001
+      state:
+          user
+    |_
+      ----------
+      __env__:
+          base
+      __id__:
+          create-group
+      __sls__:
+          test-group
+      fun:
+          present
+      name:
+          test_group
+      order:
+          10002
+      require_in:
+          |_
+            ----------
+            pkg:
+                docker
+      state:
+          group
+```
+</details>
+
+**Current behavior**
+
+<details>
+<summary>Rendered lowstate </summary>
+
+```
+      __env__:
+          base
+      __id__:
+          install-pkg
+      __sls__:
+          test-group
+      fun:
+          installed
+      name:
+          docker
+      order:
+          10000
+      state:
+          pkg
+    |_
+      ----------
+      __env__:
+          base
+      __id__:
+          docker
+      __sls__:
+          test-group
+      fun:
+          present
+      name:
+          docker
+      order:
+          10001
+      state:
+          user
+    |_
+      ----------
+      __env__:
+          base
+      __id__:
+          create-group
+      __sls__:
+          test-group
+      fun:
+          present
+      name:
+          test_group
+      order:
+          10002
+      require_in:
+          |_
+            ----------
+            pkg:
+                docker
+      state:
+          group
+```
+</details>
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+          Salt: 3002.6
+
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.3
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 1.0.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: 2.6.1
+  pycryptodome: 3.10.1
+        pygit2: Not Installed
+        Python: 3.6.9 (default, Jan 26 2021, 15:33:00)
+  python-gnupg: Not Installed
+        PyYAML: 5.4.1
+         PyZMQ: 22.0.3
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+
+System Versions:
+          dist: ubuntu 18.04 bionic
+        locale: UTF-8
+       machine: x86_64
+       release: 4.15.0-140-generic
+        system: Linux
+       version: Ubuntu 18.04 bionic
+```
+</details>
+
+**Additional context**
+
+Although it is not ideal to have such conflicts in state files and it would be better to consistently use `id`s or `name`s everywhere, this may happen in some cases and is not handled by salt. While reverse compiling `require_in` to `require`, not just the `name`, but `state_type` should also be checked to avoid this. 
+
+This is caused by these two checks which I think should be adapted:
+
+1. https://github.com/saltstack/salt/blob/master/salt/state.py#L236 (it just looks for a matching `name` and appends that)
+
+2. https://github.com/saltstack/salt/blob/master/salt/state.py#L1627 (Even the lookup for name is skipped if a matching `id` is found, no matter what the `state_type`)
+
+I don't really see any reason for this, while scanning for the `name`, the type of state shall always be checked before creating the corresponding requisite in target state.  I am not sure however if this is expected behavior, most likely not, but would like to discuss before I try to prepare a patch. This lookup for `name` in `highstate` seems quite consistent in code, so this might potentially affect other things also. wdyt?

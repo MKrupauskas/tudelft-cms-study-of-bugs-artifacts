@@ -1,0 +1,47 @@
+### Description of Issue/Question
+Trying to use a instance of `salt.cloud.CloudClient('/etc/salt/cloud')`, you cannot create any VPSes, because apparently someone got halfway through refactoring `salt/salt/cloud/__init__.py`, and then committed it. 
+
+Basically, I do `cloudclient.create(names=[clientname], provider=provider, **kwargs)`. This fails:
+
+```
+Traceback (most recent call last):
+  File "salt_runner.py", line 147, in make_client
+    ret = self.cc.create(names=[clientname], provider=provider, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 404, in create
+    mapper.create(vm_))
+  File "/usr/local/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 1182, in create
+    alias, driver = vm_['provider'].split(':')
+KeyError: 'provider'
+```
+
+Attaching with pdb:
+
+```
+> /usr/local/lib/python2.7/dist-packages/salt/cloud/__init__.py(1176)create()
+-> output = {}
+(Pdb) locals
+<built-in function locals>
+(Pdb) locals()
+{'vm_': {'profile': None, 'name': 'scrape-worker-4', 'image': 'ubuntu-14-04-x64', 'driver': 'do:digital_ocean', 'location': 'nyc3', 'private_networking': False, 'vm_size': '512mb', 'size': '512mb'}, 'local_master': True, 'self': <salt.cloud.Map object at 0x70fa9dc75090>}
+(Pdb) bt
+  /usr/lib/python2.7/bdb.py(400)run()
+-> exec cmd in globals, locals
+  <string>(1)<module>()
+  /home/client/AutoTriever/marshaller/salt_scheduler.py(139)<module>()
+-> sched.ensure_active_workers()
+  /home/client/AutoTriever/marshaller/salt_scheduler.py(95)ensure_active_workers()
+-> self.create_vm(vm_name)
+  /home/client/AutoTriever/marshaller/salt_scheduler.py(48)create_vm()
+-> self.interface.make_client(vm_name)
+  /home/client/AutoTriever/marshaller/salt_runner.py(147)make_client()
+-> ret = self.cc.create(names=[clientname], provider=provider, **kwargs)
+  /usr/local/lib/python2.7/dist-packages/salt/cloud/__init__.py(404)create()
+-> mapper.create(vm_))
+> /usr/local/lib/python2.7/dist-packages/salt/cloud/__init__.py(1176)create()
+-> output = {}
+
+```
+
+So the issue is that apparently `salt/cloud/__init__.py(1176)create()` is expecting a key named `provider`, but the parameter is being inserted into the parameter dictionary by `salt/cloud/__init__.py(404)create()` with the key `driver`. It seems like someone was intending to rename the parameter key, but only did half of it.
+
+I guess that's what I get for trying to update.

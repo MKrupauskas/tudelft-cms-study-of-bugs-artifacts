@@ -1,0 +1,48 @@
+Using `salt.states.test.succeed_without_changes()` with `test=True` always shows up as a change while I'd expect it to never do so.
+
+The way I'm using it here in a SLS:
+
+``` YAML
+endnote-installer-files:
+    {% if salt['pkg.upgrade_available']('endnote') or 'endnote' not in salt['pkg.list_pkgs']() %}
+        file.recurse:
+            - name: c:\salt\var\cache\salt\minion\files\base\win\repo\endnote\7.1
+            - source: salt://win/repo/endnote/7.1
+    {% else %}
+        file.absent:
+            - name: c:\salt\var\cache\salt\minion\files\base\win\repo\endnote\
+    {% endif %}
+
+# EndNote's MSI installer is utterly broken and isn't able to run proper upgrades
+# so we have to uninstall EndNote first before upgrading it
+endnote-upgrade-state:
+    {% if salt['pkg.upgrade_available']('endnote') %}
+        pkg:
+            - removed
+            - name: endnote
+            - version: {{ salt['pkg.version']('endnote') }}
+            - require_in:
+                - pkg: endnote
+    {% else %}
+        test.succeed_without_changes
+    {% endif %}
+
+endnote:
+    pkg:
+        - installed
+        - require:
+            - file: endnote-installer-files
+```
+
+On `salt my-minion state.highstate test=True` this results in `salt.states.test.succeed_without_changes()` always showing up (in yellow) as:
+
+```
+----------
+          ID: endnote-upgrade-state
+    Function: test.succeed_without_changes
+      Result: None
+     Comment: Yo dawg I heard you like tests, so I put tests in your tests, so you can test while you test.
+     Changes:
+```
+
+Minion + Master both on 2014.3 and using [`salt/states/test.py`](https://github.com/saltstack/salt/blob/develop/salt/states/test.py) as dynamic distributed module in `_states` from git develop.

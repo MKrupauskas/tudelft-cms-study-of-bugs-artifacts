@@ -1,0 +1,456 @@
+This issue is confirmed in the latest development branch.  Running within VirtualBox, with the following minion config:
+
+```
+ipc_mode: tcp
+file_client: local
+id: localDev
+root_dir: c:\salt
+pki_dir: /conf
+user: administrator
+
+file_roots:
+  base:
+    - c:\root\salt
+    - c:\installers
+  localDev:
+    - c:\root\salt
+    - c:\installers
+
+win_repo: c:\root\salt\packages
+win_repo_cachefile: c:\root\salt\packages\winrepo.p
+```
+
+I've seen it a few times.  Usually disabling/reenabling the network adapter in Windows is sufficient to fix the issue.  
+
+The original symptom is a hang during a state.highstate (log at bottom).  I've narrowed it down to the ZMQ socket cleanup.  
+
+salt/utils/event.py is marked up with print statements like below to debug:
+
+```
+    def destroy(self, linger=5000):
+        print 'destroying 1'
+        if self.cpub is True and self.sub.closed is False:
+            print 'destroying 2'
+            # Wait at most 2.5 secs to send any remaining messages in the
+            # socket or the context.term() bellow will hang indefinitely.
+            # See https://github.com/zeromq/pyzmq/issues/102
+            self.sub.setsockopt(zmq.LINGER, linger)
+            self.sub.close()
+            print 'destroying 3'
+        if self.cpush is True and self.push.closed is False:
+            print 'destroying 4'
+            self.push.setsockopt(zmq.LINGER, linger)
+            self.push.close()
+            print 'destroying 5'
+        # If sockets are not unregistered from a poller, nothing which touches
+        # that poller gets garbage collected. The Poller itself, its
+        # registered sockets and the Context
+        if isinstance(self.poller.sockets, dict):
+            print 'destroying 6'
+            for socket in self.poller.sockets.keys():
+                if socket.closed is False:
+                    socket.setsockopt(zmq.LINGER, linger)
+                    socket.close()
+                self.poller.unregister(socket)
+        else:
+            print 'destroying 7'
+            for socket in self.poller.sockets:
+                if socket[0].closed is False:
+                    socket[0].setsockopt(zmq.LINGER, linger)
+                    socket[0].close()
+                self.poller.unregister(socket[0])
+        print 'destroying 8'
+        if self.context.closed is False:
+            print 'destroying 9'
+            self.context.term()
+
+        # Hardcore destruction
+        print 'destroying 10'
+        if hasattr(self.context, 'destroy'):
+            self.context.destroy(linger=1)
+
+        # https://github.com/zeromq/pyzmq/issues/173#issuecomment-4037083
+        # Assertion failed: get_load () == 0 (poller_base.cpp:32)
+        time.sleep(0.025)
+        print 'destroyed'
+```
+
+running this:
+
+```
+salt-call event.fire {} module_refresh -l debug
+```
+
+results in:
+
+```
+[DEBUG   ] Reading configuration from c:\salt\conf\minion
+[DEBUG   ] loading log_handlers in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\log_handlers', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\log\\handlers']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\log_handlers, it is not a directory
+[DEBUG   ] Configuration file path: c:\salt\conf\minion
+[DEBUG   ] Reading configuration from c:\salt\conf\minion
+[DEBUG   ] loading grain in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\grains', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\grains']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\grains, it is not a directory
+[DEBUG   ] loading module in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\modules', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\modules']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\modules, it is not a directory
+[DEBUG   ] Skipping cytest.pyx, it does not end with an expected extension
+[DEBUG   ] Loaded win_shadow as virtual shadow
+[DEBUG   ] Loaded win_ip as virtual ip
+[DEBUG   ] Loaded win_disk as virtual disk
+[DEBUG   ] Loaded win_status as virtual status
+[DEBUG   ] Loaded sysmod as virtual sys
+[DEBUG   ] Loaded win_autoruns as virtual autoruns
+[DEBUG   ] Loaded win_system as virtual system
+[DEBUG   ] Loaded win_firewall as virtual firewall
+[DEBUG   ] Loaded zcbuildout as virtual buildout
+[DEBUG   ] Loaded win_pkg as virtual pkg
+[DEBUG   ] Loaded win_network as virtual network
+[DEBUG   ] Loaded win_ntp as virtual ntp
+[DEBUG   ] Loaded ini_manage as virtual ini
+[DEBUG   ] Loaded cmdmod as virtual cmd
+[DEBUG   ] Loaded win_file as virtual file
+[DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+[DEBUG   ] Loaded djangomod as virtual django
+[DEBUG   ] Loaded win_service as virtual service
+[DEBUG   ] Loaded win_timezone as virtual timezone
+[DEBUG   ] Loaded win_repo as virtual winrepo
+[DEBUG   ] Loaded win_groupadd as virtual group
+[DEBUG   ] loading render in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\renderers', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\renderers']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\renderers, it is not a directory
+[DEBUG   ] loading pillar in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\pillar', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\pillar']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\pillar, it is not a directory
+[DEBUG   ] loading module in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\modules', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\modules']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\modules, it is not a directory
+[DEBUG   ] Skipping cytest.pyx, it does not end with an expected extension
+[DEBUG   ] Loaded win_shadow as virtual shadow
+[DEBUG   ] Loaded win_ip as virtual ip
+[DEBUG   ] Loaded win_disk as virtual disk
+[DEBUG   ] Loaded win_status as virtual status
+[DEBUG   ] Loaded sysmod as virtual sys
+[DEBUG   ] Loaded win_autoruns as virtual autoruns
+[DEBUG   ] Loaded win_system as virtual system
+[DEBUG   ] Loaded win_firewall as virtual firewall
+[DEBUG   ] Loaded zcbuildout as virtual buildout
+[DEBUG   ] Loaded win_pkg as virtual pkg
+[DEBUG   ] Loaded win_network as virtual network
+[DEBUG   ] Loaded win_ntp as virtual ntp
+[DEBUG   ] Loaded ini_manage as virtual ini
+[DEBUG   ] Loaded cmdmod as virtual cmd
+[DEBUG   ] Loaded win_file as virtual file
+[DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+[DEBUG   ] Loaded djangomod as virtual django
+[DEBUG   ] Loaded win_service as virtual service
+[DEBUG   ] Loaded win_timezone as virtual timezone
+[DEBUG   ] Loaded win_repo as virtual winrepo
+[DEBUG   ] Loaded win_groupadd as virtual group
+[DEBUG   ] loading returner in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\returners', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\returners']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\returners, it is not a directory
+[DEBUG   ] Loaded smtp_return as virtual smtp
+[DEBUG   ] Loaded couchdb_return as virtual couchdb
+[DEBUG   ] Loaded carbon_return as virtual carbon
+[DEBUG   ] loading states in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\states', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\states']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\states, it is not a directory
+[DEBUG   ] Loaded win_network as virtual network
+[DEBUG   ] Loaded saltmod as virtual salt
+[DEBUG   ] Loaded win_system as virtual system
+[DEBUG   ] Loaded zcbuildout as virtual buildout
+[DEBUG   ] Loaded ini_manage as virtual ini
+[DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+[DEBUG   ] loading render in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\renderers', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\renderers']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\renderers, it is not a directory
+[DEBUG   ] Parsed args: [{}, 'module_refresh']
+[DEBUG   ] Parsed kwargs: {}
+[DEBUG   ] MinionEvent PUB socket URI: tcp://127.0.0.1:4510
+[DEBUG   ] MinionEvent PULL socket URI: tcp://127.0.0.1:4511
+destroying 1
+destroying 4
+destroying 5
+destroying 6
+destroying 8
+destroying 9
+```
+
+At this point, it's waiting on self.context.term(), which hangs, and CTRL+C isn't sufficient to kill salt-call, it must be killed from task manager.  I don't know enough about Salt's ZMQ sockets to muck with this code too much.  Anyone have any ideas?
+
+salt-call state.highstate log:
+
+```
+[DEBUG   ] Reading configuration from c:\salt\conf\minion
+[DEBUG   ] loading log_handlers in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\log_handlers', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\log\\handlers']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\log_handlers, it is not a directory
+[DEBUG   ] Configuration file path: c:\salt\conf\minion
+[DEBUG   ] Reading configuration from c:\salt\conf\minion
+[DEBUG   ] loading grain in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\grains', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\grains']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\grains, it is not a directory
+[DEBUG   ] loading module in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\modules', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\modules']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\modules, it is not a directory
+[DEBUG   ] Skipping cytest.pyx, it does not end with an expected extension
+[DEBUG   ] Loaded win_shadow as virtual shadow
+[DEBUG   ] Loaded win_ip as virtual ip
+[DEBUG   ] Loaded win_disk as virtual disk
+[DEBUG   ] Loaded win_status as virtual status
+[DEBUG   ] Loaded sysmod as virtual sys
+[DEBUG   ] Loaded win_autoruns as virtual autoruns
+[DEBUG   ] Loaded win_system as virtual system
+[DEBUG   ] Loaded win_firewall as virtual firewall
+[DEBUG   ] Loaded zcbuildout as virtual buildout
+[DEBUG   ] Loaded win_pkg as virtual pkg
+[DEBUG   ] Loaded win_network as virtual network
+[DEBUG   ] Loaded win_ntp as virtual ntp
+[DEBUG   ] Loaded ini_manage as virtual ini
+[DEBUG   ] Loaded cmdmod as virtual cmd
+[DEBUG   ] Loaded win_file as virtual file
+[DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+[DEBUG   ] Loaded djangomod as virtual django
+[DEBUG   ] Loaded win_service as virtual service
+[DEBUG   ] Loaded win_timezone as virtual timezone
+[DEBUG   ] Loaded win_repo as virtual winrepo
+[DEBUG   ] Loaded win_groupadd as virtual group
+[DEBUG   ] loading render in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\renderers', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\renderers']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\renderers, it is not a directory
+[DEBUG   ] loading pillar in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\pillar', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\pillar']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\pillar, it is not a directory
+[DEBUG   ] loading module in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\modules', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\modules']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\modules, it is not a directory
+[DEBUG   ] Skipping cytest.pyx, it does not end with an expected extension
+[DEBUG   ] Loaded win_shadow as virtual shadow
+[DEBUG   ] Loaded win_ip as virtual ip
+[DEBUG   ] Loaded win_disk as virtual disk
+[DEBUG   ] Loaded win_status as virtual status
+[DEBUG   ] Loaded sysmod as virtual sys
+[DEBUG   ] Loaded win_autoruns as virtual autoruns
+[DEBUG   ] Loaded win_system as virtual system
+[DEBUG   ] Loaded win_firewall as virtual firewall
+[DEBUG   ] Loaded zcbuildout as virtual buildout
+[DEBUG   ] Loaded win_pkg as virtual pkg
+[DEBUG   ] Loaded win_network as virtual network
+[DEBUG   ] Loaded win_ntp as virtual ntp
+[DEBUG   ] Loaded ini_manage as virtual ini
+[DEBUG   ] Loaded cmdmod as virtual cmd
+[DEBUG   ] Loaded win_file as virtual file
+[DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+[DEBUG   ] Loaded djangomod as virtual django
+[DEBUG   ] Loaded win_service as virtual service
+[DEBUG   ] Loaded win_timezone as virtual timezone
+[DEBUG   ] Loaded win_repo as virtual winrepo
+[DEBUG   ] Loaded win_groupadd as virtual group
+[DEBUG   ] loading returner in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\returners', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\returners']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\returners, it is not a directory
+[DEBUG   ] Loaded smtp_return as virtual smtp
+[DEBUG   ] Loaded couchdb_return as virtual couchdb
+[DEBUG   ] Loaded carbon_return as virtual carbon
+[DEBUG   ] loading states in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\states', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\states']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\states, it is not a directory
+[DEBUG   ] Loaded win_network as virtual network
+[DEBUG   ] Loaded saltmod as virtual salt
+[DEBUG   ] Loaded win_system as virtual system
+[DEBUG   ] Loaded zcbuildout as virtual buildout
+[DEBUG   ] Loaded ini_manage as virtual ini
+[DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+[DEBUG   ] loading render in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\renderers', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\renderers']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\renderers, it is not a directory
+[DEBUG   ] Parsed args: []
+[DEBUG   ] Parsed kwargs: {'__pub_fun': 'state.highstate', '__pub_jid': '20140122114120193000', '__pub_pid': 4168, '__pub_tgt': 'salt-call'}
+[DEBUG   ] Reading configuration from c:\salt\conf\minion
+[DEBUG   ] loading grain in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\grains', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\grains']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\grains, it is not a directory
+[DEBUG   ] loading module in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\modules', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\modules']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\modules, it is not a directory
+[DEBUG   ] Skipping cytest.pyx, it does not end with an expected extension
+[DEBUG   ] Loaded win_shadow as virtual shadow
+[DEBUG   ] Loaded win_ip as virtual ip
+[DEBUG   ] Loaded win_disk as virtual disk
+[DEBUG   ] Loaded win_status as virtual status
+[DEBUG   ] Loaded sysmod as virtual sys
+[DEBUG   ] Loaded win_autoruns as virtual autoruns
+[DEBUG   ] Loaded win_system as virtual system
+[DEBUG   ] Loaded win_firewall as virtual firewall
+[DEBUG   ] Loaded zcbuildout as virtual buildout
+[DEBUG   ] Loaded win_pkg as virtual pkg
+[DEBUG   ] Loaded win_network as virtual network
+[DEBUG   ] Loaded win_ntp as virtual ntp
+[DEBUG   ] Loaded ini_manage as virtual ini
+[DEBUG   ] Loaded cmdmod as virtual cmd
+[DEBUG   ] Loaded win_file as virtual file
+[DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+[DEBUG   ] Loaded djangomod as virtual django
+[DEBUG   ] Loaded win_service as virtual service
+[DEBUG   ] Loaded win_timezone as virtual timezone
+[DEBUG   ] Loaded win_repo as virtual winrepo
+[DEBUG   ] Loaded win_groupadd as virtual group
+[DEBUG   ] loading render in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\renderers', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\renderers']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\renderers, it is not a directory
+[DEBUG   ] loading pillar in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\pillar', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\pillar']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\pillar, it is not a directory
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] loading module in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\modules', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\modules']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\modules, it is not a directory
+[DEBUG   ] Skipping cytest.pyx, it does not end with an expected extension
+[DEBUG   ] Loaded win_shadow as virtual shadow
+[DEBUG   ] Loaded win_ip as virtual ip
+[DEBUG   ] Loaded win_disk as virtual disk
+[DEBUG   ] Loaded win_status as virtual status
+[DEBUG   ] Loaded sysmod as virtual sys
+[DEBUG   ] Loaded win_autoruns as virtual autoruns
+[DEBUG   ] Loaded win_system as virtual system
+[DEBUG   ] Loaded win_firewall as virtual firewall
+[DEBUG   ] Loaded zcbuildout as virtual buildout
+[DEBUG   ] Loaded win_pkg as virtual pkg
+[DEBUG   ] Loaded win_network as virtual network
+[DEBUG   ] Loaded win_ntp as virtual ntp
+[DEBUG   ] Loaded ini_manage as virtual ini
+[DEBUG   ] Loaded cmdmod as virtual cmd
+[DEBUG   ] Loaded win_file as virtual file
+[DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+[DEBUG   ] Loaded djangomod as virtual django
+[DEBUG   ] Loaded win_service as virtual service
+[DEBUG   ] Loaded win_timezone as virtual timezone
+[DEBUG   ] Loaded win_repo as virtual winrepo
+[DEBUG   ] Loaded win_groupadd as virtual group
+[DEBUG   ] loading states in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\states', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\states']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\states, it is not a directory
+[DEBUG   ] Loaded win_network as virtual network
+[DEBUG   ] Loaded saltmod as virtual salt
+[DEBUG   ] Loaded win_system as virtual system
+[DEBUG   ] Loaded zcbuildout as virtual buildout
+[DEBUG   ] Loaded ini_manage as virtual ini
+[DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+[DEBUG   ] loading render in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\renderers', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\renderers']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\renderers, it is not a directory
+[DEBUG   ] loading module in ['c:\\salt\\var\\cache\\salt\\minion\\extmods\\modules', 'C:\\salt\\salt-0.17.4.win-amd64\\salt-0.17.4-py2.7.egg\\salt\\modules']
+[DEBUG   ] Skipping c:\salt\var\cache\salt\minion\extmods\modules, it is not a directory
+[DEBUG   ] Skipping cytest.pyx, it does not end with an expected extension
+[DEBUG   ] Loaded win_shadow as virtual shadow
+[DEBUG   ] Loaded win_ip as virtual ip
+[DEBUG   ] Loaded win_disk as virtual disk
+[DEBUG   ] Loaded win_status as virtual status
+[DEBUG   ] Loaded sysmod as virtual sys
+[DEBUG   ] Loaded win_autoruns as virtual autoruns
+[DEBUG   ] Loaded win_system as virtual system
+[DEBUG   ] Loaded win_firewall as virtual firewall
+[DEBUG   ] Loaded zcbuildout as virtual buildout
+[DEBUG   ] Loaded win_pkg as virtual pkg
+[DEBUG   ] Loaded win_network as virtual network
+[DEBUG   ] Loaded win_ntp as virtual ntp
+[DEBUG   ] Loaded ini_manage as virtual ini
+[DEBUG   ] Loaded cmdmod as virtual cmd
+[DEBUG   ] Loaded win_file as virtual file
+[DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+[DEBUG   ] Loaded djangomod as virtual django
+[DEBUG   ] Loaded win_service as virtual service
+[DEBUG   ] Loaded win_timezone as virtual timezone
+[DEBUG   ] Loaded win_repo as virtual winrepo
+[DEBUG   ] Loaded win_groupadd as virtual group
+[DEBUG   ] Jinja search path: ['c:\\Root\\salt', 'c:\\installers']
+[DEBUG   ] Rendered data from file: c:\Root\salt\top.sls:
+#the environmenct
+
+localDev:
+
+  #the hostname
+
+  localDev:
+
+    - serverUtils
+
+    - zend
+
+    - oas
+
+
+
+production:
+
+  aiphp:
+
+    - zend
+
+  aihttp:
+
+    - oas
+
+
+
+
+
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('localDev', OrderedDict([('localDev', ['serverUtils', 'zend', 'oas'])])), ('production', OrderedDict([('aiphp', ['zend']), ('aihttp', ['oas'])]))])
+[DEBUG   ] Jinja search path: ['c:\\Root\\salt', 'c:\\installers']
+[DEBUG   ] Rendered data from file: c:\Root\salt\top.sls:
+#the environmenct
+
+localDev:
+
+  #the hostname
+
+  localDev:
+
+    - serverUtils
+
+    - zend
+
+    - oas
+
+
+
+production:
+
+  aiphp:
+
+    - zend
+
+  aihttp:
+
+    - oas
+
+
+
+
+
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('localDev', OrderedDict([('localDev', ['serverUtils', 'zend', 'oas'])])), ('production', OrderedDict([('aiphp', ['zend']), ('aihttp', ['oas'])]))])
+[DEBUG   ] Syncing all
+[INFO    ] Creating module dir 'c:\\salt\\var\\cache\\salt\\minion\\extmods\\modules'
+[INFO    ] Syncing modules for environment 'localDev'
+[INFO    ] Loading cache from salt://_modules, for localDev)
+[INFO    ] Caching directory '_modules/' for environment 'localDev'
+[DEBUG   ] Local cache dir: 'c:\\salt\\var\\cache\\salt\\minion\\files\\localDev\\_modules'
+[INFO    ] Creating module dir 'c:\\salt\\var\\cache\\salt\\minion\\extmods\\states'
+[INFO    ] Syncing states for environment 'localDev'
+[INFO    ] Loading cache from salt://_states, for localDev)
+[INFO    ] Caching directory '_states/' for environment 'localDev'
+[DEBUG   ] Local cache dir: 'c:\\salt\\var\\cache\\salt\\minion\\files\\localDev\\_states'
+[INFO    ] Creating module dir 'c:\\salt\\var\\cache\\salt\\minion\\extmods\\grains'
+[INFO    ] Syncing grains for environment 'localDev'
+[INFO    ] Loading cache from salt://_grains, for localDev)
+[INFO    ] Caching directory '_grains/' for environment 'localDev'
+[DEBUG   ] Local cache dir: 'c:\\salt\\var\\cache\\salt\\minion\\files\\localDev\\_grains'
+[INFO    ] Creating module dir 'c:\\salt\\var\\cache\\salt\\minion\\extmods\\renderers'
+[INFO    ] Syncing renderers for environment 'localDev'
+[INFO    ] Loading cache from salt://_renderers, for localDev)
+[INFO    ] Caching directory '_renderers/' for environment 'localDev'
+[DEBUG   ] Local cache dir: 'c:\\salt\\var\\cache\\salt\\minion\\files\\localDev\\_renderers'
+[INFO    ] Creating module dir 'c:\\salt\\var\\cache\\salt\\minion\\extmods\\returners'
+[INFO    ] Syncing returners for environment 'localDev'
+[INFO    ] Loading cache from salt://_returners, for localDev)
+[INFO    ] Caching directory '_returners/' for environment 'localDev'
+[DEBUG   ] Local cache dir: 'c:\\salt\\var\\cache\\salt\\minion\\files\\localDev\\_returners'
+[INFO    ] Creating module dir 'c:\\salt\\var\\cache\\salt\\minion\\extmods\\outputters'
+[INFO    ] Syncing outputters for environment 'localDev'
+[INFO    ] Loading cache from salt://_outputters, for localDev)
+[INFO    ] Caching directory '_outputters/' for environment 'localDev'
+[DEBUG   ] Local cache dir: 'c:\\salt\\var\\cache\\salt\\minion\\files\\localDev\\_outputters'
+pre fire
+[DEBUG   ] MinionEvent PUB socket URI: tcp://127.0.0.1:4510
+[DEBUG   ] MinionEvent PULL socket URI: tcp://127.0.0.1:4511
+destroying 1
+destroying 4
+destroying 5
+destroying 6
+destroying 8
+destroying 9
+```
+
+This issue seems like it could be related to Issue #9334.

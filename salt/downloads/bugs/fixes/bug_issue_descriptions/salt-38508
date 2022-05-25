@@ -1,0 +1,114 @@
+I want my users to be able to run execution modules on some specific nodes and also give them ability to execute runner/wheel modules. Giving access to all execution modules along with runner/wheel modules is okay, but specifying execution modules by compound makes salt fail.
+
+My external authentication part is like this:
+```
+external_auth:
+    ldap:    
+      salt:  #this is okay
+        - '.*'
+        - '@runner'
+        - '@wheel'
+      test:   #this user is a member of 'RunnerGroup' and this is the reason it fails
+        - 'PC*':
+           - 'grains.*'
+           - 'test.*'
+        - 'PC-16780':
+           - 'service.*'
+      RunnerGroup%:
+        - '@runner'
+        - '@wheel'
+```
+
+Authenticating the user:
+```
+$ curl -c salt-cookies.txt -sSk http://127.0.0.1:8000/login -H 'Accept: application/x-yaml' -d username=test -d password=123456 -d eauth=ldap
+return:
+- eauth: ldap
+  expire: 1483202553.020134
+  perms:
+  - PC*:
+    - grains.*
+    - test.*
+  - PC-16780:
+    - service.*
+  - '@runner'
+  - '@wheel'
+  start: 1483159353.020133
+  token: 8a6b8e55f30546bd7461513c9785c680ef024756
+  user: test
+```
+As you can see user can execution some modules on specific nodes along with having access to all runner/wheel modules.
+Executing a module like bellow generates an exception on both salt-api and salt-master. I think mixing types (dict, str) is not handled correctly.
+```
+$ curl -b salt-cookies.txt -sSk http://127.0.0.1:8000 -H 'Accept: application/json' -d client=local -d tgt='PC*' -d fun=test.ping
+{"status": 500, "return": "Traceback (most recent call last):\n  File \"/usr/local/lib/python2.7/dist-packages/salt/netapi/rest_cherrypy/app.py\", line 518, in hypermedia_handler\n    ret = cherrypy.serving.request._hypermedia_inner_handler(*args, **kwargs)\n  File \"/usr/local/lib/python2.7/dist-packages/CherryPy-6.0.2-py2.7.egg/cherrypy/_cpdispatch.py\", line 60, in __call__\n    return self.callable(*self.args, **self.kwargs)\n  File \"/usr/local/lib/python2.7/dist-packages/salt/netapi/rest_cherrypy/app.py\", line 944, in POST\n    token=cherrypy.session.get('token')))\n  File \"/usr/local/lib/python2.7/dist-packages/salt/netapi/rest_cherrypy/app.py\", line 786, in exec_lowstate\n    ret = self.api.run(chunk)\n  File \"/usr/local/lib/python2.7/dist-packages/salt/netapi/__init__.py\", line 70, in run\n    return l_fun(*f_call.get('args', ()), **f_call.get('kwargs', {}))\n  File \"/usr/local/lib/python2.7/dist-packages/salt/netapi/__init__.py\", line 98, in local\n    return local.cmd(*args, **kwargs)\n  File \"/usr/local/lib/python2.7/dist-packages/salt/client/__init__.py\", line 558, in cmd\n    **kwargs)\n  File \"/usr/local/lib/python2.7/dist-packages/salt/client/__init__.py\", line 313, in run_job\n    raise SaltClientError(general_exception)\nSaltClientError: Salt request timed out. The master is not responding. If this error persists after verifying the master is up, worker_threads may need to be increased.\n"}
+```
+
+Salt-master is run in debug mode and gives the following exception:
+```
+  [ERROR   ] Some exception handling a payload from minion
+Traceback (most recent call last):
+  File "/usr/local/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 604, in handle_message
+    ret, req_opts = yield self.payload_handler(payload)
+  File "/usr/local/lib/python2.7/dist-packages/tornado/gen.py", line 1008, in run
+    value = future.result()
+  File "/usr/local/lib/python2.7/dist-packages/tornado/concurrent.py", line 232, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/local/lib/python2.7/dist-packages/tornado/gen.py", line 267, in wrapper
+    result = func(*args, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/salt/master.py", line 842, in _handle_payload
+    'clear': self._handle_clear}[key](load)
+  File "/usr/local/lib/python2.7/dist-packages/salt/master.py", line 856, in _handle_clear
+    return getattr(self.clear_funcs, load['cmd'])(load), {'fun': 'send_clear'}
+  File "/usr/local/lib/python2.7/dist-packages/salt/master.py", line 1972, in publish
+    auth_list = self.ckminions.fill_auth_list_from_ou(auth_list, self.opts)
+  File "/usr/local/lib/python2.7/dist-packages/salt/utils/minions.py", line 965, in fill_auth_list_from_ou
+    auth_list = salt.auth.ldap.expand_ldap_entries(auth_list, opts)
+  File "/usr/local/lib/python2.7/dist-packages/salt/auth/ldap.py", line 394, in expand_ldap_entries
+    for minion_or_ou, matchers in six.iteritems(user_or_group_dict):
+  File "/usr/local/lib/python2.7/dist-packages/salt/ext/six.py", line 583, in iteritems
+    return iter(d.iteritems(**kw))
+AttributeError: 'str' object has no attribute 'iteritems'
+```
+
+I am using salt 2016.3.1 on all nodes.
+```
+$ salt-master --versions
+Salt Version:
+           Salt: 2016.3.1
+ 
+Dependency Versions:
+           cffi: 1.8.3
+       cherrypy: 6.0.2
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: 0.3.6
+         PyYAML: 3.10
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.5
+ 
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 4.2.0-42-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```

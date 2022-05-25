@@ -1,0 +1,106 @@
+### Description of Issue/Question
+Multiple issues in creating VMs and retrieving information from a working Proxmox cluster:
+- `salt-cloud --list-images` doesn't list images
+- `salt-cloud -p <profile> <name>` does not create a VM. It just dies with the entirely useless error message, "`salt-cloud: error: There was a profile error: `". Nothing follows the colon, of course. With logging set to `trace`, no useful information is presented, it just echoes the JSON data it's sending the server which matches the contents of the profile being used. There is no response from the server shown here that sheds any light on it.
+
+I gather that the proxmox driver was written to work with Proxmox 4, but I'm using v5. I've tried consulting their (proxmox's) API documentation, but all I can find is a 404 at one link and a blank page at another link, so that doesn't help very much.
+
+Also: it isn't an authentication issue, because `salt-cloud --query` shows the VMs that already exist. Salt just doesn't do anything else.
+
+### Setup
+cloud.providers.d/proxmox.conf:
+```
+bss-proxmox:
+  # Proxmox account information
+  user: ##user##
+  password: ##password##
+  url: ##url##
+  driver: proxmox
+  verify_ssl: False
+  minion:
+    master: 10.241.146.182
+```
+
+./cloud.profilesL
+```
+centos7-qemu:
+  provider: bss-proxmox
+  user: root
+  password: adminmeplease
+  image: local:vztmpl/centos-7-default_20170504_amd64.tar.xz
+  technology: qemu
+  host: pve01
+  size: ''
+  memory: 2048
+  ostype: 126
+  sata0: local_ssd:20,format=qcow2,size=20
+  net0: virtio,bridge=vmbr0
+  agent: 1
+
+centos7-vz:
+  provider: bss-proxmox
+  image: local:vztmpl/centos-7-default_20170504_amd64.tar.xz
+  technology: qemu
+  host: pve02
+  ssh_username: root
+  password: ##password##
+  cores: 1
+  sockets: 2
+  numa: 0
+  bootdisk: scsi0
+  ostype: l26
+  memory: 4096
+  onboot: 0
+  size: ''
+  scsi0: pcsjumbo,size=20
+  net0: virtio,bridge=vmbr0
+  agent: 1
+```
+Annoyingly, Salt's documentation isn't very helpful in trying to formulate what the strings for things like network and disk are actually supposed to look like. If I follow what's given in the documentation, substituting for storage objects that exist in my environment, I get the same error as if I specify nothing at all. The properties for existing VMs in the environment (created using the Proxmox console) show similar strings for these things, but those won't work in the salt config because they include information there's no way I can put in the profile. One net0 device, for example, has the value `virtio=7A:0D:97:0A:0A:21,bridge=vmbr0`, but I can't specify a MAC address in the profile. SCSI devices include filenames for the VM's disk image, but again, I can't tell it what to name the file ahead of time, it needs to figure that out on its own. I have tried specifying a new MAC address anyway, and it doesn't work (same useless blank error message).
+
+### Steps to Reproduce Issue
+Try to create a VM or retrieve a list of images.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 5.6.0
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.2.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+ ```

@@ -1,0 +1,162 @@
+### Description of Issue/Question
+
+When a VM is deployed or deleted in our vSphere 5.5 cluster via salt-cloud, there is a 50% chance that the task cannot be successfully completed. It seems that the "while loop" in `/usr/lib/python2.7/site-packages/salt/utils/vmware.py` (line 630) is prematurely evacuated. I added a line of debug code so that I would know which value 'task.info.error' would have, as I first thought this problem was related to #28511:
+
+```
+    else:
+        print "##DEBUG TASK STATE: {0}".format(task.info.state) 
+        raise Exception(task.info.error)
+```
+
+The task.info.state is still "running" and I cannot see a reason for leaving the while loop. I tried different sleep times, but to no avail. I also tried several pyVmomi versions: 5.5.0-2014.1.1, 6.0 and I am currently testing the new 6.5. All seem to have the same issue.
+
+So far we only see this behaviour while cloning or destroying a VM. When it happens during cloning, the VM deployment is still running and will be completed successfully. When it happens during deletion, sometimes the VM is deleted regardless of the error, sometimes the VM is not deleted at all.
+
+#### VM Cloning
+```
+[INFO    ] Creating <vmname> from vm(centos7-base)
+##DEBUG TASK STATE: running
+[ERROR   ] Error creating <vmname>: None
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/vmware.py", line 2478, in create
+    salt.utils.vmware.wait_for_task(task, vm_name, 'clone', 5, 'info')
+  File "/usr/lib/python2.7/site-packages/salt/utils/vmware.py", line 647, in wait_for_task
+    raise Exception(task.info.error)
+Exception: None
+[DEBUG   ] LazyLoaded nested.output
+<vmname>:
+    ----------
+    Error:
+        Error creating <vmname>: None
+```
+
+Even though the error is raised, the VM is deployed. These are the entries from the vCenter log for the VM deployment:
+
+```
+2016-11-22T14:56:37.943-05:00 [20464 info 'vpxdvpxdVmomi' opID=7574f9a8-28] [ClientAdapterBase::InvokeOnSoap] Invoke done (hypervisor07, vpxapi.VpxaService.createVm)
+2016-11-22T14:56:39.712-05:00 [20464 info 'vpxdvpxdVmomi' opID=7574f9a8-28] [ClientAdapterBase::InvokeOnSoap] Invoke done (hypervisor07, vim.VirtualMachine.reconfigure)
+2016-11-22T14:56:40.464-05:00 [20464 info 'pbmvpxd' opID=7574f9a8-28] PBMCallback: PbmCallBack::CreateAssociationOps: Given NULL/zero-length list of profile specs
+2016-11-22T14:56:40.473-05:00 [20464 info 'VmProv' opID=7574f9a8-28] [WorkflowXAction] Scanning workflow entries
+2016-11-22T14:56:40.474-05:00 [20464 warning 'Default' opID=7574f9a8-28] [JrnlFilePersistenceProvider] Got EOF while reading file
+2016-11-22T14:56:40.501-05:00 [20464 warning 'VAppvpxdOvfConsumers' opID=7574f9a8-28] [VpxdOvfConsumers::CreateContext] Creating dummy context
+2016-11-22T14:56:40.505-05:00 [20464 info 'pbmvpxd' opID=7574f9a8-28] PBMCallback: PbmCallBack::CreateAssociationOps: Given NULL/zero-length list of profile specs
+2016-11-22T14:56:40.514-05:00 [20464 info 'Default' opID=7574f9a8-28] [VmCustomizer] hostVersion = 5.5.0, tools version = 2147483647
+2016-11-22T14:56:40.514-05:00 [20464 info 'Default' opID=7574f9a8-28] [VmCustomizer] Successfully created file C:\Windows\TEMP\imc768F.tmp
+2016-11-22T14:56:40.514-05:00 [20464 info 'Default' opID=7574f9a8-28] [VmCustomizer] Successfully created file C:\Windows\TEMP\imc7690.tmp
+2016-11-22T14:56:40.514-05:00 [20464 info 'Default' opID=7574f9a8-28] [IMC] Create package for Linux Customization. Params:
+2016-11-22T14:56:40.514-05:00 [20464 info 'Default' opID=7574f9a8-28] [IMC] Perl Script directory = C:\Program Files\VMware\Infrastructure\VirtualCenter Server\imgcust\imgcust-scripts
+2016-11-22T14:56:40.514-05:00 [20464 info 'Default' opID=7574f9a8-28] [IMC] Config file path = C:\Windows\TEMP\imc7690.tmp
+2016-11-22T14:56:40.515-05:00 [20464 info 'Default' opID=7574f9a8-28] [IMC] Successfully created file C:\Windows\TEMP\imc7691.tmp
+2016-11-22T14:56:40.515-05:00 [20464 info 'Default' opID=7574f9a8-28] [IMC] Successfully created file C:\Windows\TEMP\imc7692.tmp
+2016-11-22T14:56:40.562-05:00 [20464 info 'Default' opID=7574f9a8-28] [IMC] Successfully deleted file/directory C:\Windows\TEMP\imc7692.tmp
+2016-11-22T14:56:40.563-05:00 [20464 info 'Default' opID=7574f9a8-28] [IMC] Successfully deleted file/directory C:\Windows\TEMP\imc7691.tmp
+2016-11-22T14:56:40.564-05:00 [20464 info 'Default' opID=7574f9a8-28] [VmCustomizer] Successfully deleted file/directory C:\Windows\TEMP\imc7690.tmp
+2016-11-22T14:56:40.568-05:00 [20464 info 'Default' opID=7574f9a8-28] [VmCustomizer] hostVersion = 5.5.0, tools version = 2147483647
+2016-11-22T14:56:41.333-05:00 [20464 info 'vpxdvpxdVmomi' opID=7574f9a8-28] [ClientAdapterBase::InvokeOnSoap] Invoke done (hypervisor07, vim.dvs.HostDistributedVirtualSwitchManager.applyDVPortgroup)
+2016-11-22T14:56:41.354-05:00 [20464 info 'vpxdvpxdVmomi' opID=7574f9a8-28] [ClientAdapterBase::InvokeOnSoap] Invoke done (hypervisor07, vim.VirtualMachine.reconfigure)
+2016-11-22T14:56:42.227-05:00 [20464 info 'pbmvpxd' opID=7574f9a8-28] PBMCallback: PbmCallBack::CreateAssociationOps: Given NULL/zero-length list of profile specs
+2016-11-22T14:56:42.234-05:00 [20464 info 'Default' opID=7574f9a8-28] [VmCustomizer] Successfully deleted file/directory C:\Windows\TEMP\imc768F.tmp
+2016-11-22T14:56:42.236-05:00 [20464 info 'VmProv' opID=7574f9a8-28] [WorkflowXAction] Scanning workflow entries
+2016-11-22T14:56:42.237-05:00 [20464 warning 'Default' opID=7574f9a8-28] [JrnlFilePersistenceProvider] Got EOF while reading file
+2016-11-22T14:56:42.240-05:00 [20464 info 'commonvpxLro' opID=7574f9a8-28] [VpxLRO] -- FINISH task-internal-6529319 --  -- VmprovWorkflow -- 
+2016-11-22T14:56:42.242-05:00 [20464 info 'vpxdvpxdVmomi' opID=7574f9a8-28] [ClientAdapterBase::InvokeOnSoap] Invoke done (hypervisor07, vmodl.query.PropertyCollector.cancelWaitForUpdates)
+```
+
+#### VM Deletion
+```
+[ERROR   ] Error while powering off VM <vmname>: None
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/vmware.py", line 2085, in destroy
+    salt.utils.vmware.wait_for_task(task, name, 'power off')
+  File "/usr/lib/python2.7/site-packages/salt/utils/vmware.py", line 646, in wait_for_task
+    raise Exception(task.info.error)
+Exception: None
+[DEBUG   ] Deleted '/etc/salt/pki/master/minions/<vmname>'
+```
+
+There is a 50/50 chance the VM was deleted. Sometimes it is deleted even though the error is raised, sometimes I have to call it twice to be completely removed. 
+
+### Setup
+- VMware vSphere 5.5u3
+- DRS-enabeld cluster (fully automated)
+- DRS-enabled datastore cluster and non-clustered datastores 
+
+### Steps to Reproduce Issue
+- Use `salt-cloud -p <profile> <vmname>` or `salt-cloud -d <vmname>` (current chance is 50/50 if the deployment is successful or not)
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.3.4
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Sep 15 2016, 22:37:39)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.36.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 CoreSalt Version:
+           Salt: 2016.3.4
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Sep 15 2016, 22:37:39)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.36.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```

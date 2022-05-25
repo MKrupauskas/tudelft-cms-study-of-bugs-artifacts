@@ -1,0 +1,57 @@
+### Description of Issue/Question
+
+If minimum two pkg states (e.g. purged, or installed) are executed before the `zfs.filesystem_present` state, then an exception will be thrown.
+
+### Setup
+init.sls file
+```
+pkgs_deinstalled:
+  pkg.purged:
+      - name: nonexistend
+
+pkgs_deinstalled2:
+  pkg.installed:
+      - name: nonexistend
+
+user_home_test:
+  zfs.filesystem_present:
+    - name: zroot/home/test
+```
+
+### Steps to Reproduce Issue
+Run the init.sls file above and you'll get an exception like this:
+```
+----------
+          ID: user_home_test
+    Function: zfs.filesystem_present
+        Name: zroot/home/test
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/local/lib/python2.7/site-packages/salt/state.py", line 1913, in call
+                  **cdata['kwargs'])
+                File "/usr/local/lib/python2.7/site-packages/salt/loader.py", line 1898, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/local/lib/python2.7/site-packages/salt/states/zfs.py", line 582, in filesystem_present
+                  cloned_from=cloned_from,
+                File "/usr/local/lib/python2.7/site-packages/salt/states/zfs.py", line 453, in _dataset_present
+                  if __salt__['zfs.exists'](name, **{'type': dataset_type}):
+                File "/usr/local/lib/python2.7/site-packages/salt/modules/zfs.py", line 78, in exists
+                  __utils__['zfs.zfs_command'](
+                File "/usr/local/lib/python2.7/site-packages/salt/utils/context.py", line 228, in __getitem__
+                  return self._dict()[key]
+              KeyError: u'zfs.zfs_command'
+     Started: 15:01:50.148276
+    Duration: 2.946 ms
+     Changes:
+```
+
+The weird thing is that this exception is only thrown if the order is like above (1st pkg state, 2nd pkg state and 3rd zfs.filesystem_present) and it doesn't matter if it's a pkg.purged or pkg.installed state. If I change the order like 1st pkg.purged, 2nd zfs.filesystem_present and 3rd pkg.installed, then it works.
+
+I was not able to figure out where this dict (self._dict() in context.py class) gets overwritten and why it only gets overwritten if there are two pkg states first.
+
+
+The same state works on FreeBSD 10 with salt-minion 2017.7.3
+
+
+### Versions Report
+salt-minion 2018.3.3 (Oxygen) and FreeBSD 11

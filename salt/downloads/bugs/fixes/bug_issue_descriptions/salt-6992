@@ -1,0 +1,70 @@
+After updating the git repository referenced by ext_pillar, the following was observed in /var/log/salt/master and the pillar did not update.
+
+```
+2013-09-03 12:17:40,537 [salt.pillar                                 ][ERROR   ] Failed to load ext_pillar git: len(["03e627dd92a272b59074cb140d39c3675cb04d40\t\tbranch 'master' of git+ssh://githost/conf/pillar\n", "03e627dd92a272b59074cb140d39c3675cb04d40\t\tbranch 'master' of git+ssh://githost/conf/pillar\n", "03e627dd92a272b59074cb140d39c3675cb04d40\t\tbranch 'master' of git+ssh://githost/conf/pillar\n", "03e627dd92a272b59074cb140d39c3675cb04d40\t\tbranch 'master' of git+ssh://githost/conf/pillar\n"]) != len([' = [up to date]      master     -> origin/master'])
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/pillar/__init__.py", line 371, in ext_pillar
+    ext = self.ext_pillars[key](pillar, val)
+  File "/usr/lib/python2.6/site-packages/salt/pillar/git_pillar.py", line 192, in ext_pillar
+    update(branch, repo_location)
+  File "/usr/lib/python2.6/site-packages/salt/pillar/git_pillar.py", line 139, in update
+    origin.fetch()
+  File "/usr/lib/python2.6/site-packages/git/remote.py", line 593, in fetch
+    return self._get_fetch_info_from_stderr(proc, progress or RemoteProgress())
+  File "/usr/lib/python2.6/site-packages/git/remote.py", line 539, in _get_fetch_info_from_stderr
+    assert len(fetch_info_lines) == len(fetch_head_info), "len(%s) != len(%s)" % (fetch_head_info, fetch_info_lines)
+AssertionError: len(["03e627dd92a272b59074cb140d39c3675cb04d40\t\tbranch 'master' of git+ssh://githost/conf/pillar\n", "03e627dd92a272b59074cb140d39c3675cb04d40\t\tbranch 'master' of git+ssh://githost/conf/pillar\n", "03e627dd92a272b59074cb140d39c3675cb04d40\t\tbranch 'master' of git+ssh://githost/conf/pillar\n", "03e627dd92a272b59074cb140d39c3675cb04d40\t\tbranch 'master' of git+ssh://githost/conf/pillar\n"]) != len([' = [up to date]      master     -> origin/master'])
+```
+
+salt 0.16.3-1.el6
+git 1.8.3.1-1.sdl6
+GitPython 0.3.2-0.1.RC1.el6
+
+Running RHEL6 with salt installed via epel.
+
+I also use gitfs but have not experienced this issue.
+
+I previously cleared /var/cache/salt/master/pillar_gitfs after receiving the following error in /var/log/salt/master:
+
+```
+2013-09-03 09:32:57,261 [salt.pillar                                 ][ERROR   ] Failed to load ext_pillar git: 'git fetch' returned exit status 1: error: Ref refs/remotes/origin/master is at fc7f1b2ca503c5403a7e8fe14fcb81921ca962f7 butexpected 9b80c4dcd357ef5a6ad4557d65701fe4d9f3e908
+From git+ssh://githost/conf/pillar
+ ! 9b80c4d..fc7f1b2  master     -> origin/master  (unable to update local ref)
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/pillar/__init__.py", line 371, in ext_pillar
+    ext = self.ext_pillars[key](pillar, val)
+  File "/usr/lib/python2.6/site-packages/salt/pillar/git_pillar.py", line 180, in ext_pillar
+    if branch_env not in envs(branch, repo_location):
+  File "/usr/lib/python2.6/site-packages/salt/pillar/git_pillar.py", line 151, in envs
+    repo = init(branch, repo_location)
+  File "/usr/lib/python2.6/site-packages/salt/pillar/git_pillar.py", line 126, in init
+    repo.git.fetch()
+  File "/usr/lib/python2.6/site-packages/git/cmd.py", line 227, in <lambda>
+    return lambda *args, **kwargs: self._call_process(name, *args, **kwargs)
+  File "/usr/lib/python2.6/site-packages/git/cmd.py", line 456, in _call_process
+    return self.execute(call, **_kwargs)
+  File "/usr/lib/python2.6/site-packages/git/cmd.py", line 377, in execute
+    raise GitCommandError(command, status, stderr_value)
+GitCommandError: 'git fetch' returned exit status 1: error: Ref refs/remotes/origin/master is at fc7f1b2ca503c5403a7e8fe14fcb81921ca962f7 but expected 9b80c4dcd357ef5a6ad4557d65701fe4d9f3e908
+From git+ssh://githost/conf/pillar
+ ! 9b80c4d..fc7f1b2  master     -> origin/master  (unable to update local ref)
+```
+
+There doesn't appear to be any issues during the initial clone of the repository, only during subsequent fetches. I suspect removing the contents of /var/cache/salt/master/pillar_gitfs would allow it to successfully clone again but fail to update which isn't really a long term solution.
+
+Any thoughts on what might be causing this or solutions would be appreciated.
+
+Edit: salt --versions-report below:
+
+```
+           Salt: 0.16.3
+         Python: 2.6.6 (r266:84292, May 27 2013, 05:35:12)
+         Jinja2: unknown
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+         PyYAML: 3.10
+          PyZMQ: 2.2.0.1
+            ZMQ: 3.2.3
+```

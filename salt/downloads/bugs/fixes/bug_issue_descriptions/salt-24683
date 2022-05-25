@@ -1,0 +1,64 @@
+I get this exception on Ubuntu 14.04 with Salt 2015.5.0 and OpenStack Icehouse when running `salt \*  glance.image_list`:
+
+```
+controller:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1142, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/glance.py", line 181, in image_list
+        nt_ks = _auth(profile)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/glance.py", line 69, in _auth
+        endpoint = kstone.service_catalog.url_for(
+      File "/usr/lib/python2.7/dist-packages/keystoneclient/httpclient.py", line 620, in __getattr__
+        raise AttributeError("Unknown Attribute: %s" % name)
+    AttributeError: Unknown Attribute: service_catalog
+```
+
+Looking [at the code](https://github.com/openstack/python-keystoneclient/blob/stable/icehouse/keystoneclient/httpclient.py#L654) using keystoneclient in this way is deprecated:
+
+```
+    def __getattr__(self, name):
+        # FIXME(jamielennox): provide a proper deprecated warning
+        try:
+            var_name = self.deprecated_session_variables[name]
+        except KeyError:
+            raise AttributeError("Unknown Attribute: %s" % name)
+
+        return getattr(self.session, var_name or name)
+```
+
+(Looks like the Ubuntu pkg is a bit outdated as the linenumbers don't match.)
+
+Salt-versions on master & minion:
+
+```
+root@controller:~# salt-call --versions-report
+                  Salt: 2015.5.0
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2015.5.0+ds-1trusty1
+```
+
+Glance versions:
+
+```
+root@controller:~# dpkg -l \*glance\* | grep ^ii
+ii  glance                              1:2014.1.4-0ubuntu2                   all          OpenStack Image Registry and Delivery Service - Daemons
+ii  glance-api                          1:2014.1.4-0ubuntu2                   all          OpenStack Image Registry and Delivery Service - API
+ii  glance-common                       1:2014.1.4-0ubuntu2                   all          OpenStack Image Registry and Delivery Service - Common
+ii  glance-registry                     1:2014.1.4-0ubuntu2                   all          OpenStack Image Registry and Delivery Service - Registry
+ii  python-glance                       1:2014.1.4-0ubuntu2                   all          OpenStack Image Registry and Delivery Service - Python library
+ii  python-glanceclient                 1:0.12.0-0ubuntu1                     all          Client library for Openstack glance server.
+root@controller:~# 
+```

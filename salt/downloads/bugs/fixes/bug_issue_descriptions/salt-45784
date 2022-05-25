@@ -1,0 +1,27 @@
+### Description of Issue/Question
+
+When an SELinux `fcontext` entry has a regular expression that is longer than 49 characters, the `modules/selinux.py` module is unable to find it. This is due to the output of `semanage fcontext --list` only containing a single space at the end of the regular expression.
+
+We are expecting the output to contain 2 or more spaces between each item in the output. Here is an example output which we assume to always hold true (comes with the CentOS default policies):
+
+```
+/usr/bin/swift-account-reaper                      regular file       system_u:object_r:swift_exec_t:s0 
+```
+
+As you can see, after `/usr/bin/swift-account-reaper` there is a number of spaces. However, with longer regular expressions we only get a single space:
+
+```
+/usr/share/system-config-selinux/system-config-selinux-dbus\.py regular file       system_u:object_r:semanage_exec_t:s0
+```
+
+I can modify the script so that it matches one or more spaces (`[ ]+`) instead of the current two or more (`[ ]{2,}`). However, this then breaks the logic that follows which splits the string into its three component parts (as the file type itself can contain a space).
+
+An idea is to not split the string using the spacer regex and instead split using this logic:
+
+1. Everything up to the first space is the regular expression.
+1. Everything after the final space is the context.
+1. The leftover bit is the second field, the file type.
+
+This appears to work in practice. The regular expression is not allowed to contain spaces, and I don't believe the context can either, so the logic should hold true in all situations.
+
+I'll put in a PR containing these changes. I'd like some feedback as to whether this "strange" logic is acceptable and whether anyone anticipates this breaking any existing use cases. I've tested it on my state files (which contain regular expressions shorter than 49 characters which did previously work as well as longer ones which did not) and it works.

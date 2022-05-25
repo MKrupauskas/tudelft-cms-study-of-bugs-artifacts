@@ -1,0 +1,116 @@
+Module produces expected result:
+
+```
+salt 'salt01swa*' alternatives.check_installed java /usr/lib/jvm/jre-1.8.0_oracle/bin/java
+salt01swa.intranet.example.org:
+    False
+salt 'salt01swa*' alternatives.install java /usr/bin/java /usr/lib/jvm/jre-1.8.0_oracle/bin/java 69
+salt 'salt01swa*' alternatives.set java /usr/lib/jvm/jre-1.8.0_oracle/bin/java
+salt 'salt01swa*' alternatives.check_installed java /usr/lib/jvm/jre-1.8.0_oracle/bin/java
+salt01swa.intranet.example.org:
+    True
+```
+
+State returns a failure: 
+```
+SLS:
+
+java-install-alternatives:
+  alternatives.install:
+    - name: java
+    - link: /usr/bin/java
+    - path: /usr/lib/jvm/jre-1.8.0_oracle/bin/java
+    - priority: '69'
+
+# set the alternative version
+java-set-alternatives:
+  alternatives.set:
+    - name: java
+    - path: /usr/lib/jvm/jre-1.8.0_oracle/bin/java
+    - require:
+       - alternatives: java-install-alternatives
+
+Salt output:
+
+# salt 'salt01swa*' state.sls strd_tomcat
+salt01swa.intranet.etnic.be:
+----------
+          ID: java-install-alternatives
+    Function: alternatives.install
+        Name: java
+      Result: False
+     Comment: Alternative for java not installed:
+     Started: 13:10:10.289989
+    Duration: 10.956 ms
+     Changes:   
+----------
+          ID: java-set-alternatives
+    Function: alternatives.set
+        Name: java
+      Result: False
+     Comment: One or more requisite failed: strd_tomcat.java-install-alternatives
+     Changes:   
+
+
+```
+I think I have identified the bug in `/usr/lib/python2.7/site-packages/salt/states/alternatives.py` around the condition `if current == path and master_link == link:`.
+
+We expect a change to happen if current path or link are **different** from args passed to alternatives.install in the state.
+
+Here's a patch, can anyone test?
+
+```
+--- alternatives.py-broken	2017-01-18 13:31:35.132866226 +0100
++++ alternatives.py	2017-01-18 13:31:46.652181596 +0100
+@@ -83,7 +83,7 @@
+         out = __salt__['alternatives.install'](name, link, path, priority)
+         current = __salt__['alternatives.show_current'](name)
+         master_link = __salt__['alternatives.show_link'](name)
+-        if current == path and master_link == link:
++        if current != path or master_link != link:
+             ret['comment'] = (
+                 'Alternative for {0} set to path {1} with priority {2}'
+             ).format(name, current, priority)
+```
+
+Version report
+
+ ``` 
+Salt Version:
+           Salt: 2016.3.4
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: 1.2.5
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  2 2016, 04:20:16)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.7.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: redhat 7.3 Maipo
+        machine: x86_64
+        release: 3.10.0-514.el7.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 7.3 Maipo
+ ``` 

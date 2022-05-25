@@ -1,0 +1,116 @@
+### Description of Issue/Question
+
+openSUSE allows to install multiple versions of the kernel, which means I have two `kernel-default` packages (same name, but different version) installed at the same time. There are also multiple `gpg-pubkey` package:
+
+```
+# rpm -q kernel-default gpg-pubkey
+kernel-default-4.4.90-18.32.1.x86_64
+kernel-default-4.4.92-18.36.1.x86_64
+gpg-pubkey-307e3d54-4be01a65
+gpg-pubkey-3dbdc284-53674dd4
+gpg-pubkey-6912ee37-58b4c885
+```
+
+If a package gets updated via `pkg.latest`, the diff view also reports differences for `kernel-default` and `gpg-pubkey` (the "real" diff is that `jenkins` got updated):
+
+```
+          ID: jenkins
+    Function: pkg.latest
+      Result: True
+     Comment: The following packages were successfully installed/upgraded: jenkins
+     Started: 12:49:45.816578
+    Duration: 24835.381 ms
+     Changes:   
+              ----------                                                                                                                                                                                                                                                       
+              gpg-pubkey:
+                  ----------
+                  new:
+                      8dbf61c3-572b2516
+                  old:
+                      307e3d54-4be01a65,3dbdc284-53674dd4,498d5a23-593bd7b8,6912ee37-58b4c885,8dbf61c3-572b2516
+              jenkins:
+                  ----------
+                  new:
+                      2.93-1.1
+                  old:
+                      2.92-1.1
+              kernel-default:
+                  ----------
+                  new:
+                      4.4.92-31.1
+                  old:
+                      4.4.90-28.1,4.4.92-31.1
+```
+
+It seems the code that provides the `new` values only reports one version, while the code that provides the `old` values reports all installed versions.
+
+### Setup
+```
+jenkins:
+  service.running:
+    - enable: True
+  pkg.latest:
+    - fromrepo: devel:tools:building
+  pkgrepo.managed:
+    - name: devel:tools:building
+    - humanname: devel:tools:building
+    - baseurl: http://download.opensuse.org/repositories/devel:/tools:/building/openSUSE_Leap_{{ salt['grains.get']('osrelease') }}/
+    - gpgautoimport: True
+    - priority: 155
+    - refresh: True
+```
+
+### Steps to Reproduce Issue
+* make sure you have an old versions of jenkins installed (you can probably use any other package to test this, as long as it's outdated and an update is available)
+* make sure you have multiple packages with the same name installed (`rpm -q gpg-pubkey kernel-default should give more than one result for one of these packages)
+* run `state.highstate`
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Mar 22 2017, 12:31:17) [GCC]
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.2
+ 
+System Versions:
+           dist: SuSE 42.2 x86_64
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.92-18.36-default
+         system: Linux
+        version: openSUSE  42.2 x86_64
+ ```
+
+This is from the master. It's running openSUSE 42.2 (as reported), but I use the (rebuilt-for-42.2 ) salt package from openSUSE 42.3.
+
+The minion is openSUSE 42.3 with salt-2017.7.2-14.1.x86_64
+
+CC @ccboltz

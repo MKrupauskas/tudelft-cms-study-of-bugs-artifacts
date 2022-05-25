@@ -1,0 +1,116 @@
+### Description of Issue/Question
+Inside `/opt/saltstack/lib/python2.7/site-packages/salt/sdb/yaml.py:_get_values()` it calls `with salt.utils.files.flopen(fname) as yamlfile:`
+
+in `salt/utils/files.py`:
+```
+@contextlib.contextmanager
+def flopen(*args, **kwargs):
+    '''
+    Shortcut for fopen with lock and context manager.
+    '''
+    with fopen(*args, **kwargs) as f_handle:
+        try:
+            if is_fcntl_available(check_sunos=True):
+                lock_type = fcntl.LOCK_SH
+                if 'w' in args[1] or 'a' in args[1]: <-------------------- BUG
+                    lock_type = fcntl.LOCK_EX
+                fcntl.flock(f_handle.fileno(), lock_type)
+            yield f_handle
+        finally:
+            if is_fcntl_available(check_sunos=True):
+                fcntl.flock(f_handle.fileno(), fcntl.LOCK_UN)
+```
+
+Since there's no check to establish whether or not there are more than args[0], we get this error
+```
+$ sudo salt-run sdb.get sdb://sdb_yaml/token
+Exception occurred in runner sdb.get: Traceback (most recent call last):
+  File "/opt/saltstack/lib/python2.7/site-packages/salt/client/mixins.py", line 387, in _low
+    data['return'] = self.functions[fun](*args, **kwargs)
+  File "/opt/saltstack/lib/python2.7/site-packages/salt/runners/sdb.py", line 27, in get
+    return salt.utils.sdb.sdb_get(uri, __opts__, __utils__)
+  File "/opt/saltstack/lib/python2.7/site-packages/salt/utils/sdb.py", line 46, in sdb_get
+    return loaded_db[fun](query, profile=profile)
+  File "/opt/saltstack/lib/python2.7/site-packages/salt/sdb/yaml.py", line 75, in get
+    data = _get_values(profile)
+  File "/opt/saltstack/lib/python2.7/site-packages/salt/sdb/yaml.py", line 94, in _get_values
+    with salt.utils.files.flopen(fname) as yamlfile:
+  File "/opt/saltstack/lib/python2.7/contextlib.py", line 17, in __enter__
+    return self.gen.next()
+  File "/opt/saltstack/lib/python2.7/site-packages/salt/utils/files.py", line 411, in flopen
+    if 'w' in args[1] or 'a' in args[1]:
+IndexError: tuple index out of range
+[INFO    ] Runner completed: 20181025164930893556
+```
+
+If I provide a check if len(args) > 1, success:
+```
+@contextlib.contextmanager
+def flopen(*args, **kwargs):
+    '''
+    Shortcut for fopen with lock and context manager.
+    '''
+    with fopen(*args, **kwargs) as f_handle:
+        try:
+            if is_fcntl_available(check_sunos=True):
+                lock_type = fcntl.LOCK_SH
+                if len(args) > 1:    <--------------------------
+                    if 'w' in args[1] or 'a' in args[1]:
+                        lock_type = fcntl.LOCK_EX
+                fcntl.flock(f_handle.fileno(), lock_type)
+            yield f_handle
+        finally:
+            if is_fcntl_available(check_sunos=True):
+                fcntl.flock(f_handle.fileno(), fcntl.LOCK_UN)
+```
+and now:
+```
+$ sudo salt-run sdb.get sdb://sdb_yaml/token
+wewtokenreturnedwewtokenreturned
+[INFO    ] Runner completed: 20181025180234777829
+```
+### Setup
+Normal sdb/yaml configuration, nothing out of the ordinary.
+
+
+### Versions Report
+Salt Version:
+           Salt: 2018.3.2-1735-g84e2dcf
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: 3.5.0
+          gitdb: 2.0.4
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.27.4
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.27.2
+         Python: 2.7.15 (default, Aug 24 2018, 16:24:40)
+   python-gnupg: 0.4.3
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: 2.0.4
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.11.6.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core

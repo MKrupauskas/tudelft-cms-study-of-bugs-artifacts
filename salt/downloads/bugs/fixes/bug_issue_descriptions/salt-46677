@@ -1,0 +1,124 @@
+### Description of Issue/Question
+Salt changes the policy over and over again:
+```
+[INFO    ] Executing state rabbitmq_policy.present for [HA]
+[INFO    ] Executing command ['/usr/local/bin/rabbitmqctl', 'list_policies', '-q', '-p', '/'] as user 'root' in directory '/root'
+[DEBUG   ] stdout: /	HA	.*	all	{"ha-mode":"all","ha-sync-mode":"automatic"}	0
+[DEBUG   ] Policy exists but needs updating
+[INFO    ] Executing command ['/usr/local/bin/rabbitmqctl', 'set_policy', '-p', '/', 'HA', '.*', '{"ha-mode":"all","ha-sync-mode":"automatic"}'] as user 'root' in directory '/root'
+[DEBUG   ] stdout: Setting policy "HA" for pattern ".*" to "{"ha-mode":"all","ha-sync-mode":"automatic"}" with priority "0" for vhost "/" ...
+[DEBUG   ] Set policy: Setting policy "HA" for pattern ".*" to "{"ha-mode":"all","ha-sync-mode":"automatic"}" with priority "0" for vhost "/" ...
+[INFO    ] {'new': ['Pattern'], 'old': {'apply_to': '.*', 'priority': '0', 'definition': '{"ha-mode":"all","ha-sync-mode":"automatic"}', 'pattern': 'all'}}
+[INFO    ] Completed state [HA] at time 11:17:10.042945 duration_in_ms=1576.726
+```
+```
+----------
+          ID: rabbitmq_policy_HA
+    Function: rabbitmq_policy.present
+        Name: HA
+      Result: True
+     Comment: Setting policy "HA" for pattern ".*" to "{"ha-mode":"all","ha-sync-mode":"automatic"}" with priority "0" for vhost "/" ...
+     Started: 11:32:25.310762
+    Duration: 1578.871 ms
+     Changes:   
+              ----------
+              new:
+                  - Pattern
+              old:
+                  ----------
+                  apply_to:
+                      .*
+                  definition:
+                      {"ha-mode":"all","ha-sync-mode":"automatic"}
+                  pattern:
+                      all
+                  priority:
+                      0
+----------
+```
+`apply_to:` and `pattern:` fields need to swap places.
+
+This happens because the order of fields in the output of the `rabbitmqctl list_policies` has changed.
+Patching the `salt/modules/rabbitmq.py` with the following diff fixes the problem:
+```
+@@ -839,9 +839,9 @@
+         # 2 at some point
+         offset = len(parts) - 5
+         if len(parts) == 6:
+-            ret[vhost][name]['apply_to'] = parts[2]
++            ret[vhost][name]['apply_to'] = parts[3]
+         ret[vhost][name].update({
+-            'pattern': parts[offset+2],
++            'pattern': parts[offset+1],
+             'definition': parts[offset+3],
+             'priority': parts[offset+4]
+         })
+```
+
+### Setup
+```
+rabbitmq_policy_HA:
+  rabbitmq_policy.present:
+    - name: HA
+    - vhost: /
+    - pattern: '.*'
+    - definition: '{"ha-mode":"all","ha-sync-mode":"automatic"}'
+```
+
+### Steps to Reproduce Issue
+`salt-call state.sls [state]`
+
+### Versions Report
+```
+root@prod-vm01:/# dpkg -l rabbitmq-server
+Desired=Unknown/Install/Remove/Purge/Hold
+| Status=Not/Inst/Conf-files/Unpacked/halF-conf/Half-inst/trig-aWait/Trig-pend
+|/ Err?=(none)/Reinst-required (Status,Err: uppercase=bad)
+||/ Name           Version      Architecture Description
++++-==============-============-============-=================================
+ii  rabbitmq-serve 3.7.4-1      all          Multi-protocol messaging broker
+```
+
+```
+root@prod-vm01:~# salt-call --versions-report
+Salt Version:
+           Salt: 2017.7.4
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: 2.7.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Dec  4 2017, 14:50:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-116-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

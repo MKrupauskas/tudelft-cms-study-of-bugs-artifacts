@@ -1,0 +1,151 @@
+### Description of Issue/Question
+
+Trying to use the nova driver to create Rackspace servers and getting the error "module' object has no attribute 'add_arg" when running a cloud.profile.
+
+```
+$ salt $HOSTNAME cloud.profile MEMv1_15gb_ubuntu_14.04 ord-xxx-xxx-xxx-15
+ord-xxx-xxx-xxxx-2:
+[DEBUG   ] Failed to execute 'nova.list_nodes()' while querying for running nodes: 'module' object has no attribute 'add_arg'
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 2364, in run_parallel_map_providers_query
+    cloud.clouds[data['fun']]()
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/clouds/nova.py", line 953, in list_nodes
+    conn = get_conn()
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/clouds/nova.py", line 273, in get_conn
+    conn = nova.SaltNova(**kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/openstack/nova.py", line 211, in __init__
+    extension.run_hooks('__pre_parse_args__')
+  File "/usr/lib/python2.7/dist-packages/novaclient/utils.py", line 320, in run_hooks
+    hook_func(*args, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/rax_default_network_flags_python_novaclient_ext/__init__.py", line 75, in __pre_parse_args__
+    add_args()
+  File "/usr/local/lib/python2.7/dist-packages/rax_default_network_flags_python_novaclient_ext/__init__.py", line 30, in add_args
+    utils.add_arg(shell.do_boot,
+AttributeError: 'module' object has no attribute 'add_arg'
+```
+### Setup
+
+/etc/salt/cloud.providers.d/rackspace.conf
+
+```
+ord-rackspace:
+  minion:
+    master: 192.168.xxx.xxx
+  identity_url: 'https://identity.api.rackspacecloud.com/v2.0/tokens'
+  compute_region: ORD
+  user: xxxxxxxxxx.xxxxx
+  api_key: xxxxxxxxxxxxxxxxxxxxxxxxx
+  os_auth_plugin: rackspace
+  tenant: xxxxxx
+  driver: nova
+  protocol: ipv4
+  script: bootstrap-salt.sh
+
+  networks:
+    - fixed:
+      # private subnet
+      - xxxxxxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+      # Rackspace's "PublicNet"
+      - 00000000-0000-0000-0000-000000000000
+      # Rackspace's "ServiceNet"
+      - 11111111-1111-1111-1111-11111111111
+```
+
+/etc/salt/profiles.d/rackspace-compute.conf
+
+```
+MEMv1_15gb_ubuntu_14.04:
+  provider: ord-rackspace
+  size: 15 GB Memory v1
+  image: Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
+  ssh_key_file: /xxxxxx/xxxxx/xxxxx/id_rsa
+  ssh_key_name: salt-master
+  display_ssh_output: False
+  block_device:
+    - source: image
+      id: 8e7bdecd-380a-43d7-af9a-ec4f4df51dbd
+      dest: volume
+      size: 20
+      shutdown: remove
+```
+### Steps to Reproduce Issue
+
+Error happens every time I try to run the above command.  Here is the relevant message from salt minion debug log
+
+```
+[DEBUG   ] Failed to execute 'nova.list_nodes()' while querying for running nodes: 'module' object has no attribute 'add_arg'
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 2364, in run_parallel_map_providers_query
+    cloud.clouds[data['fun']]()
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/clouds/nova.py", line 953, in list_nodes
+    conn = get_conn()
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/clouds/nova.py", line 273, in get_conn
+    conn = nova.SaltNova(**kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/openstack/nova.py", line 211, in __init__
+    extension.run_hooks('__pre_parse_args__')
+  File "/usr/lib/python2.7/dist-packages/novaclient/utils.py", line 320, in run_hooks
+    hook_func(*args, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/rax_default_network_flags_python_novaclient_ext/__init__.py", line 75, in __pre_parse_args__
+    add_args()
+  File "/usr/local/lib/python2.7/dist-packages/rax_default_network_flags_python_novaclient_ext/__init__.py", line 30, in add_args
+    utils.add_arg(shell.do_boot,
+AttributeError: 'module' object has no attribute 'add_arg'
+
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: 0.3.6
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-85-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```
+
+**Nova info**
+
+```
+$ dpkg -l | grep nova
+ii  nova-agent                          1.39.1                           all          openstack guest agent binary installer
+ii  python-novaclient                   1:2.17.0-0ubuntu1.2              all          client library for OpenStack Compute API
+$ pip list | grep nova
+ip-associations-python-novaclient-ext (0.2)
+os-diskconfig-python-novaclient-ext (0.1.3)
+os-networksv2-python-novaclient-ext (0.26)
+python-novaclient (2.17.0)
+rackspace-novaclient (2.0)
+rax-default-network-flags-python-novaclient-ext (0.4.0)
+rax-scheduled-images-python-novaclient-ext (0.3.1)
+```

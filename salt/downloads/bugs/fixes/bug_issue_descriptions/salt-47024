@@ -1,0 +1,135 @@
+### Description of Issue/Question
+
+I'm seeing this exception when trying to install pip modules on Windows:
+
+```            An exception occurred in this state: Traceback (most recent call last):
+              File "c:\salt\bin\lib\site-packages\salt\state.py", line 1878, in call
+                **cdata['kwargs'])
+              File "c:\salt\bin\lib\site-packages\salt\loader.py", line 1823, in wrapper
+                return f(*args, **kwargs)
+              File "c:\salt\bin\lib\site-packages\salt\states\pip_state.py", line 685, in installed
+                upgrade, user, cwd, bin_env)
+              File "c:\salt\bin\lib\site-packages\salt\states\pip_state.py", line 193, in _check_if_installed
+                user=user, cwd=cwd)
+              File "c:\salt\bin\lib\site-packages\salt\modules\pip.py", line 1074, in list_
+                for line in freeze(bin_env=bin_env, user=user, cwd=cwd):
+              File "c:\salt\bin\lib\site-packages\salt\modules\pip.py", line 1014, in freeze
+                pip_bin = _get_pip_bin(bin_env)
+              File "c:\salt\bin\lib\site-packages\salt\modules\pip.py", line 134, in _get_pip_bin
+                which_result.encode('string-escape')
+            AttributeError: 'NoneType' object has no attribute 'encode'
+```
+
+### Steps to Reproduce Issue
+This is a fresh installation of Windows Server 2016, using the python2 version of the minion.  When trying to apply an SLS that contains only this code, the exception above is thrown.
+
+```
+pip:
+    pip.installed:
+        - name: pip >= 9.0.3
+        - upgrade: True
+
+```
+
+### Versions Report
+```
+c:\salt\bin\Scripts>salt-minion --versions-report
+Salt Version:
+           Salt: 2018.3.0
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 10.2.1
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: 1.6.1
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.14 (v2.7.14:84471935ed, Sep 16 2017, 20:25:58) [MSC v.1500 64 bit (AMD64)]
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.3
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: 0.2.4
+        Tornado: 4.5.2
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+         locale: cp1252
+        machine: AMD64
+        release: 2016Server
+         system: Windows
+        version: 2016Server 10.0.14393  Multiprocessor Free
+
+
+c:\salt\bin\Scripts>
+```
+
+The master is the same version.
+
+### Solution
+
+I updated the pip.py on my windows server, making the following changes:
+```
+diff --git a/salt/modules/pip.py b/salt/modules/pip.py
+index b560612..16274ea 100644
+--- a/salt/modules/pip.py
++++ b/salt/modules/pip.py
+@@ -130,10 +130,13 @@ def _get_pip_bin(bin_env):
+              'pip{0}'.format(sys.version_info[0]),
+              'pip', 'pip-python']
+         )
+-        if salt.utils.platform.is_windows() and six.PY2:
+-            which_result.encode('string-escape')
++
+         if which_result is None:
+             raise CommandNotFoundError('Could not find a `pip` binary')
++
++        if salt.utils.platform.is_windows() and six.PY2:
++            which_result.encode('string-escape')
++
+         return which_result
+
+     # try to get pip bin from virtualenv, bin_env
+```
+
+And it now functions as expected.  By checking to see if which_result is None before encoding I get the following response:
+
+```
+    pip_|-pip_|-pip >= 9.0.3_|-installed:
+        ----------
+        __id__:
+            pip
+        __run_num__:
+            0
+        __sls__:
+            core_packages.python
+        changes:
+            ----------
+        comment:
+            Error installing 'pip >= 9.0.3': Could not find a `pip` binary
+        duration:
+            15.0
+        name:
+            pip >= 9.0.3
+        result:
+            False
+        start_time:
+            17:27:12.294000
+```
+
+Would you like me to create a pull request?

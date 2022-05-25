@@ -1,0 +1,94 @@
+Salt-Master version:
+
+```
+ ~ # salt --versions
+           Salt: 2014.7.0rc4
+         Python: 2.7.8 (default, Oct  7 2014, 17:59:21)
+         Jinja2: 2.7.3
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 4.0.4
+           Mako: 0.7.0
+```
+
+Freshly deployed minion (deployed with salt-cloud, bootstrapped with script-version: "2014.10.14"):
+
+```
+~ # salt-minion --versions
+           Salt: 2014.1.11
+         Python: 2.7.3 (default, Mar 14 2014, 11:57:14)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.3
+```
+
+Both my master and minion run debian.7.6.
+
+My problem is that my reactors don't seem to work for the salt/cloud part, salt/minion reactors work fine
+I'll add my reactor code, they are really simple and nearly copy-pasted from the reactors doc
+
+```
+#salt/master.d/reactor.conf
+reactor:
+
+  - 'salt/cloud/*/deploy_script':
+    - '/srv/reactor/sync_all.sls'
+  - 'salt/cloud/*/created':
+    - '/srv/reactor/cloud_highstate.sls'
+```
+
+```
+ ~ # cat /srv/reactor/sync_all.sls
+# /srv/reactor/sync_all.sls
+sync_all:
+  cmd.saltutil.sync_all:
+    - tgt: {{ data['id'] }}
+    - ret: smtp_return
+```
+
+```
+ ~ # cat /srv/reactor/cloud_highstate.sls
+# /srv/reactor/cloud_highstate.sls
+cloud_highstate:
+  cmd.state.highstate:
+    - tgt: {{ data['id'] }}
+    - ret: smtp_return
+```
+
+When I create an instance through salt-cloud, I can see my master getting the events that I watch for. (I'm using eventlisten.py form the docs (added an if tag != salt/auth around the display info, because this was just making my head spin, since I have many more servers that I provision with salt.)
+This is the info I get from this script:
+
+```
+Event fired at Mon Oct 20 10:16:58 2014
+*************************
+Tag: salt/cloud/servername/deploy_script
+Data:
+{'_stamp': '2014-10-20T10:16:58.967865',
+ 'event': 'servername has been deployed at 188.225.186.178',
+ 'host': '188.225.186.178',
+ 'name': 'servername'}
+Event fired at Mon Oct 20 10:16:59 2014
+*************************
+Tag: salt/cloud/servername/created
+Data:
+{'_stamp': '2014-10-20T10:16:59.026587',
+ 'event': 'created instance',
+ 'name': 'servername',
+ 'profile': 'debian_512_do',
+ 'provider': 'do:digital_ocean'}
+Event fired at Mon Oct 20 10:17:33 2014
+```
+
+These events should trigger my reactors, right?

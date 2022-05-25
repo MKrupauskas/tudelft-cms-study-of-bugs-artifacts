@@ -1,0 +1,139 @@
+ini_manage.options_absent is rewriting the files it's checking and reporting no changes. I would have expected that checking the file would only read it (and I guess there is an argument for re-writing to a consistent format - maybe the ini states need a reformat flag?) but the rewrite results are giving inconsistent line endings on Windows. Here is a test case, where I've already applied the fix for #33590.
+
+<pre>{% if grains['os'] == 'Windows' %}
+  {% set test_file = 'C:\\test.txt' %}
+{% else %}
+  {% set test_file = '/test' %}
+{% endif %}
+
+write_ini_file:
+  file.managed:
+    - name: '{{ test_file }}'
+    - contents: |
+        [Section1]
+        a=1
+        b=2
+        [Section2]
+        c=3
+        d=4
+        [Section3]
+        e=5
+        f=6
+
+cleanup_ini_file:
+  ini.options_absent:
+    - name: '{{ test_file }}'
+    - sections:
+        Section4:
+          - g
+          - h
+
+this_should_not_do_anything:
+  file.managed:
+    - name: '{{ test_file }}'
+    - contents: |
+        [Section1]
+        a=1
+        b=2
+        [Section2]
+        c=3
+        d=4
+        [Section3]
+        e=5
+        f=6</pre>
+
+
+`salt salt-test state.apply`
+
+<pre>salt-test:
+----------
+          ID: write_ini_file
+    Function: file.managed
+        Name: C:\test.txt
+      Result: True
+     Comment: File C:\test.txt updated
+     Started: 10:59:04.475000
+    Duration: 43.0 ms
+     Changes:   
+              ----------
+              diff:
+                  New file
+----------
+          ID: cleanup_ini_file
+    Function: ini.options_absent
+        Name: C:\test.txt
+      Result: True
+     Comment: No anomaly detected
+     Started: 10:59:06.501000
+    Duration: 15.0 ms
+     Changes:   
+----------
+          ID: this_should_not_do_anything
+    Function: file.managed
+        Name: C:\test.txt
+      Result: True
+     Comment: File C:\test.txt updated
+     Started: 10:59:06.518000
+    Duration: 28.0 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -1,12 +1,9 @@
+                  -
+                  -[Section1]
+                  -a = 1
+                  -b = 2
+                  -
+                  -[Section2]
+                  -c = 3
+                  -d = 4
+                  -
+                  -[Section3]
+                  -e = 5
+                  -f = 6
+                  +[Section1]
+                  +a=1
+                  +b=2
+                  +[Section2]
+                  +c=3
+                  +d=4
+                  +[Section3]
+                  +e=5
+                  +f=6
+
+Summary for salt-test
+------------
+Succeeded: 3 (changed=2)
+Failed:    0
+------------
+Total states run:     3</pre>
+
+
+On Linux, at least the rewrite is consistent:
+
+<pre>[Section1]
+a = 1
+b = 2
+
+[Section2]
+c = 3
+d = 4
+
+[Section3]
+e = 5
+f = 6</pre>
+
+
+...but on Windows the line endings have been mixed up:
+
+<pre>[Section1]a = 1
+b = 2
+[Section2]c = 3
+d = 4
+[Section3]e = 5
+f = 6</pre>
+
+
+Tested on 2016.3.0

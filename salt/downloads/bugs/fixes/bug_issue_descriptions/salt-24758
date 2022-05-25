@@ -1,0 +1,199 @@
+Greetings.
+
+I'm having a problem with salt-minion on a few load balancer machines.
+There's one (or sometimes two) salt-minion processes which are using 100% of single CPU core.
+I investigated the matter using strace and turning debug logs in the minion and I found out that this happens when minion runs a periodic status.master task.
+When the task runs there is a lot of reading from /proc/[salt-minion-PID]/net/tcp. 
+Running strace -f salt-call status.master confirms that entire /proc/[salt-minion-PID]/net/tcp file is read, and while it's done the CPU is at 100%.
+I suppose it's a way of checking (by looking in /proc/[salt-minion-PID]/net/tcp file) weather salt-minion is connected to it's master.
+This solution may work for servers with few connections (looking for line in file is a CPU-heavy operation, even if the file is small), but in my case (a load balancer with a lot of connections, and /proc/[salt-minion-PID]/net/tcp file size of 4GB) it presents a real problem.
+
+```
+root@bal05 ~ # netstat -apn | wc -l
+222893
+root@bal05 ~ # wc -l /proc/7007/net/tcp
+250948 /proc/7007/net/tcp
+```
+
+debug log:
+
+```
+2015-06-17 19:37:07,650 [salt.utils.schedule][DEBUG   ][16893] schedule.handle_func: Incrementing jobcount, now 1, maxrunning is 2
+2015-06-17 19:37:07,650 [salt.utils.schedule][DEBUG   ][16893] schedule.handle_func: Checking job against fun status.master: {'fun': 'status.master', 'jid': '20150617193632458494', 'pid': 7568, 'id': 'bal05', 'schedule': '__master_alive'}
+2015-06-17 19:37:07,650 [salt.utils.schedule][DEBUG   ][16893] schedule.handle_func: Incrementing jobcount, now 2, maxrunning is 2
+2015-06-17 19:37:07,650 [salt.utils.schedule][DEBUG   ][16893] schedule.handle_func: The scheduled job __master_alive was not started, 2 already running
+2015-06-17 19:37:07,651 [salt.utils.schedule][INFO    ][7425] Running scheduled job: __master_alive
+2015-06-17 19:37:07,652 [salt.utils.schedule][DEBUG   ][7425] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+2015-06-17 19:37:07,652 [salt.utils.schedule][DEBUG   ][7425] schedule: This job was scheduled with a max number of 2
+2015-06-17 19:37:07,653 [salt.utils.schedule][DEBUG   ][16894] schedule.handle_func: Checking job against fun status.master: {'fun': 'status.master', 'jid': '20150617193632483594', 'pid': 7577, 'id': 'bal05', 'schedule': '__master_alive'}
+2015-06-17 19:37:07,654 [salt.utils.schedule][DEBUG   ][16894] schedule.handle_func: Incrementing jobcount, now 1, maxrunning is 2
+2015-06-17 19:37:07,654 [salt.utils.schedule][DEBUG   ][16894] schedule.handle_func: Checking job against fun status.master: {'fun': 'status.master', 'jid': '20150617193632458494', 'pid': 7568, 'id': 'bal05', 'schedule': '__master_alive'}
+2015-06-17 19:37:07,654 [salt.utils.schedule][DEBUG   ][16894] schedule.handle_func: Incrementing jobcount, now 2, maxrunning is 2
+2015-06-17 19:37:07,654 [salt.utils.schedule][DEBUG   ][16894] schedule.handle_func: The scheduled job __master_alive was not started, 2 already running
+2015-06-17 19:37:07,655 [salt.utils.schedule][INFO    ][7425] Running scheduled job: __master_alive
+2015-06-17 19:37:07,656 [salt.utils.schedule][DEBUG   ][7425] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+2015-06-17 19:37:07,656 [salt.utils.schedule][DEBUG   ][7425] schedule: This job was scheduled with a max number of 2
+2015-06-17 19:37:07,657 [salt.utils.schedule][DEBUG   ][16895] schedule.handle_func: Checking job against fun status.master: {'fun': 'status.master', 'jid': '20150617193632483594', 'pid': 7577, 'id': 'bal05', 'schedule': '__master_alive'}
+2015-06-17 19:37:07,658 [salt.utils.schedule][DEBUG   ][16895] schedule.handle_func: Incrementing jobcount, now 1, maxrunning is 2
+2015-06-17 19:37:07,658 [salt.utils.schedule][DEBUG   ][16895] schedule.handle_func: Checking job against fun status.master: {'fun': 'status.master', 'jid': '20150617193632458494', 'pid': 7568, 'id': 'bal05', 'schedule': '__master_alive'}
+2015-06-17 19:37:07,658 [salt.utils.schedule][DEBUG   ][16895] schedule.handle_func: Incrementing jobcount, now 2, maxrunning is 2
+2015-06-17 19:37:07,658 [salt.utils.schedule][DEBUG   ][16895] schedule.handle_func: The scheduled job __master_alive was not started, 2 already running
+2015-06-17 19:37:07,659 [salt.utils.schedule][INFO    ][7425] Running scheduled job: __master_alive
+2015-06-17 19:37:07,660 [salt.utils.schedule][DEBUG   ][7425] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+2015-06-17 19:37:07,660 [salt.utils.schedule][DEBUG   ][7425] schedule: This job was scheduled with a max number of 2
+2015-06-17 19:37:07,661 [salt.utils.schedule][DEBUG   ][16896] schedule.handle_func: Checking job against fun status.master: {'fun': 'status.master', 'jid': '20150617193632483594', 'pid': 7577, 'id': 'bal05', 'schedule': '__master_alive'}
+2015-06-17 19:37:07,662 [salt.utils.schedule][DEBUG   ][16896] schedule.handle_func: Incrementing jobcount, now 1, maxrunning is 2
+2015-06-17 19:37:07,662 [salt.utils.schedule][DEBUG   ][16896] schedule.handle_func: Checking job against fun status.master: {'fun': 'status.master', 'jid': '20150617193632458494', 'pid': 7568, 'id': 'bal05', 'schedule': '__master_alive'}
+2015-06-17 19:37:07,662 [salt.utils.schedule][DEBUG   ][16896] schedule.handle_func: Incrementing jobcount, now 2, maxrunning is 2
+2015-06-17 19:37:07,662 [salt.utils.schedule][DEBUG   ][16896] schedule.handle_func: The scheduled job __master_alive was not started, 2 already running
+2015-06-17 19:37:07,663 [salt.utils.schedule][INFO    ][7425] Running scheduled job: __master_alive
+2015-06-17 19:37:07,663 [salt.utils.schedule][DEBUG   ][7425] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+2015-06-17 19:37:07,664 [salt.utils.schedule][DEBUG   ][7425] schedule: This job was scheduled with a max number of 2
+2015-06-17 19:37:07,665 [salt.utils.schedule][DEBUG   ][16897] schedule.handle_func: Checking job against fun status.master: {'fun': 'status.master', 'jid': '20150617193632483594', 'pid': 7577, 'id': 'bal05', 'schedule': '__master_alive'}
+2015-06-17 19:37:07,666 [salt.utils.schedule][DEBUG   ][16897] schedule.handle_func: Incrementing jobcount, now 1, maxrunning is 2
+2015-06-17 19:37:07,666 [salt.utils.schedule][DEBUG   ][16897] schedule.handle_func: Checking job against fun status.master: {'fun': 'status.master', 'jid': '20150617193632458494', 'pid': 7568, 'id': 'bal05', 'schedule': '__master_alive'}
+```
+
+strace:
+
+```
+[pid  8530] stat("/var/log/salt/minion", {st_mode=S_IFREG|0640, st_size=43668765, ...}) = 0
+[pid  8530] stat("/etc/localtime", {st_mode=S_IFREG|0644, st_size=1502, ...}) = 0
+[pid  8530] write(3, "2015-06-17 19:50:38,968 [salt.ut"..., 82) = 82
+[pid  8530] stat("/proc/net/tcp", {st_mode=S_IFREG|0444, st_size=0, ...}) = 0
+[pid  8530] open("/proc/net/tcp", O_RDONLY) = 11
+[pid  8530] fstat(11, {st_mode=S_IFREG|0444, st_size=0, ...}) = 0
+[pid  8530] fcntl(11, F_GETFD)          = 0
+[pid  8530] fcntl(11, F_SETFD, FD_CLOEXEC) = 0
+[pid  8530] fstat(11, {st_mode=S_IFREG|0444, st_size=0, ...}) = 0
+[pid  8530] mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f5c39d5d000
+[pid  8530] read(11, "  sl  local_address rem_address "..., 8192) = 4050
+[pid  8530] read(11, "  26: 2939C658:8CA7 C713F388:1FA"..., 4096) = 4050
+[pid  8530] read(11, "  53: 2939C658:9784 E415F388:1FA"..., 1024) = 1024
+[pid  8530] read(11, "                         \n  60: "..., 9216) = 4076
+[pid  8530] read(11, "  87: 2939C658:C9E5 C713F388:1FA"..., 5120) = 4050
+[pid  8530] read(11, " 114: 2939C658:5E18 465D09B0:1FA"..., 1024) = 1024
+[pid  8530] read(11, "                         \n 121: "..., 1024) = 1024
+[pid  8530] read(11, "f8806ebfd0d00                   "..., 9216) = 4102
+[pid  8530] read(11, " 155: 2939C658:C610 643CC658:1FA"..., 5120) = 4050
+[pid  8530] read(11, " 182: 2939C658:9911 643CC658:1FA"..., 1024) = 1024
+[pid  8530] read(11, " 33 10 -1                \n 189: "..., 1024) = 1024
+[pid  8530] read(11, "f8807d326fc00                   "..., 9216) = 4102
+[pid  8530] read(11, " 223: 2939C658:462B 623B0905:1FA"..., 5120) = 4050
+[pid  8530] read(11, " 250: 2939C658:9251 455D09B0:1FA"..., 1024) = 1024
+[pid  8530] read(11, "                         \n 257: "..., 1024) = 1024
+...
+...
+...
+```
+
+versions:
+
+```
+root@bal05 /var/log/salt # salt-call --versions
+                  Salt: 2015.5.0
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2015.5.0+ds-1trusty1
+```
+
+lsof:
+
+```
+root@bal05 ~ # lsof -p 13875
+COMMAND     PID USER   FD   TYPE             DEVICE SIZE/OFF       NODE NAME
+salt-mini 13875 root  cwd    DIR              252,1     4096          2 /
+salt-mini 13875 root  rtd    DIR              252,1     4096          2 /
+salt-mini 13875 root  txt    REG              252,1  3349512   13632025 /usr/bin/python2.7
+salt-mini 13875 root  mem    REG              252,1   101240   72220824 /lib/x86_64-linux-gnu/libresolv-2.19.so
+salt-mini 13875 root  mem    REG              252,1    22952   72220828 /lib/x86_64-linux-gnu/libnss_dns-2.19.so
+salt-mini 13875 root  mem    REG              252,1    18936   72220856 /lib/x86_64-linux-gnu/libuuid.so.1.3.0
+salt-mini 13875 root  mem    REG              252,1    10432   16125851 /usr/lib/python2.7/dist-packages/markupsafe/_speedups.so
+salt-mini 13875 root  mem    REG              252,1    31720   16125162 /usr/lib/python2.7/dist-packages/Crypto/Cipher/_AES.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1   448976   16125802 /usr/lib/python2.7/dist-packages/M2Crypto/__m2crypto.so
+salt-mini 13875 root  mem    REG              252,1    57824   16125867 /usr/lib/python2.7/dist-packages/msgpack/_unpacker.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    51136   16125864 /usr/lib/python2.7/dist-packages/msgpack/_packer.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    39024   16125398 /usr/lib/python2.7/dist-packages/zmq/devices/monitoredqueue.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    29160   16125423 /usr/lib/python2.7/dist-packages/zmq/backend/cython/_device.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    15312   16125426 /usr/lib/python2.7/dist-packages/zmq/backend/cython/_version.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    38024   16125417 /usr/lib/python2.7/dist-packages/zmq/backend/cython/_poll.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    25192   16125416 /usr/lib/python2.7/dist-packages/zmq/backend/cython/utils.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    97224   16125412 /usr/lib/python2.7/dist-packages/zmq/backend/cython/socket.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    39688   16125413 /usr/lib/python2.7/dist-packages/zmq/backend/cython/context.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    61552   16125415 /usr/lib/python2.7/dist-packages/zmq/backend/cython/message.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    90080   72221962 /lib/x86_64-linux-gnu/libgcc_s.so.1
+salt-mini 13875 root  mem    REG              252,1   979056   15992134 /usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.19
+salt-mini 13875 root  mem    REG              252,1    31792   72220843 /lib/x86_64-linux-gnu/librt-2.19.so
+salt-mini 13875 root  mem    REG              252,1   294824   15992336 /usr/lib/x86_64-linux-gnu/libpgm-5.1.so.0.0.118
+salt-mini 13875 root  mem    REG              252,1   359472   15992247 /usr/lib/x86_64-linux-gnu/libzmq.so.3.1.0
+salt-mini 13875 root  mem    REG              252,1    19784   16125424 /usr/lib/python2.7/dist-packages/zmq/backend/cython/error.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    46144   16125420 /usr/lib/python2.7/dist-packages/zmq/backend/cython/constants.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    10896   16125359 /usr/lib/python2.7/dist-packages/zmq/utils/initthreads.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    11152   16122914 /usr/lib/python2.7/lib-dynload/resource.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1   170064   72221952 /lib/x86_64-linux-gnu/libexpat.so.1.6.0
+salt-mini 13875 root  mem    REG              252,1    69200   16122919 /usr/lib/python2.7/lib-dynload/pyexpat.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    58360   16122916 /usr/lib/python2.7/lib-dynload/_elementtree.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1   129104   15992229 /usr/lib/x86_64-linux-gnu/libyaml-0.so.2.0.2
+salt-mini 13875 root  mem    REG              252,1   186688   16124805 /usr/lib/python2.7/dist-packages/_yaml.so
+salt-mini 13875 root  mem    REG              252,1    24648   16122913 /usr/lib/python2.7/lib-dynload/termios.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    30944   15992274 /usr/lib/x86_64-linux-gnu/libffi.so.6.0.1
+salt-mini 13875 root  mem    REG              252,1   136232   16122904 /usr/lib/python2.7/lib-dynload/_ctypes.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    54064   16122911 /usr/lib/python2.7/lib-dynload/_json.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1   109232   16122932 /usr/lib/python2.7/lib-dynload/datetime.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1   387256   72220960 /lib/x86_64-linux-gnu/libssl.so.1.0.0
+salt-mini 13875 root  mem    REG              252,1    38480   16122939 /usr/lib/python2.7/lib-dynload/_ssl.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    33448   16122923 /usr/lib/python2.7/lib-dynload/_multiprocessing.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1  1930528   72220959 /lib/x86_64-linux-gnu/libcrypto.so.1.0.0
+salt-mini 13875 root  mem    REG              252,1    20664   16122935 /usr/lib/python2.7/lib-dynload/_hashlib.x86_64-linux-gnu.so
+salt-mini 13875 root  mem    REG              252,1    47712   72220826 /lib/x86_64-linux-gnu/libnss_files-2.19.so
+salt-mini 13875 root  mem    REG              252,1    47760   72220847 /lib/x86_64-linux-gnu/libnss_nis-2.19.so
+salt-mini 13875 root  mem    REG              252,1    97296   72220835 /lib/x86_64-linux-gnu/libnsl-2.19.so
+salt-mini 13875 root  mem    REG              252,1    39824   72220834 /lib/x86_64-linux-gnu/libnss_compat-2.19.so
+salt-mini 13875 root  mem    REG              252,1  1071552   72220825 /lib/x86_64-linux-gnu/libm-2.19.so
+salt-mini 13875 root  mem    REG              252,1   100728   72221744 /lib/x86_64-linux-gnu/libz.so.1.2.8
+salt-mini 13875 root  mem    REG              252,1    10680   72220831 /lib/x86_64-linux-gnu/libutil-2.19.so
+salt-mini 13875 root  mem    REG              252,1    14664   72220829 /lib/x86_64-linux-gnu/libdl-2.19.so
+salt-mini 13875 root  mem    REG              252,1  1840928   72220840 /lib/x86_64-linux-gnu/libc-2.19.so
+salt-mini 13875 root  mem    REG              252,1   141574   72220841 /lib/x86_64-linux-gnu/libpthread-2.19.so
+salt-mini 13875 root  mem    REG              252,1   149120   72220837 /lib/x86_64-linux-gnu/ld-2.19.so
+salt-mini 13875 root  DEL    REG               0,20           538651593 /run/shm/sem.C1f1d6
+salt-mini 13875 root  DEL    REG               0,20           538651592 /run/shm/sem.lEVPln
+salt-mini 13875 root  DEL    REG               0,20           538651591 /run/shm/sem.33tFtE
+salt-mini 13875 root    0u   CHR                1,3      0t0       1029 /dev/null
+salt-mini 13875 root    1u   CHR              136,1      0t0          4 /dev/pts/1
+salt-mini 13875 root    2u   CHR              136,1      0t0          4 /dev/pts/1
+salt-mini 13875 root    3r  FIFO                0,8      0t0  538651590 pipe
+salt-mini 13875 root    4w  FIFO                0,8      0t0  538651590 pipe
+salt-mini 13875 root    5r   CHR                1,3      0t0       1029 /dev/null
+salt-mini 13875 root    6w   REG              252,1 56413082   91226243 /var/log/salt/minion
+salt-mini 13875 root    7u  0000                0,9        0       7345 anon_inode
+salt-mini 13875 root    8u  0000                0,9        0       7345 anon_inode
+salt-mini 13875 root    9u  0000                0,9        0       7345 anon_inode
+salt-mini 13875 root   10u  0000                0,9        0       7345 anon_inode
+salt-mini 13875 root   11u  0000                0,9        0       7345 anon_inode
+salt-mini 13875 root   12u  0000                0,9        0       7345 anon_inode
+salt-mini 13875 root   13u  IPv4          538651648      0t0        TCP bal05:18128->infra01:4506 (ESTABLISHED)
+salt-mini 13875 root   14u  0000                0,9        0       7345 anon_inode
+salt-mini 13875 root   15u  0000                0,9        0       7345 anon_inode
+salt-mini 13875 root   16u  0000                0,9        0       7345 anon_inode
+salt-mini 13875 root   17u  0000                0,9        0       7345 anon_inode
+salt-mini 13875 root   18u  0000                0,9        0       7345 anon_inode
+salt-mini 13875 root   19u  0000                0,9        0       7345 anon_inode
+salt-mini 13875 root   20u  0000                0,9        0       7345 anon_inode
+salt-mini 13875 root   21u  unix 0xffff8807f2796200      0t0  538703703 /var/run/salt/minion/minion_event_c5b17fbea0_pub.ipc
+salt-mini 13875 root   22u  unix 0xffff8807f2795b00      0t0  538703705 /var/run/salt/minion/minion_event_c5b17fbea0_pull.ipc
+salt-mini 13875 root   23u  0000                0,9        0       7345 anon_inode
+salt-mini 13875 root   24u  IPv4          538708504      0t0        TCP bal05->infra01:4505 (ESTABLISHED)
+salt-mini 13875 root   25r   REG                0,3        0 4026532007 /proc/13875/net/tcp
+```

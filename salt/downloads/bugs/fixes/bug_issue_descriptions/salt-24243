@@ -1,0 +1,155 @@
+## Overview
+
+While testing the multi-master setup prior to deployment I've consistently noticed `master_type: failover` will cause a minion timeout while attempting to connect to a downed master when certain commands are run from the failover master (i.e. `state.highstate`), even though all job updates are sent to the failover master. The relevant parts of the Minion's log seem to be:
+
+```
+#
+# Failover from primary (192.168.51.2) to secondary (192.168.51.9) master
+#
+2015-05-28 18:23:10,165 [salt.minion      ][INFO    ][14303] Connection to master 192.168.51.2 lost
+2015-05-28 18:23:10,165 [salt.minion      ][INFO    ][14303] Trying to tune in to next master from master-list
+2015-05-28 18:23:10,165 [salt.minion      ][INFO    ][14303] Removing possibly failed master 192.168.51.2 from list of masters
+2015-05-28 18:23:10,165 [salt.minion      ][WARNING ][14303] Master ip address changed from 192.168.51.2 to 192.168.51.9
+2015-05-28 18:23:10,166 [salt.minion      ][DEBUG   ][14303] Attempting to authenticate with the Salt Master at 192.168.51.9
+2015-05-28 18:23:10,166 [salt.crypt       ][DEBUG   ][14303] Initializing new SAuth for ('/etc/salt/pki/minion', 'minion1', 'tcp://192.168.51.9:4506')
+(...)
+2015-05-28 15:49:36,963 [salt.crypt       ][DEBUG   ][13433] Re-using SAuth for ('/etc/salt/pki/minion', 'minion1', 'tcp://192.168.51.9:4506')
+2015-05-28 15:49:36,965 [salt.transport   ][DEBUG   ][13433] Removed obsolete sreq-object from sreq_cache for master tcp://192.168.51.2:4506
+2015-05-28 15:49:36,970 [salt.crypt       ][DEBUG   ][13433] Re-using SAuth for ('/etc/salt/pki/minion', 'minion1', 'tcp://192.168.51.9:4506')
+2015-05-28 15:49:36,973 [salt.minion      ][INFO    ][13433] Minion is ready to receive requests!
+(...)
+#
+# Response to subsequent highstate call from now active failover (192.168.51.9) seems to be sent to failed primary (192.168.51.2)
+#
+2015-05-28 18:23:38,795 [salt.minion      ][TRACE   ][14303] Handling payload
+2015-05-28 18:23:38,795 [salt.minion      ][INFO    ][14303] User sudo_vagrant Executing command state.highstate with jid 20150528182338636832
+2015-05-28 18:23:38,796 [salt.minion      ][DEBUG   ][14303] Command details {'tgt_type': 'glob', 'jid': '20150528182338636832', 'tgt': 'minion1', 'ret': '', 'user': 'sudo_vagrant', 'arg': [], 'fun': 'state.highstate'}
+2015-05-28 18:23:38,803 [salt.minion      ][INFO    ][14525] Starting a new job with PID 14525
+2015-05-28 18:23:38,802 [salt.minion      ][TRACE   ][14303] Check main poller timeout 1
+2015-05-28 18:23:38,808 [salt.utils.lazy  ][DEBUG   ][14525] LazyLoaded state.highstate
+2015-05-28 18:23:38,809 [salt.utils.lazy  ][DEBUG   ][14525] LazyLoaded grains.get
+2015-05-28 18:23:38,817 [salt.utils.lazy  ][DEBUG   ][14525] LazyLoaded saltutil.is_running
+2015-05-28 18:23:38,818 [salt.crypt       ][DEBUG   ][14525] Re-using SAuth for ('/etc/salt/pki/minion', 'minion1', 'tcp://192.168.51.2:4506')
+2015-05-28 18:23:38,818 [salt.transport   ][DEBUG   ][14525] Removed obsolete sreq-object from sreq_cache for master tcp://192.168.51.9:4506
+(...)
+#
+# Some time later, the highstate times out and the response is sent to the failover master
+#
+2015-05-28 18:26:38,946 [salt.payload     ][INFO    ][14525] SaltReqTimeoutError: after 60 seconds. (Try 3 of 3)
+2015-05-28 18:26:38,946 [salt.payload     ][TRACE   ][14525] Unregistering socket: (<zmq.sugar.socket.Socket object at 0x7f0134f6b668>, 1)
+2015-05-28 18:26:38,946 [salt.minion      ][WARNING ][14525] The minion function caused an exception
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1142, in _thread_return
+    return_data = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/state.py", line 507, in highstate
+    st_ = salt.state.HighState(opts, pillar, kwargs.get('__pub_jid'))
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 3028, in __init__
+    BaseHighState.__init__(self, opts)
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2206, in __init__
+    self.opts = self.__gen_opts(opts)
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2233, in __gen_opts
+    mopts = self.client.master_opts()
+  File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 1193, in master_opts
+    return self.channel.send(load)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 314, in send
+    return self._crypted_transfer(load, tries, timeout)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 302, in _crypted_transfer
+    return _do_transfer()
+  File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 293, in _do_transfer
+    timeout)
+  File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 273, in send
+    'SaltReqTimeoutError: after {0} seconds, ran {1} tries'.format(timeout * tried, tried)
+SaltReqTimeoutError: SaltReqTimeoutError: after 180 seconds, ran 3 tries
+```
+
+At this point the failover master is notified of the exception and prints:
+
+```
+minion1:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1142, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/state.py", line 507, in highstate
+        st_ = salt.state.HighState(opts, pillar, kwargs.get('__pub_jid'))
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 3028, in __init__
+        BaseHighState.__init__(self, opts)
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2206, in __init__
+        self.opts = self.__gen_opts(opts)
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2233, in __gen_opts
+        mopts = self.client.master_opts()
+      File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 1193, in master_opts
+        return self.channel.send(load)
+      File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 314, in send
+        return self._crypted_transfer(load, tries, timeout)
+      File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 302, in _crypted_transfer
+        return _do_transfer()
+      File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 293, in _do_transfer
+        timeout)
+      File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 273, in send
+        'SaltReqTimeoutError: after {0} seconds, ran {1} tries'.format(timeout * tried, tried)
+    SaltReqTimeoutError: SaltReqTimeoutError: after 180 seconds, ran 3 tries
+```
+## Steps to reproduce
+
+I've been able to reproduce this consistently, although I'm both new to Salt and have only tested by running locally through Vagrant, so it's not implausible that this is misconfiguration or environment-related.
+1. Setup an environment with two masters and a minion, each with minimal configuration according to [multi-master](http://docs.saltstack.com/en/latest/topics/tutorials/multimaster.html) or [multi-master-pki](http://docs.saltstack.com/en/latest/topics/tutorials/multimaster_pki.html) documentation, but with `master_type: failover` and a reasonably short `master_alive_interval`. I've been using:
+   
+   ``` yaml
+   # /etc/salt/master
+   file_roots:
+     base:
+       - /vagrant/salt/states
+   
+   pillar_roots:
+     base:
+       - /vagrant/salt/pillar
+   
+   auto_accept: true
+   ```
+   
+   ``` yaml
+   # /etc/salt/minion
+   master:
+     - 192.168.51.2
+     - 192.168.51.9
+   
+   master_type: failover
+   master_alive_interval: 30
+   ```
+2. Start both masters and the minion (use `debug` level logging for the minion, although the end behavior is reproducible without it)
+3. Stop the primary master and wait for the minion to failover to the failover master
+4. Try to run `state.highstate`, `pillar.items` or `grain.items` from the failover master  against the minion (I haven't tried much else, although `ping.test` will _not_ reproduce the behavior)
+## Actual Behavior
+
+Two major observations:
+1. After running the command run in step (4) above, `DEBUG` logs show a `Re-using SAuth` command for the downed primary master and a `Removed obsolete sreq-object` for the failover master, and
+2. The minion times out with an exception after a long wait
+## Environment Details
+
+Here is some information about my environment:
+1. `salt-call --versions-report`
+   
+   ```
+                    Salt: 2015.5.0
+                  Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                  Jinja2: 2.7.2
+                M2Crypto: 0.21.1
+          msgpack-python: 0.3.0
+            msgpack-pure: Not Installed
+                pycrypto: 2.6.1
+                 libnacl: Not Installed
+                  PyYAML: 3.10
+                   ioflo: Not Installed
+                   PyZMQ: 14.0.1
+                    RAET: Not Installed
+                     ZMQ: 4.0.4
+                    Mako: 0.9.1
+   Debian source package: 2015.5.0+ds-1trusty1
+   ```
+2. `vagrant --version` (just in case it's relevant)
+   
+   ```
+   Vagrant 1.7.1
+   ```
+
+[edit: relevant details show up in debug log statements, not trace log statements]

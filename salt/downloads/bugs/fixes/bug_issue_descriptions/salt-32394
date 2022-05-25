@@ -1,0 +1,86 @@
+### Description of Issue
+
+The `user.present` state has a `groups` argument which defaults to `None`. [The docs](https://docs.saltstack.com/en/latest/ref/states/all/salt.states.user.html#salt.states.user.present) describe the argument thus:
+
+> A list of groups to assign the user to, pass a list object. If a group specified here does not exist on the minion, the state will fail. If set to the empty list, the user will be removed from all groups except the default group.
+
+From this description, I would expect the default value of `None` to specify "no change", whereas I would need to pass an explicit `- groups: []` to remove the user from all groups but the default group.
+
+Instead, by providing no explicit `groups` argument and leaving the default argument in play, the state will remove all groups but the default group.
+
+Having not provided any `groups` argument to `user.present`, I find the behavior of removing all group association quite surprising, and annoying, especially if I ever want to run a partial set of states. The resulting behavior breaks encapsulation of states as any state that I want to run partially that includes the `user.present` state must also include all future group manipulations. 
+
+This behavior has resulted in hard-to-track-down permissions bugs when using group membership to grant access to filesystem resources.
+
+I've traced the problem to [this line in `salt.states.user`](https://github.com/saltstack/salt/blob/v2015.8.8/salt/states/user.py#L102) which implicitly interprets the default value of `None` as an empty list.
+
+[I've created a gist to demonstrate the issue in a Vagrant VM](https://gist.github.com/eykd/51e16df1712e034baf13aeada0c65e9d).
+### Setup
+
+Set up the demo environment:
+
+```
+git clone https://gist.github.com/51e16df1712e034baf13aeada0c65e9d.git user-present-bug
+cd user-present-bug
+vagrant up
+vagrant ssh
+```
+### Steps to Reproduce Issue
+
+Inside the VM:
+
+```
+$ sudo salt-call state.highstate
+# ... Succeeded: 3, Failed: 0
+
+$ groups www-data
+www-data : www-data webapps
+
+$ sudo salt-call state.sls nginx
+# ... Succeeded: 2, Failed: 0
+
+$ groups www-data
+www-data : www-data
+# !!!
+```
+### Versions Report
+
+```
+$ salt --versions-report
+Salt Version:
+           Salt: 2015.8.8
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-71-generic
+         system: Ubuntu 14.04 trusty
+```

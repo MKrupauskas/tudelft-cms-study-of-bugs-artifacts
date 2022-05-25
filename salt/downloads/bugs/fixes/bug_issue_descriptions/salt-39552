@@ -1,0 +1,150 @@
+### Description of Issue/Question
+After upgrade to v2016.11.2, almost all my ``ipset.present`` states failed due to python code exception.
+
+It's all caused by commit d9b05810b8938fdde51514e9e2bc8f250784534a involved with issue #35149 by @lingonl . (tags: v2016.11 v2016.11.0 v2016.11.0rc1 v2016.11.0rc2 v2016.11.1 v2016.11.2 v2016.9 contain this commit)
+
+New implementation use ``_parse_member()`` to parse a ipset member line.
+
+Let's look into salt/modules/ipset.py _parse_member function. Given arguments from my trace of salt-call:
+
+``_parse_member("hash:net,port,net", '10.0.0.0/8,tcp:57,1.82.48.127 timeout 0 comment "vpn-servers"')``
+
+```python
+def _parse_member(settype, member, strict=False):
+    subtypes = settype.split(':')[1].split(',')
+    # TRACE: subtypes = ["net", "port", "net"]
+
+    parts = member.split(' ')
+    # TRACE: parts = ["10.0.0.0/8,tcp:57,1.82.48.127", "timeout", “0”, "comment", '"vpn-servers"']
+
+    parsed_member = []
+    for i in range(len(subtypes)):
+        subtype = subtypes[i]
+        # TRACE: WHEN i = 1, subtype = "port"
+        part = parts[i]
+        # TRACE: WHEN i = 1, part = "timeout"
+
+        if subtype in ['ip', 'net']:
+            try:
+                if '/' in part:
+                    part = ipaddress.ip_network(part, strict=strict)
+                elif '-' in part:
+                    start,end = map(ipaddress.ip_address, part.split('-'))
+
+                    part = list(ipaddress.summarize_address_range(start, end))
+                else:
+                    part = ipaddress.ip_address(part)
+            except ValueError:
+                pass
+
+        elif subtype == 'port':
+            part = int(part)
+            # TRACE: WHEN i = 1, int("timeout") is called and throw an exception
+
+        parsed_member.append(part)
+
+    if len(parts) > len(subtypes):
+        parsed_member.append(' '.join(parts[len(subtypes):]))
+
+    return parsed_member
+```
+
+It was silent when I found where goes wrong exactly.
+
+1. To get right ``parts``, you should do ``parts = member.split(" ", 1)[0].split(",")`` . If the code is mean to scan ``net | port | net`` with ``10.0.0.0/8 | tcp:57 | 1.82.48.127`` .
+2. @lingonl Read ``ipset(8)`` before you code, please! All ``port`` in ``ipset`` are defined as ``[proto:]port`` . They shouldn't be simple ``int()``ed.
+
+I can't believe such broken code was actually MERGED without any **tests** !
+
+### Setup
+```sh
+# Create a temporary ipset named test with comment support
+ipset create test hash:net,port comment
+ipset add test 1.82.48.127,udp:500 comment "IPsec relay"
+```
+
+### Steps to Reproduce Issue
+```
+localhost ~ # salt-call --local ipset.check test '1.82.48.127,udp:500 comment "IPsec relay"'
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+ValueError: invalid literal for int() with base 10: 'comment'
+Traceback (most recent call last):
+  File "/usr/lib/python-exec/python2.7/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib64/python2.7/site-packages/salt/scripts.py", line 379, in salt_call
+    client.run()
+  File "/usr/lib64/python2.7/site-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/lib64/python2.7/site-packages/salt/cli/caller.py", line 134, in run
+    ret = self.call()
+  File "/usr/lib64/python2.7/site-packages/salt/cli/caller.py", line 197, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib64/python2.7/site-packages/salt/modules/ipset.py", line 431, in check
+    current_members = _parse_members(settype, _find_set_members(set))
+  File "/usr/lib64/python2.7/site-packages/salt/modules/ipset.py", line 582, in _parse_members
+    return [_parse_member(settype, member) for member in members]
+  File "/usr/lib64/python2.7/site-packages/salt/modules/ipset.py", line 609, in _parse_member
+    part = int(part)
+ValueError: invalid literal for int() with base 10: 'comment'
+Traceback (most recent call last):
+  File "/usr/lib/python-exec/python2.7/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib64/python2.7/site-packages/salt/scripts.py", line 379, in salt_call
+    client.run()
+  File "/usr/lib64/python2.7/site-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/lib64/python2.7/site-packages/salt/cli/caller.py", line 134, in run
+    ret = self.call()
+  File "/usr/lib64/python2.7/site-packages/salt/cli/caller.py", line 197, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib64/python2.7/site-packages/salt/modules/ipset.py", line 431, in check
+    current_members = _parse_members(settype, _find_set_members(set))
+  File "/usr/lib64/python2.7/site-packages/salt/modules/ipset.py", line 582, in _parse_members
+    return [_parse_member(settype, member) for member in members]
+  File "/usr/lib64/python2.7/site-packages/salt/modules/ipset.py", line 609, in _parse_member
+    part = int(part)
+ValueError: invalid literal for int() with base 10: 'comment'
+```
+(Include debug logs if possible and relevant.)
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+```
+Salt Version:
+           Salt: 2016.11.2
+ 
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Dec  5 2016, 17:00:44)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 14.4.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.1.6
+ 
+System Versions:
+           dist: gentoo 2.3 
+        machine: x86_64
+        release: 4.8.17-hardened-r2
+         system: Linux
+        version: Gentoo Base System 2.3 
+```

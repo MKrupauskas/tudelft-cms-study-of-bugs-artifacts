@@ -1,0 +1,89 @@
+Hello!
+
+Here is my salt versions info:
+
+```
+[root@h1 ~]# salt --versions
+           Salt: 2015.5.3
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.09
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+        Tornado: Not Installed
+```
+
+In our deployment routines we run Orchestrate state like this:
+
+```
+install_some_service:
+  salt.state:
+    - tgt: 'services:some_service:*'
+    - tgt_type: pillar
+    - sls: some_service
+```
+
+And sometimes it fails with the following exception:
+
+```
+[2015-10-15 06:58:04,096] UID: 0 WARNING: Output from salt state not highstate
+[2015-10-15 06:58:04,098] UID: 0 ERROR: An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 1560, in call
+    **cdata['kwargs'])
+  File "/usr/lib64/python2.6/contextlib.py", line 34, in __exit__
+    self.gen.throw(type, value, traceback)
+  File "/usr/lib/python2.6/site-packages/salt/utils/context.py", line 42, in func_globals_inject
+    yield
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 1560, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.6/site-packages/salt/states/saltmod.py", line 254, in state
+    m_ret = mdata['ret']
+KeyError: 'ret'
+```
+
+We see here that`runner detected that "Output from salt state not highstate" but still tried to get "ret" key later. See https://github.com/saltstack/salt/blob/develop/salt/states/saltmod.py#L240 and https://github.com/saltstack/salt/blob/develop/salt/states/saltmod.py#L250 .
+
+Why minion returned non-highstate data? See below.
+Master have and error like that:
+
+```
+2015-10-15 06:47:40,760 [salt.master                              ][ERROR   ][13826] Received minion error from [minion7]: The minion function caused an exception
+
+In minion log on minion7 node we have the following exception:
+2015-10-15 06:47:38,096 [salt.utils.lazy                                     ][DEBUG   ][11494] Could not LazyLoad service.running
+2015-10-15 06:47:38,096 [salt.minion                                         ][WARNING ][11494] The minion function caused an exception
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1161, in _thread_return
+    return_data = func(*args, **kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/modules/state.py", line 681, in sls
+    ret = st_.state.call_high(high_)
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 2067, in call_high
+    ret = dict(list(disabled.items()) + list(self.call_chunks(chunks).items()))
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 1623, in call_chunks
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 1769, in call_chunk
+    self._mod_init(low)
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 612, in _mod_init
+    self.states['{0}.{1}'.format(low['state'], low['fun'])]  # pylint: disable=W0106
+  File "/usr/lib/python2.6/site-packages/salt/utils/lazy.py", line 90, in __getitem__
+    raise KeyError(key)
+KeyError: 'service.running'
+```
+
+Which is actually another issue and was already fixed in 2015.5.6 (see https://github.com/saltstack/salt/issues/26280).
+But anyway if exception such as this will occur on minion then it will return invalid data (without 'ret') to master. See continuation of minion log below:
+
+```
+2015-10-15 06:47:39,098 [salt.utils.event                                    ][DEBUG   ][11494] Sending event - data = {'message': u'The minion function caused an exception', 'args': ('The minion function caused an exception',), '_stamp': '2015-10-15T13:47:39.098106'}
+2015-10-15 06:47:39,125 [salt.minion                                         ][INFO    ][11494] Returning information for job: 20151015064708226557
+```
+
+So I suggest to implement handling for such erroneous minion returns in salt/states/saltmod.py.

@@ -1,0 +1,59 @@
+I'm running salt 2015.8 in an attempt to see if it resolves another issue. However, when I run any command that connects to the network, one of the salt-master processes runs away with my CPU. It looks to be rapidly polling `/dev/autofs`. A _lot_. Like 10s = 163,255 lines of strace output, with 156,458 of those containing 'poll'.
+
+According to htop, it's been running for 6 minutes now, still at 100% CPU.
+
+I can kill that particular process, which drops the CPU back down to a respectable level, though if I run any other commands, it pegs out again.
+
+It appears that any command that I run produces the same behavior, and I can run several different commands with no other processes ramping up their CPU usage. 
+
+```
+Salt Version:
+           Salt: 2015.8.0-260-g909556a
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: 0.22
+           Mako: 1.0.1
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.10 (default, May 26 2015, 04:16:29)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.2
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+       pycrypto: 2.6.1
+        timelib: Not Installed
+
+System Versions:
+           dist:   
+        machine: x86_64
+        release: 4.0.6-1-ARCH
+```
+
+From lsof:
+
+```
+systemd       1              root   14u     unix 0xffff880019cd2680       0t0    3352476 /run/systemd/private type=STREAM
+systemd       1              root   15r      CHR             10,235       0t0       1127 /dev/autofs
+```
+
+strace output:
+
+```
+10851 poll([{fd=14, events=POLLIN}], 1, 0) = 0 (Timeout)                           
+10851 poll([{fd=15, events=POLLIN}], 1, 0) = 0 (Timeout)                           
+10851 poll([{fd=14, events=POLLIN}, {fd=15, events=POLLIN}], 2, 0) = 0 (Timeout)
+10851 poll([{fd=14, events=POLLIN}], 1, 0) = 0 (Timeout)                           
+10851 poll([{fd=15, events=POLLIN}], 1, 0) = 0 (Timeout)                           
+10851 poll([{fd=14, events=POLLIN}, {fd=15, events=POLLIN}], 2, 0) = 0 (Timeout)
+10851 poll([{fd=14, events=POLLIN}], 1, 0) = 0 (Timeout)                           
+10851 poll([{fd=15, events=POLLIN}], 1, 0) = 0 (Timeout)                           
+10851 poll([{fd=14, events=POLLIN}, {fd=15, events=POLLIN}], 2, 0) = 0 (Timeout)
+10851 poll([{fd=14, events=POLLIN}], 1, 0) = 0 (Timeout)                           
+10851 poll([{fd=15, events=POLLIN}], 1, 0) = 0 (Timeout)                          
+```
+
+It goes on for a while

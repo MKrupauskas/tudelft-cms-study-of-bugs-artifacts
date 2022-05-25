@@ -1,0 +1,61 @@
+When using salt to run twadmin to generate a key when a key already exists all memory is consumed by the minion and not released even when the twadmin process is killed.
+
+When a key already exists twadmin prompts for an overwrite:
+
+```
+/usr/sbin/twadmin --generate-keys -P twpassword --local-keyfile /etc/tripwire/myhost-local.key
+The local key file: "/etc/tripwire/myhost-local.key" exists. Overwrite (Y/N)?
+```
+
+When run outside of tripwire twadmin looks like this while waiting:
+
+```
+read(0,
+```
+
+It just stays at that prompt forever, not consuming any extra memory.
+
+When run via salt it does this non-stop:
+
+```
+read(0, "", 1024)                       = 0
+write(1, "The local key file: \"/etc/tripwi"..., 85) = 85
+read(0, "", 1024)                       = 0
+write(1, "The local key file: \"/etc/tripwi"..., 85) = 85
+```
+
+Twadmin doesn't increase in memory, but the salt-minion process does. Killing the twadmin process does not free the salt-minion memory:
+
+Before killing twadmin, after 45 seconds of running:
+
+```
+24441 root      15   0 2256m 1.9g 2360 S 71.9 94.5   0:31.12 salt-minion
+24467 root      18   0 20772 1236  600 R 68.9  0.1   0:26.86 twadmin
+```
+
+One minute after killing twadmin, after 60 seconds of running:
+
+```
+24441 root      16   0 3105m 1.9g 1332 S  6.2 95.7   0:48.26 salt-minion
+```
+
+It will stay that way until the salt-minion is killed.
+
+```
+           Salt: 2014.7.0
+         Python: 2.6.8 (unknown, Nov  7 2012, 14:47:45)
+         Jinja2: 2.5.5
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.12
+   msgpack-pure: Not Installed
+       pycrypto: 2.3
+        libnacl: Not Installed
+         PyYAML: 3.08
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 4.0.4
+           Mako: Not Installed
+```
+
+Also tested with the official version from the EPEL 5 repo 2014.1.13.

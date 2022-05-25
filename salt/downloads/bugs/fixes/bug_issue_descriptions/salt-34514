@@ -1,0 +1,147 @@
+### Description of Issue
+
+If a line in the _Descritpion:_ field of a .deb file starts with any of the following, salt might not detect that a package was properly installed:
+
+```
+Package: 
+Version:
+Architecture:
+```
+### Steps to Reproduce Issue
+
+I ran into this weird issue when trying to install some .deb packages needed for the TSM client with **pkg.installed** that have been created in house a long time ago that had the following output (I ommited parts of the output not relevant to the issue) for **dpkg-deb -I gskcrypt64_8.0-15.11_amd64.deb**:
+
+```
+Package: gskcrypt64
+Version: 8.0-15.11
+Architecture: amd64
+Maintainer: Alexandre
+Installed-Size: 4029
+Section: alien
+Priority: extra
+Description: IBM GSKit Cryptography Runtime
+ Version: 6.3.0
+```
+
+I used the following state:
+
+```
+gskcrypt64
+  pkg.installed:
+    - sources:
+      - gskcrypt64: salt://tsm/files/debs/gskcrypt64_8.0-15.11_amd64.deb
+```
+
+So what happens is that the package was being successfully installed, but salt was always reporting that the state failed.
+
+```
+ID: gskcrypt64
+Function: pkg.installed
+Result: False
+Comment: The following packages failed to install/update: gskcrypt64
+```
+
+So I ran salt-call -l debug state.apply tsm.packages and saw this in the output:
+
+```
+[DEBUG   ] Current version (['8.0-15.11']) did not match desired version specification (salt://tsm/files/debs/gskcrypt64_8.0-15.11_amd64.deb), adding to installation targets
+[DEBUG   ] Could not LazyLoad pkg.normalize_name
+[DEBUG   ] In saltenv 'base', looking at rel_path 'tsm/files/debs/gskcrypt64_8.0-15.11_amd64.deb' to resolve 'salt://tsm/files/debs/gskcrypt64_8.0-15.11_amd64.deb'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/tsm/files/debs/gskcrypt64_8.0-15.11_amd64.deb' to resolve 'salt://tsm/files/debs/gskcrypt64_8.0-15.11_amd64.deb'
+[DEBUG   ] Fetching file from saltenv 'base', ** attempting ** 'salt://tsm/files/debs/gskcrypt64_8.0-15.11_amd64.deb'
+[DEBUG   ] No dest file found 
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'tsm/files/debs/gskcrypt64_8.0-15.11_amd64.deb'
+[INFO    ] Executing command ['dpkg', '-I', '/var/cache/salt/minion/files/base/tsm/files/debs/gskcrypt64_8.0-15.11_amd64.deb'] in directory '/root'
+[INFO    ] Executing command ['dpkg', '-i', '--force-confold', '/var/cache/salt/minion/files/base/tsm/files/debs/gskcrypt64_8.0-15.11_amd64.deb'] in directory '/root'
+[INFO    ] Executing command ['dpkg-query', '--showformat', '${Status} ${Package} ${Version} ${Architecture}\n', '-W'] in directory '/root'
+[INFO    ] Executing command ['dpkg', '--get-selections', 'gskcrypt64'] in directory '/root'
+[INFO    ] Executing command ['dpkg', '--get-selections', '*'] in directory '/root'
+[INFO    ] Executing command 'dpkg --set-selections' in directory '/root'
+[ERROR   ] The following packages failed to install/update: gskcrypt64
+```
+
+I found it weird that it said the current version did not match the specification version, so i checked if it was installed and in the proper version:
+
+```
+dpkg -l | grep gskcrypt64
+ii  gskcrypt64                          8.0-15.11                      amd64        IBM GSKit Cryptography Runtime
+```
+
+It was properly insalled with the correct version number, so no luck figuring out with the debug log what was going wrong. So I installed pudb and started debugging salt-call.
+
+A few minutes later I found the problem in the bin_pkg_info fucntion:
+
+https://github.com/saltstack/salt/blob/develop/salt/modules/dpkg.py#L85-L92
+
+``` python
+    for line in result['stdout'].splitlines():
+        line = line.strip()
+        if line.startswith('Package:'):
+            ret['name'] = line.split()[-1]
+        elif line.startswith('Version:'):
+            ret['version'] = line.split()[-1]
+        elif line.startswith('Architecture:'):
+            ret['arch'] = line.split()[-1]
+```
+
+So the code was reading the Version correctly from the proper field (8.0-15.11), but when it got to the last line, in the description, it also starts with 'Version:' (this version being the version of the TSM client, not of this particular lib).
+
+So it overwrites ret['version'] with this other value, which I assume is used later to compare with the version installed on the system, resulting in failing the state since the versions mismatched.
+
+I thought a bit about the best way to prevent this from happening and I think that modifying the code above to the following would be the best approach:
+
+``` python
+    for line in result['stdout'].splitlines():
+        line = line.strip()
+        if 'name' not in ret and line.startswith('Package:'):
+            ret['name'] = line.split()[-1]
+        elif 'version not in ret and line.startswith('Version:'):
+            ret['version'] = line.split()[-1]
+        elif 'arch' not in ret and line.startswith('Architecture:'):
+            ret['arch'] = line.split()[-1]
+```
+
+This would prevent the dictionary from being updated after the first time setting the value.
+### Versions Report
+
+The version on the minion is 2016.3.0, but it's not relevant to the issue.
+
+```
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: 3.2.2
+       dateutil: 1.5
+          gitdb: 0.6.4
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.24.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.24.0
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.18.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```

@@ -1,0 +1,78 @@
+### Description of Issue
+The `file.managed` state is said to have a `contents_newline` argument which can optionally be specified (as `False`) to prevent a newline from being appended to the end of the managed file when used in conjunction with `contents`, `contents_grains`, or `contents_pillars`.  However, in 2018.3.4 and 2019.2, a newline is currently always added -- looks to be an unintended side-effect of #51252.
+
+Namely this logic block:
+```python
+            for part in validated_contents:
+                for line in part.splitlines():
+                    contents += line.rstrip('\n').rstrip('\r') + os.linesep
+            if contents_newline and not contents.endswith(os.linesep):
+                contents += os.linesep
+```
+
+The problem is that `os.linesep` is *always* applied to the last line as a result of the for loop -- the `if` statement does not work as intended because the line will *always* end in `os.linesep` already (unless contents is `[]`).
+
+### Setup
+```yaml
+manage-rabbitmq-erlang-cookie:
+  file.managed:
+    - name: /var/lib/rabbitmq/.erlang.cookie
+    - contents:
+      - SOME_EXAMPLE_COOKIE
+    - contents_newline: False
+    - user: rabbitmq
+    - group: rabbitmq
+    - mode: 0400
+    - watch_in:
+      - service: rabbitmq-server
+```
+
+(removing the `watch_in` requisite of course!)
+### Steps to Reproduce Issue
+Apply the above state - the managed file should not have a newline at the end... but it will.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.4
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.7.3 (default, Apr  3 2019, 05:39:12)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: debian 10.0 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.19.0-5-amd64
+         system: Linux
+        version: debian 10.0 
+```
+
+The bug also seems to be present in `2019.2`.

@@ -1,0 +1,68 @@
+Based on [this stackoverflow question](http://stackoverflow.com/q/29960947/441652).
+## Problem
+
+Command:
+
+```
+salt --out json '*' test.ping
+```
+
+Output (for 2 minions):
+
+```
+{
+    "monkey": true
+}
+{
+    "elephant": true
+}
+```
+
+This output is not [valid JSON](http://json.org/) which cannot contain more than one top-level objects (begins with `{` and ends with `}`).
+
+The problem is that instead of using JSON output directly, one has to create a [special parser](https://github.com/uvsmtid/common-salt-states/blob/75e42afb04cbd7d82722c9793c1c9be6637b8bbd/states/bootstrap/bootstrap.dir/modules/utils/check_salt_output.py#L107) to recognize the beginning and the end of multiple JSON objects, split the objects, feed them one by one to the parser. Or, in short, the output is unusable.
+## Test
+
+`load_json.py`:
+
+```
+import sys
+import json
+data = json.load(sys.stdin)
+print str(data)
+```
+
+For example, capturing the output above and feeding it into standard JSON parser in Python does not work:
+
+```
+salt --out json '*' test.ping | python load_json.py
+Traceback (most recent call last):
+  File "load_json.py", line 4, in <module>
+    data = json.load(sys.stdin)
+  File "/usr/lib64/python2.7/json/__init__.py", line 290, in load
+    **kw)
+  File "/usr/lib64/python2.7/json/__init__.py", line 338, in loads
+    return _default_decoder.decode(s)
+  File "/usr/lib64/python2.7/json/decoder.py", line 369, in decode
+    raise ValueError(errmsg("Extra data", s, end, len(s)))
+ValueError: Extra data: line 4 column 1 - line 7 column 1 (char 23 - 48)
+```
+## Versions
+
+```
+ salt --versions
+           Salt: 2015.5.2
+         Python: 2.7.10 (default, May 27 2015, 18:11:38)
+         Jinja2: 2.7.3
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.4.1
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: 1.0.1
+```

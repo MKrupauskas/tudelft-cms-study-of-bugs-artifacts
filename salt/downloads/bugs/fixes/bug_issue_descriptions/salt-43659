@@ -1,0 +1,55 @@
+### Description of Issue/Question
+
+Even if I specify a custom port (in /etc/salt/master) to the pillar/postgres configuration, salt-mater is trying to connect to the default port
+
+
+### Setup
+
+salt-master 2017.7.1+ds-1
+
+in /etc/salt/master:
+...
+postgres:
+  user: 'USER'
+  pass: 'PASS'
+  db: 'DB'
+  host: 'HOST'
+  port: 'PORT'
+
+ext_pillar:
+  - postgres:
+    - query: "MYQUERY"
+      depth: 3
+      as_list: True
+...
+
+
+### Steps to Reproduce Issue
+
+calling pillar.ls, got this in syslog :
+[CRITICAL] Pillar render error: Failed to load ext_pillar postgres: could not connect to server: Connection refused
+Is the server running on host "HOST" (IP) and accepting TCP/IP connections on port **5432**?
+
+tcpdump confirms that queries are arriving on (default) port **5432** instead of the given one
+
+
+### How to solve
+
+edit file /usr/lib/python2.7/dist-packages/salt/pillar/postgres.py
+
+in function _get_cursor, replace :
+
+        conn = psycopg2.connect(host=_options['host'],
+                                user=_options['user'],
+                                password=_options['pass'],
+                                dbname=_options['db'])
+
+with
+
+        conn = psycopg2.connect(host=_options['host'],
+                                user=_options['user'],
+                                password=_options['pass'],
+                                dbname=_options['db'],
+                                port=_options['port'])
+
+it works

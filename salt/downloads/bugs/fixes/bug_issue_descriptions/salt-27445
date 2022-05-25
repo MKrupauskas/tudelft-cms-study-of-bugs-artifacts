@@ -1,0 +1,68 @@
+The following command can fail with the following error when a minion returns _salt_error.
+
+```
+salt ‘*’ cmd.run ‘uptime’
+```
+
+Output:
+
+``` python-traceback
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+KeyError: 'id'
+Traceback (most recent call last):
+  File "/usr/bin/salt", line 10, in <module>
+    salt_main()
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 349, in salt_main
+    client.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/salt.py", line 195, in run
+    for full_ret in cmd_func(**kwargs):
+  File "/usr/lib/python2.7/site-packages/salt/client/__init__.py", line 595, in cmd_cli
+    **kwargs):
+  File "/usr/lib/python2.7/site-packages/salt/client/__init__.py", line 1298, in get_cli_event_returns
+    expect_minions=(verbose or show_timeout)
+  File "/usr/lib/python2.7/site-packages/salt/client/__init__.py", line 921, in get_iter_returns
+    ret = {raw['data']['id']: raw['data']['data']}
+KeyError: 'id'
+Traceback (most recent call last):
+  File "/usr/bin/salt", line 10, in <module>
+    salt_main()
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 349, in salt_main
+    client.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/salt.py", line 195, in run
+    for full_ret in cmd_func(**kwargs):
+  File "/usr/lib/python2.7/site-packages/salt/client/__init__.py", line 595, in cmd_cli
+    **kwargs):
+ File "/usr/lib/python2.7/site-packages/salt/client/__init__.py", line 1298, in get_cli_event_returns
+    expect_minions=(verbose or show_timeout)
+  File "/usr/lib/python2.7/site-packages/salt/client/__init__.py", line 921, in get_iter_returns
+    ret = {raw['data']['id']: raw['data']['data']}
+KeyError: 'id'
+```
+
+Temp fix is to log the minion_id so that we can fix the minion.   More permanent fix is to fix the missing key id from the _salt_error event message, or handle it properly in the salt command line code.
+
+Here is our temp fix:
+
+From `/usr/lib/python2.7/site-packages/salt/client/__init__.py` line 920, I added the loging line to debug the issue and figure out which minion was causing the problem.
+
+``` python
+        while True:
+            # Process events until timeout is reached or all minions have returned
+            for raw in ret_iter:
+                # if we got None, then there were no events
+                if raw is None:
+                    break
+                if gather_errors:
+                    if raw['tag'] == '_salt_error':
+                        log.error('found _salt_error for data: %s' % raw)
+                        ret = {raw['data']['id']: raw['data']['data']}
+                        yield ret
+                if 'minions' in raw.get('data', {}):
+                    minions.update(raw['data']['minions'])
+                    continue
+                if 'return' not in raw['data']:
+                    continue
+                if kwargs.get('raw', False):
+                    found.add(raw['data']['id'])
+                    yield raw
+```

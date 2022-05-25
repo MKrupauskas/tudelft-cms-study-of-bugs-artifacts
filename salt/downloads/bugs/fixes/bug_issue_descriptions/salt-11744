@@ -1,0 +1,101 @@
+I am using a setup in which I have states for packages for which I can install different versions from corresponding repositories. These versions also differ in the configuration that is associated with them, but I would still like to allow users of my state to override (extend!) the choice of configuration file in their own states.
+
+In particular I am using the following for the "normal" xcache package and its backport:
+
+```
+--- xcache/init.sls
+php5-xcache-package:
+  pkg:
+    - installed
+    - name: php5-xcache
+
+php5-xcache-config:
+  file:
+    - managed
+    - name: /etc/php5/mods-available/xcache.ini
+    - source: salt://xcache/files/xcache.ini.jinja
+    - template: jinja
+    - user: root
+    - group: root
+    - mode: 644
+    - require:
+      - pkg: php5-xcache-package
+
+--- xcache/backports.sls
+include:
+  - xcache
+  - repo.foo_backports
+
+extend:
+  php5-xcache-package:
+    pkg:
+      - fromrepo: foo-backports
+      - require:
+        - pkgrepo: foo-backports
+  php5-xcache-config:
+    file:
+      - source: salt://xcache/files/xcache.ini.bdo.jinja
+```
+
+I like this approach as it allows me to express very succinctly what is different between these two packages and I don't have to maintain identical information in more than one place (e.g. file permissions).
+
+Unfortunately it seems to be impossible to extend the "source:" value in xcache.backports _again_. If I use:
+
+```
+--- top.sls
+base:
+  'foo-web1.example.com':
+    - foo.web.master
+
+--- foo/web/master/init.sls
+include:
+  - lighttpd
+  - .dirs
+  - .php
+  - xcache.backports
+
+extend:
+  lighttpd:
+    file:
+      - source: salt://foo/web/master/files/lighttpd.conf
+  php5-xcache-config:
+    file:
+      - source: salt://foo/web/master/files/xcache.ini.jinja
+      - watch_in:
+        - service: lighttpd
+```
+
+ it works fine for lighttpd (i.e. the correct configuration file is being used), but not for php5-xcache-config in the sense that salt uses the salt://xcache/files/xcache.ini.bdo.jinja version rather than the salt://foo/web/master/files/xcache.ini.jinja I want and that has been defined last.
+
+I would have expected this to work and I consider this behaviour to be quite unfortunate as it forces me to define explicit states whenever I expect it to be necessary to extend the state later.
+
+Unsurprisingly it "works" if I use the following and extend php5-xcache-bdo-config:
+
+```
+include:
+  - repo.foo_backports
+
+php5-xcache-bdo-package:
+  pkg:
+    - installed
+    - name: php5-xcache
+    - fromrepo: foo-backports
+    - require:
+      - pkgrepo: foo-backports
+
+php5-xcache-bdo-config:
+  file:
+    - managed
+    - name: /etc/php5/mods-available/xcache.ini
+    - source: salt://xcache/files/xcache.ini.bdo.jinja
+    - template: jinja
+    - user: root
+    - group: root
+    - mode: 644
+    - require:
+      - pkg: php5-xcache-bdo-package
+```
+
+It would be much appreciated if this could either be clarified in the documentation or fixed in such a way that multiple extends are possible.
+
+All this has been tested with master/minion on 2014.1.1

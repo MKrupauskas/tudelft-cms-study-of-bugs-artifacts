@@ -1,0 +1,171 @@
+### Description of Issue/Question
+
+When running `salt-ssh` with `pillar_merge_lists=true` list items multiply regardless of merging being necessary or not. When running `pillar.items` a “correct” list is returned but once salt states are rendered stuff starts multiplying — I’ll explain the likely reason below. This is a bug of its own right but I would also like to get lists of unique items when a merge occurs and an item is present in multiple source lists. It’s worth pointing out that in the latter case `pillar.items` would also show duplicates and documentation only talks about “aggregating” lists on merging anyway.
+
+This time I found [dictupdate.update()](https://github.com/saltstack/salt/blob/v2016.11.3/salt/utils/dictupdate.py#L53) to be the perpetrator. Obviously it gets called with some pillar variable multiple times during rendering and each time this happens it adds yet another copy of each list item. Like I wrote above I would prefer a list of distinct items so the “quick” solution for me would be some deduplication after the merging.
+
+While the documentation in the code explicitly states that it’s purely “aggregating” lists if list merging is enabled I don’t think that this means it is allowed to multiply originally unique items.
+
+
+### Setup
+
+I used Vagrant with the libvirt provider to set up a test environment for anyone to reproduce. Turn off the `pillar_merge_lists` options in the `minion_opts` in `/etc/salt/roster` to see how it looks disabled.
+
+Create `Vagrantfile`
+```sh
+cd $(mktemp -d) && cat >Vagrantfile <<EOF
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "debian/jessie64"
+  config.vm.provision :salt do |salt|
+    # This sets the official Salt repositories up for us
+    salt.install_master = true
+    salt.no_minion = true
+  end
+end
+EOF
+```
+
+Commands
+```sh
+vagrant up
+vagrant ssh
+# Now continue in the vagrant box
+ssh-add -L >>.ssh/authorized_keys
+sudo -i
+apt update && apt install salt-ssh vim
+```
+
+Files to be created inside the Vagrant box:
+```
+==> /etc/salt/roster <==
+diagonalley:
+  host: localhost
+  user: vagrant
+  sudo: True
+  minion_opts:
+    pillar_merge_lists: True
+
+==> /etc/salt/master.d/vagrant.conf <==
+ssh_use_home_key: True
+
+==> /etc/sudoers.d/vagrant-ssh <==
+Defaults    env_keep+=SSH_AUTH_SOCK
+
+==> /srv/salt/top.sls <==
+base:
+  '*':
+    - leprechaun
+
+==> /srv/salt/leprechaun.sls <==
+/tmp/vault:
+  file.managed:
+    - source: salt://leprechaun.jinja
+    - template: jinja
+
+==> /srv/salt/leprechaun.jinja <==
+{# Just to show that the method doesn’t matter ... -#}
+{{ salt['pillar.get']('vault') }}
+_________________________________
+{{ pillar.get('vault') }}
+_________________________________
+{{ pillar['vault'] }}
+
+==> /srv/pillar/gringotts.sls <==
+vault:
+  - galleons
+
+==> /srv/pillar/top.sls <==
+base:
+  '*':
+    - gringotts
+```
+
+
+### Steps to Reproduce Issue
+
+Fire up the above Vagrant environment and play around with the option.
+
+```sh
+# If the file already exists we get a nice diff
+root@jessie:~% touch /tmp/vault
+root@jessie:~% salt-ssh -i 'diagonalley' pillar.items
+diagonalley:
+    ----------
+    vault:
+        - galleons
+root@jessie:~% salt-ssh -i 'diagonalley' state.apply test=True
+diagonalley:
+----------
+          ID: /tmp/vault
+    Function: file.managed
+      Result: None
+     Comment: The file /tmp/vault is set to be changed
+     Started: 10:37:34.262510
+    Duration: 95.912 ms
+     Changes:
+              ----------
+              diff:
+                  ---
+                  +++
+                  @@ -0,0 +1,5 @@
+                  +[u'galleons', 'galleons', u'galleons', u'galleons']
+                  +_________________________________
+                  +[u'galleons', 'galleons', u'galleons', u'galleons']
+                  +_________________________________
+                  +[u'galleons', 'galleons', u'galleons', u'galleons']
+
+Summary for diagonalley
+------------
+Succeeded: 1 (unchanged=1, changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  95.912 ms
+```
+
+
+### Versions Report
+
+```
+root@jessie:~% salt --versions-report
+Salt Version:
+           Salt: 2016.11.3
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.7
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.7
+```

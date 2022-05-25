@@ -1,0 +1,41 @@
+# Context
+
+https://github.com/saltstack/salt/issues/55911 raised an issue that `tojson`, the recommended replacement for `json_decode_dict` changed to sort keys, which was undesired behavior. As it turns out, `json_decode_dict` was misnamed - it should have been `json_encode_dict`. That functionality works for their desired use-case.
+
+# Problem 1 - bytes aren't JSON
+
+In Python2, just using `json_encode_dict` works as expected, because text and bytes are the same thing.
+
+In Python3, text and bytes are different, so `json_encode_dict({'z': 'zaz', 'y': 'yay', 'x': 'xax'})` produces: `{b'z': b'zaz', b'y':b'yay': b'x': b'xax'}`, which is not valid JSON. This is probably a bug.
+
+# Problem (feature?) 2 - `tojson` sorts
+
+The other part of this issue is that while `json.dump(s)` provides a `sort_keys` argument, the underlying Jinja2 implementation of `tojson` fails to expose the ability to pass arbitrary kwargs to the underlying JSON dump, so at least `tojson(sort_keys=False)` could be used to mimic the old behavior of `json_encode_dict`. We default to the Jinja2 [tojson](https://jinja.palletsprojects.com/en/2.10.x/templates/#tojson) function, but fall back to our own internal implementation. It may be, in order to preserve feature parity, that we should go ahead and override the builtin `tojson` always, with our own implementation that allows passing arbitrary args.
+
+The implementation would actually be *super simple*. We [already have the code](https://github.com/saltstack/salt/blob/c6871f7355790bc3ddeb135c7a48700efb77e3b0/salt/utils/jinja.py#L337-L354), all we would have to do is change the function signature from
+
+```
+def tojson(val, indent=None):
+```
+
+to 
+
+```
+def tojson(val, indent=None, **options):
+```
+
+Then we would change https://github.com/saltstack/salt/blob/c6871f7355790bc3ddeb135c7a48700efb77e3b0/salt/utils/jinja.py#L344
+
+to 
+
+```
+options.setdefault('ensure_ascii', True)
+```
+
+That's all that would be require to change our filter to provide the capability to do
+
+```
+{{ {'z': 'zzz', 'y': 'yyy', 'x': 'xxx'}|to_json(sort_keys=False) }}
+```
+
+Though, we'll have to also change things to always use our filter.

@@ -1,0 +1,107 @@
+Some time ago, it seems that some "thing" happened which resulted in the death of the etcd returner. The salt.utils.etcd module hides exceptions so that it can return `None`, which is great for runners and other stuff, but a horrible horrible anti-pattern for APIs, especially because the etcd returner depends on a proper structure (`EtcdResult`) being returned. This isn't a problem for any of the other etcd modules because none of them use the EtcdResult structure since they're all just simple wrappers around reading/writing keys, and so only the returner needs it.
+
+You can see this in the following code since if `client.get` returns `None` then it can't access the `.children` property
+```
+def get_jids():
+    '''
+    Return a list of all job ids
+    '''
+    log.debug('sdstack_etcd returner <get_jids> called')
+    ret = []
+    client, path = _get_conn(__opts__)
+    items = client.get('/'.join((path, 'jobs')))     # this returns a non-EtcdResult
+    for item in items.children:                      # this treats items as one though
+        if item.dir is True:
+            jid = str(item.key).split('/')[-1]
+            ret.append(jid)
+    return ret
+```
+
+Then the related function in `utils/etcd_util.py` for some reason calls `.read()` (which has completely different semantics than `.get()`:
+```
+    def get(self, key, recurse=False):
+        try:
+            result = self.read(key, recursive=recurse)
+        except etcd.EtcdKeyNotFound:
+            # etcd already logged that the key wasn't found, no need to do
+            # anything here but return
+            return None
+        except etcd.EtcdConnectionFailed:
+            log.error("etcd: failed to perform 'get' operation on key %s due to connection error", key)
+            return None
+        except ValueError:
+            return None
+
+        return getattr(result, 'value', None)
+```
+
+There's a really simple fix for this since I'm assuming the author of  `etcd_return.py` didn't expect the api to change out from underneath him, but who knows. Anyways, since the logic used by etcd_return.py was written for the actual `python-etcd` client one can simply look at the following code in `etcd_return.py`:
+
+```
+def _get_conn(opts, profile=None):
+    '''
+    Establish a connection to etcd
+    '''
+    if profile is None:
+        profile = opts.get('etcd.returner')
+    path = opts.get('etcd.returner_root', '/salt/return')
+    return salt.utils.etcd_util.get_conn(opts, profile), path
+```
+
+and then extract the actual etcd client by changing it to which results in all of those accesses to `.children` and `.value` suddenly start working again.
+
+```
+def _get_conn(opts, profile=None):
+    '''
+    Establish a connection to etcd
+    '''
+    if profile is None:
+        profile = opts.get('etcd.returner')
+    path = opts.get('etcd.returner_root', '/salt/return')
+    wrapper = salt.utils.etcd_util.get_conn(opts, profile)
+    return wrapper.client, path
+```
+
+Anyways, here's the compulsory list of versions:
+```
+Salt Version:
+           Salt: 2019.2.0-n/a-b348034
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: 2.7.5
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.11
+          ioflo: 1.7.5
+         Jinja2: 2.10
+        libgit2: 0.27.4
+        libnacl: 1.6.1
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: 3.7.0
+         pygit2: 0.27.2
+         Python: 2.7.15 (default, Oct 15 2018, 15:26:09)
+   python-gnupg: Not Installed
+         PyYAML: 4.2
+          PyZMQ: 17.0.0
+           RAET: 0.6.8
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 5.0.2
+            ZMQ: 4.1.6
+
+System Versions:
+           dist: fedora 29 Twenty Nine
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 4.14.88-coreos
+         system: Linux
+        version: Fedora 29 Twenty Nine
+```

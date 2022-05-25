@@ -1,0 +1,152 @@
+### Description of Issue/Question
+master: running salt-master
+syndic-master: running salt-master, salt-syndic, salt-minion
+
+when restart salt-master on syndic-master, syndic will not pass auth section
+```
+Jun 08 07:08:25 master-syndic salt-syndic[19673]: [WARNING ] Unable to forward pub data: Authentication error occurred.
+Jun 08 07:08:42 master-syndic salt-syndic[19673]: [WARNING ] Unable to forward pub data: Authentication error occurred.
+Jun 08 07:16:58 master-syndic salt-syndic[19673]: [WARNING ] Unable to forward pub data: Authentication error occurred.
+```
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+default set up on master, and syndic master
+
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+stop salt-master and salt-syndic on syndic master, and then start them
+```
+vagrant@master:~$ sudo salt master-syndic service.stop salt-master
+master-syndic:
+    True
+vagrant@master:~$ sudo salt master-syndic service.stop salt-syndic
+master-syndic:
+    True
+vagrant@master:~$ sudo salt master-syndic service.start salt-master
+master-syndic:
+    True
+
+vagrant@master:~$
+vagrant@master:~$ sudo salt master-syndic service.start salt-syndic
+master-syndic:
+    True
+```
+
+running test.ping on minion01
+```
+vagrant@master:~$ sudo salt minion01 test.ping
+minion01:
+    True
+```
+
+restart salt-master on syndic
+```
+vagrant@master:~$ sudo salt master-syndic service.restart salt-master
+master-syndic:
+    True
+```
+running test.ping on minion01 but no output
+```
+vagrant@master:~$ sudo salt minion01 test.ping
+vagrant@master:~$
+```
+
+i add some debug info at `auth/__init__.py`, and found everytime salt-master restarted, it will generate a new auth_key, but salt-syndic has cached the auth_key, which will cuase the auth failed.
+```
+Jun 08 07:57:00 master-syndic systemd[1]: Starting The Salt Master Server...
+Jun 08 07:57:01 master-syndic salt-master[28645]: [ERROR   ] init auth key: {u'root': 'PQxTrjT9/5o2af9vKv2qVkVarNhO1Uv1jwGcNSww07MpF3vdWcKtyr2byZFbVWQ07nACBmwqPcQ='}
+Jun 08 07:57:01 master-syndic systemd[1]: Started The Salt Master Server.
+Jun 08 07:57:24 master-syndic salt-master[28645]: [ERROR   ] clear_load: {'user': 'sudo_vagrant'}
+Jun 08 07:57:24 master-syndic salt-master[28645]: [ERROR   ] auth_type: user, key: {u'root': 'PQxTrjT9/5o2af9vKv2qVkVarNhO1Uv1jwGcNSww07MpF3vdWcKtyr2byZFbVWQ07nACBmwqPcQ='}
+Jun 08 07:57:24 master-syndic salt-master[28645]: [ERROR   ] load: {'tgt_type': 'glob', 'jid': '20180608075724954207', 'cmd': 'publish', 'tgt': 'master-syndic', 'kwargs': {'user': 'sudo_vagrant'}, 'ret': '', 'user': 'sudo_vagrant', 'arg': ['salt-master'], 'fun': 'service.restart'}
+Jun 08 07:57:24 master-syndic salt-master[28645]: [ERROR   ] key: {u'root': 'PQxTrjT9/5o2af9vKv2qVkVarNhO1Uv1jwGcNSww07MpF3vdWcKtyr2byZFbVWQ07nACBmwqPcQ='}
+Jun 08 07:57:24 master-syndic salt-master[28645]: [ERROR   ] auth: PQxTrjT9/5o2af9vKv2qVkVarNhO1Uv1jwGcNSww07MpF3vdWcKtyr2byZFbVWQ07nACBmwqPcQ=
+Jun 08 07:57:24 master-syndic salt-master[28645]: [ERROR   ] root key: PQxTrjT9/5o2af9vKv2qVkVarNhO1Uv1jwGcNSww07MpF3vdWcKtyr2byZFbVWQ07nACBmwqPcQ=
+Jun 08 07:57:27 master-syndic systemd[1]: Stopping The Salt Master Server...
+Jun 08 07:57:28 master-syndic salt-master[28645]: [WARNING ] Master received a SIGTERM. Exiting.
+Jun 08 07:57:28 master-syndic salt-master[28645]: The salt master is shutdown. Master received a SIGTERM. Exited.
+Jun 08 07:57:29 master-syndic systemd[1]: Stopped The Salt Master Server.
+Jun 08 07:57:29 master-syndic systemd[1]: Starting The Salt Master Server...
+Jun 08 07:57:30 master-syndic salt-master[29258]: [ERROR   ] init auth key: {u'root': 'n8ECdIx6HYYu9YPnVaqkpNcYyLCiajnzv9ErIDhny6VEdYMUQDExeazk69P3JVC7ZA3h3oFUKaM='}
+Jun 08 07:57:30 master-syndic systemd[1]: Started The Salt Master Server.
+Jun 08 07:57:41 master-syndic salt-master[29258]: [ERROR   ] clear_load: {'user': 'sudo_vagrant'}
+Jun 08 07:57:41 master-syndic salt-master[29258]: [ERROR   ] auth_type: user, key: {u'root': 'n8ECdIx6HYYu9YPnVaqkpNcYyLCiajnzv9ErIDhny6VEdYMUQDExeazk69P3JVC7ZA3h3oFUKaM='}
+Jun 08 07:57:41 master-syndic salt-master[29258]: [ERROR   ] load: {'tgt_type': 'list', 'jid': '20180608075730076357', 'cmd': 'publish', 'tgt': ['master-syndic'], 'kwargs': {'user': 'sudo_vagrant'}, 'ret': '', 'user': 'sudo_vagrant', 'arg': ['20180608075724954207'], 'fun': 'saltutil.find_job'}
+Jun 08 07:57:41 master-syndic salt-master[29258]: [ERROR   ] key: {u'root': 'n8ECdIx6HYYu9YPnVaqkpNcYyLCiajnzv9ErIDhny6VEdYMUQDExeazk69P3JVC7ZA3h3oFUKaM='}
+Jun 08 07:57:41 master-syndic salt-master[29258]: [ERROR   ] auth: PQxTrjT9/5o2af9vKv2qVkVarNhO1Uv1jwGcNSww07MpF3vdWcKtyr2byZFbVWQ07nACBmwqPcQ=
+Jun 08 07:57:41 master-syndic salt-master[29258]: [ERROR   ] root key: n8ECdIx6HYYu9YPnVaqkpNcYyLCiajnzv9ErIDhny6VEdYMUQDExeazk69P3JVC7ZA3h3oFUKaM=
+Jun 08 07:57:41 master-syndic salt-master[29258]: [ERROR   ] Failed to auth with sudo
+Jun 08 07:57:41 master-syndic salt-master[29258]: [WARNING ] Authentication failure of type "user" occurred.
+Jun 08 07:57:41 master-syndic salt-master[29258]: [WARNING ] Authentication failure of type "user" occurred.
+Jun 08 07:57:41 master-syndic salt-master[29258]: [ERROR   ] clear_load: {'user': 'sudo_vagrant'}
+Jun 08 07:57:41 master-syndic salt-master[29258]: [ERROR   ] auth_type: user, key: {u'root': 'n8ECdIx6HYYu9YPnVaqkpNcYyLCiajnzv9ErIDhny6VEdYMUQDExeazk69P3JVC7ZA3h3oFUKaM='}
+Jun 08 07:57:41 master-syndic salt-master[29258]: [ERROR   ] load: {'tgt_type': 'glob', 'jid': '20180608075738306021', 'cmd': 'publish', 'tgt': 'minion01', 'kwargs': {'user': 'sudo_vagrant'}, 'ret': '', 'user': 'sudo_vagrant', 'arg': [], 'fun': 'test.ping'}
+Jun 08 07:57:41 master-syndic salt-master[29258]: [ERROR   ] key: {u'root': 'n8ECdIx6HYYu9YPnVaqkpNcYyLCiajnzv9ErIDhny6VEdYMUQDExeazk69P3JVC7ZA3h3oFUKaM='}
+Jun 08 07:57:41 master-syndic salt-master[29258]: [ERROR   ] auth: PQxTrjT9/5o2af9vKv2qVkVarNhO1Uv1jwGcNSww07MpF3vdWcKtyr2byZFbVWQ07nACBmwqPcQ=
+Jun 08 07:57:41 master-syndic salt-master[29258]: [ERROR   ] root key: n8ECdIx6HYYu9YPnVaqkpNcYyLCiajnzv9ErIDhny6VEdYMUQDExeazk69P3JVC7ZA3h3oFUKaM=
+Jun 08 07:57:41 master-syndic salt-master[29258]: [ERROR   ] Failed to auth with sudo
+Jun 08 07:57:41 master-syndic salt-master[29258]: [WARNING ] Authentication failure of type "user" occurred.
+Jun 08 07:57:41 master-syndic salt-master[29258]: [WARNING ] Authentication failure of type "user" occurred.
+Jun 08 07:57:43 master-syndic salt-master[29258]: [ERROR   ] clear_load: {'user': 'sudo_vagrant'}
+Jun 08 07:57:43 master-syndic salt-master[29258]: [ERROR   ] auth_type: user, key: {u'root': 'n8ECdIx6HYYu9YPnVaqkpNcYyLCiajnzv9ErIDhny6VEdYMUQDExeazk69P3JVC7ZA3h3oFUKaM='}
+Jun 08 07:57:43 master-syndic salt-master[29258]: [ERROR   ] load: {'tgt_type': 'list', 'jid': '20180608075743331980', 'cmd': 'publish', 'tgt': [], 'kwargs': {'user': 'sudo_vagrant'}, 'ret': '', 'user': 'sudo_vagrant', 'arg': ['20180608075738306021'], 'fun': 'saltutil.find_job'}
+Jun 08 07:57:43 master-syndic salt-master[29258]: [ERROR   ] key: {u'root': 'n8ECdIx6HYYu9YPnVaqkpNcYyLCiajnzv9ErIDhny6VEdYMUQDExeazk69P3JVC7ZA3h3oFUKaM='}
+Jun 08 07:57:43 master-syndic salt-master[29258]: [ERROR   ] auth: PQxTrjT9/5o2af9vKv2qVkVarNhO1Uv1jwGcNSww07MpF3vdWcKtyr2byZFbVWQ07nACBmwqPcQ=
+Jun 08 07:57:43 master-syndic salt-master[29258]: [ERROR   ] root key: n8ECdIx6HYYu9YPnVaqkpNcYyLCiajnzv9ErIDhny6VEdYMUQDExeazk69P3JVC7ZA3h3oFUKaM=
+Jun 08 07:57:43 master-syndic salt-master[29258]: [ERROR   ] Failed to auth with sudo
+Jun 08 07:57:43 master-syndic salt-master[29258]: [WARNING ] Authentication failure of type "user" occurred.
+Jun 08 07:57:43 master-syndic salt-master[29258]: [WARNING ] Authentication failure of type "user" occurred.
+```
+
+
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+```
+salt --versions-report
+Salt Version:
+           Salt: 2018.3.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: 2.0.0
+      gitpython: 2.1.1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Nov 24 2017, 17:33:09)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.1
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+
+System Versions:
+           dist: debian 9.4
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 9.4
+
+```

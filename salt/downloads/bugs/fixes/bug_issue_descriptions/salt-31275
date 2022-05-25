@@ -1,0 +1,64 @@
+I have a 2015.8.5 Windows VM joined to a master.  The VM has an empty virtual CDROM.  ps.disk_partitions reports:
+
+<pre>
+$ sudo salt winminion ps.disk_partitions
+winminion:
+    |_
+      ----------
+      device:
+          C:\
+      fstype:
+          NTFS
+      mountpoint:
+          C:\
+      opts:
+          rw,fixed
+    |_
+      ----------
+      device:
+          D:\
+      fstype:
+      mountpoint:
+          D:\
+      opts:
+          cdrom
+</pre>
+
+
+But salt reports the following exception for ps.disk_partition_usage:
+
+<pre>
+winminion:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "c:\salt\bin\lib\site-packages\salt\minion.py", line 1036, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "c:\salt\bin\lib\site-packages\salt\modules\ps.py", line 480, in disk_partition_usage
+        partition.update(disk_usage(partition['mountpoint']))
+      File "c:\salt\bin\lib\site-packages\salt\modules\ps.py", line 464, in disk_usage
+        return dict(psutil.disk_usage(path)._asdict())
+      File "c:\salt\bin\lib\site-packages\psutil\__init__.py", line 1639, in disk_usage
+        return _psplatform.disk_usage(path)
+      File "c:\salt\bin\lib\site-packages\psutil\_pswindows.py", line 149, in disk_usage
+        raise OSError(errno.ENOENT, msg)
+    OSError: [Errno 2] No such file or directory: 'D:\'
+</pre>
+
+
+This (naive) patch fixes the immediate issue.  Not sure if this is the right solution - there may be other similar cases lurking, it might be preferable for disk_partition_usage to include all elements in disk_partitions, etc.
+
+```
+diff --git a/salt/modules/ps.py b/salt/modules/ps.py
+index 05f60fe..b0b2b7a 100644
+--- a/salt/modules/ps.py
++++ b/salt/modules/ps.py
+@@ -475,7 +475,8 @@ def disk_partition_usage(all=False):
+
+         salt '*' ps.disk_partition_usage
+     '''
+-    result = disk_partitions(all)
++    result = [partition for partition in disk_partitions(all)
++              if 'cdrom' not in partition['opts']]
+     for partition in result:
+         partition.update(disk_usage(partition['mountpoint']))
+     return result
+```

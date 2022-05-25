@@ -1,0 +1,80 @@
+Hello,
+
+I have an OpenBSD VPS on Vultr, on which I am running a salt master. The problem I am facing has to do with having salt listen on IPv6. 
+With the default config (i.e. IPv4) I didn't experience any issues. I then adjusted the /etc/salt/master for IPv6 : 
+
+```
+interface: '::'
+ipv6: True
+```
+
+I then restarted the daemon, but it is not listening on the usual ports : 
+
+```
+$ sudo netstat -atn -f inet6 
+Active Internet connections (including servers)
+Proto   Recv-Q Send-Q  Local Address          Foreign Address        (state)
+tcp6         0      0  *.22                   *.*                    LISTEN
+tcp6         0      0  fe80::1%lo0.25         *.*                    LISTEN
+tcp6         0      0  ::1.25                 *.*                    LISTEN
+Active Internet connections (including servers)
+Proto   Recv-Q Send-Q  Local Address          Foreign Address        (state)
+udp6         0      0  *.514                  *.* 
+```
+
+With the IPv4 configuration I had the following : 
+
+```
+$ sudo netstat -atn -f inet          
+Active Internet connections (including servers)
+Proto   Recv-Q Send-Q  Local Address          Foreign Address        (state)
+tcp          0      0  *.22                   *.*                    LISTEN
+tcp          0      0  *.4505                 *.*                    LISTEN
+tcp          0      0  127.0.0.1.25           *.*                    LISTEN
+tcp          0      0  *.4506                 *.*                    LISTEN
+Active Internet connections (including servers)
+Proto   Recv-Q Send-Q  Local Address          Foreign Address        (state)    
+udp          0      0  *.514                  *.*
+```
+
+I believe the issue has to do with the way IPv6 is implemented in saltstack.
+I saw this snippet of code in `transport/zeromq.py` : 
+
+```
+        if self.opts['ipv6'] is True and hasattr(zmq, 'IPV4ONLY'):                                                                                                                                     
+            # IPv6 sockets work for both IPv6 and IPv4 addresses                                                                                                                                       
+            self._socket.setsockopt(zmq.IPV4ONLY, 0)
+```
+
+This is actually not the case for OpenBSD, where sockets are either IPv4-only or IPv6-only. As per man ip6(4)[1](http://www.openbsd.org/cgi-bin/man.cgi/OpenBSD-current/man4/ip6.4?query=ip6&sec=4) : 
+
+```
+IPV6_V6ONLY int *
+Get or set whether only IPv6 connections can be made to this socket. For wildcard sockets, this can restrict connections to IPv6 only. With OpenBSD IPv6 sockets are always IPv6-only, so the socket option is read-only (not modifiable).
+```
+
+In other words, there are no IPv4-mapped IPv6 addresses, so to properly operate in dual-stack environnements a daemon needs to bind and listen on two sockets: one with AF_INET, and one with AF_INET6.
+
+I am not familiar enough with ZeroMQ or the SaltStack to fix this, but I thought I'd report it. Perhaps this needs to be fixed in zmq first, and then make its way into SaltStack
+
+Here is the versions report as well : 
+
+```
+$ salt --versions-report                                              
+           Salt: 2014.7.5
+         Python: 2.7.9 (default, Apr 26 2015, 16:56:24)
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+```
+
+Let me know if I can provide any additional information that may be useful.

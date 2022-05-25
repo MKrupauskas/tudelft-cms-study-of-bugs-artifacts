@@ -1,0 +1,141 @@
+### Description of Issue/Question
+After my deep investigation, why I receiving randomly following message:
+```sh 
+2018-05-08 15:05:55,227 [salt.template    :62  ][ERROR   ][18028] Template was specified incorrectly: False
+```
+I figure out, that it happening only, when 2 or more minion hits in the reactor in the same time.
+It looks like that some cache is cleared or something and not generated on the time, when second minion hit to the Reactor
+
+```sh
+salt/run/20180508150554686064/ret       {
+    "_stamp": "2018-05-08T13:05:57.144721", 
+    "fun": "runner.state.orchestrate", 
+    "fun_args": [
+        "orch.minion-onBoot", 
+        {
+            "pillar": {
+                "event_data": {
+                    "_stamp": "2018-05-08T13:05:54.546766", 
+                    "cmd": "_minion_event", 
+                    "data": "Minion web220c-stg-1.inet started at Tue May  8 13:05:53 2018", 
+                    "id": "web220c-stg-1.inet", 
+                    "pretag": null, 
+                    "tag": "salt/minion/web220c-stg-1.inet/start"
+                }, 
+                "event_id": "web220c-stg-1.inet"
+            }
+        }
+    ], 
+    "jid": "20180508150554686064", 
+    "return": {
+        "data": {
+            "salt01-tech.inet_master": [
+                "No matching sls found for 'orch.minion-onBoot' in env 'base'"
+            ]
+        }, 
+        "outputter": "highstate", 
+        "retcode": 1
+    }, 
+    "success": false, 
+    "user": "Reactor"
+}
+```
+
+I have Auto-Scaling-Group from AWS, which deploys VM to cloud and make basic setup for minion(update master address, setup grains and start service).
+After that SALT-Master make the highstate. The problem is that the Reactor works perfectly when there is only 1 new minion, but if I will deploy 2 or more new machine in the same time, then Reacotor will works only for first one which makes attempts, for others Reactor will throw error that some SLS was not found.
+
+For me it looks like that after hit in the Reactor there is some cache clearing and not regenrated on the time.
+
+Flow how looks like the "communication"
+minion -> reactor -> orchestrate -> highstate for minion
+
+### Setup
+##### Reactor config
+```sh
+reactor:
+  - 'salt/minion/*/start':
+    - /opt/salt/salt-pillar/reactor/minion-onStart.sls
+```
+
+##### Reactor state:
+```sh
+log_new_minion:
+  local.cmd.run:
+    - name: log new minion
+    - tgt: 'apps:saltmaster'
+    - expr_form: grain
+    - arg:
+      - 'echo "[{{ data['id'] }}][minion started]  A new Minion has (re)born on $(date). Say hello to him ({{ tag }})" >> /var/log/salt/reactor.log'
+
+hello_state:
+  runner.state.orchestrate:
+    - mods: orch.minion-onBoot
+    - kwarg:
+        pillar:
+          event_data: {{ data|json }}
+          event_id: {{ data['id'] }}
+```
+
+##### Orchestrate
+```sh
+{%- set message = "A new Minion has (re)born.\nSay *hello* to him :thinking_face:" %}
+{% set service = "Reactor-NEW Minion" %}
+
+{%- set data = salt.pillar.get("event_data") %}
+{%- set id = salt.pillar.get("event_id") %}
+{%- import "system/module_slack.sls" as slack %}
+
+{% do slack.sendSlackMessage(service, None, id, message, 2) %}
+
+
+boot_check_version:
+  salt.state:
+    - tgt: {{ data["id"] }}
+    - sls: prepare.version
+```
+
+### Steps to Reproduce Issue
+Create 2-3 new VM
+
+### Versions Report
+```sh
+Salt Version:
+           Salt: 2017.7.5
+ 
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: unknown
+       dateutil: 2.7.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.1
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.21.1.el7.x86_64
+         system: Linux
+```

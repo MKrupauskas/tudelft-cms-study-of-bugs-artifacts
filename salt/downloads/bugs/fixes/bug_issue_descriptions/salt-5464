@@ -1,0 +1,39 @@
+I have a number of service declarations in my states for newly built machines which establishes a baseline of running services. In some cases, these states declare "dead" and "disabled" on services which may not be installed on the host leading to some really nasty errors where there should, for all intents and purposes. be none.
+
+The service state should probably check for the existance of the service before attempting to disable the service:
+
+State:
+xfs:
+  service:
+    - dead
+    - enable: False
+## Result:
+
+```
+State: - service
+Name:      xfs
+Function:  dead
+    Result:    False
+    Comment:   Failed when setting service xfs to not start at boot, but the service was already running
+    Changes:
+```
+
+Looks like salt is somewhat confused here too, since the error Comment message makes no sense (I've checked, xfs isn't installed on the host nor is it running).
+
+The logic here should probably go:
+- Does the service exist?
+  - Yes: 
+    - Is the service running?
+      - Yes: Stop the service and Disable
+      - No: Disable the service
+  - No: There's nothing we can do, log this and return Result: True 
+        (Same as if the service was already disabled)
+
+Alternatively, the current behavior would be fine if the Comment above made more sense and with the addition of an ignore-missing: argument which would cause the state to exit with a non-error result if the service doesn't exist. Something like this:
+
+State:
+xfs:
+  service:
+    - dead
+    - enable: False
+    - ignore-missing: True

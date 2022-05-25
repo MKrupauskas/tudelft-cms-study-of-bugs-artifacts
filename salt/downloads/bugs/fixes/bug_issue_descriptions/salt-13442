@@ -1,0 +1,54 @@
+I'm facing some recurrent connection issues between my minion and master:
+when salt-master and salt-minion daemons start, everything is fine, I can test.ping my minion from the master, but after 5 or 10 minutes, test.ping or any other module function doesn't work anymore.
+
+I can see from the log (log level set to debug) that master correctly send the job to the minion, but on the minion side: nothing, it doesn't receive the test.ping request.
+
+Note that the minions are connected to the master through a 3g connection, which is slow, so it may be partly responsible for this connection issue (may be a timeout issue), but a ssh connection running at the same time is very rarely closed because of the slow 3g connection.
+So ssh may be more fault tolerant than salt-minion for small temporary loss of connection?
+
+I've noticed that when I issue a test.ping from the master, `netstat` tells me immediately that there is a new TIME_WAIT connection on 127.0.0.1:4506:
+
+```
+root@salt-master:/var/log/salt# netstat -anp |grep 450
+tcp        0      0 0.0.0.0:4505            0.0.0.0:*               LISTEN      7387/python
+tcp        0      0 0.0.0.0:4506            0.0.0.0:*               LISTEN      7379/python
+tcp        0      0 127.0.0.1:57536         127.0.0.1:4506          TIME_WAIT   -
+tcp        0    358 172.17.0.2:4505         80.215.138.72:30165     ESTABLISHED 7387/python
+tcp        0      0 127.0.0.1:57535         127.0.0.1:4506          TIME_WAIT   -
+```
+
+Note that every now and then, I can test.ping the minion again, but 5-10min later (sometimes more than 60min later), it becomes offline again (for salt only, not ssh).
+
+I think that the problem is observed since I've updated salt to version 2014.1.1 on both minion and master sides.
+
+For information, both master and minions runs on Debian Wheezy.
+And here is salt-master and salt-minion versions reports:
+
+```
+root@salt-master:~# salt-call --versions-report
+           Salt: 2014.1.4
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.3
+
+root@hl-mc-1-dev:~# salt-call --versions-report
+           Salt: 2014.1.4
+         Python: 2.7.3 (default, Mar 14 2014, 11:57:14)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.3
+```
+
+This issue was first reported on the mailing list, see the following thread for more details:
+https://groups.google.com/forum/#!topic/salt-users/MKcu_RvowHo

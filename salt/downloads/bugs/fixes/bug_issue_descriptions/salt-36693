@@ -1,0 +1,91 @@
+### Description of Issue/Question
+
+Per https://docs.saltstack.com/en/latest/topics/jobs/#scheduling-runners we have a number of jobs on our salt master which should be running. This worked on `2015.3` and `2015.8`. I checked https://docs.saltstack.com/en/latest/topics/releases/2016.3.0.html and don't see any mention of this as a breaking change and yet none of my scheduled jobs that are scheduled in the `/etc/salt/master.d/schedule.conf` are actually running.
+### Setup
+
+Sample `/etc/salt/master.d/schedule.conf`
+
+``` yaml
+schedule:
+  update_domains:
+    function: state.orchestrate
+    hours: 8
+    args:
+      - orchestration.update_domains
+```
+
+You can use state.orchestrate or state.sls. Both fail. I haven't tested other functions. Pick any working orchestration or sls to point it at. I'm using our update_domains orchestration as an example. It runs perfectly from the CLI with `sudo salt-run -l debug state.orch orchestration.update_domains` For repro I'd used a much more frequent timing than the 8 hours displayed above and pick any known-good orchestration or state.
+### Steps to Reproduce Issue
+
+Follow the documentation, watch `/var/log/salt/master`
+
+```
+2016-09-26 07:05:27,098 [salt.utils.schedule][INFO    ][2574] Running scheduled job: update_domains
+2016-09-26 07:05:27,514 [salt.utils.schedule][ERROR   ][16859] Unhandled exception running state.orchestrate
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/schedule.py", line 741, in handle_func
+    ret['return'] = self.functions[func](*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/client/mixins.py", line 101, in wrapper
+    False,  # Don't daemonize
+  File "/usr/lib/python2.7/dist-packages/salt/client/mixins.py", line 432, in _proc_function
+    return self.low(fun, low)
+  File "/usr/lib/python2.7/dist-packages/salt/client/mixins.py", line 263, in low
+    'fun_args': fun_args + ([low['kwargs']] if low.get('kwargs', False) else []),
+TypeError: can only concatenate tuple (not "list") to tuple
+2016-09-26 07:06:30,354 [salt.utils.schedule][INFO    ][2574] Running scheduled job: backup_and_distribute_srv_private
+2016-09-26 07:06:30,772 [salt.utils.schedule][ERROR   ][17011] Unhandled exception running state.orchestrate
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/schedule.py", line 741, in handle_func
+    ret['return'] = self.functions[func](*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/client/mixins.py", line 101, in wrapper
+    False,  # Don't daemonize
+  File "/usr/lib/python2.7/dist-packages/salt/client/mixins.py", line 432, in _proc_function
+    return self.low(fun, low)
+  File "/usr/lib/python2.7/dist-packages/salt/client/mixins.py", line 263, in low
+    'fun_args': fun_args + ([low['kwargs']] if low.get('kwargs', False) else []),
+TypeError: can only concatenate tuple (not "list") to tuple
+```
+### Versions Report
+
+```
+ahammond@salt:~$ sudo salt-call --local --versions-report
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: 2.3.0
+       dateutil: 2.4.2
+          gitdb: 0.6.4
+      gitpython: 2.0.6
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.3.7
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Jul  1 2016, 15:12:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: 0.2.4
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-36-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```
+
+@onorua @white-hat @jgartrel

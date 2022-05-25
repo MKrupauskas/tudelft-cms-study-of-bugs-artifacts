@@ -1,0 +1,239 @@
+### Description of Issue/Question
+
+After upgrading to 2016.3.1, running states with source files located in a s3 bucket configured as a fileserver backend would fail with the message: `Source file salt://myfile not found`  Explicitly syncing the fileserver cache with `salt-run fileserver.update backend=s3fs` results in no files being downloaded and a warning in the logs: `[salt.loaded.int.fileserver.s3fs][WARNING ][26138] S3 Error! Do you have any files in your S3 bucket?`  Downgrading to 2016.3.0 resolved the issue.  This issue is present on both Ubuntu 14.04 and 16.04.  Using AWS credentials or an IAM role both exhibit the issue.  It appears to be caused by PR #33682 (looks like the only related changes in this release)
+### Setup
+##### Master Config
+
+```
+master_id: <redacted>
+max_open_files: 65000
+worker_threads: 16
+timeout: 30
+
+file_roots:
+  base:
+    - /srv/salt/base
+  development:
+    - /srv/salt/dev
+  prod:
+    - /srv/salt/prod
+
+top_file_merging_strategy: same
+default_top: base
+hash_type: sha512
+file_ignore_regex:
+  - '/\.svn($|/)'
+  - '/\.git($|/)'
+  - '/\.hg($|/)'
+  - '/\.npm($|/)'
+
+gitfs_provider: gitpython
+
+fileserver_backend:
+  - roots
+  - git
+  - s3fs
+
+s3.buckets:
+  - <redacted>
+
+pillar_roots:
+  base:
+    - /srv/pillar/base
+  development:
+    - /srv/pillar/dev
+  prod:
+    - /srv/pillar/prod
+
+rest_tornado:
+    port: <redacted>
+    address: 0.0.0.0
+    backlog: 128
+    debug: False
+    disable_ssl: True
+    webhook_disable_auth: False
+```
+##### Minion Config:
+
+```
+master: 127.0.0.1
+random_master: True
+hash_type: sha512
+
+grains:
+  role: saltmaster
+  deployment: <redacted>
+  profiles:
+    - salt
+
+master_finger: <redacted>
+```
+##### Machine Type:
+
+The machine is a m4.large (2 cores, 8GB RAM) running in AWS East with an IAM role allowing for full S3 access.  It is only running the salt-master and a salt-minion for itself.
+##### Sample State File:
+
+```
+/etc/collectd/collectd.conf:
+  file.managed:
+    - source: salt://collectd/collectd.tmpl   #This is located in s3://<redacted>/base/collectd/collectd.tmpl
+    - template: jinja
+```
+##### S3 Bucket Layout:
+
+```
+$ aws s3 ls s3://<redacted>
+                           PRE base/
+                           PRE development/
+                           PRE prod/
+```
+##### Result:
+
+```
+----------
+          ID: /etc/collectd/collectd.conf
+    Function: file.managed
+      Result: False
+     Comment: Source file salt://collectd/collectd.tmpl not found
+     Started: 19:23:04.849051
+    Duration: 736.108 ms
+     Changes:   
+----------
+```
+##### Expected (Actual output after downgrading to 2016.3.0):
+
+```
+----------
+          ID: /etc/collectd/collectd.conf
+    Function: file.managed
+      Result: True
+     Comment: File /etc/collectd/collectd.conf updated
+     Started: 21:48:34.508841
+    Duration: 2277.07 ms
+     Changes:   
+              ----------
+              diff: <redacted>
+----------
+```
+### Steps to Reproduce Issue
+
+This happened with probably the most basic use case for an s3 file backend, and on a brand new AWS EC2 instance (using AMI: ami-13be557e).  Upload file to s3://my-bucket/base/, configure master to use s3fs file backend, apply a state file that uses the uploaded file as source.
+
+I dug into the code a bit and added some logging to figure out what was coming back from S3.  First I added logging to output the s3_meta keys and the resulting meta_response object in [fileserver/s3fs.py](https://github.com/saltstack/salt/blob/develop/salt/fileserver/s3fs.py#L468) and ended up with this:
+
+```
+[salt.utils.lazy  ][DEBUG   ][14199] LazyLoaded s3fs.envs
+[salt.fileserver  ][DEBUG   ][14199] Updating s3fs fileserver cache
+[salt.loaded.int.fileserver.s3fs][DEBUG   ][14199] Refreshing buckets cache file
+[requests.packages.urllib3.connectionpool][INFO    ][14199] Starting new HTTP connection (1): 169.254.169.254
+[requests.packages.urllib3.connectionpool][DEBUG   ][14199] "GET /latest/meta-data/iam/security-credentials/ HTTP/1.1" 200 9
+[requests.packages.urllib3.connectionpool][INFO    ][14199] Starting new HTTP connection (1): 169.254.169.254
+[requests.packages.urllib3.connectionpool][DEBUG   ][14199] "GET /latest/meta-data/iam/security-credentials/PetroSalt HTTP/1.1" 200 890
+[requests.packages.urllib3.connectionpool][INFO    ][14199] Starting new HTTP connection (1): 169.254.169.254
+[requests.packages.urllib3.connectionpool][DEBUG   ][14199] "GET /latest/dynamic/instance-identity/document HTTP/1.1" 200 429
+[salt.utils.s3    ][DEBUG   ][14199] S3 Request: https://petrocloud-releases.s3.amazonaws.com/?
+[salt.utils.s3    ][DEBUG   ][14199] S3 Headers::
+[salt.utils.s3    ][DEBUG   ][14199]     Authorization: AWS4-HMAC-SHA256 Credential=<redacted>, SignedHeaders=host;x-amz-date;x-amz-security-token, Signature=<redacted>
+[requests.packages.urllib3.connectionpool][INFO    ][14199] Starting new HTTPS connection (1): petrocloud-releases.s3.amazonaws.com
+[requests.packages.urllib3.connectionpool][DEBUG   ][14199] "GET / HTTP/1.1" 200 None
+[salt.utils.s3    ][DEBUG   ][14199] S3 Response Status Code: 200
+[salt.loaded.int.fileserver.s3fs][INFO    ][14199] s3_meta key: headers
+[salt.loaded.int.fileserver.s3fs][WARNING ][14199] S3 Error! Do you have any files in your S3 bucket? {}
+[salt.loaded.int.fileserver.s3fs][INFO    ][14199] Syncing local cache from S3...
+[salt.loaded.int.fileserver.s3fs][INFO    ][14199] Sync local cache from S3 completed.
+```
+
+Next I tried logging what was actually contained in the response from [utils/s3.py](https://github.com/saltstack/salt/blob/develop/salt/utils/s3.py#L237) and ended up with this:
+
+```
+[salt.loaded.int.fileserver.s3fs][INFO    ][2614] {'headers': ['Date', 'x-amz-id-2', 'Server', 'Transfer-Encoding', 'x-amz-request-id', 'x-amz-bucket-region', 'Content-Type']}
+```
+
+By comparison, I get this from 2016.3.0 (truncated since it shows every file in the bucket):
+
+```
+[{'Name': '<redacted>'}, {'Prefix': None}, {'Marker': None}, {'MaxKeys': '1000'}, {'IsTruncated': 'false'}, {'LastModified': '<redacted>', 'ETag': '"<redacted>"', 'StorageClass': 'STANDARD', 'Key': 'base/', 'Owner': {'DisplayName': '<redacted>', 'ID': '<redacted>'}, 'Size': '0'}]
+```
+### Versions Report
+##### Master
+
+```
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.5.0
+       dateutil: 2.5.3
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.11+ (default, Apr 17 2016, 14:00:29)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-22-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```
+##### Minion
+
+```
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.5.0
+       dateutil: 2.5.3
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.11+ (default, Apr 17 2016, 14:00:29)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-22-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

@@ -1,0 +1,153 @@
+### Description of Issue/Question
+`salt.modules.mysql` uses `*` unpacking syntax on caught exceptions which is incompatible with python3.
+
+### Setup
+Installed salt with `bootstrap-salt.sh` and args ` -P -x python3 git 2018.3`. MySQL successfully installs.
+
+Used `mysql_user.present` to create a new user.
+
+### Steps to Reproduce Issue
+Example state:
+```
+"mysql_user_sstuser_localhost":
+  mysql_user:
+    - present
+    - name: "sstuser"
+    - host: "localhost"
+    - password: "password"
+    - connection_unix_socket: /var/run/mysqld/mysqld.sock
+    - connection_user: root
+    - connection_pass: rootpass
+    - connection_db: mysql
+    - require:
+      - service: mysql
+```
+
+Exception:
+
+```
+[DEBUG   ] An exception occurred in this state: format() argument after * must be an iterable, not OperationalError
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/modules/mysql.py", line 333, in _connect
+    dbc = MySQLdb.connect(**connargs)
+  File "/usr/lib/python3/dist-packages/MySQLdb/__init__.py", line 86, in Connect
+    return Connection(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/MySQLdb/connections.py", line 204, in __init__
+    super(Connection, self).__init__(*args, **kwargs2)
+_mysql_exceptions.OperationalError: (1045, "Access denied for user 'sstuser'@'localhost' (using password: YES)")
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/state.py", line 1919, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 1918, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/states/mysql_user.py", line 142, in present
+    **connection_args):
+  File "/usr/lib/python3/dist-packages/salt/modules/mysql.py", line 1251, in user_exists
+    if not verify_login(user, password, **connection_args):
+  File "/usr/lib/python3/dist-packages/salt/modules/mysql.py", line 2254, in verify_login
+    dbc = _connect(**connection_args)
+  File "/usr/lib/python3/dist-packages/salt/modules/mysql.py", line 335, in _connect
+    err = 'MySQL Error {0}: {1}'.format(*exc)
+TypeError: format() argument after * must be an iterable, not OperationalError
+
+```
+
+Can easily test the incompatibility by running this small script in python2/python3 repl:
+```
+try:
+    raise RuntimeError(['a message', 'another message'])
+except RuntimeError as exc:
+    list(*exc)
+```
+
+Python2 prints `['a message', 'another message']`. Python3 raises:
+```
+Traceback (most recent call last):
+  File "<stdin>", line 2, in <module>
+RuntimeError: ['a message', 'another message']
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<stdin>", line 4, in <module>
+TypeError: type object argument after * must be an iterable, not RuntimeError
+```
+Using `*exc.args` solves both cases. E.g.: This works on both python2 and python3:
+```
+try:
+    raise RuntimeError(['a message', 'another message'])
+except RuntimeError as exc:
+    list(*exc.args)
+```
+
+All occurrences of `.format(*exc)` are in the `mysql` module:
+```
+root@dev-topsport-db-1:/usr/lib/python3/dist-packages/salt# grep -rn '.format(\*exc)' .
+./modules/mysql.py:335:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:651:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:776:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:807:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:840:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:925:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:1014:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:1049:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:1104:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:1140:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:1172:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:1255:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:1287:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:1387:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:1502:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:1557:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:1775:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:1889:        err = 'MySQL Error {0}: {1}'.format(*exc)
+./modules/mysql.py:1963:        err = 'MySQL Error {0}: {1}'.format(*exc)
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.0-n/a-6ea059d
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: 1.3.10
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.7 (default, Oct 22 2018, 11:32:17)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-42-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```
+

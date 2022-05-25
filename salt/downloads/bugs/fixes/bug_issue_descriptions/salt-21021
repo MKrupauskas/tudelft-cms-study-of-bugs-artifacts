@@ -1,0 +1,118 @@
+## Version
+
+```
+root@salt:/srv/git# salt --versions-report
+           Salt: 2014.7.1
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 13.1.0
+           RAET: Not Installed
+            ZMQ: 3.2.3
+           Mako: 0.7.0
+```
+
+_This may probably be obsolete with https://github.com/saltstack/salt/issues/6739 in mind._
+## Setup
+1. Have a `salt-master`, add valid gitfs_remotes which exist in the filesystem.
+2. Properly restart `salt-master`
+3. **Delete** one of the gitfs_remotes from the filesystem **but do not remove it from the master config**.
+## State tree in `/srv/salt`
+
+```
+root@salt:/srv/salt# find . | grep -v git
+.
+./_grains
+./_grains/cfgnet-interface.py
+./_grains/vmware-tools.py
+./vmware-uptodate
+./vmware-uptodate/init.sls
+./vmware-uptodate/tmp
+./vmware-uptodate/tmp/upgrade-vmware_x86_64.sh
+./top.sls
+./iptables-cfgnet
+./iptables-cfgnet/init.sls
+./iptables-cfgnet/tmp
+./iptables-cfgnet/tmp/rules
+```
+## Master configuration
+
+**`/srv/git/vmware-tools-formula` did not exist in my filesystem.**
+
+```
+root@salt:/srv/salt# cat /etc/salt/master | grep -v '^#' | grep -v '^$'
+interface: 10.1.10.1
+ping_on_rotate: True
+open_mode: False
+auto_accept: False
+file_recv: False
+file_roots:
+  base:
+    - /srv/salt
+fileserver_backend:
+  - roots
+  - git
+gitfs_provider: gitpython
+gitfs_remotes:
+  - file:///srv/git/users-formula
+  - file:///srv/git/elasticsearch-logstash-kibana-formula
+  - file:///srv/git/build-essential-formula
+  - file:///srv/git/vmware-tools-formula
+  - file:///srv/git/iptables-formula
+pillar_roots:
+  base:
+    - /srv/pillar
+```
+## Expected result
+
+Restarting the master fails / A warning like "Invalid gitfs_remote in config ... does not exist in filesystem" appears.
+## Observed result
+- Most things work.
+- Calling state.highstate or a specific state using state.sls fails with a trace, _if_ the specific statefile is contained in a subdirectory.
+## Log excerpt from an affected minion:
+
+Command used: `salt 'salt-minion-1*' state.sls 'vmware-uptodate'`
+
+```
+2015-02-25 14:45:27,879 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-02-25 14:45:27,879 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-02-25 14:45:33,775 [salt.minion                                 ][INFO    ] User sudo_jpt Executing command state.sls with jid 20150225144534113680
+2015-02-25 14:45:33,776 [salt.minion                                 ][DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20150225144534113680', 'tgt': 'salt-minion-1*', 'ret': '', 'user': 'sudo_jpt', 'arg': ['vmware-uptodate'], 'fun': 'state.sls'}
+2015-02-25 14:45:33,786 [salt.minion                                 ][INFO    ] Starting a new job with PID 23520
+2015-02-25 14:45:33,972 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-02-25 14:45:33,973 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-02-25 14:45:35,252 [salt.config                                 ][DEBUG   ] Reading configuration from /etc/salt/minion
+2015-02-25 14:45:35,854 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-02-25 14:45:35,855 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-02-25 14:45:36,116 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-02-25 14:45:36,215 [salt.state                                  ][INFO    ] Loading fresh modules for state activity
+2015-02-25 14:45:36,670 [salt.fileclient                             ][DEBUG   ] Fetching file from saltenv 'base', ** attempting ** 'salt://vmware-uptodate.sls'
+2015-02-25 14:45:36,749 [salt.fileclient                             ][ERROR   ] Data is 
+2015-02-25 14:45:36,750 [salt.minion                                 ][WARNING ] TypeError encountered executing state.sls: string indices must be integers, not str. See debug log for more info.
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1022, in _thread_return
+    return_data = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/state.py", line 461, in sls
+    high_, errors = st_.render_highstate({saltenv: mods})
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2724, in render_highstate
+    sls, saltenv, mods, matches)
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2407, in render_state
+    state_data = self.client.get_state(sls, saltenv)
+  File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 422, in get_state
+    dest = self.cache_file(path, saltenv)
+  File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 147, in cache_file
+    return self.get_url(path, '', True, saltenv)
+  File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 521, in get_url
+    return self.get_file(url, dest, makedirs, saltenv)
+  File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 991, in get_file
+    if not data['data']:
+TypeError: string indices must be integers, not str
+2015-02-25 14:45:36,752 [salt.minion                                 ][INFO    ] Returning information for job: 20150225144534113680
+2015-02-25 14:45:36,921 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+```

@@ -1,0 +1,118 @@
+reg.absent appears to be reporting incorrect results and/or failing to remove existing registry keys / values on clients running Minion 2015.5.2. Tested against both Windows 2008r2 and Windows 2012r2.
+
+Versions:
+
+```
+m03@salt01:/srv/salt/wintest$ sudo salt-master --versions-report
+                  Salt: 2015.5.2
+                Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2015.5.2+ds-1trusty1
+m03@salt01:/srv/salt/wintest$ sudo salt 'win2012r2-test' test.versions_report
+win2012r2-test:
+               Salt: 2015.5.2
+             Python: 2.7.8 (default, Jun 30 2014, 16:08:48) [MSC v.1500 64 bit (AMD64)]
+             Jinja2: 2.7.3
+           M2Crypto: 0.21.1
+     msgpack-python: 0.4.5
+       msgpack-pure: Not Installed
+           pycrypto: 2.6
+            libnacl: Not Installed
+             PyYAML: 3.11
+              ioflo: Not Installed
+              PyZMQ: 14.6.0
+               RAET: Not Installed
+                ZMQ: 4.0.5
+               Mako: Not Installed
+m03@salt01:/srv/salt/wintest$ sudo salt 'win2012r2-test' grains.get osrelease
+win2012r2-test:
+    2012Server
+```
+
+Showing that the example key exists:
+
+```
+m03@salt01:/srv/salt/wintest$ sudo salt 'win2012r2-test' cmd.run 'Get-ChildItem "HKLM:\SOFTWARE\TestHere"' shell='powershell'
+win2012r2-test:
+
+
+        Hive: HKEY_LOCAL_MACHINE\SOFTWARE\TestHere
+
+
+    Name                           Property
+    ----                           --------
+    TestKey
+m03@salt01:/srv/salt/wintest$ sudo salt 'win2012r2-test' cmd.run 'Test-Path "HKLM:\SOFTWARE\TestHere\TestKey"' shell='powershell'
+win2012r2-test:
+    True
+```
+
+The test state in action, displaying the issue:
+
+```
+m03@salt01:/srv/salt/wintest$ cat init.sls
+{% set reg_base_path = 'HKEY_LOCAL_MACHINE\\SOFTWARE\\TestHere\\' %}
+regtestone:
+  reg.absent:
+    - name: {{ reg_base_path ~ 'TestKey' }}
+
+regtesttwo:
+  reg.absent:
+    - name: {{ reg_base_path ~ 'TestKey\\' }}
+m03@salt01:/srv/salt/wintest$ sudo salt 'win2012r2-test' state.sls wintest
+win2012r2-test:
+----------
+          ID: regtestone
+    Function: reg.absent
+        Name: HKEY_LOCAL_MACHINE\SOFTWARE\TestHere\TestKey
+      Result: True
+     Comment: HKEY_LOCAL_MACHINE\SOFTWARE\TestHere\TestKey is already absent
+     Started: 23:40:20.139000
+    Duration: 0.0 ms
+     Changes:
+----------
+          ID: regtesttwo
+    Function: reg.absent
+        Name: HKEY_LOCAL_MACHINE\SOFTWARE\TestHere\TestKey\
+      Result: True
+     Comment: HKEY_LOCAL_MACHINE\SOFTWARE\TestHere\TestKey\ is already absent
+     Started: 23:40:20.139000
+    Duration: 0.0 ms
+     Changes:
+
+Summary
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total states run:     2
+```
+
+Showing the key still exists after running the state:
+
+```
+m03@salt01:/srv/salt/wintest$ sudo salt 'win2012r2-test' cmd.run 'Get-ChildItem "HKLM:\SOFTWARE\TestHere"' shell='powershell'
+win2012r2-test:
+
+
+        Hive: HKEY_LOCAL_MACHINE\SOFTWARE\TestHere
+
+
+    Name                           Property
+    ----                           --------
+    TestKey
+m03@salt01:/srv/salt/wintest$ sudo salt 'win2012r2-test' cmd.run 'Test-Path "HKLM:\SOFTWARE\TestHere\TestKey"' shell='powershell'
+win2012r2-test:
+    True
+```

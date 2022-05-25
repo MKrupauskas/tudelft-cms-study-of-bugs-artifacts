@@ -1,0 +1,103 @@
+**Description**
+The value of the `virtual` grain in an LXC container depends on the command being used.
+
+On a clean Debian install, Salt will use the `systemd-detect-virt` command and report the virtual type as `LXC`. If you then install `virt-what`, the output changes to `lxc`.
+
+Looking through `salt/grains/core.py`, it seems quite obvious what's going on.
+
+With systemd-detect-virt, Salt is manually upper-casing the value to `LXC`: https://github.com/saltstack/salt/blob/28f4c05280bc1a5cf2b9011eb26112641fe8b9fa/salt/grains/core.py#L860
+
+With virt-what, the lowercase value `lxc` is used: https://github.com/saltstack/salt/blob/28f4c05280bc1a5cf2b9011eb26112641fe8b9fa/salt/grains/core.py#L867
+
+With the sysctl approach, the code suggests the value would be `container` with the subtype being `LXC`: https://github.com/saltstack/salt/blob/28f4c05280bc1a5cf2b9011eb26112641fe8b9fa/salt/grains/core.py#L1035
+
+**Setup**
+
+First, start and enter an LXC container. I have tested this using LXD packaged through Snap on Ubuntu 20.10, but other LXD distributions likely suffer from the same issues.
+
+```bash
+lxc launch images:debian/buster example
+lxc exec example bash
+```
+Then, run the following in the container:
+
+```bash
+apt-get update
+apt-get install curl
+mkdir -p /etc/salt/minion.d
+echo "master: 127.0.0.1" > /etc/salt/minion.d/master.conf
+
+curl -L https://bootstrap.saltstack.com -o install_salt.sh
+sh install_salt.sh -P -M -x python3
+
+salt-key -A
+```
+
+**Steps to Reproduce the behavior**
+
+In the container, run the following commands:
+
+```bash
+salt-call grains.get virtual
+> LXC
+apt-get install virt-what
+salt-call grains.get virtual
+> lxc
+```
+
+**Expected behavior**
+
+The `virtual` and `virtual_subtype` grains are consistent on all LXC containers, regardless of guest OS used or system utilities is installed.
+
+I don't have a strong opinion on whether that's `container`, `LXC` or `lxc`, as long as I'm guaranteed to have one of these consistently.
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+          Salt: 3002.2
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.5
+     gitpython: 2.1.11
+        Jinja2: 2.10
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.5.6
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: Not Installed
+        Python: 3.7.3 (default, Jul 25 2020, 13:03:44)
+  python-gnupg: Not Installed
+        PyYAML: 3.13
+         PyZMQ: 17.1.2
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.1
+ 
+System Versions:
+          dist: debian 10 buster
+        locale: UTF-8
+       machine: x86_64
+       release: 5.8.0-43-generic
+        system: Linux
+       version: Debian GNU/Linux 10 buster
+```
+</details>
+
+**Additional context**
+Add any other context about the problem here.

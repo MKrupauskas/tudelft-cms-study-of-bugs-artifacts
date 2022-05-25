@@ -1,0 +1,42 @@
+Using 2014.1.11
+Master & minion are ubuntu 14.04 on EC2
+
+Run command:
+`salt-cloud -p base_ec2_small --log-level debug testapp-7`
+When it gets time to copy the minion key, this happens:
+
+```
+[DEBUG   ] Terminal Command: /bin/sh -c scp -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oKbdInteractiveAuthentication=no -i /etc/salt/salt-master.pem /tmp/tmp8mNvBy ubuntu@172.31.11.191:/tmp/.saltcloud-5af6e5a7-52c3-4283-9fae-d6da21c7b23f/minion.pem || echo "put /tmp/tmp8mNvBy /tmp/.saltcloud-5af6e5a7-52c3-4283-9fae-d6da21c7b23f/minion.pem" | sftp -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oKbdInteractiveAuthentication=no -i /etc/salt/salt-master.pem ubuntu@172.31.11.191 || rsync -avz -e "ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oKbdInteractiveAuthentication=no -i /etc/salt/salt-master.pem" /tmp/tmp8mNvBy ubuntu@172.31.11.191:/tmp/.saltcloud-5af6e5a7-52c3-4283-9fae-d6da21c7b23f/minion.pem
+[DEBUG   ] Uploading file(PID 6931): '/tmp/.saltcloud-5af6e5a7-52c3-4283-9fae-d6da21c7b23f/minion.pem'
+Warning: Permanently added '172.31.11.191' (ECDSA) to the list of known hosts.
+[DEBUG   ] Warning: Permanently added '172.31.11.191' (ECDSA) to the list of known hosts.
+Error: There was a profile error: Failed to upload /tmp/tmp8mNvBy to /tmp/.saltcloud-5af6e5a7-52c3-4283-9fae-d6da21c7b23f/minion.pem. Exit code: 0
+```
+
+I manually inspected the minion, and the file is in fact present in the correct place.
+
+I think the fix is pretty easy:
+https://github.com/saltstack/salt/blob/v2014.1.11/salt/utils/cloud.py#L994
+`if allow_failure is False:`
+should be:
+`if (proc.exitstatus != 0) and (allow_failure is False):`
+
+This is a regression from 2014.1.10. In 2014.1.10, there is no allow_failure block and scp_file worked OK.
+
+It also looks like scp_file was significantly rewritten in head, so I assume this bug is fixed there.
+
+Versions report:
+
+```
+$ salt --versions-report
+           Salt: 2014.1.11
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.3.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+            ZMQ: 4.0.4
+```

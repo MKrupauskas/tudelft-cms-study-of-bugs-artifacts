@@ -1,0 +1,134 @@
+### Description of Issue/Question
+
+When starting a Docker container with `port_bindings` within a given port range, the container is started correctly, but the state is shown as errorneous. This causes the depending states to be skipped.
+### Setup
+
+My SLS file contains the following
+
+```
+{{ name }}-{{ no }}:
+  dockerng.running:
+    - image: {{ registryname }}/{{ name }}:{{ tag }}
+    - restart_policy: always
+    - port_bindings:
+      - "61616:61616"
+```
+
+The image is based on https://hub.docker.com/r/webcenter/activemq/ which exposes multiple ports.
+
+```
+EXPOSE 8161 
+EXPOSE 61616 
+EXPOSE 5672 
+EXPOSE 61613 
+EXPOSE 1883 
+EXPOSE 61614
+```
+
+My custom image does not add any new `EXPOSE` statements.
+### Steps to Reproduce Issue
+
+When running `salt '*' state.highstate`, I get the following error 
+
+```
+----------
+          ID: activemq-oracle-a1
+    Function: dockerng.running
+      Result: False
+     Comment: Failed to apply configuration for the following parameters: port_bindings
+     Started: 13:54:21.406732
+    Duration: 21266.803 ms
+     Changes:
+              ----------
+              added:
+                  ----------
+                  Id:
+                      dc0cac1a22484936baafe7a8d6e0b62fd19d66acc21f4917d629914484c59d6e
+                  Name:
+                      activemq-oracle-a1
+                  Time_Elapsed:
+                      0.492069959641
+                  Warnings:
+                      None
+              diff:
+                  ----------
+              removed:
+                  - dfb4ec7ad8bfe247ffda4e0056fbfd5700db4a9b00f85e47d05c4d861def6f1b
+```
+
+The minion debug log contains
+
+```
+[DEBUG   ] dockerng.running: Analysis of container 'activemq-oracle-a1' after creation/replacement reveals the following changes still need to be made: {'port_bindings': {'new': ['61616:61616'], 'old': [u'61616']}}
+[ERROR   ] {'diff': {}, 'removed': [u'dfb4ec7ad8bfe247ffda4e0056fbfd5700db4a9b00f85e47d05c4d861def6f1b'], 'added': {'Time_Elapsed': 0.49206995964050293, 'Name': 'activemq-oracle-a1', u'Id': u'dc0cac1a22484936baafe7a8d6e0b62fd19d66acc21f4917d629914484c59d6e', u'Warnings': None}}
+```
+
+Afterwards the container is started with the correct port binding, but as the state is returned as errorneous, all depending states are skipped.
+
+```
+$ sudo docker ps | grep activemq-oracle-a1
+932fcf86f01b        <custom-registry>/activemq-oracle:latest   "/app/init.py start"     2 minutes ago       Up 2 minutes        1883/tcp, 5672/tcp, 8161/tcp, 61613-61614/tcp, 0.0.0.0:61616->61616/tcp   activemq-oracle-a1
+```
+
+I assumed that this could be related to #31595, but also when binding all exposed ports, the problem persists.
+
+It seems that this might be somehow related to Docker's handling of emphemeral ports (docker/docker#10220). When binding the exposed port to a different host port (eg 5000), starting the container is successful (also in the salt state).
+
+However the used port `61616` is outside of the configured range of ephemeral / local ports
+
+```
+$ cat /proc/sys/net/ipv4/ip_local_port_range
+32768   61000
+```
+### Versions Report
+
+```
+$ salt --versions-report
+Salt Version:
+           Salt: 2016.3.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Feb 11 2014, 07:46:25)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 3.2.5
+
+System Versions:
+           dist: centos 7.1.1503 Core
+        machine: x86_64
+        release: 3.10.0-123.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.1.1503 Core
+```
+
+```
+$ pip freeze |grep docker
+docker-py==1.9.0
+```
+
+```
+$ docker --version
+Docker version 1.10.3, build d381c64-unsupported
+```

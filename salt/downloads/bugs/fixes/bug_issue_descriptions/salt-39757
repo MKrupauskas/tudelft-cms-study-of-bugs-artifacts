@@ -1,0 +1,127 @@
+### Description of Issue/Question
+
+When GlusterFS volume is mounted as a part of Salt state, it's glusterfs process is killed (receives SIGTERM) during salt-minion stop resulting in unmounted volume.
+
+### Setup
+
+In sls file, there's simple mount resource:
+
+https://github.com/salt-formulas/salt-formula-glusterfs/blob/master/glusterfs/client.sls#L12
+
+```
+    glusterfs_mount_registry:
+        ----------
+        __env__:
+            base
+        __sls__:
+            glusterfs.client
+        mount:
+            |_
+              ----------
+              name:
+                  /srv/volumes/registry
+            |_
+              ----------
+              device:
+                  172.16.10.11:/registry
+            |_
+              ----------
+              fstype:
+                  glusterfs
+            |_
+              ----------
+              mkmnt:
+                  True
+            |_
+              ----------
+              opts:
+                  defaults
+            |_
+              ----------
+              require:
+                  |_
+                    ----------
+                    pkg:
+                        glusterfs_client_packages
+            - mounted
+            |_
+              ----------
+              order:
+                  10004
+```
+
+Results in mounted glusterfs volume (each mount spawns glusterfs process). Such process is part of parent cgroup (salt-minion's system.slice)
+
+```
+root@ci01:/home/ubuntu# systemctl status salt-minion
+ salt-minion.service - The Salt Minion
+   Loaded: loaded (/lib/systemd/system/salt-minion.service; enabled; vendor preset: enabled)
+   Active: active (running) since Wed 2017-03-01 15:52:13 UTC; 1min 38s ago
+ Main PID: 22242 (salt-minion)
+    Tasks: 51
+   Memory: 244.4M
+      CPU: 10.887s
+   CGroup: /system.slice/salt-minion.service
+           22242 /usr/bin/python /usr/bin/salt-minion
+           22249 /usr/bin/python /usr/bin/salt-minion
+           22251 /usr/bin/python /usr/bin/salt-minion
+           23003 /usr/sbin/glusterfs --volfile-server=172.16.10.11 --volfile-id=/jenkins /srv/volumes/jenkins
+           23066 /usr/sbin/glusterfs --volfile-server=172.16.10.11 --volfile-id=/mysql /srv/volumes/mysql
+           23130 /usr/sbin/glusterfs --volfile-server=172.16.10.11 --volfile-id=/registry /srv/volumes/registry
+           23194 /usr/sbin/glusterfs --volfile-server=172.16.10.11 --volfile-id=/gerrit /srv/volumes/gerrit
+           23259 /usr/sbin/glusterfs --volfile-server=172.16.10.11 --volfile-id=/aptly /srv/volumes/aptly
+```
+
+So obviously restarting salt-minion will result in killing glusterfs processes as well.
+
+### Steps to Reproduce Issue
+
+```
+salt 'ci01*' state.sls glusterfs
+service salt-minion restart
+```
+
+will result in unmounted GlusterFS volumes.
+It doesn't happen when calling with `salt-call`.
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.5
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.5.0
+       dateutil: 2.4.2
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-36-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

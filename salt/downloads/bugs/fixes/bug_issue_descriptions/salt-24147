@@ -1,0 +1,77 @@
+In our environment we are attempting to use a hierarchy of salt-masters that are syndicated across multiple levels.
+When we connect to the machine that is running the master that is at the top of the hierarchy and run
+
+``` yaml
+salt '*' test.ping
+
+dtc-master-chi:
+    True
+dtc-master-aus:
+    True
+flt-master:
+    True
+pod-master-chi-unos:
+    True
+pod-master-aus-sxsw:
+    True
+pod-master-aus-sema:
+    True
+pod-minion-chi-unos-admin:
+    True
+pod-minion-chi-unos-crm:
+    True
+pod-minion-chi-unos-bi:
+    True
+pod-minion-aus-sxsw-admin:
+    True
+pod-minion-aus-sxsw-bi:
+    True
+pod-minion-aus-sema-crm:
+    True
+pod-minion-aus-sema-admin:
+    True
+pod-minion-aus-sema-bi:
+    True
+pod-minion-aus-sxsw-crm:
+    True
+```
+
+as the root user we get the test.ping call passed all the way down through the syndication hierarchy with no problem.
+
+We are trying to leverage the security capabilities of Salt and so we created a "saltdev" user for testing purposes and
+also configured external auth on each of the masters to match..
+
+``` yaml
+external_auth:
+  pam:
+    saltdev:
+      - .*
+```
+
+What is odd is that when we run the command as the authenticated user saltdev
+
+``` yaml
+salt -a pam --username=saltdev --password=saltdev '*' test.ping
+
+flt-master:
+    True
+dtc-master-chi:
+    True
+dtc-master-aus:
+    True
+```
+
+The request only executes on the direct minions and is not propagated to the syndics.
+
+We do see
+
+```
+2015-05-19 18:50:15,383 [salt.master      ][WARNING ][61]  Authentication failure of type "user" occurred
+```
+
+offending line in master.py seems to be 
+
+``` python
+    elif clear_load.pop('key') != self.key[self.opts.get('user', 'root')]:                     log.warning(                         'Authentication failure of type "user" occurred.'                     )
+
+```

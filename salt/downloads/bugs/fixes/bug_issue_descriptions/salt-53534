@@ -1,0 +1,128 @@
+### Description of Issue
+
+On windows. using `ini.options_absent` will have different effects depending on if the line endings on the file are Unix or dos based. 
+
+### Setup
+```
+cat << EOF > /srv/salt/testing/files/testn.ini
+[Section1]
+UNITTEST = 1
+INTEGRATIONTEST = 1
+
+[Section2]
+url=http://localhost:8900
+batch=1000
+queue=50000
+EOF
+cp /srv/salt/testing/files/testn.ini /srv/salt/testing/files/testrn.ini
+unix2dos /srv/salt/testing/files/testrn.ini
+```
+```
+{% if salt.grains.get('os') == 'Windows' %}
+  {% set location = 'c:\\' %}
+{% else %}
+  {% set location = '/tmp/' %}
+{%endif%}
+
+put_testrn_ini:
+  file.managed:
+    - name: {{location}}testrn.ini
+    - source: salt://testing/files/testrn.ini
+
+put_testn_ini:
+  file.managed:
+    - name: {{location}}testn.ini
+    - source: salt://testing/files/testn.ini
+
+remove_some_options_n:
+  ini.options_absent:
+    - name: {{location}}testn.ini
+    - sections:
+        Section1:
+          - UNITTEST
+
+remove_some_options_rn:
+  ini.options_absent:
+    - name: {{location}}testrn.ini
+    - sections:
+        Section1:
+          - UNITTEST
+```
+
+One Linux booth files resulting files come out the same correct result and keeps the line endings without converting to native format. On windows, they come out as the following examples and convert line endings to the dos format.
+
+testn.ini
+```
+
+[Section1]
+
+[Section2]
+url = http://localhost:8900
+```
+and 
+
+testrn.ini
+```
+
+[Section1]
+INTEGRATIONTEST = 1
+
+[Section2]
+url = http://localhost:8900
+batch = 1000
+queue = 50000
+```
+
+The second one being correct. 
+
+### Steps to Reproduce Issue
+see above
+
+### Versions Report
+
+This is also reported to happen in 2018.3 as well.
+
+```
+[root@salt00 testing]# salt Desktop test.versions_report
+Desktop:
+    Salt Version:
+               Salt: 2019.2.0
+
+    Dependency Versions:
+               cffi: 1.11.5
+           cherrypy: 17.4.1
+           dateutil: 2.7.5
+          docker-py: Not Installed
+              gitdb: 2.0.5
+          gitpython: Not Installed
+              ioflo: Not Installed
+             Jinja2: 2.10
+            libgit2: Not Installed
+            libnacl: 1.6.1
+           M2Crypto: Not Installed
+               Mako: 1.0.7
+       msgpack-pure: Not Installed
+     msgpack-python: 0.5.6
+       mysql-python: Not Installed
+          pycparser: 2.19
+           pycrypto: 2.6.1
+       pycryptodome: Not Installed
+             pygit2: Not Installed
+             Python: 3.5.4 (v3.5.4:3f56838, Aug  8 2017, 02:17:05) [MSC v.1900 64 bit (AMD64)]
+       python-gnupg: 0.4.3
+             PyYAML: 3.13
+              PyZMQ: 17.1.2
+               RAET: Not Installed
+              smmap: 2.0.5
+            timelib: 0.2.4
+            Tornado: 4.5.3
+                ZMQ: 4.2.5
+
+    System Versions:
+               dist:
+             locale: cp1252
+            machine: AMD64
+            release: 10
+             system: Windows
+            version: 10 10.0.18362 SP0 Multiprocessor Free
+```

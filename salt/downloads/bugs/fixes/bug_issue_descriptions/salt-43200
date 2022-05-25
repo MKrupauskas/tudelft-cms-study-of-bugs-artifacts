@@ -1,0 +1,59 @@
+### Description of Issue/Question
+
+### Setup
+
+Trying to use the new `grafana4_datasource` state from the most recent release.
+```
+local_cloudwatch:
+  grafana4_datasource.present:
+    - name: local_cloudwatch
+    - type: cloudwatch
+    - url: ''
+    - json_data: '{authType: "arn", timeField: "@timestamp", defaultRegion: "us-west-1"}'
+    - is_default: true
+```
+
+### Steps to Reproduce Issue
+I got this error...
+```
+                File "/usr/lib/python2.7/dist-packages/salt/modules/grafana4.py", line 1019, in create_datasource
+                  response.raise_for_status()
+                File "/usr/lib/python2.7/dist-packages/requests/models.py", line 893, in raise_for_status
+                  raise HTTPError(http_error_msg, response=self)
+              HTTPError: 422 Client Error: Unprocessable Entity for url: http://localhost:3000/api/datasources
+```
+
+...which made me dig deeper. According to [the docs][grafana4_datasource], the default value of "access" is "proxy".
+But when I actually take a pcap of what it's doing (from following the HTTP stream)...
+
+```
+POST /api/datasources HTTP/1.1
+Host: localhost:3000
+Connection: keep-alive
+Accept-Encoding: gzip, deflate
+Accept: */*
+User-Agent: python-requests/2.12.4
+Content-type: application/json
+Content-Length: 370
+Authorization: Basic XXXXXXXX
+
+{"name": "local_cloudwatch", "basicAuthPassword": null, "database": null, "url": "", "basicAuth": null, "jsonData": "{authType: \"arn\", timeField: \"@timestamp\", defaultRegion: \"us-west-1\"}", "access": null, "typeLogoUrl": null, "user": null, "tlsAuth": null, "basicAuthUser": null, "password": null, "type": "cloudwatch", "isDefault": true, "withCredentials": null}HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/json; charset=utf-8
+Date: Fri, 25 Aug 2017 19:34:51 GMT
+Content-Length: 81
+
+[{"fieldNames":["Access"],"classification":"RequiredError","message":"Required"}]
+```
+
+...when left unset that field is set to `null`.
+
+### Versions Report
+
+None of the other version are relevant so I won't bother to give them. Master and minion are the same.
+```
+root@salt-infra:~# salt --versions-report
+Salt Version:
+           Salt: 2017.7.1
+```
+
+[grafana4_datasource]: https://docs.saltstack.com/en/latest/ref/states/all/salt.states.grafana4_datasource.html

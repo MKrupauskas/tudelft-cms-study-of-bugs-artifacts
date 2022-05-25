@@ -1,0 +1,88 @@
+**Description**
+An application calling salt.runner.RunnerClient and salt.client.Caller will fail if salt.runner.RunnerClient is run prior to salt.client.Caller. If salt.client.Caller is run first, then additional executions of either appear to work. 
+and occurs because the ioloop has previously been closed.
+
+**Setup**
+Fresh pull of docker container from dockerhub on CentOS 7. Tried with 3003.2, 3003.3 and 3004rc1.
+
+  
+**Steps to Reproduce the behavior**
+Here's the reproducer:
+``` 
+opts = salt.config.master_config('/etc/salt/master')
+salt.runner.RunnerClient(opts).cmd("test.stdout_print")
+salt.client.Caller().function("cmd.run","uname -a")
+```
+This works, however:
+```
+opts = salt.config.master_config('/etc/salt/master')
+salt.client.Caller().function("cmd.run","uname -a")
+salt.runner.RunnerClient(opts).cmd("test.stdout_print")
+salt.client.Caller().function("cmd.run","uname -a")
+```
+
+The failure scenario produces the following traceback:
+```
+Traceback (most recent call last):
+  File "test.py", line 36, in <module>
+    print(salt_caller_cmd("cmd.run","uname -a"))
+  File "test.py", line 31, in salt_caller_cmd
+    client = salt.client.Caller()
+  File "/usr/local/lib/python3.7/site-packages/salt/client/__init__.py", line 2171, in __init__
+    self.sminion = salt.minion.SMinion(self.opts)
+  File "/usr/local/lib/python3.7/site-packages/salt/minion.py", line 934, in __init__
+    io_loop.run_sync(lambda: self.eval_master(self.opts, failed=True))
+  File "/usr/local/lib/python3.7/site-packages/salt/ext/tornado/ioloop.py", line 454, in run_sync
+    self.start()
+  File "/usr/local/lib/python3.7/site-packages/salt/ext/tornado/ioloop.py", line 804, in start
+    ncallbacks = len(self._callbacks)
+TypeError: object of type 'NoneType' has no len()
+```
+
+**Expected behavior**
+No exception raised.
+
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+```
+Salt Version:
+          Salt: 3004rc1
+
+Dependency Versions:
+          cffi: 1.14.6
+      cherrypy: unknown
+      dateutil: 2.8.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.3
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 1.0.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.17
+      pycrypto: Not Installed
+  pycryptodome: 3.9.8
+        pygit2: Not Installed
+        Python: 3.7.12 (default, Sep  8 2021, 01:55:52)
+  python-gnupg: 0.4.4
+        PyYAML: 5.4.1
+         PyZMQ: 18.0.1
+         smmap: Not Installed
+       timelib: 0.2.4
+       Tornado: 4.5.3
+           ZMQ: 4.3.1
+
+System Versions:
+          dist: alpine 3.14.2
+        locale: UTF-8
+       machine: x86_64
+       release: 3.10.0-514.21.1.el7.x86_64
+        system: Linux
+       version: Alpine Linux 3.14.2
+
+```
+</details>

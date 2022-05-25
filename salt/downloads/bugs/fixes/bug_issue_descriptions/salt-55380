@@ -1,0 +1,106 @@
+### Description of Issue
+
+We are running a master with both `roots` and `gitfs` backends.  When calling a `salt-run fileserver.clear_file_list_cache` only the `roots` backend has its file name cache cleared.
+
+I'm pretty sure this is a 1-line change I can PR to fix gitfs, but not sure of the impact against other backends besides gitfs.
+
+### Setup
+
+Basic master set up on 2018.3.4 with both roots and gitfs.
+
+```
+log_fmt_console: '%(asctime)s,%(msecs)03d [%(name)-17s:%(lineno)-4d][%(levelname)-8s][%(process)d] %(message)s'
+
+fileserver_backend:
+  - gitfs
+  - roots
+
+# File roots via Git
+gitfs_provider: pygit2
+gitfs_update_interval: 600
+gitfs_base: master
+gitfs_pubkey: /root/.ssh/bitbucket_read_only.pub
+gitfs_privkey: /root/.ssh/bitbucket_read_only
+gitfs_remotes:
+  - git@bitbucket.org:path-to-repo.git:
+    - name: foo
+    - base: master
+    - root: salt/fileroots
+```
+
+### Steps to Reproduce Issue
+```
+[root@ip-172-31-63-99 file_lists]# salt-run -l warning  fileserver.clear_file_list_cache
+roots:
+    - base
+```
+
+In the master logs we see:
+
+```
+19:55:40,045 [salt.fileserver                                       :753 ][DEBUG   ][27029] Skipping gitfs file list cache for saltenv 'base'
+```
+
+In `salt/fileserver/__init__.py` in the `clear_file_list_cache` function, we see:
+
+```
+        for back in file_list_backends:
+            # Account for the fact that the file_list cache directory for gitfs
+            # is 'git', hgfs is 'hg', etc.
+            back_virtualname = re.sub('fs$', '', back)
+```
+
+But in `/var/cache/salt/master/file_lists` on the master:
+
+```
+[root@ip-172-31-63-99 file_lists]# ls -l
+total 0
+drwxr-xr-x. 2 root root 20 Nov 20 21:34 gitfs
+drwxr-xr-x. 2 root root 20 Nov 20 21:34 roots
+```
+
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2018.3.4
+
+Dependency Versions:
+           cffi: 1.13.2
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.26.6
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, Jun 11 2019, 14:33:56)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: redhat 7.7 Maipo
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1062.4.3.el7.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 7.7 Maipo
+```

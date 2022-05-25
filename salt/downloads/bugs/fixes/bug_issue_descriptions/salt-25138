@@ -1,0 +1,35 @@
+I have a pair of states where the first one is supposed to copy a file from a known "source" location, while the second replaces various labels in it. (I could have also use `file.managed`, but since the changes are purely cosmetic, I thought this would save me from having to track changes to this file done by the source project.)
+
+``` yml
+message-overlay:
+  file.copy:
+    - name: {{ source_dir }}/dspace/modules/xmlui/src/main/webapp/i18n/messages.xml
+    - source: {{ source_dir }}/dspace-xmlui/src/main/webapp/i18n/messages.xml
+    - makedirs: True
+    - force: True
+    - user: tomcat
+    - group: tomcat
+
+message-statspace:
+  file.replace:
+    - name: {{ source_dir }}/dspace/modules/xmlui/src/main/webapp/i18n/messages.xml
+    - pattern: DSpace
+    - repl: StatSpace
+  require:
+    - file: message-overlay
+```
+
+However, when I run Saltstack on this formula, either just the SLS or as part of the high state, I get an where the second (replacing) state does not find the copied file. What's strange is that the log shows that the file was copied:
+
+```
+[INFO    ] Running state [/var/dspace-src/dspace/modules/xmlui/src/main/webapp/i18n/messages.xml] at time 22:43:45.535955
+[INFO    ] Executing state file.copy for /var/dspace-src/dspace/modules/xmlui/src/main/webapp/i18n/messages.xml
+[INFO    ] The target file "/var/dspace-src/dspace/modules/xmlui/src/main/webapp/i18n/messages.xml" exists and will not be overwritten
+[INFO    ] Completed state [/var/dspace-src/dspace/modules/xmlui/src/main/webapp/i18n/messages.xml] at time 22:43:45.555614
+[INFO    ] Running state [/var/dspace-src/dspace/modules/xmlui/src/main/webapp/i18n/messages.xml] at time 22:43:45.557573
+[INFO    ] Executing state file.replace for /var/dspace-src/dspace/modules/xmlui/src/main/webapp/i18n/messages.xml
+[ERROR   ] /var/dspace-src/dspace/modules/xmlui/src/main/webapp/i18n/messages.xml: file not found
+[INFO    ] Completed state [/var/dspace-src/dspace/modules/xmlui/src/main/webapp/i18n/messages.xml] at time 22:43:45.558367
+```
+
+Inspecting the file system, the target file doesn't exist, as if the copying didn't suceed. Or maybe it was deleted at some point before the replacing was run? If I run the states one by one explicitly via `state.sls_id`, then everything works fine.

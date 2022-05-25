@@ -1,0 +1,133 @@
+### Description of Issue/Question
+
+The documentation of [pillar.get](https://docs.saltstack.com/en/latest/ref/modules/all/salt.modules.pillar.html#salt.modules.pillar.get) is not very clear. On one hand it says: 
+
+> If the merge parameter is set to True, the default will be recursively merged into the returned pillar data.
+
+On the other hand it says:
+> merge
+>    Specify whether or not the retrieved values should be recursively merged into the passed default.
+
+It appears that the second statement is true, which is *extremely* confusing as using the same default value between different calls to ``pillar.get()`` will update the default value and will push new keys from one call to another.
+
+### Setup
+
+``state.sls``:
+```
+{% set default = {
+  'foo': {
+    'bar': 43,
+  }
+} %}
+
+/tmp/test1:
+  file.managed:
+    - contents: {{ default.foo.bar }}
+
+/tmp/test2:
+  file.managed:
+    - contents: {{ (salt['pillar.get']('test', default=default, merge=True)).foo.bar }}
+
+/tmp/test3:
+  file.managed:
+    - contents: {{ default.foo.bar }}
+```
+A pillar file:
+```
+test:
+  foo:
+    bar: 42
+```
+
+produces the following:
+
+```
+          ID: /tmp/test1
+    Function: file.managed
+      Result: True
+     Comment: File /tmp/test1 updated
+     Started: 17:17:04.826233
+    Duration: 6.329 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -0,0 +1 @@
+                  +43
+----------
+          ID: /tmp/test2
+    Function: file.managed
+      Result: True
+     Comment: File /tmp/test2 updated
+     Started: 17:17:04.832666
+    Duration: 1.239 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -0,0 +1 @@
+                  +42
+----------
+          ID: /tmp/test3
+    Function: file.managed
+      Result: True
+     Comment: File /tmp/test3 updated
+     Started: 17:17:04.833985
+    Duration: 1.18 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -0,0 +1 @@
+                  +42
+```
+
+I would have expected ``/tmp/test3``'s content to be 43 instead of 42.
+
+### Versions Report
+
+```
+$ salt --versions-report 
+Salt Version:
+           Salt: 2016.3.4
+ 
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: 3.5.0
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 8.5 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.5
+```
+
+(but occurs also on 2016.11.1)

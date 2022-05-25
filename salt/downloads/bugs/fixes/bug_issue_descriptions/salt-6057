@@ -1,0 +1,34 @@
+If i have a state (file.managed below) which is a prereq_in it cannot be watched by another state. The below SLS file causes infinite recursion-- which doesn't make a ton of sense to me. If i am watching a state it shouldn't matter if that state has a prereq-- just if it changed or not, unless i'm missing something.
+
+```
+remove_from_lb:
+  cmd.run:
+    - name: /home/thjackso/tmp/rotation/oor.sh
+
+# Command to add host to LB
+add_to_lb:
+    cmd.wait:
+        - name: /home/thjackso/tmp/rotation/ir.sh
+
+/home/thjackso/workspace/salt/atsdeploy/test/haproxy.cfg:
+  file.managed:
+    - source: {{ salt['pillar.get']('haproxy:source', 'http://localhost/cfg/default') }}
+    - user: thjackso
+    - group: eng
+    - mode: 644
+    - source_hash: {{ salt['pillar.get']('haproxy:hash', 'md5=7822bba98f950fc9e12e1211548fd730') }}
+    - prereq_in:
+      - cmd: remove_from_lb
+
+haproxy:
+  service:
+    - running
+    # remove from LB if you have a change
+    - prereq_in:
+      - cmd: remove_from_lb
+    # add it back when you are done
+    #- watch_in:
+    #  - cmd: add_to_lb
+    - watch:
+      - file: /home/thjackso/workspace/salt/atsdeploy/test/haproxy.cfg
+```

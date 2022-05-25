@@ -1,0 +1,169 @@
+### Description of Issue/Question
+
+Use-case:
+1. Move a pre-packaged configuration of software package-x to package-x.conf.example
+2. Place my own package-x.conf there instead
+
+Works correct for the first run, when package-x.conf.example doesn't exist yet.
+Fails on consecutive runs, because package-x.conf.example already exists.
+
+Using 'force=True' is not an option, because after the second state.apply, the packaged version would be lost.
+
+Shouldn't the file.rename report a "success, renamed file already in correct state" instead of a failure when force is not used?
+
+Misunderstanding?  Or am I doing something non-idiomatic here and there's a better way?
+
+### Setup
+```
+# Backup distro provided config as example
+/etc/package-x/package-x.conf.example:
+    file.rename:
+        - source: /etc/package-x/package-x.conf
+
+# Push our own config up there
+/etc/package-x/package-x.conf:
+    file.managed:
+        - source: salt://roles/package-x/package-x.conf
+        - user: root
+        - group: root
+        - mode: 644
+```
+
+### Steps to Reproduce Issue
+#### Initial run
+```
+salt:/srv/salt# salt $HOSTNAME state.apply roles/package-x
+salt:
+----------
+          ID: /etc/package-x/package-x.conf.example
+    Function: file.rename
+      Result: True
+     Comment: Moved "/etc/package-x/package-x.conf" to "/etc/package-x/package-x.conf.example"
+     Started: 15:34:37.288072
+    Duration: 0.507 ms
+     Changes:
+              ----------
+              /etc/package-x/package-x.conf.example:
+                  /etc/package-x/package-x.conf
+----------
+          ID: /etc/package-x/package-x.conf
+    Function: file.managed
+      Result: True
+     Comment: File /etc/package-x/package-x.conf updated
+     Started: 15:34:37.288700
+    Duration: 22.224 ms
+     Changes:
+              ----------
+              diff:
+                  New file
+              mode:
+                  0644
+
+Summary for salt
+------------
+Succeeded: 2 (changed=2)
+Failed:    0
+------------
+Total states run:     2
+Total run time:  22.731 ms
+
+
+-------------------------------------------
+Summary
+-------------------------------------------
+# of minions targeted: 1
+# of minions returned: 1
+# of minions that did not return: 0
+# of minions with errors: 0
+-------------------------------------------
+salt:/srv/salt#
+```
+
+#### next run
+````
+salt:/srv/salt# salt $HOSTNAME state.apply roles/package-x
+salt:
+----------
+          ID: /etc/package-x/package-x.conf.example
+    Function: file.rename
+      Result: False
+     Comment: The target file "/etc/package-x/package-x.conf.example" exists and will not be overwritten
+     Started: 15:35:23.268438
+    Duration: 0.567 ms
+     Changes:
+----------
+          ID: /etc/package-x/package-x.conf
+    Function: file.managed
+      Result: True
+     Comment: File /etc/package-x/package-x.conf is in the correct state
+     Started: 15:35:23.269182
+    Duration: 17.892 ms
+     Changes:
+
+Summary for salt
+------------
+Succeeded: 1
+Failed:    1
+------------
+Total states run:     2
+Total run time:  18.459 ms
+
+
+-------------------------------------------
+Summary
+-------------------------------------------
+# of minions targeted: 1
+# of minions returned: 1
+# of minions that did not return: 0
+# of minions with errors: 1
+-------------------------------------------
+ERROR: Minions returned with non-zero exit code
+salt:/srv/salt#
+````
+
+### Versions Report
+```
+salt:/srv/salt# salt --versions-report
+Salt Version:
+           Salt: 2018.3.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Jul 13 2018, 13:06:57)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 4.18.7-1.el7.elrepo.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+
+salt:/srv/salt#
+```

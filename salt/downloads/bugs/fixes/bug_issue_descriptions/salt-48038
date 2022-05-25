@@ -1,0 +1,140 @@
+### Description of Issue/Question
+
+@mattp- and i spotted this one
+
+#### Review
+I picked this up testing on 2017.7.5 where i was getting multiple returns from a single minion. further investigation yielded the job was executing twice (in my case). the double execution being based on the number of masters in the minion's master list. 
+
+Compare trace from 2017.7.5 and a 2017.7.2 minions. I've done my best to scrub what i can without exposing too much on our network ... well you know :)
+
+minion id: jackfish 
+2017.7.5 output:
+```
+[INFO    ] User root Executing command test.ping with jid 20180608155218737837
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20180608155218737837', 'tgt': 'jackfish', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'master_id': 'masterofmasters'}
+[TRACE   ] Started JIDs: []
+[INFO    ] User root Executing command test.ping with jid 20180608155218737837
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20180608155218737837', 'tgt': 'jackfish', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'master_id': 'masterofmasters'}
+[TRACE   ] Started JIDs: []
+[INFO    ] Starting a new job with PID 16207
+[TRACE   ] Depends decorator instantiated with dep list of ('non_existantmodulename',)
+[INFO    ] Starting a new job with PID 16210
+[TRACE   ] Depends decorator instantiated with dep list of ('non_existantmodulename',)
+[TRACE   ] Unloading test.missing_func because dependency (non_existantmodulename) is not imported
+[DEBUG   ] LazyLoaded test.ping
+[TRACE   ] Executors list ['direct_call.get']
+[DEBUG   ] LazyLoaded direct_call.get
+[DEBUG   ] test.ping received for minion 'jackfish'
+[DEBUG   ] Minion return retry timer set to 5 seconds (randomized)
+[INFO    ] Returning information for job: 20180608155218737837
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'jackfish', 'tcp://1.1.1.1:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'jackfish', 'tcp://1.1.1.1:4506')
+[TRACE   ] Inserted key into loop_instance_map id 66251016 for key ('/etc/salt/pki/minion', 'jackfish', 'tcp://1.1.1.1:4506', 'aes') and process 16207
+[TRACE   ] Unloading test.missing_func because dependency (non_existantmodulename) is not imported
+[DEBUG   ] LazyLoaded test.ping
+[TRACE   ] Executors list ['direct_call.get']
+[DEBUG   ] LazyLoaded direct_call.get
+[DEBUG   ] test.ping received for minion 'jackfish'
+[DEBUG   ] Minion return retry timer set to 8 seconds (randomized)
+[INFO    ] Returning information for job: 20180608155218737837
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'jackfish', 'tcp://2.2.2.2:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'jackfish', 'tcp://2.2.2.2:4506')
+[TRACE   ] ret_val = None
+[DEBUG   ] minion return: {'fun_args': [], 'jid': '20180608155218737837', 'return': True, 'retcode': 0, 'success': True, 'fun': 'test.ping', 'master_id': 'masterofmasters'}
+[TRACE   ] Inserted key into loop_instance_map id 66250296 for key ('/etc/salt/pki/minion', 'jackfish', 'tcp://2.2.2.2:4506', 'aes') and process 16210
+[TRACE   ] ret_val = None
+[DEBUG   ] minion return: {'fun_args': [], 'jid': '20180608155218737837', 'return': True, 'retcode': 0, 'success': True, 'fun': 'test.ping', 'master_id': 'masterofmasters'}
+```
+
+minion id tunafish 
+2017.7.2 output:
+```
+[INFO    ] User root Executing command test.ping with jid 20180608154555184597
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20180608154555184597', 'tgt': 'tunafish', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'master_id': 'masterofmasters'}
+[TRACE   ] Started JIDs: ['20180608154525782040', '20180608154555184597']
+[INFO    ] Starting a new job with PID 5427
+[TRACE   ] Depends decorator instantiated with dep list of ('non_existantmodulename',)
+[TRACE   ] Unloading test.missing_func because dependency (non_existantmodulename) is not imported
+[DEBUG   ] LazyLoaded test.ping
+[TRACE   ] Executors list ['direct_call.get']
+[DEBUG   ] LazyLoaded direct_call.get
+[DEBUG   ] test.ping received for minion 'tunafish'
+[DEBUG   ] Minion return retry timer set to 8 seconds (randomized)
+[INFO    ] Returning information for job: 20180608154555184597
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'tunafish', 'tcp://1.1.1.1:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'tunafish', 'tcp://1.1.1.1:4506')
+[TRACE   ] Inserted key into loop_instance_map id 39125360 for key ('/etc/salt/pki/minion', 'tunafish', 'tcp://1.1.1.1:4506', 'aes') and process 5427
+[TRACE   ] ret_val = None
+```
+
+Things to review:
+
+1. tunafish only returns once.
+2. jackfish's two returns are for the same JID. 
+3. tunafish's `jid_queue` is populated `Started JIDs: ['20180608154525782040', '20180608154555184597']`
+4. jackfish's `jid_queue` is always an empty list: `Started JIDs: []`
+5. jackfish's starts two new jobs: `PID 16207` and `PID16210`
+ 
+Based on output alone, we can be confident this code is executed twice. 
+
+#### Problem 
+
+We were able to trace this back to this [PR-43860](https://github.com/saltstack/salt/pull/43860). 
+
+When `MinionManager()` spins off a new `Minion()` in 2017.7.5, the new minion's `jid_queue` is empty. however during init, `self.jid_queue = jid_queue or []` always evals to an empty list. So you end up referencing the wrong list and not the one passed. As a result, the ["Don't duplicate job"](https://github.com/saltstack/salt/blob/2018.3/salt/minion.py#L1437) always executes when it should return. 
+
+#### Fix
+
+```
+- self.jid_queue = jid_queue or []
++ self.jid_queue = jid_queue
+```
+
+After patching ...
+
+jackfish output:
+```
+[INFO    ] User root Executing command test.ping with jid 20180608161606593851
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20180608161606593851', 'tgt': 'jackfish', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'master_id': 'masterofmasters'}
+[TRACE   ] Started JIDs: []
+[INFO    ] User root Executing command test.ping with jid 20180608161606593851
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20180608161606593851', 'tgt': 'jackfish', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'master_id': 'masterofmasters'}
+[TRACE   ] Started JIDs: ['20180608161606593851']
+[INFO    ] Starting a new job with PID 18145
+[TRACE   ] Depends decorator instantiated with dep list of ('non_existantmodulename',)
+[TRACE   ] Unloading test.missing_func because dependency (non_existantmodulename) is not imported
+[DEBUG   ] LazyLoaded test.ping
+[TRACE   ] Executors list ['direct_call.get']
+[DEBUG   ] LazyLoaded direct_call.get
+[DEBUG   ] test.ping received for minion 'jackfish'
+[DEBUG   ] Minion return retry timer set to 8 seconds (randomized)
+[INFO    ] Returning information for job: 20180608161606593851
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'jackfish', 'tcp://1.1.1.1:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'jackfish', 'tcp://1.1.1.1:4506')
+[TRACE   ] Inserted key into loop_instance_map id 42124424 for key ('/etc/salt/pki/minion', 'jackfish', 'tcp://1.1.1.1:4506', 'aes') and process 18145
+[TRACE   ] ret_val = None
+[DEBUG   ] minion return: {'fun_args': [], 'jid': '20180608161606593851', 'return': True, 'retcode': 0, 'success': True, 'fun': 'test.ping', 'master_id': 'masterofmasters'}
+```
+
+### Setup
+
+Based on what I believe, the use of or existence of syndic masters is irrelevant. However, this is my topology:
+
+* 1x Master of Masters (2018.3.0)
+* 2x Syndic Masters (2018.3.0)
+* 2x Minion (2017.7.2, 2017.7.5)
+
+This minions' config was set with the master list of
+
+```
+master:
+  - syndic1
+  - syndic2
+```
+
+### Steps to Reproduce Issue
+
+`salt \* test.ping`
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)

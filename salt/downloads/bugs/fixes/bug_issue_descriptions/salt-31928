@@ -1,0 +1,247 @@
+_(Copied from https://github.com/saltstack/salt/issues/24438#issuecomment-197405000.)_
+
+What I'm trying to do in a short: 
+- manage users on a debain salt minion from a debian salt master
+- pillar data contains a user's surname with a german umlaut 'ü'
+- state uses user.present and the surname from pillar data is used in the fullname argument
+- state.highstate fails with "'ascii' codec can't encode character u'\xfc'"
+
+What I've tried so far:
+- adding the yaml_utf8: True to the master config in /etc/salt/master
+- Checking the pillar data with salt '*' pillar.data is okay see pillar.data snippet below
+- Running salt-call -l debug state.highstate on the minion:
+  - Excerpts from the debug output:
+    - `[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/user/init.sls' using 'jinja' renderer: 0.0462970733643`
+    - `[DEBUG   ] Results of YAML rendering:  [...] OrderedDict([('fullname', u' FABOSI Mitr\xfccker')]) [...]`
+- splice a decode into the state after the -name argument `({% set usname = user.surname %} {% set usname = usname.decode('utf-8') %} and use {{ usname }}` instead of `{{ user.surname }}`
+
+Any help on this is appreciated, since I thought this has been fixed in 2015.8.7 as @bernieke wrote for 2015.8.1 in issue #3436 (if it's really a bug and not my inproper work ;)
+
+These are some settings and versions:
+----- MASTER ------
+
+``` yaml
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: 0.21.1
+           Mako: 1.0.0
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.3 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 8.3 
+```
+
+A snippet from /etc/salt/master: (Some lines before and after if the location matters)
+**\* SNIP ***
+
+``` yaml
+ # The state_output setting changes if the output is the full multi line
+ # output for each changed state if set to 'full', but if set to 'terse'
+ # the output will be shortened to a single line.  If set to 'mixed', the output
+ # will be terse unless a state failed, in which case that output will be full.
+ #state_output: full
+
+yaml_utf8: True
+
+
+ #####      File Server settings      #####
+ ##########################################
+ # Salt runs a lightweight file server written in zeromq to deliver files to
+ # minions. This file server is built into the master daemon and does not
+ # require a dedicated port.
+
+ *************
+```
+
+----- MINION ------
+
+``` yaml
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: 0.21.1
+           Mako: 1.0.0
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.3 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 8.3 
+```
+
+---- THE PILLAR SNIPPET ----  (/srv/pillar/user/init.sls)
+
+``` sls
+users:
+
+  mittruecker:
+    password: "CENSORED"
+    present: True
+    purge: False
+    sudo: False
+    createhome: True
+    title: ""
+    ou: ""
+    name: "FABOSI"
+    surname: "Mittrücker"
+    phonework: "+49-CENSORED"
+    mobilework:
+    faxwork: "+49-CENSORED"
+    emailwork: "CENSORED"
+    home: "CENSORED"
+    shell: "/bin/true"
+    primarygroup: CENSORED
+```
+
+---
+
+ ---- THE STATE ---- /srv/salt/user/init.sls
+
+``` sls
+{% set users = pillar.get('users', {}) %}
+
+{%- for username, user in users.items() %}
+{%- if user.present %}
+{% set userpresent = 'present' %}
+{%- else %}
+{% set userpresent = 'absent' %}
+{% endif %} {# if user present #}
+
+Manage {{ userpresent }} user {{ username }}:
+  user.{{ userpresent }}:
+    - name: {{ username }}
+    - password: "{{ user.password }}"
+{%- if user.present %}
+    - fullname: "{{ user.title }} {{ user.name }} {{ user.surname }}"
+    - workphone: {{ user.phonework }}
+    - homephone: {{ user.faxwork }}
+    - home: {{ user.home }}
+    - createhome: {{ user.createhome }}
+    - shell: {{ user.shell }}
+{%- else %}
+    - purge: {{ user.purge }}
+ {% endif %} {# if user present #}
+ {%- endfor %} {# endfor users #}
+```
+
+---
+
+ ---- PILLAR.DATA ---- (salt '*' pillar.data)
+
+``` sls
+        mittruecker:
+            ----------
+            createhome:
+                True
+            emailwork:
+                CENSRORED
+            faxwork:
+                CENSORED
+            home:
+                CENSORED
+            mobilework:
+                None
+            name:
+                FABOSI
+            ou:
+            password:
+                CENSORED
+            phonework:
+                CENSORED
+            present:
+                True
+            primarygroup:
+                CENSORED
+            purge:
+                False
+            shell:
+                /bin/true
+            sudo:
+                False
+            surname:
+                Mittrücker
+            title:
+```
+
+---
+
+ --- SALT-CALL ---- (salt-call -l debug state.highstate on minion)
+
+```
+          ID: Manage present user mittruecker
+    Function: user.present
+        Name: mittruecker
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1624, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1491, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/user.py", line 507, in present
+                  __salt__['user.ch{0}'.format(key)](name, val)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/useradd.py", line 406, in chfullname
+                  return _update_gecos(name, 'fullname', fullname)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/useradd.py", line 79, in _update_gecos
+                  cmd = ['usermod', '-c', _build_gecos(gecos_data), name]
+                File "/usr/lib/python2.7/dist-packages/salt/modules/useradd.py", line 61, in _build_gecos
+                  gecos_dict.get('homephone', ''))
+              UnicodeEncodeError: 'ascii' codec can't encode character u'\xfc' in position 12: ordinal not in range(128)
+     Started: 16:04:39.493284
+    Duration: 5.104 ms
+     Changes:   
+```
+
+---

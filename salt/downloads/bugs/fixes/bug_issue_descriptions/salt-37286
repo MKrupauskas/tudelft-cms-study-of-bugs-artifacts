@@ -1,0 +1,16 @@
+When a repo is configured with a mountpoint with a trailing slash, we fail to match any file paths in that repo. For example:
+
+```
+gitfs_remotes:
+  - http://foo.com/bar.git:
+    - mountpoint: salt://foobar/
+```
+
+Removing the trailing slash makes it work. Based off of what I remember about how I implemented this feature (without having gone and looked at the source to confirm), I think this is being caused by the fact that this is how we resolve mountpoints:
+1. File `salt://foobar/baz.txt` is requested (as simply `foobar/baz.txt`, from the perspective of the fileserver backend... we normalize the mountpoint by stripping a leading `salt://` from it because the fileserver backends never see the `salt://` in the requested file paths).
+2. The requested path begins with the mountpoint, so we know this repo is a potential candidate to match this file.
+3. To check for a match in the repo, we strip the mountpoint, _plus one more character_ to represent the path separator.
+4. Since the mountpoint, as stored in the GitProvider subclass instance, is `foobar/`, we strip `foobar/` plus the next character from the requested path, leaving `az.txt`.
+5. This doesn't match, so Salt says it can't find the file.
+
+I'll need to do more testing once I'm done with what I'm working on now to confirm, but I'm fairly certain of the cause and this should be a trivial fix.

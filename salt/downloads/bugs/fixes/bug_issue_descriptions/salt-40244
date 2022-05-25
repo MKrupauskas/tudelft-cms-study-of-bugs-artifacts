@@ -1,0 +1,89 @@
+### Description of Issue/Question
+This commit (7f05523f877e9bd1c69f913ef7d1010577dc8ed0) generalized handling of PEM files using regex, but also made the x509 module require the header of the signing_private_key be `-----BEGIN RSA PRIVATE KEY-----`. `-----BEGIN PRIVATE KEY-----` should also be a valid header, which also this (https://github.com/saltstack/salt/blob/develop/salt/modules/x509.py#L697) line suggests.
+
+At least these lines should probably be looked over:
+https://github.com/saltstack/salt/blob/develop/salt/modules/x509.py#L358
+https://github.com/saltstack/salt/blob/develop/salt/modules/x509.py#L768
+https://github.com/saltstack/salt/blob/develop/salt/modules/x509.py#L845
+
+### Setup
+Signing policy:
+```
+x509_signing_policies:
+  tls-cert:
+    - minions: '*'
+    - signing_private_key: /etc/pki/CA/<key with -----BEGIN PRIVATE KEY----- header>.key
+    - signing_cert: /etc/pki/CA/<cert>.crt
+    - C: SE
+    - ST: Stockholm
+    - L: Stockholm
+    - O: <org>
+    - basicConstraints: "critical CA:false"
+    - keyUsage: "digitalSignature, keyEncipherment"
+    - extendedKeyUsage: "serverAuth"
+    - subjectKeyIdentifier: hash
+    - authorityKeyIdentifier: keyid,issuer:always
+    - days_valid: <days>
+    - copypath: /etc/pki/CA/issued_certs
+    - authorityInfoAccess: caIssuers;URI:<uri>
+```
+
+### Steps to Reproduce Issue
+`$ salt-call -l debug x509.create_certificate signing_policy=tls-cert CN=www.something.here text=True`
+
+```
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/cli/caller.py", line 197, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/x509.py", line 1509, in create_certificate
+    passphrase=kwargs['signing_private_key_passphrase']),
+  File "/usr/lib/python2.7/site-packages/salt/modules/x509.py", line 358, in _get_private_key_obj
+    private_key = get_pem_entry(private_key, pem_type='RSA PRIVATE KEY')
+  File "/usr/lib/python2.7/site-packages/salt/modules/x509.py", line 472, in get_pem_entry
+    raise salt.exceptions.SaltInvocationError(errmsg)
+SaltInvocationError: PEM does not contain a single entry of type RSA PRIVATE KEY:
+-----BEGIN PRIVATE KEY-----
+[PRIVATE KEY GOES HERE]
+-----END PRIVATE KEY-----
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.3
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.21.0
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.21.4
+         Python: 2.7.5 (default, Sep 15 2016, 22:37:39)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.36.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```

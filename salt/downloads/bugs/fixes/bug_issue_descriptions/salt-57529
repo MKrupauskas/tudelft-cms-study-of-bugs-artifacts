@@ -1,0 +1,135 @@
+## Test cases
+
+- `test.ping` spends 3/4 of 100% CPU by unsuccessfully importing esxi/vsphere 
+- `file.replace` on a text files of 5 lines takes 100% CPU for 11-13 seconds
+ 
+## Expected behavior
+- `test.ping` or `file.replace` take 15% CPU for 2 seconds or less.
+
+## Pull requests
+- May be fixed by: #57579
+- Not be fixed by: #57576
+
+## Test Setup
+
+Install minion 3000.2 from Git
+
+Execute 
+
+    pip install snakeviz
+
+
+## Test case `test.ping` 
+
+Importing vsphere without esxi wastes 13 profiled seconds of 100% CPU on Windows . 
+
+Importing vsphere only with esxi grains reduces the profiled run time of `salt test.ping` from 17 to 4 seconds.
+
+### Test procedure
+
+Profile 3000.2 minion from git or download [test_ping--0--orig.prof](https://github.com/markuskramerIgitt/LearnSalt/blob/master/cProfile_performance_profiler/test_ping--0--orig.prof)
+
+    \Python35\python.exe -m cProfile -o test_ping--0--orig.prof  /Python35/Scripts/salt-call --local test.ping
+
+Execute `snakeviz test_ping--0--orig.prof` 
+Read 16.5 seconds total  (Profiling adds an overhead)
+
+Scroll down, sort by cumtime and find 
+|seconds|filename:lineno(module)
+|---|---
+7.686 |esxi.py:7(<module>)
+7.682 | vsphere.py:183(<module>)
+
+The 8 seconds wasted in the esxi module are actually wasted in the vsphere module.
+Line numbers are not always precise.
+
+Edit `salt/grains/esxpi.py`, add line 16 to gate the import of the `vsphere` module, as done a few lines down for the `__virtual__` function:
+
+    if salt.utils.platform.is_proxy():
+        import salt.modules.vsphere
+
+esxi (and vsphere within esxi) must only be loaded when the host is a proxy. 
+
+The esxi grain `__virtual__()` function is already gated, but the import was left out.
+
+
+Profile this modified 3000.2 minion from git or download [test_ping--1--guarded-import.prof](https://github.com/markuskramerIgitt/LearnSalt/blob/master/cProfile_performance_profiler/test_ping--1--guarded-import.prof)
+
+
+    \Python35\python.exe -m cProfile -o test_ping--1--guarded-import.prof  /Python35/Scripts/salt-call --local test.ping
+
+Execute `snakeviz test_ping--1--guarded-import.prof`
+Read  4.3 seconds total 
+
+Scroll down, search for esxi 
+
+|seconds|filename:lineno(module)
+|---|---
+|0.000215| esxi.py:7(<module>)
+
+The esxci module runs for 0,2 milliseconds because it no longer tries to import the vsphere module when there are no esxi grains. 
+
+Search for vsphere and find not
+
+
+### Conclusion
+
+The vsphere module busy polls for 8 seconds, e.g. in test.ping, (at least) on a physical Windows host.
+The esxi grain imports the vsphere module unconditionally.
+The fix is to conditionally import the vsphere module when there are esxi grains. 
+
+This greatly improves response time and reduces CPU load on Windows
+
+## Test case `file.replace`
+
+Edit file C:/PATHTO/foo.txt
+
+    hello foo
+    hello foo
+    hello foo
+    hello foo
+
+
+Execute
+ 
+    python -m cProfile -o file_replace.prof /Python35/Scripts/salt-call --local file.replace /PATHTO/foo.txt pattern="foo" repl="bar"
+    snakeviz file_replace.prof
+
+In the snakeviz browser, click on esxi.py and read:
+- Cumulative time 69%
+- File: c:\git\salt\salt\grains\
+
+
+
+###  Test procedure
+
+Delete `salt/grains/esxi.py` and execute `git clean -fxd`
+
+CPU still 100% but down from 15 to 7 seconds, esxi grain no longer in profile. 
+
+### Screenshots
+
+#### Current CPU
+![file_replace_out3000 2--0--cpu](https://user-images.githubusercontent.com/8489107/83640908-19437d00-a5ad-11ea-9a5f-2b8fea4a39ca.png)
+
+#### Current profile
+
+![file_replace_out3000 2--0--prof0](https://user-images.githubusercontent.com/8489107/83640912-19dc1380-a5ad-11ea-9e61-09917dcd2e4b.png)
+
+#### After Quick Proof CPU
+
+![file_replace_out3000 2--1--cpu](https://user-images.githubusercontent.com/8489107/83642210-d4204a80-a5ae-11ea-8a7a-60a9594e2b00.PNG)
+
+
+#### After Quick Proof profile 
+
+![file_replace_out3000 2--1--rm_grains](https://user-images.githubusercontent.com/8489107/83640921-1b0d4080-a5ad-11ea-94bf-3df674c3e18e.png)
+
+## Work space
+https://github.com/markuskramerIgitt/LearnSalt/tree/master/cProfile_performance_profiler
+
+
+
+## Versions Report
+3000.2 from Git
+

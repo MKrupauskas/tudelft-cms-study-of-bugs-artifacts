@@ -1,0 +1,198 @@
+I'm running master 0.17.5 (the latest available for ubuntu via PPA),
+and having trouble targeting by pillar, and getting some inconsistent
+results with 3 minions. All minions were installed at the same time,
+and all have these versions:
+
+```
+           Salt: 0.17.5-52-g2d4772c
+         Python: 2.7.5 (default, May 15 2013, 22:44:16) [MSC v.1500 64 bit (AMD64)]
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.2
+```
+## detective work
+
+Selecting by id works great:
+
+```
+$ time sudo salt -E '(ryanwin|strat|voting).*' test.ping -v
+Executing job with jid 20140303094057244900
+-------------------------------------------
+
+voting.acceleration.net:
+True
+stratussync.acceleration.net:
+True
+ryanwin7.acceleration.net:
+True
+
+real    0m1.695s
+user    0m0.253s
+sys     0m0.103s
+```
+
+When I try to select by pillar, the first returns quickly but the
+others fail:
+
+```
+$ time sudo salt -I 'nscp:*' test.ping -v                     
+Executing job with jid 20140303094255341834
+-------------------------------------------
+
+ryanwin7.acceleration.net:
+    True
+stratussync.acceleration.net:
+    Minion did not return
+voting.acceleration.net:
+    Minion did not return
+
+real    0m10.525s
+user    0m0.291s
+sys     0m0.072s
+```
+
+If I up the timeout, I get the same result, but it takes longer. So it
+seems like I'm hitting the timeout somewhere.
+
+```
+ryepup@scruffy:~$ time sudo salt -I 'nscp:*' test.ping -v -t 15
+Executing job with jid 20140303094349905445
+-------------------------------------------
+
+ryanwin7.acceleration.net:
+    True
+stratussync.acceleration.net:
+    Minion did not return
+voting.acceleration.net:
+    Minion did not return
+
+real    0m19.523s
+user    0m0.224s
+sys     0m0.136s
+$ time sudo salt -I 'nscp:*' test.ping -v -t 60
+Executing job with jid 20140303094457264656
+-------------------------------------------
+
+ryanwin7.acceleration.net:
+    True
+stratussync.acceleration.net:
+    Minion did not return
+voting.acceleration.net:
+    Minion did not return
+
+real    1m5.702s
+user    0m0.290s
+sys     0m0.098s
+$ time sudo salt -I 'nscp:*' test.ping -v -t 300                
+Executing job with jid 20140303094640755340
+-------------------------------------------
+
+ryanwin7.acceleration.net:
+    True
+stratussync.acceleration.net:
+    Minion did not return
+voting.acceleration.net:
+    Minion did not return
+
+real    5m13.684s
+user    0m0.266s
+sys     0m0.123s
+```
+
+Looking at `pillar` directly, we see another all three have the right pillar:
+
+```
+$ sudo salt -E '(ryanwin|strat|voting).*' pillar.item nscp
+ryanwin7.acceleration.net:
+    ----------
+    nscp:
+        ----------
+        ifs:
+            ----------
+            private:
+                Red Hat VirtIO Ethernet Adapter
+voting.acceleration.net:
+    ----------
+    nscp:
+        ----------
+        aspnet:
+            True
+        ifs:
+            ----------
+            private:
+                Intel(R) PRO/1000 MT Network Connection #3
+            public:
+                Intel(R) PRO/1000 MT Network Connection
+        iis:
+            True
+        mssql:
+            MSSQL$SQLEXPRESS
+stratussync.acceleration.net:
+    ----------
+    nscp:
+        ----------
+        aspnet:
+            True
+        ifs:
+            ----------
+            private:
+                Intel(R) PRO/1000 MT Network Connection #2
+            public:
+                Intel(R) PRO/1000 MT Network Connection
+        iis:
+            True
+        mssql:
+            MSSQL$SQLEXPRESS
+```
+
+However, if we use `pillar.get` instead of `pillar.item`, then we get different results
+
+```
+$ sudo salt -E '(ryanwin|strat|voting).*' pillar.get nscp
+voting.acceleration.net:
+
+stratussync.acceleration.net:
+
+ryanwin7.acceleration.net:
+    ----------
+    ifs:
+        ----------
+        private:
+            Red Hat VirtIO Ethernet Adapter
+```
+
+We only see the `nscp` section for the minion that we can successfully
+ping via pillar targeting. Running `saltutil.refresh_pillar` did not not fix this, but running `saltutil.sync_all` did, and then `pillar.get` matched `pillar.item` as I'd expect.
+I was really hopeful with `saltutil.refresh_pillar` would solve my problem, but after that I got the same ping timeouts after all the refreshing/syncing.
+
+The failing minions have nothing fishy in their logs, the master has
+nothing fishy in it's logs, and all respond nicely if targeted by id.
+
+I turned up the log verbosity and restarted the minions, and now it
+works as expected:
+
+```
+$ time sudo salt -I 'nscp:*' test.ping
+ryanwin7.acceleration.net:
+    True
+voting.acceleration.net:
+    True
+stratussync.acceleration.net:
+    True
+
+real    0m0.459s
+user    0m0.277s
+sys     0m0.097s
+```
+## summary
+
+It seems like my minions didn't have the right pillar state. I saw inconsistent results between `pillar.get` and `pillar.item`, and those were not resolved with `saltutil.refresh_pillar`, but were resolved by `saltutil.sync_all`. Even after the `pillar.get` returned the right results, targeting by pillar still timed out.
+
+My best guess is there's some cache on the minion side that didn't get cleared enough. When I asked my master to target by pillar, it used its up-to-date cache files to target my three minions, the published the command. All my minions got the message, and looked at the target spec to see if they should reply. One of my minions had up-to-date pillar data, saw it was targeted, and replied. Two of my minions had stale pillar data, and ignored the command. Sometime later my specified timeout was up, and master gave up hearing back from those two.
+
+After rebooting the minions, the bad cache was cleared, and all went well.

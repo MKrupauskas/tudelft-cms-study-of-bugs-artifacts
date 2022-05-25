@@ -1,0 +1,88 @@
+**Description**
+
+Using `mysql_user.present` to set the mysql root password fails after the first run.
+
+There is a catch where on first salt run mysql root password is empty, and on the second run it will error because the connection_pass is now different to the password that was set. A fix was made in https://github.com/saltstack/salt/pull/9722 to do a "second attempt" connection to get around this problem, but it appears in later versions of salt this doesn't work any longer.
+
+I've tracked it down to the addition of version checks: https://github.com/saltstack/salt/blob/master/salt/modules/mysql.py#L1450 because these checks open a connection in the `version` function, the connection errors before we can get to the code later in `user_exists` which tries again with another `connection_pass`: https://github.com/saltstack/salt/blob/master/salt/modules/mysql.py#L1470
+
+**Setup**
+
+```
+mysql-server:
+  pkg:
+    - installed
+
+set_localhost_root_password:
+  mysql_user.present:
+    - name: root
+    - host: localhost
+    - password: {{ pillar['mysql.pass'] }}
+    - connection_pass: ""
+    - require:
+      - pkg: mysql-server
+
+create_databases:
+  mysql_database.present:
+    - name: mydb
+    - require:
+      - pkg: mysql-server
+      - mysql_user: set_localhost_root_password
+```
+
+**Steps to Reproduce the behavior**
+
+Apply the mysql state with the above configuration. First apply will be successful on a fresh install of mysql or mariadb server.
+Now apply it again, and it will error.
+
+**Expected behavior**
+
+I can apply state to set the mysql root user to a password stored in the pillar, and it doesn't error on subsequent applies either.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 2019.2.5
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.9 (default, Oct  8 2020, 12:12:24)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-117-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```
+</details>

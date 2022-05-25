@@ -1,0 +1,315 @@
+### Description of Issue/Question
+Salt-api use rest_tornado can't get all minion info, just get the syndic minion, when I execute a http request, the result does not include the low level minion host, when replaced the rest_tornado to rest_cherrypy everything is ok, who have encounter this problem :)
+
+### Setup
+
+I execute this http request by the tool of postman, Request content:
+
+```
+[{
+        "client": "local",
+        "tgt": "*",
+        "fun": "cmd.run",
+        "kwarg": {
+             "cmd": "du -sh"
+           }
+    }]
+```
+
+the correct result is:
+
+```
+{
+    "return": [
+        {
+            "ucsmgrsyndic02": "103M\t.",
+            "ucsmgrsyndic01": "604K\t.",
+            "minion-host-01": "1.8G\t.",
+            "minion-host-03": "41M\t.",
+            "minion-host-02": "549M\t."
+        }
+    ]
+}
+```
+
+now result is:
+
+```
+{
+    "return": [
+        {
+            "ucsmgrsyndic02": "103M\t.",
+            "ucsmgrsyndic01": "604K\t."
+        }
+    ]
+}
+
+```
+#### MasterOfMaster's  configuration:
+
+master.conf:
+
+```
+order_masters: True
+master_id: masterofmasters01
+file_roots:
+  base:
+    - /srv/salt
+```
+
+saltapi.conf in path of /etc/salt/master.d
+```
+rest_tornado:
+    # can be any port
+    port: 8080
+    # address to bind to (defaults to 0.0.0.0)
+    address: 0.0.0.0
+    # socket backlog
+    backlog: 128
+    ssl_crt: /etc/pki/api/certs/server.crt
+    # no need to specify ssl_key if cert and key
+    # are in one single file
+    ssl_key: /etc/pki/api/certs/server.key
+    debug: True
+    disable_ssl: True
+    webhook_disable_auth: False
+    cors_origin: null
+```
+
+#### Syndic host configuration(hostname: syndic01):
+
+master.conf:
+
+```
+syndic_master:
+  - masterofmasters01
+  - masterofmasters02
+syndic_master_port: 4506
+syndic_pidfile: /var/run/salt-syndic.pid
+syndic_log_file: /var/log/salt/syndic
+syndic_wait: 25
+file-roots:
+  - base:
+      /srv/salt
+pillar_roots:
+  - /srv/pillar
+file_roots:
+  base:
+    - /srv/salt
+```
+
+minion.conf:
+
+```
+id: ucsmgrsyndic01
+master:
+  - masterofmasters01
+  - masterofmasters02
+```
+
+#### Minion host configuration:
+
+minion.conf:
+
+`master: master_server01`
+
+### Steps to Reproduce Issue
+
+MasterOfMaster log:
+
+```
+/var/log/salt/master:
+2019-05-20 03:16:13,341 [salt.utils.lazy  :104 ][DEBUG   ][47407] LazyLoaded localfs.get_token
+2019-05-20 03:16:13,342 [salt.master      :2115][DEBUG   ][47407] Minion tokenized user = "saltapi"
+2019-05-20 03:16:13,344 [salt.utils.lazy  :104 ][DEBUG   ][47407] LazyLoaded local_cache.prep_jid
+2019-05-20 03:16:13,344 [salt.transport.ipc:261 ][DEBUG   ][47407] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+2019-05-20 03:16:13,346 [salt.utils.event :742 ][DEBUG   ][47407] Sending event: tag = 20190520031613327468; data = {u'_stamp': '2019-05-20T07:16:13.346190', u'minions': [u'ucsmgrsyndic01', u'ucsmgrsyndic02']}
+2019-05-20 03:16:13,347 [salt.utils.event :742 ][DEBUG   ][47407] Sending event: tag = salt/job/20190520031613327468/new; data = {u'tgt_type': 'glob', u'jid': '20190520031613327468', u'user': 'saltapi', u'tgt': '*', u'arg': [{'cmd': 'du -sh', '__kwarg__': True}], u'fun': 'cmd.run', u'missing': [], u'_stamp': '2019-05-20T07:16:13.347113', u'minions': [u'ucsmgrsyndic01', u'ucsmgrsyndic02']}
+2019-05-20 03:16:13,348 [salt.loaded.int.returner.local_cache:249 ][DEBUG   ][47407] Adding minions for job 20190520031613327468: [u'ucsmgrsyndic01', u'ucsmgrsyndic02']
+2019-05-20 03:16:13,349 [salt.master      :2345][INFO    ][47407] User saltapi Published command cmd.run with jid 20190520031613327468
+2019-05-20 03:16:13,349 [salt.master      :2353][DEBUG   ][47407] Published command details {u'tgt_type': 'glob', u'jid': '20190520031613327468', u'tgt': '*', u'ret': '', u'to': 5, u'user': 'saltapi', u'arg': [{'cmd': 'du -sh', '__kwarg__': True}], u'fun': 'cmd.run', u'master_id': u'masterofmasters01'}
+2019-05-20 03:16:13,350 [salt.transport.zeromq:1012][DEBUG   ][47407] Signing data packet
+2019-05-20 03:16:13,350 [salt.crypt       :199 ][DEBUG   ][47407] salt.crypt.get_rsa_key: Loading private key
+2019-05-20 03:16:13,350 [salt.crypt       :224 ][DEBUG   ][47407] salt.crypt.sign_message: Signing message.
+2019-05-20 03:16:13,357 [salt.transport.zeromq:1034][DEBUG   ][47407] Sending payload to publish daemon. jid=20190520031613327468 size=500
+2019-05-20 03:16:13,357 [salt.transport.zeromq:987 ][DEBUG   ][47407] Connecting to pub server: ipc:///var/run/salt/master/publish_pull.ipc
+2019-05-20 03:16:13,358 [salt.transport.zeromq:1039][DEBUG   ][47407] Sent payload to publish daemon.
+2019-05-20 03:16:13,358 [salt.transport.zeromq:895 ][DEBUG   ][47390] Publish daemon received payload. size=500
+2019-05-20 03:16:13,359 [salt.transport.zeromq:893 ][DEBUG   ][47390] Publish daemon getting data from puller ipc:///var/run/salt/master/publish_pull.ipc
+2019-05-20 03:16:13,367 [salt.utils.lazy  :104 ][DEBUG   ][47403] LazyLoaded local_cache.prep_jid
+2019-05-20 03:16:13,368 [salt.transport.ipc:261 ][DEBUG   ][47403] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+2019-05-20 03:16:13,369 [salt.utils.event :742 ][DEBUG   ][47403] Sending event: tag = 20190520031613367562; data = {u'_stamp': '2019-05-20T07:16:13.369072', u'minions': [u'ucsmgrsyndic01', u'ucsmgrsyndic02']}
+2019-05-20 03:16:13,369 [salt.transport.mixins.auth:184 ][INFO    ][47409] Authentication request from ucsmgrsyndic02
+2019-05-20 03:16:13,369 [salt.utils.event :742 ][DEBUG   ][47403] Sending event: tag = salt/job/20190520031613367562/new; data = {u'tgt_type': 'glob', u'jid': u'20190520031613367562', u'user': 'root', u'tgt': '*', u'arg': ['20190520031613327468'], u'fun': 'saltutil.find_job', u'missing': [], u'_stamp': '2019-05-20T07:16:13.369903', u'minions': [u'ucsmgrsyndic01', u'ucsmgrsyndic02']}
+2019-05-20 03:16:13,370 [salt.transport.mixins.auth:407 ][INFO    ][47409] Authentication accepted from ucsmgrsyndic02
+2019-05-20 03:16:13,370 [salt.crypt       :207 ][DEBUG   ][47409] salt.crypt.get_rsa_pub_key: Loading public key
+2019-05-20 03:16:13,370 [salt.loaded.int.returner.local_cache:249 ][DEBUG   ][47403] Adding minions for job 20190520031613367562: [u'ucsmgrsyndic01', u'ucsmgrsyndic02']
+2019-05-20 03:16:13,371 [salt.master      :2345][INFO    ][47403] User root Published command saltutil.find_job with jid 20190520031613367562
+2019-05-20 03:16:13,371 [salt.master      :2353][DEBUG   ][47403] Published command details {u'tgt_type': 'glob', u'jid': u'20190520031613367562', u'tgt': '*', u'ret': '', u'to': 5, u'user': 'root', u'arg': ['20190520031613327468'], u'fun': 'saltutil.find_job', u'master_id': u'masterofmasters01'}
+2019-05-20 03:16:13,372 [salt.transport.mixins.auth:184 ][INFO    ][47405] Authentication request from ucsmgrsyndic02
+2019-05-20 03:16:13,372 [salt.transport.zeromq:1012][DEBUG   ][47403] Signing data packet
+2019-05-20 03:16:13,372 [salt.crypt       :199 ][DEBUG   ][47403] salt.crypt.get_rsa_key: Loading private key
+2019-05-20 03:16:13,372 [salt.crypt       :224 ][DEBUG   ][47403] salt.crypt.sign_message: Signing message.
+2019-05-20 03:16:13,373 [salt.transport.mixins.auth:407 ][INFO    ][47405] Authentication accepted from ucsmgrsyndic02
+2019-05-20 03:16:13,373 [salt.crypt       :207 ][DEBUG   ][47405] salt.crypt.get_rsa_pub_key: Loading public key
+2019-05-20 03:16:13,378 [salt.transport.zeromq:1034][DEBUG   ][47403] Sending payload to publish daemon. jid=20190520031613367562 size=500
+2019-05-20 03:16:13,378 [salt.transport.zeromq:987 ][DEBUG   ][47403] Connecting to pub server: ipc:///var/run/salt/master/publish_pull.ipc
+2019-05-20 03:16:13,379 [salt.transport.zeromq:1039][DEBUG   ][47403] Sent payload to publish daemon.
+2019-05-20 03:16:13,381 [salt.utils.event :742 ][DEBUG   ][47409] Sending event: tag = salt/auth; data = {u'id': 'ucsmgrsyndic02', u'_stamp': '2019-05-20T07:16:13.381040', u'result': True, u'pub': '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr4C92I1jznzBZRqzpv9/\njgha4vwAIQc3vyeQMWW4xt8o/txn2iAzptzPOmwFKSLOhvenSlZUvDEYbtMmG+w/\n3WKdI4HJxfIqgdwDLXI3ZSEGhVdwv5PF/DITrZV52X4yycN3zgYtQJ6OQ9JVsnLh\n2aigUZYMVbZApCVdzHfFW6KdT3+X6dfQANg5pB4KQ4Wmoe7vIfw2clo2wF9EOMie\n4oKXxLHzFKuBadp6WUT8AxoAptHiG4dml2gEZ2YfABlx+KtnFw07y6KvsDhQxtyk\nI5TxlyEONDJWaLEw/NrxlHL/TgzFGJs7j+5/MXM0oaB9jnUKeu5tA5wA8mETWzs+\nHwIDAQAB\n-----END PUBLIC KEY-----', u'act': u'accept'}
+2019-05-20 03:16:13,382 [salt.transport.mixins.auth:184 ][INFO    ][47404] Authentication request from ucsmgrsyndic01
+2019-05-20 03:16:13,382 [salt.transport.mixins.auth:407 ][INFO    ][47404] Authentication accepted from ucsmgrsyndic01
+2019-05-20 03:16:13,383 [salt.crypt       :207 ][DEBUG   ][47404] salt.crypt.get_rsa_pub_key: Loading public key
+2019-05-20 03:16:13,386 [salt.transport.zeromq:895 ][DEBUG   ][47390] Publish daemon received payload. size=500
+2019-05-20 03:16:13,387 [salt.transport.zeromq:893 ][DEBUG   ][47390] Publish daemon getting data from puller ipc:///var/run/salt/master/publish_pull.ipc
+2019-05-20 03:16:13,389 [salt.transport.ipc:261 ][DEBUG   ][47405] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+2019-05-20 03:16:13,390 [salt.utils.event :742 ][DEBUG   ][47405] Sending event: tag = salt/auth; data = {u'id': 'ucsmgrsyndic02', u'_stamp': '2019-05-20T07:16:13.390106', u'result': True, u'pub': '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr4C92I1jznzBZRqzpv9/\njgha4vwAIQc3vyeQMWW4xt8o/txn2iAzptzPOmwFKSLOhvenSlZUvDEYbtMmG+w/\n3WKdI4HJxfIqgdwDLXI3ZSEGhVdwv5PF/DITrZV52X4yycN3zgYtQJ6OQ9JVsnLh\n2aigUZYMVbZApCVdzHfFW6KdT3+X6dfQANg5pB4KQ4Wmoe7vIfw2clo2wF9EOMie\n4oKXxLHzFKuBadp6WUT8AxoAptHiG4dml2gEZ2YfABlx+KtnFw07y6KvsDhQxtyk\nI5TxlyEONDJWaLEw/NrxlHL/TgzFGJs7j+5/MXM0oaB9jnUKeu5tA5wA8mETWzs+\nHwIDAQAB\n-----END PUBLIC KEY-----', u'act': u'accept'}
+2019-05-20 03:16:13,393 [salt.transport.ipc:261 ][DEBUG   ][47404] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+2019-05-20 03:16:13,393 [salt.utils.event :742 ][DEBUG   ][47404] Sending event: tag = salt/auth; data = {u'id': 'ucsmgrsyndic01', u'_stamp': '2019-05-20T07:16:13.393757', u'result': True, u'pub': '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAh2t3f2PX5rMbE4aFAgxd\nDUnQ6bp+e/x5yeGsryR7LSUNS2jmetKJUx9VaatLtDKE6JT6OuAyMMHdRPWgG1hH\nks1F9/jZN2vKOCePNA1AeFLQJUll+EsXSvIpDrItE7eSN7PxW+XRqvf7vdopdrXa\nuWD2QfH3EQO+GSQ+tLvNrTzLP6MfCbS+WkqIGP/5t4rEs2HnIz+mmghOsmX6QopB\nS5FH6p2T7c8DNrHRFyyDh41C/VICa3LRzbdLL6e/macsPBOEcrj88xrZigNtLYqb\nx33BUGHaoFzdao5QQFa/VKqgnpujA4zIVzKFEhcLxefaCfTyRs9h2qH9z4ZzMl3l\nmQIDAQAB\n-----END PUBLIC KEY-----', u'act': u'accept'}
+2019-05-20 03:16:13,465 [salt.utils.lazy  :104 ][DEBUG   ][47407] LazyLoaded local_cache.prep_jid
+2019-05-20 03:16:13,466 [salt.utils.job   :68  ][INFO    ][47407] Got return from ucsmgrsyndic02 for job 20190520031613327468
+2019-05-20 03:16:13,467 [salt.transport.ipc:261 ][DEBUG   ][47407] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+2019-05-20 03:16:13,467 [salt.utils.lazy  :104 ][DEBUG   ][47403] LazyLoaded local_cache.prep_jid
+2019-05-20 03:16:13,468 [salt.utils.job   :68  ][INFO    ][47403] Got return from ucsmgrsyndic02 for job 20190520031613367562
+2019-05-20 03:16:13,468 [salt.utils.event :742 ][DEBUG   ][47407] Sending event: tag = salt/job/20190520031613327468/ret/ucsmgrsyndic02; data = {'fun_args': [{'cmd': 'du -sh'}], 'jid': '20190520031613327468', 'return': '103M\t.', 'retcode': 0, 'success': True, 'cmd': '_return', u'_stamp': '2019-05-20T07:16:13.468477', 'fun': 'cmd.run', 'master_id': 'masterofmasters01', 'id': 'ucsmgrsyndic02'}
+2019-05-20 03:16:13,468 [salt.transport.ipc:261 ][DEBUG   ][47403] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+2019-05-20 03:16:13,471 [salt.utils.event :742 ][DEBUG   ][47403] Sending event: tag = salt/job/20190520031613367562/ret/ucsmgrsyndic02; data = {'fun_args': ['20190520031613327468'], 'jid': '20190520031613367562', 'return': {}, 'retcode': 0, 'success': True, 'cmd': '_return', u'_stamp': '2019-05-20T07:16:13.471510', 'fun': 'saltutil.find_job', 'master_id': 'masterofmasters01', 'id': 'ucsmgrsyndic02'}
+2019-05-20 03:16:13,477 [salt.utils.lazy  :104 ][DEBUG   ][47409] LazyLoaded local_cache.prep_jid
+2019-05-20 03:16:13,478 [salt.utils.job   :68  ][INFO    ][47409] Got return from ucsmgrsyndic01 for job 20190520031613327468
+2019-05-20 03:16:13,478 [salt.transport.ipc:261 ][DEBUG   ][47409] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+2019-05-20 03:16:13,479 [salt.utils.event :742 ][DEBUG   ][47409] Sending event: tag = salt/job/20190520031613327468/ret/ucsmgrsyndic01; data = {'fun_args': [{'cmd': 'du -sh'}], 'jid': '20190520031613327468', 'return': '604K\t.', 'retcode': 0, 'success': True, 'cmd': '_return', u'_stamp': '2019-05-20T07:16:13.479583', 'fun': 'cmd.run', 'master_id': 'masterofmasters01', 'id': 'ucsmgrsyndic01'}
+2019-05-20 03:16:13,486 [salt.utils.lazy  :104 ][DEBUG   ][47405] LazyLoaded local_cache.prep_jid
+2019-05-20 03:16:13,487 [salt.utils.job   :68  ][INFO    ][47405] Got return from ucsmgrsyndic01 for job 20190520031613367562
+2019-05-20 03:16:13,487 [salt.transport.ipc:261 ][DEBUG   ][47405] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+2019-05-20 03:16:13,489 [salt.utils.event :742 ][DEBUG   ][47405] Sending event: tag = salt/job/20190520031613367562/ret/ucsmgrsyndic01; data = {'fun_args': ['20190520031613327468'], 'jid': '20190520031613367562', 'return': {}, 'retcode': 0, 'success': True, 'cmd': '_return', u'_stamp': '2019-05-20T07:16:13.488997', 'fun': 'saltutil.find_job', 'master_id': 'masterofmasters01', 'id': 'ucsmgrsyndic01'}
+2019-05-20 03:16:13,590 [salt.crypt       :207 ][DEBUG   ][47404] salt.crypt.get_rsa_pub_key: Loading public key
+2019-05-20 03:16:13,592 [salt.utils.event :742 ][DEBUG   ][47404] Sending event: tag = 20190520031613327468; data = {'_stamp': '2019-05-20T07:16:13.592363', 'minions': ['minion-host-03', 'minion-host-01']}
+2019-05-20 03:16:13,593 [salt.utils.event :742 ][DEBUG   ][47404] Sending event: tag = syndic/ucsmgrsyndic01/20190520031613327468; data = {'_stap': '2019-05-20T07:16:13.593392', 'minions': ['minion-host-03', 'minion-host-01']}
+2019-05-20 03:16:13,594 [salt.utils.event :742 ][DEBUG   ][47404] Sending event: tag = salt/job/20190520031613327468/new; data = {'tgt_type': 'glob', 'jid': '20190520031613327468', 'tgt': '*', 'missing': [], '_stamp': '2019-05-20T07:16:13.594304', 'user': 'saltapi', 'arg': [{'cmd': 'du -sh', '__kwarg__': True}], 'fun': 'cmd.run', 'minions': ['minion-host-03', 'minion-host-01']}
+2019-05-20 03:16:13,595 [salt.utils.event :742 ][DEBUG   ][47404] Sending event: tag = syndic/ucsmgrsyndic01/salt/job/20190520031613327468/new; data = {'tgt_type': 'glob', 'jid': '20190520031613327468', 'tgt': '*', 'missing': [], '_stamp': '2019-05-20T07:16:13.595227', 'user': 'saltapi', 'arg': [{'cmd': 'du -sh', '__kwarg__': True}], 'fun': 'cmd.run', 'minions': ['minion-host-03', 'minion-host-01']}
+2019-05-20 03:16:13,596 [salt.utils.event :742 ][DEBUG   ][47404] Sending event: tag = 20190520031613367562; data = {'_stamp': '2019-05-20T07:16:13.596156', 'minions': ['minion-host-03', 'minion-host-01']}
+2019-05-20 03:16:13,597 [salt.utils.event :742 ][DEBUG   ][47404] Sending event: tag = syndic/ucsmgrsyndic01/20190520031613367562; data = {'_stamp': '2019-05-20T07:16:13.597018', 'minions': ['minion-host-03', 'minion-host-01']}
+2019-05-20 03:16:13,597 [salt.utils.event :742 ][DEBUG   ][47404] Sending event: tag = salt/job/20190520031613367562/new; data = {'tgt_type': 'glob', 'jid': '20190520031613367562', 'tgt': '*', 'missing': [], '_stamp': '2019-05-20T07:16:13.597794', 'user': 'root', 'arg': ['20190520031613327468'], 'fun': 'saltutil.find_job', 'minions': ['minion-host-03', 'minion-host-01']}
+2019-05-20 03:16:13,598 [salt.utils.event :742 ][DEBUG   ][47404] Sending event: tag = syndic/ucsmgrsyndic01/salt/job/20190520031613367562/new; data = {'tgt_type': 'glob', 'jid': '20190520031613367562', 'tgt': '*', 'missing': [], '_stamp': '2019-05-20T07:16:13.598718', 'user': 'root', 'arg': ['20190520031613327468'], 'fun': 'saltutil.find_job', 'minions': ['minion-host-03', 'minion-host-01']}
+2019-05-20 03:16:13,600 [salt.utils.lazy  :104 ][DEBUG   ][47404] LazyLoaded local_cache.save_minions
+2019-05-20 03:16:13,601 [salt.loaded.int.returner.local_cache:249 ][DEBUG   ][47404] Adding minions for job 20190520031613327468 from syndic master 'ucsmgrsyndic01': ['minion-host-03', 'minion-host-01']
+2019-05-20 03:16:13,602 [salt.loaded.int.returner.local_cache:249 ][DEBUG   ][47404] Adding minions for job 20190520031613367562 from syndic master 'ucsmgrsyndic01': ['minion-host-03', 'minion-host-01']
+2019-05-20 03:16:13,606 [salt.loaded.int.returner.local_cache:249 ][DEBUG   ][47407] Adding minions for job 20190520031613327468: [u'ucsmgrsyndic01', u'ucsmgrsyndic02']
+2019-05-20 03:16:13,608 [salt.utils.job   :68  ][INFO    ][47407] Got return from minion-host-03 for job 20190520031613327468
+2019-05-20 03:16:13,608 [salt.utils.event :742 ][DEBUG   ][47407] Sending event: tag = salt/job/20190520031613327468/ret/minion-host-03; data = {u'fun_args': None, u'jid': '20190520031613327468', 'return': '41M\t.', 'retcode': 0, 'success': True, u'_stamp': '2019-05-20T07:16:13.608886', u'fun': 'cmd.run', u'master_id': 'masterofmasters01', u'id': 'minion-host-03'}
+2019-05-20 03:16:13,611 [salt.loaded.int.returner.local_cache:249 ][DEBUG   ][47407] Adding minions for job 20190520031613367562: [u'ucsmgrsyndic01', u'ucsmgrsyndic02']
+2019-05-20 03:16:13,612 [salt.utils.job   :68  ][INFO    ][47407] Got return from minion-host-01 for job 20190520031613367562
+2019-05-20 03:16:13,613 [salt.utils.event :742 ][DEBUG   ][47407] Sending event: tag = salt/job/20190520031613367562/ret/minion-host-01; data = {u'fun_args': None, u'jid': '20190520031613367562', 'return': {'tgt_type': 'glob', 'jid': '20190520031613327468', 'tgt': '*', 'pid': 3739, 'ret': '', 'user': 'saltapi', 'arg': [{'cmd': 'du -sh', '__kwarg__': True}], 'fun': 'cmd.run', 'master_id': 'masterofmasters01'}, 'retcode': 0, 'success': True, u'_stamp': '2019-05-20T07:16:13.613083', u'fun': 'saltutil.find_job', u'master_id': 'masterofmasters01', u'id': 'minion-host-01'}
+2019-05-20 03:16:13,615 [salt.utils.job   :68  ][INFO    ][47407] Got return from minion-host-03 for job 20190520031613367562
+2019-05-20 03:16:13,616 [salt.utils.event :742 ][DEBUG   ][47407] Sending event: tag = salt/job/20190520031613367562/ret/minion-host-03; data = {u'fun_args': None, u'jid': '20190520031613367562', 'return': {}, 'retcode': 0, 'success': True, u'_stamp': '2019-05-20T07:16:13.616080', u'fun': 'saltutil.find_job', u'master_id': 'masterofmasters01', u'id': 'minion-host-03'}
+2019-05-20 03:16:13,685 [salt.crypt       :207 ][DEBUG   ][47403] salt.crypt.get_rsa_pub_key: Loading public key
+2019-05-20 03:16:13,687 [salt.utils.event :742 ][DEBUG   ][47403] Sending event: tag = 20190520031613327468; data = {'_stamp': '2019-05-20T07:16:13.687332', 'minions': ['minion-host-02']}
+2019-05-20 03:16:13,688 [salt.utils.event :742 ][DEBUG   ][47403] Sending event: tag = syndic/ucsmgrsyndic02/20190520031613327468; data = {'_stamp': '2019-05-20T07:16:13.688395', 'minions': ['minion-host-02']}
+2019-05-20 03:16:13,689 [salt.utils.event :742 ][DEBUG   ][47403] Sending event: tag = salt/job/20190520031613327468/new; data = {'tgt_type': 'glob', 'jid': '20190520031613327468', 'tgt': '*', 'missing': [], '_stamp': '2019-05-20T07:16:13.689116', 'user': 'saltapi', 'arg': [{'cmd': 'du -sh', '__kwarg__': True}], 'fun': 'cmd.run', 'minions': ['minion-host-02']}
+2019-05-20 03:16:13,690 [salt.utils.event :742 ][DEBUG   ][47403] Sending event: tag = syndic/ucsmgrsyndic02/salt/job/20190520031613327468/new; data = {'tgt_type': 'glob', 'jid': '20190520031613327468', 'tgt': '*', 'missing': [], '_stamp': '2019-05-20T07:16:13.689974', 'user': 'saltapi', 'arg': [{'cmd': 'du -sh', '__kwarg__': True}], 'fun': 'cmd.run', 'minions': ['minion-host-02']}
+2019-05-20 03:16:13,690 [salt.utils.event :742 ][DEBUG   ][47403] Sending event: tag = 20190520031613367562; data = {'_stamp': '2019-05-20T07:16:13.690837', 'minions': ['minion-host-02']}
+2019-05-20 03:16:13,691 [salt.utils.event :742 ][DEBUG   ][47403] Sending event: tag = syndic/ucsmgrsyndic02/20190520031613367562; data = {'_stamp': '2019-05-20T07:16:13.691688', 'minions': ['minion-host-02']}
+2019-05-20 03:16:13,692 [salt.utils.event :742 ][DEBUG   ][47403] Sending event: tag = salt/job/20190520031613367562/new; data = {'tgt_type': 'glob', 'jid': '20190520031613367562', 'tgt': '*', 'missing': [], '_stamp': '2019-05-20T07:16:13.692381', 'user': 'root', 'arg': ['20190520031613327468'], 'fun': 'saltutil.find_job', 'minions': ['minion-host-02']}
+2019-05-20 03:16:13,693 [salt.utils.event :742 ][DEBUG   ][47403] Sending event: tag = syndic/ucsmgrsyndic02/salt/job/20190520031613367562/new; data = {'tgt_type': 'glob', 'jid': '20190520031613367562', 'tgt': '*', 'missing': [], '_stamp': '2019-05-20T07:16:13.693339', 'user': 'root', 'arg': ['20190520031613327468'], 'fun': 'saltutil.find_job', 'minions': ['minion-host-02']}
+2019-05-20 03:16:13,694 [salt.loaded.int.returner.local_cache:249 ][DEBUG   ][47403] Adding minions for job 20190520031613327468 from syndic master 'ucsmgrsyndic02': ['minion-host-02']
+2019-05-20 03:16:13,694 [salt.loaded.int.returner.local_cache:249 ][DEBUG   ][47403] Adding minions for job 20190520031613367562 from syndic master 'ucsmgrsyndic02': ['minion-host-02']
+2019-05-20 03:16:13,698 [salt.loaded.int.returner.local_cache:249 ][DEBUG   ][47409] Adding minions for job 20190520031613327468: [u'ucsmgrsyndic01', u'ucsmgrsyndic02']
+2019-05-20 03:16:13,699 [salt.utils.job   :68  ][INFO    ][47409] Got return from minion-host-02 for job 20190520031613327468
+2019-05-20 03:16:13,700 [salt.utils.event :742 ][DEBUG   ][47409] Sending event: tag = salt/job/20190520031613327468/ret/minion-host-02; data = {u'fun_args': None, u'jid': '20190520031613327468', 'return': '549M\t.', 'retcode': 0, 'success': True, u'_stamp': '2019-05-20T07:16:13.700191', u'fun': 'cmd.run', u'master_id': 'masterofmasters01', u'id': 'minion-host-02'}
+2019-05-20 03:16:13,701 [salt.loaded.int.returner.local_cache:249 ][DEBUG   ][47409] Adding minions for job 20190520031613367562: [u'ucsmgrsyndic01', u'ucsmgrsyndic02']
+2019-05-20 03:16:13,702 [salt.utils.job   :68  ][INFO    ][47409] Got return from minion-host-02 for job 20190520031613367562
+2019-05-20 03:16:13,702 [salt.utils.event :742 ][DEBUG   ][47409] Sending event: tag = salt/job/20190520031613367562/ret/minion-host-02; data = {u'fun_args': None, u'jid': '20190520031613367562', 'return': {'tgt_type': 'glob', 'jid': '20190520031613327468', 'tgt': '*', 'pid': 44513, 'ret': '', 'user': 'saltapi', 'arg': [{'cmd': 'du -sh', '__kwarg__': True}], 'fun': 'cmd.run', 'master_id': 'masterofmasters01'}, 'retcode': 0, 'success': True, u'_stamp': '2019-05-20T07:16:13.702733', u'fun': 'saltutil.find_job', u'master_id': 'masterofmasters01', u'id': 'minion-host-02'}
+2019-05-20 03:16:14,088 [salt.utils.job   :68  ][INFO    ][47405] Got return from minion-host-01 for job 20190520031613327468
+2019-05-20 03:16:14,089 [salt.utils.event :742 ][DEBUG   ][47405] Sending event: tag = salt/job/20190520031613327468/ret/minion-host-01; data = {u'fun_args': None, u'jid': '20190520031613327468', 'return': '1.8G\t.', 'retcode': 0, 'success': True, u'_stamp': '2019-05-20T07:16:14.089009', u'fun': 'cmd.run', u'master_id': 'masterofmasters01', u'id': 'minion-host-01'}
+2019-05-20 03:16:22,088 [salt.crypt       :207 ][DEBUG   ][47404] salt.crypt.get_rsa_pub_key: Loading public key
+2019-05-20 03:16:22,090 [salt.utils.event :742 ][DEBUG   ][47404] Sending event: tag = salt/auth; data = {'result': True, '_stamp': '2019-05-20T07:16:22.089902', 'id': 'WIN-D2QK93H9B7P', 'pub': '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAk/zOYQ/59SgKqSf7N77M\nf9PzPeu8HlskugseRwPbTiTfjkTsDPG5yiIHmP4QJMm+SuWynTP/alumNT+droyk\n3od6qIqczmD9xcqpWDGqRDdvcRKx4rrArrGjR8oEiVuR2F10R4Go+wUmHBsFj31M\nd4oZIYG0NJ7u5RKZRivQGk7PsN09S6SBMQhAZRpzZotmhH9qVfRWownaTb7s9iAO\nutXlYtHBbs3817ERYdFlFote316pW5JAG8/G5uWjTA5soCLXyuPTXRb9lmb5kRaT\noI7fwbGiRvnfQfIcMbmUXvOWgHCwMkFjk+NGSk9xq0uqhSDrNFeY73sRl9dkQS05\njwIDAQAB\n-----END PUBLIC KEY-----', 'act': 'pend'}
+2019-05-20 03:16:22,090 [salt.utils.event :742 ][DEBUG   ][47404] Sending event: tag = syndic/ucsmgrsyndic01/salt/auth; data = {'result': True, '_stamp': '2019-05-20T07:16:22.090765', 'id': 'WIN-D2QK93H9B7P', 'pub': '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAk/zOYQ/59SgKqSf7N77M\nf9PzPeu8HlskugseRwPbTiTfjkTsDPG5yiIHmP4QJMm+SuWynTP/alumNT+droyk\n3od6qIqczmD9xcqpWDGqRDdvcRKx4rrArrGjR8oEiVuR2F10R4Go+wUmHBsFj31M\nd4oZIYG0NJ7u5RKZRivQGk7PsN09S6SBMQhAZRpzZotmhH9qVfRWownaTb7s9iAO\nutXlYtHBbs3817ERYdFlFote316pW5JAG8/G5uWjTA5soCLXyuPTXRb9lmb5kRaT\noI7fwbGiRvnfQfIcMbmUXvOWgHCwMkFjk+NGSk9xq0uqhSDrNFeY73sRl9dkQS05\njwIDAQAB\n-----END PUBLIC KEY-----', 'act': 'pend'}
+```
+
+
+
+### Versions Report
+#### MasterOfMaster version info:
+```
+Salt Version:
+           Salt: 2019.2.0
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5
+            ZMQ: 4.1.4
+System Versions:
+           dist: centos 7.2.1511 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-327.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```
+
+#### Syndic host master version info:
+```
+Salt Version:
+           Salt: 2019.2.0
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.11
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: 2.0.5
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+System Versions:
+           dist: centos 7.2.1511 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-327.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```
+
+

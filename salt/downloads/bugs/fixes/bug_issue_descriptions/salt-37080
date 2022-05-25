@@ -1,0 +1,135 @@
+## Description of Issue/Question
+
+Using the pillar cache with a disk backend. The `cache.clear_pillar` runner appears to clear the cache upon immediately calling `cache.pillar`, but the files still persist on the disk, and if it's within the cache TTL, the cached pillar data still gets retrieved, since those files still persist.
+
+This is notable because we leverage a _custom external pillar_ that takes about 30 seconds to retrieve its data, so it's very obvious whether or not the cached data is being retrieved. I emphasized the fact that it is a custom external pillar in the event that this issue is a complication of using one.
+### Setup
+
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+Master config:
+
+```
+pillar_cache: True
+pillar_cache_backend: disk
+pillar_cache_ttl: 86400
+```
+### Steps to Reproduce Issue
+
+(Include debug logs if possible and relevant.)
+1) Populate the cache: `salt-call pillar.items`.
+2) Attempts to clear cache with the runner:
+
+``` bash
+(salt) root@:pillar_cache # salt-run cache.clear_pillar '*'
+True
+(salt) root@:pillar_cache # salt-run cache.pillar
+i-ot7rj6eg:
+    ----------
+i-v8vpgxba:
+    ----------
+(salt) root@:pillar_cache # ls -l
+total 40
+-rw-r--r-- 1 root root 17956 Oct 18 18:31 i-ot7rj6eg
+-rw-r--r-- 1 root root 17956 Oct 18 18:54 i-v8vpgxba
+```
+
+3) Run `salt-call pillar.items` again.
+
+```
+[ERROR   ] Unable to read instance data, giving up
+[INFO    ] Not an EC2 instance, skipping
+[DEBUG   ] Connecting to master. Attempt 1 of 1
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'i-v8vpgxba', 'tcp://172.254.254.100:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (9163)
+[DEBUG   ] Setting zmq_reconnect_ivl to '9163ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'i-v8vpgxba', 'tcp://172.254.254.100:4506', 'clear')
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] SaltEvent PUB socket URI: /var/run/salt/minion/minion_event_4b91cc8893_pub.ipc
+[DEBUG   ] SaltEvent PULL socket URI: /var/run/salt/minion/minion_event_4b91cc8893_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/minion/minion_event_4b91cc8893_pull.ipc
+[DEBUG   ] Sending event: tag = salt/auth/creds; data = {'_stamp': '2016-10-18T18:58:14.714370', 'creds': {'publish_port': 4505, 'aes': 'bWRJlUX08onQaBa1U4b9AV5JmEiS/QXwgZwWyNDrB1umL7ww38V2jr4NqNvDo1EUXQePf
+PsAtDo=', 'master_uri': 'tcp://172.254.254.100:4506'}, 'key': ('/etc/salt/pki/minion', 'i-v8vpgxba', 'tcp://172.254.254.100:4506')}
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'i-v8vpgxba', 'tcp://172.254.254.100:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'i-v8vpgxba', 'tcp://172.254.254.100:4506')
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded pillar.items
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'i-v8vpgxba', 'tcp://172.254.254.100:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'i-v8vpgxba', 'tcp://172.254.254.100:4506')
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'i-v8vpgxba', 'tcp://172.254.254.100:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'i-v8vpgxba', 'tcp://172.254.254.100:4506')
+[DEBUG   ] LazyLoaded nested.output
+```
+
+4) Repeat step 2, then delete the files in `pillar_cache`.
+5) The pillar refreshes its data from the external pillar as expected. The `SaltReqTimeoutErrors` are safe to ignore.
+
+```
+[ERROR   ] Unable to read instance data, giving up
+[INFO    ] Not an EC2 instance, skipping
+[DEBUG   ] Connecting to master. Attempt 1 of 1
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'i-v8vpgxba', 'tcp://172.254.254.100:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (10703)
+[DEBUG   ] Setting zmq_reconnect_ivl to '10703ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'i-v8vpgxba', 'tcp://172.254.254.100:4506', 'clear')
+[DEBUG   ] SaltReqTimeoutError, retrying. (1/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (2/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (3/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (4/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (5/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (6/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (7/7)
+```
+### Versions Report
+
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+Masters and minions use the same version.
+
+```
+Salt Version:
+           Salt: 2016.3.3-186-g86ac8bd
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+          gitdb: 0.6.4
+      gitpython: 2.0.2
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.1.5
+
+System Versions:
+           dist: debian 8.6 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.6
+```

@@ -1,0 +1,141 @@
+### Description of Issue
+
+mysql_database state use different types of python strings, `<class 'str'>` and `<class 'bytes'>` which results in at least two issues.
+
+state file:
+
+```sls
+mysql_db_site:
+  mysql_database.present:
+    - name: cebeluya
+    - character_set: utf8mb4
+```
+
+Debug log:
+
+```
+2019-07-11 09:06:57,236 [salt.state       :1838][INFO    ][11082] Executing state mysql_database.present for [cebeluya]
+2019-07-11 09:06:57,237 [salt.loaded.int.module.mysql:608 ][DEBUG   ][11082] Doing query: SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME=%(dbname)s; args: {'dbname': 'cebeluya'} 
+2019-07-11 09:06:57,238 [salt.loaded.int.states.mysql_database:60  ][DEBUG   ][11082] character set differes from utf8mb4 : utf8mb4
+2019-07-11 09:06:57,239 [salt.loaded.int.module.mysql:608 ][DEBUG   ][11082] Doing query: SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME=%(dbname)s; args: {'dbname': 'cebeluya'} 
+2019-07-11 09:06:57,239 [salt.loaded.int.module.mysql:605 ][DEBUG   ][11082] Doing query: ALTER DATABASE `cebeluya` CHARACTER SET utf8mb4 COLLATE b'utf8mb4_general_ci';
+2019-07-11 09:06:57,239 [salt.state       :1925][DEBUG   ][11082] An exception occurred in this state: (1064, "You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'b'utf8mb4_general_ci'' at line 1")
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/state.py", line 1919, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 1918, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/states/mysql_database.py", line 72, in present
+    **connection_args)
+  File "/usr/lib/python3/dist-packages/salt/modules/mysql.py", line 1021, in alter_db
+    _execute(cur, qry, args)
+  File "/usr/lib/python3/dist-packages/salt/modules/mysql.py", line 606, in _execute
+    return cur.execute(qry)
+  File "/usr/lib/python3/dist-packages/MySQLdb/cursors.py", line 250, in execute
+    self.errorhandler(self, exc, value)
+  File "/usr/lib/python3/dist-packages/MySQLdb/connections.py", line 50, in defaulterrorhandler
+    raise errorvalue
+  File "/usr/lib/python3/dist-packages/MySQLdb/cursors.py", line 247, in execute
+    res = self._query(query)
+  File "/usr/lib/python3/dist-packages/MySQLdb/cursors.py", line 411, in _query
+    rowcount = self._do_query(q)
+  File "/usr/lib/python3/dist-packages/MySQLdb/cursors.py", line 374, in _do_query
+    db.query(q)
+  File "/usr/lib/python3/dist-packages/MySQLdb/connections.py", line 292, in query
+    _mysql.connection.query(self, query)
+_mysql_exceptions.ProgrammingError: (1064, "You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'b'utf8mb4_general_ci'' at line 1")
+```
+
+1. issue is that the comparison condition with != seems true even though the string are equal: 
+
+    ```
+    character set differes from utf8mb4 : utf8mb4
+    ```
+   
+    Looking at the types of the two strings shows `<class 'str'>` and `<class 'bytes'>` 
+
+    related code:
+
+     https://github.com/saltstack/salt/blob/e3956bae44daf8984f755ff7c9d426b9623ad68c/salt/states/mysql_database.py#L58-L61
+
+2. The database query gets executed with `b'utf8mb4_general_ci'` instead of `'utf8mb4_general_ci'` (note the `b`), which seems to come from the same issue of using byte string instead of normal string.
+
+3. Also while debugging I noticed with help of some people from `#python` on freenode IRC, that the logger does not show the difference of string types even though using `%r` in the log string should print one string with `b` and the other without it, related to this code:
+
+   https://github.com/saltstack/salt/blob/e3956bae44daf8984f755ff7c9d426b9623ad68c/salt/log/setup.py#L382-L390
+
+
+### Versions Report
+
+minion (Python 3.7.3 on Debian 10 "buster"):
+
+```
+# salt-minion --versions-report
+Salt Version:
+           Salt: 2018.3.4
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: 1.3.10
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.7.3 (default, Apr  3 2019, 05:39:12)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: debian 10.0 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.8.0-0.bpo.2-amd64
+         system: Linux
+        version: debian 10.0 
+ 
+```
+
+master:
+
+```
+# salt --versions-report
+                  Salt: 2015.5.3
+                Python: 2.7.3 (default, Nov 19 2017, 01:35:09)
+                Jinja2: 2.6
+              M2Crypto: 0.21.1
+        msgpack-python: 0.1.10
+          msgpack-pure: Not Installed
+              pycrypto: 2.6
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 13.1.0
+                  RAET: Not Installed
+                   ZMQ: 3.2.3
+                  Mako: 0.7.0
+               Tornado: Not Installed
+ Debian source package: 2015.5.3+ds-1~bpo70+2
+```
+
+### Related issues
+
+- https://github.com/saltstack/salt/issues/51559

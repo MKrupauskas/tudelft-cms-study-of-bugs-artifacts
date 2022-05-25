@@ -1,0 +1,223 @@
+### Description of Issue/Question
+Every time salt.orchestrate is called from the reactor, salt orchestrate applies all the states under "base" environment as listed in file top.sls. We are using a single top.sls file under base environment and it works fine if it is called via regular salt cli (e.g: salt 'minionA' state.highstate).
+
+Someone would expect the salt.state orchestrate function for target "minionA" to apply all states (state1, state2 and state3) considering the pillar based targeting in file top file. "minionA" does have "role:production" set in its pillar data. Unfortunately **only state1 and state2 are run** when the salt.state orchestrate function runs.
+
+Checked sat-master event bus (via salt-run state.event) and recorded the following call to state.orchestrate via the reactor system:
+```
+    "fun": "runner.state.orchestrate", 
+    "fun_args": [
+        [
+            "orchestrate.minion.highstate" 
+        ], 
+        {
+            "exclude": null, 
+            "orchestration_jid": null, 
+            "pillar": {
+                "event_data": {
+                    "_stamp": "2017-04-26T12:54:17.880661", 
+                    "cmd": "_minion_event", 
+                    "data": "Minion minionA started at Wed Apr 26 12:54:17 2017", 
+                    "id": "minionA", 
+                    "pretag": null, 
+                    "tag": "salt/minion/minionA/start"
+                }, 
+                "event_tag": "salt/minion/minionA/start"
+            }, 
+            "pillarenv": null, 
+            "saltenv": "base", 
+            "test": null
+        }
+    ], 
+```
+
+I was quite sure this should be related to pillarenv being null but unfortunately I do not think this is the case. We are using just a single top.sls file under "base" environment and it is solely responsible of applying all states towards all other environments. For sake of readability I just included our "prod" environment in the setup details of this issue but we do also have "stag" and "dev" environments in the same salt-master setup.
+
+This issue has also been reported on [google-groups salt-users list](https://groups.google.com/forum/?utm_medium=email&utm_source=footer#!msg/salt-users/hXjiIF8TvTw/dYzGOcsfBwAJ)
+
+### Setup
+Master config:
+```
+worker_threads: 20
+max_open_files: 65535
+job_cache: True
+keep_jobs: 1
+failhard: False
+pillar_opts: False
+pillar_safe_render_error: False
+pillar_source_merging_strategy: recurse
+pillar_merge_lists: True
+pillarenv_from_saltenv: True
+top_file_merging_strategy: merge
+state_top_saltenv: base
+state_auto_order: True
+state_verbose: False
+state_output: mixed
+state_tabular: True
+
+file_roots:
+  base:
+    - /opt/salt/files/base
+  prod:
+    - /opt/salt/files/prod
+
+fileserver_backend:
+  - roots
+
+pillar_roots:
+  base:
+    - /opt/salt/pillars/base
+  prod:
+    - /opt/salt/pillars/prod
+```
+/opt/salt/files/base/top.sls:
+```
+base:
+  '*':
+    - state1
+    - state2
+prod:
+  'I@env:production':
+    - match: compound
+    - state3
+```
+
+/opt/salt/pillars/base/top.sls
+```
+base:
+  '*':
+    - headers
+
+prod:
+  'minionA':
+    - environment
+```
+
+/opt/salt/pillars/prod/environment.sls:
+```
+env: production
+```
+
+/etc/salt/master.d/reactor.conf:
+```
+reactor:
+  - 'salt/minion/*/start':
+    - /opt/salt/reactors/minion/start.sls
+```
+
+/opt/salt/reactors/minion/start.sls:
+```
+base.minion.onstart:
+  runner.state.orchestrate:
+    - mods:
+        - orchestrate.minion.highstate
+    - pillar:
+        event_tag: {{ tag }}
+        event_data: {{ data | json() }
+```
+/opt/salt/files/base/orchestrate/minion/highstate.sls;
+```
+{% set tag = salt.pillar.get('event_tag') %}
+{% set data = salt.pillar.get('event_data') %}
+
+run_minion_highstate:
+  salt.state:
+    - tgt: {{ data['id'] }}
+    - highstate: True
+    - queue: True
+```
+
+
+
+
+
+### Steps to Reproduce Issue
+Just restarting salt-minion on "minionA" will trigger the reactor system which in turn will execute the orchestrate function.
+
+### Versions Report
+Salt Master
+```
+Salt Version:
+           Salt: 2016.11.4
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8.1
+        libgit2: 0.20.0
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.4.3
+         pygit2: 0.20.3
+         Python: 2.6.6 (r266:84292, Aug 18 2016, 15:13:37)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: 0.2.4
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: centos 6.9 Final
+        machine: x86_64
+        release: 2.6.32-696.el6.x86_64
+         system: Linux
+        version: CentOS 6.9 Final
+ 
+```
+
+Salt Minion
+```
+Salt Version:
+           Salt: 2016.11.4
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8.1
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3c1
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.4.3
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Aug 18 2016, 15:13:37)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: 0.2.4
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: centos 6.9 Final
+        machine: x86_64
+        release: 2.6.32-642.4.2.el6.x86_64
+         system: Linux
+        version: CentOS 6.9 Final
+```

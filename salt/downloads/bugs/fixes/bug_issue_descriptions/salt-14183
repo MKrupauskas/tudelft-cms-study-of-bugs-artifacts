@@ -1,0 +1,52 @@
+os: opensuse 
+service_provider: rh_service 
+salt-call --versions-report 
+Salt: 2014.1.5 
+Python: 2.7.2 (default, Aug 19 2011, 20:41:43) [GCC] 
+Jinja2: 2.6 
+M2Crypto: 0.21.1 
+msgpack-python: 0.2.4 
+msgpack-pure: Not Installed 
+pycrypto: 2.3 
+PyYAML: 3.10 
+PyZMQ: 13.0.0 
+ZMQ: 3.2.2 
+
+scenario: 
+- on opensuse install postgresql-server package, 
+- start service so it's generate default configs in /var/lib/pgsql 
+- edit pg_hba with file.replace 
+- expect service restart, but it just check if postgresql running and returns true 
+
+if we edit pg_hba so file.replace runs again then service restarts ok, but not for the first run. I think it's somehow related to postgres_first_run starting service, but can't find anything 
+relevant in the logs 
+
+ example states from debug output: 
+
+```
+postgresql:
+  pkg:
+    - installed
+    - name: postgresql-server
+  service:
+    - running
+    - enable: True
+    - watch:  
+      - file: /var/lib/pgsql/data/pg_hba.conf 
+
+/var/lib/pgsql/data/pg_hba.conf: 
+  file.replace:
+    - pattern: (^host.*127\.0\.0\.1/32\s*).*$ 
+    - repl: \1md5 
+    - watch: 
+      - pkg: postgresql 
+
+postgres_first_run: 
+  cmd.wait:
+    - name: /etc/init.d/postgresql start >/dev/null 2>&1; sleep 5; echo -e '\nchanged=yes\n' 
+    - stateful: True 
+    - watch: 
+      - pkg: postgresql 
+    - watch_in: 
+      - file: /var/lib/pgsql/data/pg_hba.conf 
+```

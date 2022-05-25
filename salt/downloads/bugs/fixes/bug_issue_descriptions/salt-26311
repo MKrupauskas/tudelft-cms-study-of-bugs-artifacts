@@ -1,0 +1,55 @@
+Hello all,
+  I have noticed that the number of times a scheduled job runs equals the number of masters. To reproduce, I setup a Centos6 docker container with both a master and minion running. I faked the second master, but also see this behavior in my production environment with real separate master server.
+
+/etc/salt/minion.d/test.conf:
+
+``` yaml
+master:
+ - localhost
+ - 127.0.0.1
+
+log_level: debug
+
+schedule:
+  run_sch:
+    function: cmd.run
+    seconds: 60
+    args:
+      - /tmp/test.sh
+    splay:
+      start: 0
+      end: 1
+```
+
+grep run_sch  /var/log/salt/minion:
+
+```
+2015-08-14 00:01:10,044 [salt.utils.schedule                      ][DEBUG   ][23990] schedule.handle_func: adding this job to the jobcache with data {'fun': 'cmd.run', 'jid': '20150814000110041224', 'pid': 23990, 'id': '6e2a61a30cef', 'schedule': 'run_sch'}
+2015-08-14 00:01:14,052 [salt.utils.schedule                      ][INFO    ][23509] Running scheduled job: run_sch
+2015-08-14 00:01:14,056 [salt.utils.schedule                      ][DEBUG   ][23995] schedule.handle_func: adding this job to the jobcache with data {'fun': 'cmd.run', 'jid': '20150814000114053441', 'pid': 23995, 'id': '6e2a61a30cef', 'schedule': 'run_sch'}
+2015-08-14 00:02:11,169 [salt.utils.schedule                      ][INFO    ][23509] Running scheduled job: run_sch
+2015-08-14 00:02:11,180 [salt.utils.schedule                      ][DEBUG   ][24013] schedule.handle_func: adding this job to the jobcache with data {'fun': 'cmd.run', 'jid': '20150814000211173750', 'pid': 24013, 'id': '6e2a61a30cef', 'schedule': 'run_sch'}
+2015-08-14 00:02:15,186 [salt.utils.schedule                      ][INFO    ][23509] Running scheduled job: run_sch
+2015-08-14 00:02:15,189 [salt.utils.schedule                      ][DEBUG   ][24018] schedule.handle_func: adding this job to the jobcache with data {'fun': 'cmd.run', 'jid': '20150814000215187341', 'pid': 24018, 'id': '6e2a61a30cef', 'schedule': 'run_sch'}
+```
+
+The /tmp/test.sh script creates a random file, so I can verify that /tmp/test.sh really is running twice a minute. With just one master the cmd.run function will only run once a minute. You need to have the splay otherwise both will try to run both jobs at the exact same time and will get this error: "The scheduled job run_sch was not started, 1 already running". This behavior does not exist if I change `master_type: failover`.  
+So it looks like, there's a minion instance for each master, and for each minion there's a schedule. Expected behavior would be running the scheduled job once per minute, regardless of the number of masters.
+
+```
+           Salt: 2015.5.3
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+         Jinja2: unknown
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+        Tornado: Not Installed
+```

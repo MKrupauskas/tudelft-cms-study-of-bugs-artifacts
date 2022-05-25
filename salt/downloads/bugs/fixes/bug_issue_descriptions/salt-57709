@@ -1,0 +1,149 @@
+**Description**
+I have a master config with two git remotes. My Salt state fails to render, when specifying `saltenv` because it can't find the sls file that contains the macro definition. The saltenv/branch exists in git remote 1, but not in git remote 2. The macro definition is in git remote 2. I can't find a configuration option in the doc that resolves this issue. Thanks in advance!
+
+**Setup**
+formulas/my-state/init.sls (in branch "my-branch"):
+```
+{% import 'my-macro.sls' as something %}
+
+echo_hello:
+  cmd.run:
+    - name: "echo hello"
+{{ something.my_test('sup') }}
+```
+
+src/formulas/my-macro.sls (in branch "master"):
+```
+{% macro my_test(msg) %}
+my_test_echo_message:
+  cmd.run:
+    - name: "echo macro here"
+{% endmacro %}
+```
+
+master config:
+```
+...
+fileserver_backend:
+    - gitfs
+
+gitfs_provider: gitpython
+
+gitfs_base: master
+
+gitfs_remotes:
+    - ssh://git@git.example.com/si/repo-1.git:
+        - root: formulas
+    - ssh://git@git.example.com/si/repo-2.git:
+        - root: src/formulas
+...
+```
+
+**Steps to Reproduce the behavior**
+1. `salt "hostname of minion" state.apply my-state saltenv=my-branch`
+1. Fails with:
+```
+[DEBUG   ] Configuration file path: /etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Popen(['git', 'version'], cwd=/root, universal_newlines=False, shell=None, istream=None)
+[DEBUG   ] Popen(['git', 'version'], cwd=/root, universal_newlines=False, shell=None, istream=None)
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for (u'/etc/salt/pki/master', u'2061ee26-c122-4eed-896c-2db2783e7f1a_master', u'tcp://127.0.0.1:4506', u'clear')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://127.0.0.1:4506
+[DEBUG   ] Trying to connect to: tcp://127.0.0.1:4506
+[DEBUG   ] Closing AsyncZeroMQReqChannel instance
+[DEBUG   ] LazyLoaded local_cache.get_load
+[DEBUG   ] Reading minion list from /var/cache/salt/master/jobs/7a/7bf33707eb382634fff09b1a45307bb4d3ea15d35d42ef0096c605cb110798/.minions.p
+[DEBUG   ] get_iter_returns for jid 20200618011624637423 sent to set(['ip-192-168-212-175.us-west-2.compute.internal']) will timeout at 01:16:29.646181
+[DEBUG   ] jid 20200618011624637423 return from ip-192-168-212-175.us-west-2.compute.internal
+[DEBUG   ] return event: {u'ip-192-168-212-175.us-west-2.compute.internal': {u'jid': u'20200618011624637423', u'retcode': 1, u'ret': [u'Rendering SLS \'my-branch:my-state/init.sls\' failed: Jinja error:my-macro.sls\nTraceback (most recent call last):\n  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 394, in render_jinja_tmpl\n    output = template.render(**decoded_context)\n  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 1090, in render\n    self.environment.handle_exception()\n  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 832, in handle_exception\n    reraise(*rewrite_traceback_stack(source=source))\n  File "/usr/lib/python3.6/site-packages/jinja2/_compat.py", line 28, in reraise\n    raise value.with_traceback(tb)\n  File "<template>", line 1, in top-level template code\n  File "/usr/lib/python3.6/site-packages/salt/utils/jinja.py", line 193, in get_source\n    raise TemplateNotFound(template)\njinja2.exceptions.TemplateNotFound: my-macro.sls\n\n; line 1\n\n---\n{% import \'my-macro.sls\' as something %}    <======================\n\nkk_test:\n  cmd.run:\n    - name: "echo hello"\n\n[...]\n---'], u'out': u'highstate'}}
+[DEBUG   ] LazyLoaded highstate.output
+ip-192-168-212-175.us-west-2.compute.internal:
+    Data failed to compile:
+----------
+    Rendering SLS 'my-branch:my-state/init.sls' failed: Jinja error: my-macro.sls
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 394, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 1090, in render
+    self.environment.handle_exception()
+  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 832, in handle_exception
+    reraise(*rewrite_traceback_stack(source=source))
+  File "/usr/lib/python3.6/site-packages/jinja2/_compat.py", line 28, in reraise
+    raise value.with_traceback(tb)
+  File "<template>", line 1, in top-level template code
+  File "/usr/lib/python3.6/site-packages/salt/utils/jinja.py", line 193, in get_source
+    raise TemplateNotFound(template)
+jinja2.exceptions.TemplateNotFound: my-macro.sls
+
+; line 1
+
+---
+{% import 'my-macro.sls' as something %}    <======================
+
+echo_hello:
+  cmd.run:
+    - name: "echo hello"
+{{ something.my_test('sup') }}
+
+[...]
+---
+[DEBUG   ] jid 20200618011624637423 found all minions set([u'ip-192-168-212-175.us-west-2.compute.internal'])
+[DEBUG   ] Closing IPCMessageSubscriber instance
+ERROR: Minions returned with non-zero exit code
+```
+
+**Expected behavior**
+Although `my-branch` is not a branch on remote 2, I expected it to use the `master` branch and find the macro.
+
+**Screenshots**
+n/a
+
+**Versions Report**
+
+```
+Salt Version:
+           Salt: 3000.3
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: unknown
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.6
+      gitpython: 2.1.15
+         Jinja2: 2.10
+        libgit2: 0.26.0
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.2
+         Python: 2.7.17 (default, Apr 15 2020, 17:20:14)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+          smmap: 3.0.4
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.19.105
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```
+</details>
+
+**Additional context**
+Add any other context about the problem here.

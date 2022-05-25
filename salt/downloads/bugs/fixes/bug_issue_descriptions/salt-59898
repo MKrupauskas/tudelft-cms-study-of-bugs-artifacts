@@ -1,0 +1,171 @@
+**Description**
+It looks like changing the hostname causes network.service to fail, as it does indeed not exist on CentOS stream
+
+**Setup**
+
+Something similar to the following:
+
+```YAML
+Configure Network Settings:
+  network.system:
+    - enabled: True
+    - hostname: {{ fqdn }}
+    - apply_hostname: True
+    - retain_settings: True
+    - dns:
+      {%- for ip in ip4_resolvers %}
+      - {{ ip }}
+      {%- endfor %}
+      {%- if inv.get('ip6') %}
+        {%- for ip in ip6_resolvers %}
+      - {{ ip }}
+        {%- endfor %}
+      {%- endif %}
+```
+
+on a CentOS Stream minion should do it.
+
+**Steps to Reproduce the behavior**
+See above.
+
+**Expected behavior**
+The network settings should be applied without error.
+
+**Screenshots**
+N/A
+
+**Versions Report**
+MASTER:
+```YAML
+Salt Version:
+          Salt: 3002.6
+ 
+Dependency Versions:
+          cffi: 1.11.5
+      cherrypy: unknown
+      dateutil: 2.6.1
+     docker-py: Not Installed
+         gitdb: 4.0.1
+     gitpython: 3.0.9
+        Jinja2: 2.10.1
+       libgit2: Not Installed
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.14
+      pycrypto: Not Installed
+  pycryptodome: Not Installed
+        pygit2: Not Installed
+        Python: 3.6.8 (default, Jan 27 2021, 01:17:18)
+  python-gnupg: Not Installed
+        PyYAML: 3.12
+         PyZMQ: 19.0.0
+         smmap: 3.0.1
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+ 
+System Versions:
+          dist: centos 8 
+        locale: UTF-8
+       machine: x86_64
+       release: 4.18.0-294.el8.x86_64
+        system: Linux
+       version: CentOS Stream 8
+```
+
+MINION:
+```YAML
+Salt Version:
+          Salt: 3002.6
+ 
+Dependency Versions:
+          cffi: 1.11.5
+      cherrypy: Not Installed
+      dateutil: 2.6.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10.1
+       libgit2: Not Installed
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.14
+      pycrypto: Not Installed
+  pycryptodome: Not Installed
+        pygit2: Not Installed
+        Python: 3.6.8 (default, Jan 27 2021, 01:17:18)
+  python-gnupg: Not Installed
+        PyYAML: 3.12
+         PyZMQ: 19.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+ 
+System Versions:
+          dist: centos 8 
+        locale: UTF-8
+       machine: x86_64
+       release: 4.18.0-294.el8.x86_64
+        system: Linux
+       version: CentOS Stream 8
+```
+
+**Additional context**
+Full stacktrace:
+
+```Python
+            An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3.6/site-packages/salt/state.py", line 2154, in call
+                  *cdata["args"], **cdata["kwargs"]
+                File "/usr/lib/python3.6/site-packages/salt/loader.py", line 2106, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3.6/site-packages/salt/states/network.py", line 814, in system
+                  __salt__["ip.apply_network_settings"](**kwargs)
+                File "/usr/lib/python3.6/site-packages/salt/modules/rh_ip.py", line 1244, in apply_network_settings
+                  res = __salt__["service.restart"]("network")
+                File "/usr/lib/python3.6/site-packages/salt/modules/systemd_service.py", line 965, in restart
+                  raise CommandExecutionError(_strip_scope(ret["stderr"]))
+              salt.exceptions.CommandExecutionError: Failed to restart network.service: Unit network.service not found.
+```
+is raised, and it's accurate- CentOS Stream does in fact not have any unit named `network.service`:
+
+```Bash
+[ ~ ] # systemctl list-units --all network.service
+  UNIT            LOAD      ACTIVE   SUB  DESCRIPTION                                                                                                                                                                                        
+ network.service not-found inactive dead network.service                                                                                                                                                                                    
+
+LOAD   = Reflects whether the unit definition was properly loaded.
+ACTIVE = The high-level unit activation state, i.e. generalization of SUB.
+SUB    = The low-level unit activation state, values depend on unit type.
+
+1 loaded units listed.
+To show all installed unit files use 'systemctl list-unit-files'.
+```
+```Bash
+[ ~ ] # systemctl list-unit-files --all network.service
+
+0 unit files listed.
+```
+```Bash
+[ ~ ] # systemctl list-units | grep -i network
+sys-devices-pci0000:00-0000:00:04.0-virtio2-net-eth0.device                            loaded active plugged   Virtio network device                                             
+sys-subsystem-net-devices-eth0.device                                                  loaded active plugged   Virtio network device                                             
+import-state.service                                                                   loaded active exited    Import network configuration from initramfs                       
+NetworkManager-wait-online.service                                                     loaded active exited    Network Manager Wait Online                                       
+NetworkManager.service                                                                 loaded active running   Network Manager                                                   
+nis-domainname.service                                                                 loaded active exited    Read and set NIS domainname from /etc/sysconfig/network           
+network-online.target                                                                  loaded active active    Network is Online                                                 
+network-pre.target                                                                     loaded active active    Network (Pre)                                                     
+network.target
+```
+
+**ADDITIONAL INFORMATION:**
+. Salt on the master and minion is installed from the CentOS 8 PY3 Latest Salt repo
+. This is **after** #59177 and #59201 have been applied (as unified diffs/patches)

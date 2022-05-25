@@ -1,0 +1,21 @@
+### Description of Issue/Question
+Our test Debian environment has the python-setproctitle package installed so we can identify processes more easily. Eventually, we realised that this was what was causing the /etc/init.d/salt-master init script from stopping the processes at all, causing quite a lot of trouble.
+
+Specifically, for unknown reasons the script does not use the start-stop-daemon process for sending the kill signal to the salt-master process, even when a valid PID file exists (which is typically always the case). Instead, it calls `pidof -x /usr/bin/salt-master`. If setproctitle is not installed, this appears to return a list of all PIDs salt-master processes. This seems overkill - killing only the parent salt-master process (referenced in the PID file) takes care of cleaning up the children first just fine in my testing.
+
+If setproctitle is installed, `pidof -x /usr/bin/salt-master` doesn't return any PIDs, so the processes are all left running. This breaks upgrades and causes all sorts of issues.
+
+### Setup
+Install Debian. Install python-setproctitle. Install Salt from the official Salt Stack repos.
+
+### Steps to Reproduce Issue
+`invoke-rc.d salt-master restart`
+You'll see errors on standard output that it can't restart because ports are in use, and nothing is actually restarted. The PID file will still be cleaned up so sysvinit will believe the service was successfully stopped.
+
+### Versions Report
+Tested against 2016.11.4, but noticed when upgrading from 2016.3.3. This probably affects a number of releases.
+
+You can see the problem here:
+http://repo.saltstack.com/apt//debian/8/amd64/2016.11/salt_2016.11.4+ds-1.debian.tar.xz
+
+Extract that, and look at `do_stop()` in the `debian/salt-master.init` file. It's plainly not using start-stop-daemon or the PID file. This differs from the more standard approach used by the init scripts in the Debian repository.

@@ -1,0 +1,139 @@
+### Description of Issue/Question
+
+Using salt-cloud 2019.2 with openstack driver configured, I can instanciate VMs without problem.
+
+If I use a cloud-map file with 3 vms, two of which are up and running and the third is to be created, `salt-cloud -m my-cloud.map` correctly excludes the two running vms and creates the third one. So it appears in some circumstances running servers could be queried.
+
+But after the server has been instanciated, `salt-cloud -Q` is unable to query openstack on this server and tells servers are absent despite they are up and running.
+
+```
+# salt-cloud -Q -m my-cloud.map 
+ovh-gra3:
+    ----------
+    openstack:
+        ----------
+        server1.company.tld:
+            Absent
+        server2.company.tld:
+            Absent
+        server3.company.tld:
+            Absent
+```
+
+Destroying a server with `salt-cloud -d server3.company.tld` leads to an error despite the server is correctly destroyed at the end.
+
+```
+# salt-cloud -d server3.company.tld
+The following virtual machines are set to be destroyed:
+  ovh-gra3:
+    openstack:
+      server3.company.tld
+
+Proceed? [N/y] y
+... proceeding
+[ERROR   ] There was an error destroying machines: 'dict' object has no attribute 'public_ips'
+```
+
+### Setup
+
+salt-cloud 2019.2 on debian 9 (installed using deb packages from official repo)
+
+`/etc/salt/cloud.providers.d/ovh-gra3.conf `:
+```
+ovh-gra3:
+  driver: openstack
+  region_name: GRA3
+  profile: ovh
+  auth:
+    username: REDACTED
+    password: 'REDACTED'
+    project_id: REDACTED
+    project_name: 'REDATED'
+
+  ssh_interface: private_ips
+  ssh_key_name: my_ssh_key
+  ssh_key_file: /path/to/keyfile
+
+  minion:
+    master: salt-master
+	
+  security_groups:
+    - no-input
+
+  nics:
+    - net-id: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx	
+    - net-id: yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
+```
+
+`/etc/salt/cloud.profiles.d/ovh-gra3.conf`:
+```
+ovh-gra3_s1-2_deb9base:
+  provider: ovh-gra3
+  size: s1-2
+  image: 'Debian 9'
+  ssh_username: 'debian'
+  script: bootstrap-salt
+  script_args: |
+    -j '{"master": "salt-master"}' stable 2019.2
+```
+
+`/srv/cloud/my-cloud.map`:
+```
+ovh-gra3_s1-2_deb9base:
+  - server1.company.tld
+  - server2.company.tld
+  - server3.company.tld
+```
+
+### Steps to Reproduce Issue
+
+- Install and configure salt-cloud openstack driver
+- Instanciate a server
+- Query with `salt-cloud -Q`
+
+### Versions Report
+
+```
+# salt-cloud -V
+Salt Version:
+            Salt: 2019.2.0
+ 
+Dependency Versions:
+ Apache Libcloud: 1.5.0
+            cffi: 1.12.3
+        cherrypy: Not Installed
+        dateutil: 2.5.3
+       docker-py: Not Installed
+           gitdb: Not Installed
+       gitpython: Not Installed
+           ioflo: Not Installed
+          Jinja2: 2.9.4
+         libgit2: 0.24.5
+         libnacl: Not Installed
+        M2Crypto: 0.24.0
+            Mako: Not Installed
+    msgpack-pure: Not Installed
+  msgpack-python: 0.4.8
+    mysql-python: Not Installed
+       pycparser: 2.19
+        pycrypto: 2.6.1
+    pycryptodome: Not Installed
+          pygit2: 0.24.2
+          Python: 2.7.13 (default, Sep 26 2018, 18:42:22)
+    python-gnupg: Not Installed
+          PyYAML: 3.12
+           PyZMQ: 16.0.2
+            RAET: Not Installed
+           smmap: Not Installed
+         timelib: Not Installed
+         Tornado: 4.4.3
+             ZMQ: 4.2.1
+ 
+System Versions:
+            dist: debian 9.9 
+          locale: UTF-8
+         machine: x86_64
+         release: 4.9.0-8-amd64
+          system: Linux
+         version: debian 9.9 
+```

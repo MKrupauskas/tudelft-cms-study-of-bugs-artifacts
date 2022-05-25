@@ -1,0 +1,113 @@
+### Description of Issue/Question
+Today i realize that my reactor SLS doesn't work anymore.
+I wrote it to send me mails if a state changes some special stuff.
+
+### Setup
+reactor file (i obfuscate the used mail addr):
+```
+reactor_notify_openvpn_changes:
+    local.smtp.send_msg:
+        - tgt: 'pandora*'
+        - arg:
+            - 'destmail@target.xyz'
+            - {{ data.data.ret.comment }}
+            - subject='Changes in State "{{ data.data.ret.__id__ }}" on "{{ data.id }}"'
+            - profile='underverse_smtp'
+
+# vim: set ft=yaml:
+```
+
+### Steps to Reproduce Issue
+If i trigger the reactor i got the following:
+```
+salt/job/20170719115614043524/ret/pandora	{
+    "_stamp": "2017-07-19T09:56:14.132716", 
+    "cmd": "_return", 
+    "fun": "smtp.send_msg", 
+    "fun_args": [
+        "destmail@target.xyz", 
+        "The config, certificate or keys were changed. Possible required reload or restart is in the responsibility of the User, will NOT do this.", 
+        "subject='Changes in State \"openvpn_notify\" on \"cassandra\"'", 
+        "profile='underverse_smtp'"
+    ], 
+    "id": "pandora", 
+    "jid": "20170719115614043524", 
+    "out": "nested", 
+    "return": "The minion function caused an exception: Traceback (most recent call last):\n  File \"/usr/lib/python2.7/site-packages/salt/minion.py\", line 1466, in _thread_return\n    return_data = executor.execute()\n  File \"/usr/lib/python2.7/site-packages/salt/executors/direct_call.py\", line 28, in execute\n    return self.func(*self.args, **self.kwargs)\n  File \"/usr/lib/python2.7/site-packages/salt/modules/smtp.py\", line 143, in send_msg\n    smtpconn.sendmail(sender, recipients, msg.as_string())\n  File \"/usr/lib/python2.7/smtplib.py\", line 723, in sendmail\n    self.ehlo_or_helo_if_needed()\n  File \"/usr/lib/python2.7/smtplib.py\", line 542, in ehlo_or_helo_if_needed\n    if not (200 <= self.ehlo()[0] <= 299):\n  File \"/usr/lib/python2.7/smtplib.py\", line 413, in ehlo\n    self.putcmd(self.ehlo_msg, name or self.local_hostname)\n  File \"/usr/lib/python2.7/smtplib.py\", line 341, in putcmd\n    self.send(str)\n  File \"/usr/lib/python2.7/smtplib.py\", line 333, in send\n    raise SMTPServerDisconnected('please run connect() first')\nSMTPServerDisconnected: please run connect() first\n", 
+    "success": false
+}
+
+```
+If i try this on the the CMD with the same args:
+```
+salt 'pandora*' smtp.send_msg 'destmail@target.xyz' 'The config, certificate or keys were changed. Possible required reload or restart is in the responsibility of the User, will NOT do this.' subject='Changes in State "openvpn_notify" on "cassandra"' profile='underverse_smtp'
+```
+the Job succeded:
+```
+salt/job/20170719115819136074/ret/pandora {
+    "_stamp": "2017-07-19T09:58:19.373699", 
+    "cmd": "_return", 
+    "fun": "smtp.send_msg", 
+    "fun_args": [
+        "destmail@target.xyz", 
+        "The config, certificate or keys were changed. Possible required reload or restart is in the responsibility of the User, will NOT do this.", 
+        {
+            "profile": "underverse_smtp", 
+            "subject": "Changes in State \"openvpn_notify\" on \"cassandra\""
+        }
+    ], 
+    "id": "pandora", 
+    "jid": "20170719115819136074", 
+    "retcode": 0, 
+    "return": true, 
+    "success": true
+}
+```
+The only difference i can see is the "formatting" of the args but this seems to be unrelated to the error message.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.0
+ 
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: 2.4.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Jul  2 2017, 22:24:59)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.1
+            ZMQ: 4.2.2
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.37-1-lts
+         system: Linux
+        version: Not Installed
+```
+This is not an 2017.7.0 issue i think as i also tested it with 2016.11.6 and its the same behavior.
+
+I have no idea why this behaves so different and why it stops as the smtp module in salt hasn't got changes since two years and the python 2.7.13 was installed on 2016-12-29 on my system and since then only archlinux pkg upgrades comes in with no changes on the smtplib.

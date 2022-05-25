@@ -1,0 +1,105 @@
+# What's the problem?
+
+When highstating, copying a 'large file' tree (~250 files) from a git repository fails _sometimes_. The traceback looks like if a lock file is cleaned up too early in some cases. The fix in #18839 does not resolve the issue.
+# How are we using gitfs
+
+We have several minions (which are masters themselves) and each one obtains the correct version of the (state-)tree by matching the branch in git. We also use an 'intermediate' top file to workaround issue #12483, sth. like:
+
+```
+salt-beta:
+  'beta-instancemaster':
+    - instance-beta
+```
+
+The matching branch here is `salt-beta`, the environment `salt-beta` exclusively targets `beta-instancemaster` and the `top.sls` replacement is `instance-beta.sls`.
+# Traceback on Server
+
+```
+[DEBUG   ] Updating fileserver for git_pillar module
+[ERROR   ] Error in function _file_hash:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 1348, in run_func
+    ret = getattr(self, func)(load)
+  File "/usr/lib/python2.7/dist-packages/salt/fileserver/__init__.py", line 512, in file_hash
+    fnd = self.find_file(load['path'], load['saltenv'])
+  File "/usr/lib/python2.7/dist-packages/salt/fileserver/__init__.py", line 466, in find_file
+    fnd = self.servers[fstr](path, saltenv, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/fileserver/gitfs.py", line 1509, in find_file
+    with salt.utils.fopen(lk_fn, 'w+') as fp_:
+  File "/usr/lib/python2.7/dist-packages/salt/utils/__init__.py", line 1086, in fopen
+    fhandle = open(*args, **kwargs)
+IOError: [Errno 2] No such file or directory: '/var/cache/salt/master/gitfs/hash/salt-staging/top.sls.lk'
+```
+# Minion Output
+
+```
+----------
+          ID: /srv/salt-common
+    Function: file.recurse
+      Result: False
+     Comment: #### /srv/salt-common/redis-server/init.sls ####
+              Source file salt://|common/states/redis-server/init.sls not found
+     Started: 01:53:45.613956
+    Duration: 52353.076 ms
+     Changes:  
+```
+# Salt Version
+
+```
+root@77ff44f4d585:/# salt --versions-report
+                  Salt: 2014.7.4
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2014.7.4+ds-1trusty1
+```
+# Master Config
+
+```
+fileserver_backend:
+  - git
+  - roots
+
+gitfs_provider: gitpython
+
+gitfs_env_whitelist:
+  - salt-*
+
+gitfs_remotes:
+
+# State tree used by the overlord itself:
+  - file:///somerepo.git:
+    - root: deployment/salt/common/states
+  - file:///somerepo.git:
+    - root: deployment/salt/overlord/states
+
+# State trees and Pillar trees for export to minions:
+  - file:///somerepo.git:
+    - root: deployment/salt/common
+    - mountpoint: salt://common
+  - file:///somerepo.git:
+    - root: deployment/salt/instance-masters
+    - mountpoint: salt://instance-masters
+
+file_roots:
+  base:
+    - /packages
+
+file_recv: True
+
+ext_pillar:
+  - git: salt-daily file:///somerepo.git root=deployment/salt/overlord/pillar/daily
+  - git: salt-beta file:///somerepo.git root=deployment/salt/overlord/pillar/beta
+  - git: salt-staging file:///somerepo.git root=deployment/salt/overlord/pillar/staging
+  - git: salt-www file:///somerepo.git root=deployment/salt/overlord/pillar/www
+```

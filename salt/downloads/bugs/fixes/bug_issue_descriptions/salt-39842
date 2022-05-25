@@ -1,0 +1,116 @@
+There is a bug in `salt/modules/file.py` that causes trailing newlines in files to be removed when the minion is running on Windows.
+
+### Setup
+mystate.sls:
+```
+my_file:
+  file.managed:
+    - name: 'C:\myfile.txt'
+    - contents: 'Hello World!'
+    - contents_newline: true
+```
+
+### Steps to Reproduce Issue
+`salt windows-minion.example.com state.apply mystate`
+
+### Versions Report
+#### Master
+> Salt Version:
+>            Salt: 2016.11.3
+>  
+> Dependency Versions:
+>            cffi: Not Installed
+>        cherrypy: Not Installed
+>        dateutil: 2.4.2
+>           gitdb: 0.6.4
+>       gitpython: 1.0.1
+>           ioflo: Not Installed
+>          Jinja2: 2.8
+>         libgit2: Not Installed
+>         libnacl: Not Installed
+>        M2Crypto: Not Installed
+>            Mako: 1.0.3
+>    msgpack-pure: Not Installed
+>  msgpack-python: 0.4.6
+>    mysql-python: Not Installed
+>       pycparser: Not Installed
+>        pycrypto: 2.6.1
+>          pygit2: Not Installed
+>          Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+>    python-gnupg: Not Installed
+>          PyYAML: 3.11
+>           PyZMQ: 15.2.0
+>            RAET: Not Installed
+>           smmap: 0.9.0
+>         timelib: Not Installed
+>         Tornado: 4.2.1
+>             ZMQ: 4.1.4
+>  
+> System Versions:
+>            dist: Ubuntu 16.04 xenial
+>         machine: x86_64
+>         release: 4.4.0-64-generic
+>          system: Linux
+>         version: Ubuntu 16.04 xenial
+
+#### Minion
+
+> Salt Version:
+>            Salt: 2016.11.3
+> 
+> Dependency Versions:
+>            cffi: 1.7.0
+>        cherrypy: unknown
+>        dateutil: 2.5.3
+>           gitdb: 0.6.4
+>       gitpython: 2.0.8
+>           ioflo: 1.5.5
+>          Jinja2: 2.9.4
+>         libgit2: Not Installed
+>         libnacl: 1.4.5
+>        M2Crypto: Not Installed
+>            Mako: 1.0.4
+>    msgpack-pure: Not Installed
+>  msgpack-python: 0.4.8
+>    mysql-python: Not Installed
+>       pycparser: 2.14
+>        pycrypto: 2.6.1
+>          pygit2: Not Installed
+>          Python: 2.7.12 (v2.7.12:d33e0cf91556, Jun 27 2016, 15:24:40) [MSC v.1500 64 bit (AMD64)]
+>    python-gnupg: 0.3.8
+>          PyYAML: 3.11
+>           PyZMQ: 16.0.1
+>            RAET: Not Installed
+>           smmap: 0.9.0
+>         timelib: 0.2.4
+>         Tornado: 4.4.1
+>             ZMQ: 4.1.6
+> 
+> System Versions:
+>            dist:
+>         machine: AMD64
+>         release: 2012ServerR2
+>          system: Windows
+>         version: 2012ServerR2 6.3.9600  Multiprocessor Free
+
+### Investigation Results
+
+The problem seems to be caused by the following code in `salt/modules/file.py` (it is used in several places):
+
+```
+if salt.utils.is_windows():
+    contents = os.linesep.join(contents.splitlines())
+```
+
+Python’s `splitlines()` method ignores any trailing newline characters ([Python API documentation](https://docs.python.org/2/library/stdtypes.html#str.splitlines)).
+
+I think this problem can be fixed by replacing the code with the following logic:
+```
+if salt.utils.is_windows():
+    trailing_newline = contents.endswith('\r') or contents.endswith('\n')
+    contents = os.linesep.join(contents.splitlines())
+    if trailing_newline:
+        contents += os.linesep
+```
+
+This issue is vaguely related to #14135 and #36502, but unlike these issues it can be fixed without adding any new features.

@@ -1,0 +1,123 @@
+I Have the following problem when I run salt from git with docker:
+
+```
+salt-call docker.version
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+APIError: 500 Server Error: Internal Server Error ("Unexpected status code [301] :")
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 215, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/__init__.py", line 424, in run
+    caller.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/caller.py", line 225, in run
+    ret = self.call()
+  File "/usr/lib/python2.7/site-packages/salt/cli/caller.py", line 129, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/dockerio.py", line 644, in version
+    client = _get_client()
+  File "/usr/lib/python2.7/site-packages/salt/modules/dockerio.py", line 286, in _get_client
+    email=creds.get('email'), registry=registry)
+  File "/usr/lib/python2.7/site-packages/docker/client.py", line 667, in login
+    return self._result(response, json=True)
+  File "/usr/lib/python2.7/site-packages/docker/client.py", line 92, in _result
+    self._raise_for_status(response)
+  File "/usr/lib/python2.7/site-packages/docker/client.py", line 88, in _raise_for_status
+    raise errors.APIError(e, response, explanation=explanation)
+APIError: 500 Server Error: Internal Server Error ("Unexpected status code [301] :")
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 215, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/__init__.py", line 424, in run
+    caller.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/caller.py", line 225, in run
+    ret = self.call()
+  File "/usr/lib/python2.7/site-packages/salt/cli/caller.py", line 129, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/dockerio.py", line 644, in version
+    client = _get_client()
+  File "/usr/lib/python2.7/site-packages/salt/modules/dockerio.py", line 286, in _get_client
+    email=creds.get('email'), registry=registry)
+  File "/usr/lib/python2.7/site-packages/docker/client.py", line 667, in login
+    return self._result(response, json=True)
+  File "/usr/lib/python2.7/site-packages/docker/client.py", line 92, in _result
+    self._raise_for_status(response)
+  File "/usr/lib/python2.7/site-packages/docker/client.py", line 88, in _raise_for_status
+    raise errors.APIError(e, response, explanation=explanation)
+docker.errors.APIError: 500 Server Error: Internal Server Error ("Unexpected status code [301] :")
+```
+
+Debugging salt:
+If I run with debug=all is this the part where I can see that it goes wrong:
+
+```
+[DEBUG   ] "GET /run/docker.sock/v1.12/version HTTP/1.1" 200 144
+[DEBUG   ] "POST /run/docker.sock/v1.14/auth HTTP/1.1" 500 32
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+```
+
+Debugging docker:
+
+```
+echo -e "GET /version HTTP/1.1\r\n" | nc -U /run/docker.sock     :(
+HTTP/1.1 200 OK
+Content-Type: application/json
+Job-Name: version
+Date: Fri, 05 Sep 2014 20:33:36 GMT
+Content-Length: 144
+
+{"ApiVersion":"1.14","Arch":"amd64","GitCommit":"fa7b24f","GoVersion":"go1.3.1","KernelVersion":"3.16.1-1-ARCH","Os":"linux","Version":"1.2.0"}
+```
+
+This shows that the problem liest within the /usr/lib/python2.7/site-packages/docker/client.py
+getting the right version from docker...
+Even changing:
+
+```
+DEFAULT_DOCKER_API_VERSION = '1.12'
+```
+
+to
+
+```
+DEFAULT_DOCKER_API_VERSION = '1.14' 
+```
+
+didn't help
+
+More information about my system:
+
+```
+salt-call test.versions_report
+Salt: 2014.7.0rc1-1731-gbb24131
+Python: 2.7.8 (default, Jul  1 2014, 17:30:21)
+Jinja2: 2.7.3
+M2Crypto: 0.22
+msgpack-python: 0.4.2
+pycrypto: 2.6.1
+libnacl: 1.3.4
+PyYAML: 3.11
+ioflo: 0.9.39
+PyZMQ: 14.3.1
+RAET: 0.2.12
+ZMQ: 4.0.4
+Mako: 1.0.0
+```
+
+docker information:
+
+```
+docker version
+Client version: 1.2.0
+Client API version: 1.14
+Go version (client): go1.3.1
+Git commit (client): fa7b24f
+OS/Arch (client): linux/amd64
+Server version: 1.2.0
+Server API version: 1.14
+Go version (server): go1.3.1
+Git commit (server): fa7b24f
+```

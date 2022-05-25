@@ -1,0 +1,61 @@
+### Description of Issue/Question
+
+I do some extensive load testing running jobs on about 100 minions connected to a master-syndic infrastructure. Occasionally I noticed some job failures on random hosts and after analysing I discovered that the affected minions run every publish twice (!?!). See this example for a simple test.ping:
+
+2016-10-28 16:11:24,977 [salt.minion  ][INFO    ][24111] User root Executing command test.ping with jid 20161028161124963301
+2016-10-28 16:11:24,991 [salt.minion  ][INFO    ][24111] User root Executing command test.ping with jid 20161028161124963301
+2016-10-28 16:11:24,992 [salt.minion  ][INFO    ][16523] Starting a new job with PID 16523
+2016-10-28 16:11:25,016 [salt.minion  ][INFO    ][16526] Starting a new job with PID 16526
+2016-10-28 16:11:25,094 [salt.minion  ][INFO    ][16523] Returning information for job: 20161028161124963301
+2016-10-28 16:11:25,123 [salt.minion  ][INFO    ][16526] Returning information for job: 20161028161124963301
+
+This can be found in the master log on the relevant master:
+2016-10-28 16:11:24,975 [salt.master     ][INFO    ][5801] User root Published command test.ping with jid 20161028161124963301
+2016-10-28 16:11:25,109 [salt.utils.job  ][INFO    ][5823] Got return from chls1008700.my.domain for job 20161028161124963301
+2016-10-28 16:11:25,135 [salt.utils.job  ][INFO    ][5811] Got return from chls1008700.my.domain for job 20161028161124963301
+
+In all cases restarting the minion solves the problem. I tracked the issue back to when the minion was started. Initially it executed a few jobs normally. Then it needed to reconnect (I was doing some maintenance to the infrastructure), it tried another syndic and then went back to the original one (even though there were 4 more on the list - weird). And then it all started. Please see the logs:
+
+2016-10-27 13:38:41,123 [salt.minion         ][INFO    ][24111] Moving possibly failed master syndicE.my.domain to the end of the list of masters
+2016-10-27 13:38:41,127 [salt.minion         ][WARNING ][24111] Master ip address changed from 5.6.7.8 to 1.2.3.4
+2016-10-27 13:38:41,146 [salt.crypt          ][ERROR   ][24111] The Salt Master has cached the public key for this node, this salt minion will wait for 15 seconds before attempting to re-authenticate
+2016-10-27 13:38:41,147 [salt.crypt          ][INFO    ][24111] Waiting 15 seconds before retry.
+2016-10-27 13:38:42,077 [salt.utils.schedule ][INFO    ][24111] Running scheduled job: __master_alive
+2016-10-27 13:38:42,114 [salt.minion         ][INFO    ][24111] Connection to master syndicC.my.domain re-established
+2016-10-27 13:38:43,076 [salt.utils.schedule ][INFO    ][24111] Running scheduled job: __master_alive
+2016-10-27 13:38:43,127 [salt.minion         ][INFO    ][24111] Connection to master syndicC.my.domain lost
+2016-10-27 13:38:43,128 [salt.minion         ][INFO    ][24111] Trying to tune in to next master from master-list
+2016-10-27 13:38:43,128 [salt.minion         ][INFO    ][24111] Moving possibly failed master syndicC.my.domain to the end of the list of masters
+2016-10-27 13:38:43,128 [salt.minion         ][WARNING ][24111] Master ip address changed from 1.2.3.4 to 5.6.7.8
+2016-10-27 13:38:43,139 [salt.minion         ][INFO    ][24111] Re-initialising subsystems for new master syndicE.my.domain
+2016-10-27 13:38:43,502 [salt.minion         ][INFO    ][24111] Minion is ready to receive requests!
+2016-10-27 13:38:44,077 [salt.utils.schedule ][INFO    ][24111] Running scheduled job: __master_alive
+2016-10-27 13:38:56,224 [salt.crypt          ][INFO    ][24111] Received signed and verified master pubkey from master syndicE.my.domain
+2016-10-27 13:38:56,304 [salt.minion         ][INFO    ][24111] Re-initialising subsystems for new master syndicE.my.domain
+2016-10-27 13:38:56,672 [salt.crypt          ][INFO    ][24111] Received signed and verified master pubkey from master syndicE.my.domain
+2016-10-27 13:38:56,779 [salt.minion         ][INFO    ][24111] Minion is ready to receive requests!
+2016-10-27 13:38:57,077 [salt.utils.schedule ][INFO    ][24111] Running scheduled job: __master_alive
+2016-10-27 13:43:28,655 [salt.crypt          ][INFO    ][24111] Received signed and verified master pubkey from master syndicE.my.domain
+2016-10-27 13:43:28,820 [salt.crypt          ][INFO    ][24111] Received signed and verified master pubkey from master syndicE.my.domain
+2016-10-27 13:43:28,983 [salt.minion         ][INFO    ][24111] User root Executing command cp.get_file with jid 20161027134328524631
+2016-10-27 13:43:28,997 [salt.minion         ][INFO    ][25692] Starting a new job with PID 25692
+2016-10-27 13:43:28,998 [salt.minion         ][INFO    ][24111] User root Executing command cp.get_file with jid 20161027134328524631
+2016-10-27 13:43:29,015 [salt.minion         ][INFO    ][25697] Starting a new job with PID 25697
+
+As you can see at this point it executed cp.get_file job 20161027134328524631 twice and since then it kept doing that for every job it gets.
+
+A simple netstat reveals that there are 2 simultaneous connections from the minion hosts to the port 4505 on the syndic. That for sure explains the phenomenon to some extent, however this shouldn't happen. There is apparently a bug in reconnection logic.
+### Setup
+
+2016.3.3 with 2 top-level masters, 6 syndics. About 100 minions. All hosts are RHEL 6. The minions have these settings, among others:
+
+master_type: failover
+master_shuffle: True
+random_master: True
+master_alive_interval: 300
+### Steps to Reproduce Issue
+
+To reproduce you probably need to simulate a syndic master failure to make the minion try to reconnect. I haven't got a definitive reproduction scenario - it just happened frequently enough in my environment to detect it.
+### Versions Report
+
+2016.3.3, RHEL 6

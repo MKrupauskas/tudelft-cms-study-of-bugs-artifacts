@@ -1,0 +1,255 @@
+**Description**
+Contrary to previous observed behavior, the `junos.load` command no longer renders the jinja template provided via the `path` argument
+
+**Setup**
+Normal salt installation.
+
+Configure a junos proxy minion
+```
+# /srv/pillar/juniper-azure.sls
+proxy:
+  proxytype: junos
+  host: x.x.x.x
+  username: xxxx
+  password: xxxxxxxxx
+  port: 22
+```
+```
+# /srv/pillar/top.sls
+base:
+  ...
+  juniper-azure-proxy:
+    - juniper-azure
+```
+and start the proxy
+```
+$ salt-proxy --proxyid=juniper-azure-proxy -d
+```
+Create a jinja template for abstraction
+```
+{# /srv/salt/templates/basic.j2 #} 
+{%- set proxytype = pillar.get('proxy', {}).get('proxytype') %}
+{%- set device_type = pillar.get('proxy', {}).get('device_type') %}
+{%- if proxytype == 'junos' %}
+set system no-redirects
+set system no-redirects-ipv6
+{%- elif proxytype == 'netmiko' and device_type == 'arista_eos' %}
+aaa authorization console
+no aaa root
+{%- elif proxytype == 'netmiko' and device_type == 'cisco_nxos' %}
+no ip access-list DENY-HOST
+ip access-list DENY-HOST
+deny ip host 10.0.0.1 any
+{%- else %}
+  {{ raise("Unsupported proxytype and / or device_type") }}
+{%- endif %}
+```
+**Steps to Reproduce the behavior**
+Attempt command
+```
+$ salt juniper-azure-proxy junos.load salt://templates/basic.j2 format='set'
+```
+See error below
+```
+juniper-azure-proxy:
+    ----------
+    format:
+        set
+    message:
+        Could not load configuration due to : "ConfigLoadError(severity: error, bad_element: {#, message: error: unknown command
+        error: unknown command
+        error: unknown command
+        error: unknown command
+        error: unknown command
+        error: unknown command
+        error: unknown command
+        error: unknown command
+        error: unknown command
+        error: unknown command
+        error: unknown command
+        error: unknown command
+        error: unknown command
+        error: unknown command)"
+    out:
+        False
+```
+and we can see the un-rendered template in the debug logs
+```
+2021-01-20 20:52:20,310 [juniper-azure-proxy.salt.loaded.int.metaproxy.proxy                    :399 ][INFO    ][2689] Starting a new job with PID 2689
+2021-01-20 20:52:20,311 [salt.utils.lazy                                                        :105 ][DEBUG   ][2689] Could not LazyLoad direct_call.allow_missing_func: 'direct_call.allow_missing_func' is not available.
+2021-01-20 20:52:20,313 [salt.loader.localhost.int.module.junos                                 :132 ][DEBUG   ][2689] Caching file salt://templates/basic.j2 at /tmp/tmptpur_umd
+2021-01-20 20:52:20,338 [salt.fileclient                                                        :1140][DEBUG   ][2689] In saltenv 'base', '/tmp/tmptpur_umd' is a directory. Changing dest to '/tmp/tmptpur_umd/basic.j2'
+2021-01-20 20:52:20,339 [salt.fileclient                                                        :1162][DEBUG   ][2689] In saltenv 'base', ** considering ** path '/tmp/tmptpur_umd/basic.j2' to resolve 'salt://templates/basic.j2'
+2021-01-20 20:52:20,339 [salt.fileclient                                                        :1183][DEBUG   ][2689] Fetching file from saltenv 'base', ** attempting ** 'salt://templates/basic.j2'
+2021-01-20 20:52:20,355 [salt.fileclient                                                        :1299][INFO    ][2689] Fetching file from saltenv 'base', ** done ** 'templates/basic.j2'
+2021-01-20 20:52:20,356 [ncclient.operations.rpc                                                :337 ][INFO    ][2689] [host juniper-azure session-id 24560] Requesting 'ExecuteRpc'
+2021-01-20 20:52:20,357 [ncclient.transport.ssh                                                 :168 ][DEBUG   ][2689] [host juniper-azure session-id 24560] queueing <?xml version="1.0" encoding="UTF-8"?><nc:rpc xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="urn:uuid:ebe86c0d-25ad-40dc-acd4-5acde6bf8691"><load-configuration format="text" action="set"><configuration-set>{# /srv/salt/templates/basic.j2 #} 
+{%- set proxytype = pillar.get('proxy', {}).get('proxytype') %}
+{%- set device_type = pillar.get('proxy', {}).get('device_type') %}
+{%- if proxytype == 'junos' %}
+set system no-redirects
+set system no-redirects-ipv6
+{%- elif proxytype == 'netmiko' and device_type == 'arista_eos' %}
+aaa authorization console
+no aaa root
+{%- elif proxytype == 'netmiko' and device_type == 'cisco_nxos' %}
+no ip access-list DENY-HOST
+ip access-list DENY-HOST
+deny ip host 10.0.0.1 any
+{%- else %}
+  {{ raise("Unsupported proxytype and / or device_type") }}
+{%- endif %}
+</configuration-set></load-configuration></nc:rpc>
+2021-01-20 20:52:20,357 [ncclient.operations.rpc                                                :344 ][DEBUG   ][2689] [host juniper-azure session-id 24560] Sync request, will wait for timeout=30
+2021-01-20 20:52:20,407 [ncclient.transport.ssh                                                 :500 ][DEBUG   ][2689] [host juniper-azure session-id 24560] Sending message
+2021-01-20 20:52:20,408 [ncclient.transport.ssh                                                 :506 ][INFO    ][2689] [host juniper-azure session-id 24560] Sending:
+<?xml version="1.0" encoding="UTF-8"?><nc:rpc xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="urn:uuid:ebe86c0d-25ad-40dc-acd4-5acde6bf8691"><load-configuration format="text" action="set"><configuration-set>{# /srv/salt/templates/basic.j2 #} 
+{%- set proxytype = pillar.get('proxy', {}).get('proxytype') %}
+{%- set device_type = pillar.get('proxy', {}).get('device_type') %}
+{%- if proxytype == 'junos' %}
+set system no-redirects
+set system no-redirects-ipv6
+{%- elif proxytype == 'netmiko' and device_type == 'arista_eos' %}
+aaa authorization console
+no aaa root
+{%- elif proxytype == 'netmiko' and device_type == 'cisco_nxos' %}
+no ip access-list DENY-HOST
+ip access-list DENY-HOST
+deny ip host 10.0.0.1 any
+{%- else %}
+  {{ raise("Unsupported proxytype and / or device_type") }}
+{%- endif %}
+</configuration-set></load-configuration></nc:rpc>]]>]]>
+2021-01-20 20:52:20,502 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,506 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,536 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,544 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,545 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,546 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,546 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,547 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,548 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,549 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,549 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,552 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,554 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,567 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,568 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,568 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,569 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,570 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,571 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,571 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,573 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,575 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,579 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,580 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,580 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,581 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,582 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,583 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,583 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,584 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,585 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,585 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,586 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,587 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,587 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,588 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,589 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,589 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,590 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,591 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,595 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,595 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,596 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,597 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,597 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,598 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,599 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,600 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,600 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,601 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,601 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,602 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,603 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,603 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,604 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,604 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,605 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,608 [ncclient.transport.parser                                              :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] parsing netconf v1.0
+2021-01-20 20:52:20,608 [ncclient.transport.ssh                                                 :125 ][INFO    ][2689] [host juniper-azure session-id 24560] Received message from host
+2021-01-20 20:52:20,609 [ncclient.transport.ssh                                                 :127 ][DEBUG   ][2689] [host juniper-azure session-id 24560] Received:
+<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" xmlns:junos="http://xml.juniper.net/junos/20.2R0/junos" xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="urn:uuid:ebe86c0d-25ad-40dc-acd4-5acde6bf8691">
+<load-configuration-results>
+<rpc-error>
+<error-type>protocol</error-type>
+<error-tag>operation-failed</error-tag>
+<error-severity>error</error-severity>
+<error-message>unknown command</error-message>
+<error-info>
+<bad-element>{#</bad-element>
+</error-info>
+</rpc-error>
+<rpc-error>
+<error-type>protocol</error-type>
+<error-tag>operation-failed</error-tag>
+<error-severity>error</error-severity>
+<error-message>unknown command</error-message>
+<error-info>
+<bad-element>{%-</bad-element>
+</error-info>
+</rpc-error>
+<rpc-error>
+<error-type>protocol</error-type>
+<error-tag>operation-failed</error-tag>
+<error-severity>error</error-severity>
+<error-message>unknown command</error-message>
+<error-info>
+<bad-element>{%-</bad-element>
+...
+```
+**Expected behavior**
+Salt should render the jinja and load the config
+
+**Versions Report**
+```
+Salt Version:
+          Salt: 3002.2
+ 
+Dependency Versions:
+          cffi: 1.14.4
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.6
+     gitpython: 3.0.7
+        Jinja2: 2.10.1
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.20
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: Not Installed
+        Python: 3.8.5 (default, Jul 28 2020, 12:59:40)
+  python-gnupg: 0.4.5
+        PyYAML: 5.3.1
+         PyZMQ: 18.1.1
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.2
+ 
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 5.4.0-62-generic
+        system: Linux
+       version: Ubuntu 20.04 focal
+
+```

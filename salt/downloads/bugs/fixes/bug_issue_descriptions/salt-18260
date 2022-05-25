@@ -1,0 +1,65 @@
+The MySQL Grants state is currently rendered useless by this bug. If you have this state.
+
+``` yaml
+helen.brown.172.16.%:
+  mysql_user.present:
+    - name: 'helen.brown'
+    - host: '172.16.%'
+    - password_hash: '*'
+helen.brown@172.16.%.mydb.tableA:
+  mysql_grants.present:
+    - grant: 'SELECT, INSERT, UPDATE, DELETE'
+    - database: 'mydb.tableA'
+    - user: 'helen.brown'
+    - host: '172.16.%'
+helen.brown@172.16.%.mydb.tableB:
+  mysql_grants.present:
+  - grant: 'SELECT, INSERT, UPDATE, DELETE'
+  - database: 'mydb.tableB'
+  - user: 'helen.brown'
+  - host: '172.16.%'
+```
+
+With the user not having yet been created the result will be:
+
+```
+local:
+----------
+          ID: helen.brown.172.16.%
+    Function: mysql_user.present
+        Name: helen.brown
+      Result: True
+     Comment: The user helen.brown@172.16.% has been added
+     Changes:   
+              ----------
+              helen.brown:
+                  Present
+----------
+          ID: helen.brown@172.16.%.mydb.tableA
+    Function: mysql_grants.present
+      Result: True
+     Comment: Grant SELECT, INSERT, UPDATE, DELETE on mydb.tableA to helen.brown@172.16.% has been added
+     Changes:   
+              ----------
+              helen.brown@172.16.%.mydb.tableA:
+                  Present
+----------
+          ID: helen.brown@172.16.%.mydb.tableB
+    Function: mysql_grants.present
+      Result: True
+     Comment: Grant SELECT, INSERT, UPDATE, DELETE on mydb.tableB to helen.brown@172.16.% is already present
+     Changes:   
+
+Summary
+------------
+Succeeded: 3
+Failed:    0
+------------
+Total:     3
+```
+
+Note that it's saying that tableB is already present. It's not and it hasn't applied the grant yet it will continue to say that. The same problem would occur for a tableC, tableD... I looked into why this is happening.
+
+When salt checks to see if the grant already exists, it is only checking against the first define table in the state (mydb.tableA) for all grants defined afterward. So for mydb.tableB, C, and so on it is verifying against mydb.tableA and says, "Yep! It's there! Nothing to do." I'm trying to figure out when this broke I do know that this was not a problem in 0.17.5.
+
+Imagine my surprise when I removed a user with a large number of specific permissions then had that user call me up and say they only had access to one of their tables. 

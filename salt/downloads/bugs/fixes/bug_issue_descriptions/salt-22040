@@ -1,0 +1,225 @@
+Hi guys,
+
+First of all, I want to congratulate all the community of SaltStack. It's a great tool, and we're using it since a few months ago on various implementations on AWS.
+
+Now, we are running saltstack on more than 20 projects, always with 1 or 2 salt-masters and a lot of minions. Always with CentOS6/7 and installing salt from epel repository.
+
+Since we updated SaltStack to version 2014.1, we started getting some issues on states using file.recurse sometimes. When we run the state we got a lot of "Recurse failed: none of the specified sources were found". All the files are stored on salt-master. 
+
+Some statements that may lead us to a solution:
+1. If I run like 10 times the state, just 1 or 2 times I got this issue. Appears that salt-minion get the state, tries to fetch the file on salt-master, and can not do that.
+   That's much worse then getting the issue everytime. Because we can't trust on the system.
+2. we got the same behavior running the state from master to minion (using salt command), and from minion to master (using salt-call command).
+3. It's not a fixed state that we got this issue (neither a fixed server). Sometimes happens with one state, sometimes another. The only common thing between all the states is that they all have file.recurse. States with no file.recurse we never have the issue.
+4. We tried to update to salt version 2014.2, using the command:
+   yum --enablerepo=epel-testing install salt-master
+   But this not changed the behavior.
+5. The same behavior is happening with different projects for us. Every project is isolated, with different salt-masters and minions. That's the main thing for us, and why we believe that is a bug.
+
+Here goes a full output of the issue. We ran the following command for a state that configures php-fpm, fetching a few files on salt-master. With this output, you got the state (init.sls), and error at the end.
+
+Thanks for your help in advanced.
+
+```
+[root@ip-172-31-41-254 ~]# salt-call state.sls php-php-fpm prod --log-file=/tmp/salt-test.log -l all
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/masters.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/masters.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: php-prod---ip-172-31-41-254.sa-east-1.compute.internal
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/masters.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/masters.conf
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Mako not available
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/masters.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/masters.conf
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] Fetching file from saltenv 'prod', ** attempting ** 'salt://php-php-fpm.sls'
+[INFO    ] Fetching file from saltenv 'prod', ** skipped ** latest already in cache 'salt://php-php-fpm/init.sls'
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/prod']
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/prod/php-php-fpm/init.sls:
+/etc/php.ini:
+  file.managed:
+    - source:
+      - salt://php-php-fpm/files/php.ini
+    - mode: 644
+
+/etc/sysconfig/php-fpm:
+  file.managed:
+    - source:
+      - salt://php-php-fpm/files/php-fpm-sysconfig
+    - mode: 644
+
+/etc/php.d:
+  file.recurse:
+    - source: salt://php-php-fpm/files/php.d
+    - include_empty: True
+#    - clean: True
+    - file_mode: 655
+    - dir_mode: 655
+
+/etc/php-fpm.conf:
+  file.managed:
+    - source:
+      - salt://php-php-fpm/files/php-fpm.conf
+    - mode: 644
+
+/etc/php-fpm.d:
+  file.recurse:
+    - source: salt://php-php-fpm/files/php-fpm.d
+    - include_empty: True
+    - clean: True
+    - file_mode: 644
+    - dir_mode: 644
+
+
+# Diretorio temp do PHP
+/mnt/md0/php-tmp:
+  file.directory:
+    - user: nginx
+    - group: nginx
+    - mode: 755
+    - makedirs: True
+
+# Diretorio log do php
+/mnt/md0/log/php:
+  file.directory:
+    - user: nginx
+    - group: nginx
+    - mode: 755
+    - makedirs: True
+
+
+# Servico do php-fpm
+# restarta apenas se houver alteracao nos arquivos
+php-fpm:
+  service:
+    - running
+    - enable: True
+    - watch:
+      - file: /etc/php.ini
+      - file: /etc/php-fpm.conf
+      - file: /etc/php.d
+      - file: /etc/php-fpm.d
+      - file: /etc/sysconfig/php-fpm
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('/etc/php.ini', OrderedDict([('file.managed', [OrderedDict([('source', ['salt://php-php-fpm/files/php.ini'])]), OrderedDict([('mode', 644)])])])), ('/etc/sysconfig/php-fpm', OrderedDict([('file.managed', [OrderedDict([('source', ['salt://php-php-fpm/files/php-fpm-sysconfig'])]), OrderedDict([('mode', 644)])])])), ('/etc/php.d', OrderedDict([('file.recurse', [OrderedDict([('source', 'salt://php-php-fpm/files/php.d')]), OrderedDict([('include_empty', True)]), OrderedDict([('file_mode', 655)]), OrderedDict([('dir_mode', 655)])])])), ('/etc/php-fpm.conf', OrderedDict([('file.managed', [OrderedDict([('source', ['salt://php-php-fpm/files/php-fpm.conf'])]), OrderedDict([('mode', 644)])])])), ('/etc/php-fpm.d', OrderedDict([('file.recurse', [OrderedDict([('source', 'salt://php-php-fpm/files/php-fpm.d')]), OrderedDict([('include_empty', True)]), OrderedDict([('clean', True)]), OrderedDict([('file_mode', 644)]), OrderedDict([('dir_mode', 644)])])])), ('/mnt/md0/php-tmp', OrderedDict([('file.directory', [OrderedDict([('user', 'nginx')]), OrderedDict([('group', 'nginx')]), OrderedDict([('mode', 755)]), OrderedDict([('makedirs', True)])])])), ('/mnt/md0/log/php', OrderedDict([('file.directory', [OrderedDict([('user', 'nginx')]), OrderedDict([('group', 'nginx')]), OrderedDict([('mode', 755)]), OrderedDict([('makedirs', True)])])])), ('php-fpm', OrderedDict([('service', ['running', OrderedDict([('enable', True)]), OrderedDict([('watch', [OrderedDict([('file', '/etc/php.ini')]), OrderedDict([('file', '/etc/php-fpm.conf')]), OrderedDict([('file', '/etc/php.d')]), OrderedDict([('file', '/etc/php-fpm.d')]), OrderedDict([('file', '/etc/sysconfig/php-fpm')])])])])]))])
+[INFO    ] Running state [/etc/php.ini] at time 13:35:15.322485
+[INFO    ] Executing state file.managed for /etc/php.ini
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] File /etc/php.ini is in the correct state
+[INFO    ] Completed state [/etc/php.ini] at time 13:35:15.810549
+[INFO    ] Running state [/etc/sysconfig/php-fpm] at time 13:35:15.810857
+[INFO    ] Executing state file.managed for /etc/sysconfig/php-fpm
+[ERROR   ] Unable to manage file: none of the specified sources were found
+[INFO    ] Completed state [/etc/sysconfig/php-fpm] at time 13:35:16.264091
+[INFO    ] Running state [/etc/php.d] at time 13:35:16.264444
+[INFO    ] Executing state file.recurse for /etc/php.d
+[ERROR   ] Recurse failed: none of the specified sources were found
+[INFO    ] Completed state [/etc/php.d] at time 13:35:16.276525
+[INFO    ] Running state [/etc/php-fpm.conf] at time 13:35:16.276914
+[INFO    ] Executing state file.managed for /etc/php-fpm.conf
+[ERROR   ] Unable to manage file: none of the specified sources were found
+[INFO    ] Completed state [/etc/php-fpm.conf] at time 13:35:17.027596
+[INFO    ] Running state [/etc/php-fpm.d] at time 13:35:17.027858
+[INFO    ] Executing state file.recurse for /etc/php-fpm.d
+[ERROR   ] Recurse failed: none of the specified sources were found
+[INFO    ] Completed state [/etc/php-fpm.d] at time 13:35:17.549932
+[INFO    ] Running state [/mnt/md0/php-tmp] at time 13:35:17.550171
+[INFO    ] Executing state file.directory for /mnt/md0/php-tmp
+[INFO    ] Directory /mnt/md0/php-tmp is in the correct state
+[INFO    ] Completed state [/mnt/md0/php-tmp] at time 13:35:17.551508
+[INFO    ] Running state [/mnt/md0/log/php] at time 13:35:17.551736
+[INFO    ] Executing state file.directory for /mnt/md0/log/php
+[INFO    ] Directory /mnt/md0/log/php is in the correct state
+[INFO    ] Completed state [/mnt/md0/log/php] at time 13:35:17.553011
+[DEBUG   ] File /var/cache/salt/minion/accumulator/73266064 does not exist, no need to cleanup.
+[DEBUG   ] LazyLoaded .returner
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[TRACE   ] data = {'local': {'file_|-/mnt/md0/php-tmp_|-/mnt/md0/php-tmp_|-directory': {'comment': 'Directory /mnt/md0/php-tmp is in the correct state', 'name': '/mnt/md0/php-tmp', 'start_time': '13:35:17.550171', 'result': True, 'duration': u'1.337 ms', '__run_num__': 5, 'changes': {}}, 'service_|-php-fpm_|-php-fpm_|-running': {'comment': "One or more requisite failed: {'php-php-fpm./etc/php-fpm.d': 'Recurse failed: none of the specified sources were found', 'php-php-fpm./etc/sysconfig/php-fpm': 'Unable to manage file: none of the specified sources were found', 'php-php-fpm./etc/php.d': 'Recurse failed: none of the specified sources were found', 'php-php-fpm./etc/php-fpm.conf': 'Unable to manage file: none of the specified sources were found'}", 'start_time': u'', 'result': False, 'duration': u'', '__run_num__': 7, '__sls__': 'php-php-fpm', 'changes': {}}, 'file_|-/etc/php-fpm.conf_|-/etc/php-fpm.conf_|-managed': {'comment': 'Unable to manage file: none of the specified sources were found', 'name': '/etc/php-fpm.conf', 'start_time': '13:35:16.276914', 'result': False, 'duration': u'750.682 ms', '__run_num__': 3, 'changes': {}}, 'file_|-/etc/php.ini_|-/etc/php.ini_|-managed': {'comment': 'File /etc/php.ini is in the correct state', 'name': '/etc/php.ini', 'start_time': '13:35:15.322485', 'result': True, 'duration': u'488.064 ms', '__run_num__': 0, 'changes': {}}, 'file_|-/etc/sysconfig/php-fpm_|-/etc/sysconfig/php-fpm_|-managed': {'comment': 'Unable to manage file: none of the specified sources were found', 'name': '/etc/sysconfig/php-fpm', 'start_time': '13:35:15.810857', 'result': False, 'duration': u'453.234 ms', '__run_num__': 1, 'changes': {}}, 'file_|-/etc/php-fpm.d_|-/etc/php-fpm.d_|-recurse': {'comment': 'Recurse failed: none of the specified sources were found', 'name': '/etc/php-fpm.d', 'start_time': '13:35:17.027858', 'result': False, 'duration': u'522.074 ms', '__run_num__': 4, 'changes': {}}, 'file_|-/mnt/md0/log/php_|-/mnt/md0/log/php_|-directory': {'comment': 'Directory /mnt/md0/log/php is in the correct state', 'name': '/mnt/md0/log/php', 'start_time': '13:35:17.551736', 'result': True, 'duration': u'1.275 ms', '__run_num__': 6, 'changes': {}}, 'file_|-/etc/php.d_|-/etc/php.d_|-recurse': {'comment': 'Recurse failed: none of the specified sources were found', 'name': '/etc/php.d', 'start_time': '13:35:16.264444', 'result': False, 'duration': u'12.081 ms', '__run_num__': 2, 'changes': {}}}}
+local:
+----------
+          ID: /etc/php.ini
+    Function: file.managed
+      Result: True
+     Comment: File /etc/php.ini is in the correct state
+     Started: 13:35:15.322485
+    Duration: 488.064 ms
+     Changes:   
+----------
+          ID: /etc/sysconfig/php-fpm
+    Function: file.managed
+      Result: False
+     Comment: Unable to manage file: none of the specified sources were found
+     Started: 13:35:15.810857
+    Duration: 453.234 ms
+     Changes:   
+----------
+          ID: /etc/php.d
+    Function: file.recurse
+      Result: False
+     Comment: Recurse failed: none of the specified sources were found
+     Started: 13:35:16.264444
+    Duration: 12.081 ms
+     Changes:   
+----------
+          ID: /etc/php-fpm.conf
+    Function: file.managed
+      Result: False
+     Comment: Unable to manage file: none of the specified sources were found
+     Started: 13:35:16.276914
+    Duration: 750.682 ms
+     Changes:   
+----------
+          ID: /etc/php-fpm.d
+    Function: file.recurse
+      Result: False
+     Comment: Recurse failed: none of the specified sources were found
+     Started: 13:35:17.027858
+    Duration: 522.074 ms
+     Changes:   
+----------
+          ID: /mnt/md0/php-tmp
+    Function: file.directory
+      Result: True
+     Comment: Directory /mnt/md0/php-tmp is in the correct state
+     Started: 13:35:17.550171
+    Duration: 1.337 ms
+     Changes:   
+----------
+          ID: /mnt/md0/log/php
+    Function: file.directory
+      Result: True
+     Comment: Directory /mnt/md0/log/php is in the correct state
+     Started: 13:35:17.551736
+    Duration: 1.275 ms
+     Changes:   
+----------
+          ID: php-fpm
+    Function: service.running
+      Result: False
+     Comment: One or more requisite failed: {'php-php-fpm./etc/php-fpm.d': 'Recurse failed: none of the specified sources were found', 'php-php-fpm./etc/sysconfig/php-fpm': 'Unable to manage file: none of the specified sources were found', 'php-php-fpm./etc/php.d': 'Recurse failed: none of the specified sources were found', 'php-php-fpm./etc/php-fpm.conf': 'Unable to manage file: none of the specified sources were found'}
+     Started: 
+    Duration: 
+     Changes:   
+
+Summary
+------------
+Succeeded: 3
+Failed:    5
+------------
+Total states run:     8
+
+```

@@ -1,0 +1,64 @@
+I am running Salt 2014.7 (from ppa:saltstack/salt) on Ubuntu 14.04.
+
+Using the following state, the PPA repository never gets added (as verified by looking under /etc/apt).  And as a result, you end up with an old version of Node (0.10.25).
+
+```
+nodejs:
+  pkgrepo:
+    - managed
+    - ppa: chris-lea/node.js
+    - require_in:
+      - pkg: nodejs
+  pkg:
+    - latest
+```
+
+Unsurprisingly, it's the same version of Node you get without using the PPA, by simply running:
+
+```
+sudo apt-get install nodejs
+```
+
+I know the PPA itself is not the problem, because manually adding the repository works fine, resulting in the latest version of Node (0.10.33):
+
+```
+sudo apt-get remove nodejs
+sudo apt-get autoremove
+sudo add-apt-repository ppa:chris-lea/node.js 
+sudo apt-get update
+sudo apt-get install nodejs
+node --version
+```
+
+I have other pkgrepo states that don't use `ppa` -- and instead use `name` / `file` / `key_url` -- and those correctly update the repositories under /etc/apt.
+
+Adding a `file` statement to the `ppa` version did not fix the problem.
+
+I verified this Ubuntu 14.04 machine has python-software-properties 0.92 (and not 0.94) -- by running `dpkg -l python-software-properties` -- so this seems different from Issue #17105.
+
+The above `ppa` based state file worked fine in Salt 2014.1.
+
+For completeness: I'm executing Salt using `salt-call --local ...` though I doubt that's the root problem.
+
+My /var/log/salt/minion shows the following in Salt 2014.7:
+
+```
+[salt.state       ][INFO    ] Running state [nodejs] at time 23:25:09.003979
+[salt.state       ][INFO    ] Executing state pkgrepo.managed for nodejs
+[salt.state       ][INFO    ] {'repo': 'ppa:chris-lea/node.js'}
+[salt.state       ][INFO    ] Completed state [nodejs] at time 23:25:09.089735
+[salt.state       ][INFO    ] Running state [nodejs] at time 23:25:09.090318
+[salt.state       ][INFO    ] Executing state pkg.latest for nodejs
+[salt.loaded.int.module.cmdmod][INFO    ] Executing command 'apt-get -q update' in directory '/home/ubuntu'
+[salt.loaded.int.module.cmdmod][INFO    ] Executing command ['apt-cache', '-q', 'policy', 'nodejs'] in directory '/home/ubuntu'
+[salt.loaded.int.module.cmdmod][INFO    ] Executing command ['apt-get', '-q', '-y', '-o', 'DPkg::Options::=--force-confold', '-o', 'DPkg::Options::=--force-confdef', 'install', 'nodejs'] in directory '/home/ubuntu'
+[salt.utils       ][ERROR   ] DNS lookup of 'salt' failed.
+[salt.minion      ][ERROR   ] Master hostname: 'salt' not found. Retrying in 30 seconds
+[salt.loaded.int.module.cmdmod][INFO    ] Executing command "dpkg-query --showformat='${Status} ${Package} ${Version} ${Architecture}\n' -W" in directory '/home/ubuntu'
+[salt.state       ][INFO    ] Installed Packages:
+libc-ares2 changed from absent to 1.10.0-2
+nodejs changed from absent to 0.10.25~dfsg2-2ubuntu1
+libv8-3.14.5 changed from absent to 3.14.5.8-5ubuntu2                                                                                                                                                                                                                       
+[salt.state       ][INFO    ] Loading fresh modules for state activity
+[salt.state       ][INFO    ] Completed state [nodejs] at time 23:25:21.380615
+```

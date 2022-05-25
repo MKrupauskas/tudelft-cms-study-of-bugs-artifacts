@@ -1,0 +1,109 @@
+I have hit a strange problem when testing a formula: 
+
+`__salt__['pkg.version']('packageA')` is called in a custom module function from a custom state that has a dependency (require) on a `pkg.installed name='packageA'` state, yet the call to pkg.version returns an empty string. In fact, both pkg.version and pkg.latest_version return an empty string for the same package which AFAIK should not be possible (the package is either installed or it is not).
+
+The cause of the problem seems to be that a grains.present state is executed before pkg.installed in the formula. This triggers a call to `__salt__['saltutil.sync_grains']()` and the creation of a new HighState instance inside the minion. When `pkg.installed name='packageA'`  is executed, it incorrectly uses (and correctly updates) an instance of `__context__` that is created within the scope of this new highstate. Below is the call stack for the creation of this `__context__` instance:
+
+```
+2014-05-07 12:17:44,523 [salt.loader                                 ][DEBUG   ] File "/usr/bin/salt-minion", line 14, in <module>
+    salt_minion()
+2014-05-07 12:17:44,523 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/scripts.py", line 35, in salt_minion
+    minion.start()
+2014-05-07 12:17:44,523 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/__init__.py", line 224, in start
+    self.minion.tune_in()
+2014-05-07 12:17:44,523 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1367, in tune_in
+    self._handle_payload(payload)
+2014-05-07 12:17:44,523 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/minion.py", line 657, in _handle_payload
+    payload['sig'] if 'sig' in payload else None)
+2014-05-07 12:17:44,524 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/minion.py", line 719, in _handle_aes
+    self._handle_decoded_payload(data)
+2014-05-07 12:17:44,524 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/minion.py", line 765, in _handle_decoded_payload
+    process.start()
+2014-05-07 12:17:44,524 [salt.loader                                 ][DEBUG   ] File "/usr/lib64/python2.6/multiprocessing/process.py", line 104, in start
+    self._popen = Popen(self)
+2014-05-07 12:17:44,524 [salt.loader                                 ][DEBUG   ] File "/usr/lib64/python2.6/multiprocessing/forking.py", line 99, in __init__
+    code = process_obj._bootstrap()
+2014-05-07 12:17:44,524 [salt.loader                                 ][DEBUG   ] File "/usr/lib64/python2.6/multiprocessing/process.py", line 232, in _bootstrap
+    self.run()
+2014-05-07 12:17:44,524 [salt.loader                                 ][DEBUG   ] File "/usr/lib64/python2.6/multiprocessing/process.py", line 88, in run
+    self._target(*self._args, **self._kwargs)
+2014-05-07 12:17:44,524 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/minion.py", line 793, in _thread_return
+    return_data = func(*args, **kwargs)
+2014-05-07 12:17:44,524 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/modules/state.py", line 275, in highstate
+    force=kwargs.get('force', False)
+2014-05-07 12:17:44,525 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/state.py", line 2530, in call_highstate
+    return self.state.call_high(high)
+2014-05-07 12:17:44,525 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/state.py", line 1714, in call_high
+    ret = self.call_chunks(chunks)
+2014-05-07 12:17:44,525 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/state.py", line 1438, in call_chunks
+    running = self.call_chunk(low, running, chunks)
+2014-05-07 12:17:44,525 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/state.py", line 1659, in call_chunk
+    running[tag] = self.call(low, chunks, running)
+2014-05-07 12:17:44,525 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/state.py", line 1380, in call
+    **cdata['kwargs'])
+2014-05-07 12:17:44,525 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/states/grains.py", line 51, in present
+    grain = __salt__['grains.setval'](name, value)
+2014-05-07 12:17:44,525 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/modules/grains.py", line 216, in setval
+    __salt__['saltutil.sync_grains']()
+2014-05-07 12:17:44,526 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/modules/saltutil.py", line 247, in sync_grains
+    ret = _sync('grains', saltenv)
+2014-05-07 12:17:44,526 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/modules/saltutil.py", line 49, in _sync
+    st_ = salt.state.HighState(__opts__)
+2014-05-07 12:17:44,526 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/state.py", line 2589, in __init__
+    self.matcher = salt.minion.Matcher(self.opts)
+2014-05-07 12:17:44,526 [salt.loader                                 ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1696, in __init__
+    functions = salt.loader.minion_mods(self.opts)
+```
+
+But later on when pkg.version runs, it uses a different instance of `__context__`. The call stack for the creation of this other instance is:
+
+```
+2014-05-07 12:16:38,326 [salt.state                                  ][DEBUG   ] File "/usr/bin/salt-minion", line 14, in <module>
+    salt_minion()
+2014-05-07 12:16:38,327 [salt.state                                  ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/scripts.py", line 35, in salt_minion
+    minion.start()
+2014-05-07 12:16:38,327 [salt.state                                  ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/__init__.py", line 224, in start
+    self.minion.tune_in()
+2014-05-07 12:16:38,327 [salt.state                                  ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1367, in tune_in
+    self._handle_payload(payload)
+2014-05-07 12:16:38,328 [salt.state                                  ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/minion.py", line 657, in _handle_payload
+    payload['sig'] if 'sig' in payload else None)
+2014-05-07 12:16:38,328 [salt.state                                  ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/minion.py", line 719, in _handle_aes
+    self._handle_decoded_payload(data)
+2014-05-07 12:16:38,328 [salt.state                                  ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/minion.py", line 765, in _handle_decoded_payload
+    process.start()
+2014-05-07 12:16:38,329 [salt.state                                  ][DEBUG   ] File "/usr/lib64/python2.6/multiprocessing/process.py", line 104, in start
+    self._popen = Popen(self)
+2014-05-07 12:16:38,329 [salt.state                                  ][DEBUG   ] File "/usr/lib64/python2.6/multiprocessing/forking.py", line 99, in __init__
+    code = process_obj._bootstrap()
+2014-05-07 12:16:38,329 [salt.state                                  ][DEBUG   ] File "/usr/lib64/python2.6/multiprocessing/process.py", line 232, in _bootstrap
+    self.run()
+2014-05-07 12:16:38,330 [salt.state                                  ][DEBUG   ] File "/usr/lib64/python2.6/multiprocessing/process.py", line 88, in run
+    self._target(*self._args, **self._kwargs)
+2014-05-07 12:16:38,330 [salt.state                                  ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/minion.py", line 793, in _thread_return
+    return_data = func(*args, **kwargs)
+2014-05-07 12:16:38,331 [salt.state                                  ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/modules/state.py", line 268, in highstate
+    st_ = salt.state.HighState(opts, pillar, kwargs.get('__pub_jid'))
+2014-05-07 12:16:38,331 [salt.state                                  ][DEBUG   ] File "/usr/lib/python2.6/site-packages/salt/state.py", line 2588, in __init__
+    self.state = State(self.opts, pillar, jid)
+```
+
+This instance of `__context__` corresponds to the original call to highstate and it has stale information for pkg.list_pkgs since it was not used by the intervening pkg.installed.
+
+The runtime environment is:
+
+```
+[root@store3 vagrant]# salt-minion --versions-report
+           Salt: 2014.1.3
+         Python: 2.6.6 (r266:84292, Feb 22 2013, 00:00:18)
+         Jinja2: unknown
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+         PyYAML: 3.10
+          PyZMQ: 2.2.0.1
+            ZMQ: 3.2.4
+[root@store3 vagrant]# cat /etc/redhat-release 
+CentOS release 6.4 (Final)
+```

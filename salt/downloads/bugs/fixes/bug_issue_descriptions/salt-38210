@@ -1,0 +1,24 @@
+Hello,
+
+while trying to figure out why i can't serve > 1500 minions in parallel i started stracing the salt-master process. While doing i wondered why the listen sockets for pub and clients had just a queue size of 100. For high volume tcp programs like apache or nginx i'm used to tune the listen queue / backlog.
+
+My main problems were - kernel detecting syn flood (not about auth) caused by overflowing sockets. netstat showing SYNs to LISTEN sockets dropped and  times the listen queue of a socket overflowed.
+
+I was able to fix them by adding the following code:
+        self.clients.setsockopt(zmq.BACKLOG, 8192)
+...
+        pub_sock.setsockopt(zmq.BACKLOG, 8192)
+
+With those changes i'm able to to serve > 2000 minions in parallel without any dropped reply or missing messages. No need for a batch run.
+
+I think this should go into a configurable setting for the master. I would be happy to provide a PR but i've not enough python knowledge todo so.
+
+Some links for backlog aka listen queue size:
+http://api.zeromq.org/2-1:zmq-setsockopt
+http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html
+
+syslog-ng had the same problem for big setups:
+https://github.com/balabit/syslog-ng/pull/1211
+
+Greets,
+Stefan

@@ -1,0 +1,187 @@
+### Description of Issue/Question
+
+The goal of the exercise is to provision a machine using `salt-cloud` and then put it into a desired state using `salt-ssh`. The `--roster=cloud` option was added to `salt-ssh` to assist with this. Using the script (below), we see the following behavior:
+* Without `update_cachedir: true`: 
+    * `[ERROR   ] No matching targets found in roster.`
+    * VM is successfully destroyed
+* With `update_cachedir: true`:
+    * Stack trace below.
+    * VMs destruction fails with `No machines were found to be destroyed`
+
+```
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+TypeError: a bytes-like object is required, not 'str'
+Traceback (most recent call last):
+  File "/home/bar/Dev/foo/build7/_venv/bin/salt-ssh", line 11, in <module>
+    load_entry_point('salt==2017.7.2', 'console_scripts', 'salt-ssh')()
+  File "/home/bar/Dev/foo/build7/_venv/lib/python3.5/site-packages/salt/scripts.py", line 416, in salt_ssh
+    client.run()
+  File "/home/bar/Dev/foo/build7/_venv/lib/python3.5/site-packages/salt/cli/ssh.py", line 20, in run
+    ssh = salt.client.ssh.SSH(self.config)
+  File "/home/bar/Dev/foo/build7/_venv/lib/python3.5/site-packages/salt/client/ssh/__init__.py", line 230, in __init__
+    self.tgt_type)
+  File "/home/bar/Dev/foo/build7/_venv/lib/python3.5/site-packages/salt/roster/__init__.py", line 105, in targets
+    targets.update(self.rosters[f_str](tgt, tgt_type))
+  File "/home/bar/Dev/foo/build7/_venv/lib/python3.5/site-packages/salt/roster/cloud.py", line 45, in targets
+    minions = __runner__['cache.cloud'](tgt)
+  File "/home/bar/Dev/foo/build7/_venv/lib/python3.5/site-packages/salt/runners/cache.py", line 402, in cloud
+    cloud_cache = __utils__['cloud.list_cache_nodes_full'](opts=opts, provider=provider)
+  File "/home/bar/Dev/foo/build7/_venv/lib/python3.5/site-packages/salt/utils/cloud.py", line 2768, in list_cache_nodes_full
+    minions[driver][prov][minion_id] = msgpack.load(fh_)
+  File "msgpack/_unpacker.pyx", line 164, in msgpack._unpacker.unpack (msgpack/_unpacker.cpp:2622)
+  File "msgpack/_unpacker.pyx", line 124, in msgpack._unpacker.unpackb (msgpack/_unpacker.cpp:1918)
+TypeError: a bytes-like object is required, not 'str'
+Traceback (most recent call last):
+  File "/home/bar/Dev/foo/build7/_venv/bin/salt-ssh", line 11, in <module>
+    load_entry_point('salt==2017.7.2', 'console_scripts', 'salt-ssh')()
+  File "/home/bar/Dev/foo/build7/_venv/lib/python3.5/site-packages/salt/scripts.py", line 416, in salt_ssh
+    client.run()
+  File "/home/bar/Dev/foo/build7/_venv/lib/python3.5/site-packages/salt/cli/ssh.py", line 20, in run
+    ssh = salt.client.ssh.SSH(self.config)
+  File "/home/bar/Dev/foo/build7/_venv/lib/python3.5/site-packages/salt/client/ssh/__init__.py", line 230, in __init__
+    self.tgt_type)
+  File "/home/bar/Dev/foo/build7/_venv/lib/python3.5/site-packages/salt/roster/__init__.py", line 105, in targets
+    targets.update(self.rosters[f_str](tgt, tgt_type))
+  File "/home/bar/Dev/foo/build7/_venv/lib/python3.5/site-packages/salt/roster/cloud.py", line 45, in targets
+    minions = __runner__['cache.cloud'](tgt)
+  File "/home/bar/Dev/foo/build7/_venv/lib/python3.5/site-packages/salt/runners/cache.py", line 402, in cloud
+    cloud_cache = __utils__['cloud.list_cache_nodes_full'](opts=opts, provider=provider)
+  File "/home/bar/Dev/foo/build7/_venv/lib/python3.5/site-packages/salt/utils/cloud.py", line 2768, in list_cache_nodes_full
+    minions[driver][prov][minion_id] = msgpack.load(fh_)
+  File "msgpack/_unpacker.pyx", line 164, in msgpack._unpacker.unpack (msgpack/_unpacker.cpp:2622)
+  File "msgpack/_unpacker.pyx", line 124, in msgpack._unpacker.unpackb (msgpack/_unpacker.cpp:1918)
+TypeError: a bytes-like object is required, not 'str'
+EXIT 1
+```
+
+### Setup
+```bash
+MINION_NAME='foobar-08'
+
+AWS_ID='redacted'
+AWS_KEY='redacted'
+AWS_KEYNAME='redacted'
+AWS_PRIVATE_KEY='redacted'
+AWS_PROFILE_NAME='redacted'
+AWS_SECURITYGROUP='redacted'
+
+LOG_LVL=all
+
+ROOT_DIR=$(mktemp -d)
+CONFIG_DIR=$ROOT_DIR/etc/salt
+FILE_ROOT_BASE=$(mktemp -d)
+
+# config
+
+mkdir -p $CONFIG_DIR
+
+cat <<EOF > $CONFIG_DIR/cloud
+root_dir: $ROOT_DIR
+log_file: $ROOT_DIR/var/log/salt/cloud
+update_cachedir: True
+EOF
+
+cat <<EOF > $CONFIG_DIR/cloud.providers
+my-aws-default:
+  id: '$AWS_ID'
+  key: '$AWS_KEY'
+  keyname: '$AWS_KEYNAME'
+  private_key: '$AWS_PRIVATE_KEY'
+  securitygroup: '$AWS_SECURITYGROUP'
+  driver: ec2
+EOF
+
+cat <<EOF > $CONFIG_DIR/cloud.profiles
+$AWS_PROFILE_NAME:
+  provider: my-aws-default
+  size: t2.micro
+  image: ami-7b4d7900
+  script: salt-bootstrap
+  ssh_username: ubuntu
+EOF
+
+cat <<EOF > $CONFIG_DIR/master
+root_dir: $ROOT_DIR
+EOF
+
+# run stuff
+
+SLEEP=5
+
+OPTS="--log-file-level=$LOG_LVL --config-dir=$CONFIG_DIR"
+
+salt-master $OPTS --daemon
+echo "EXIT $?"
+sleep $SLEEP
+
+salt-cloud $OPTS -p $AWS_PROFILE_NAME $MINION_NAME > /dev/null
+echo "EXIT $?"
+sleep $SLEEP
+
+salt-cloud $OPTS -Q | fgrep $MINION_NAME
+echo "EXIT $?"
+sleep $SLEEP
+
+salt-ssh $OPTS --roster=cloud -i -r 'uname -a' $MINION_NAME
+echo "EXIT $?"
+sleep $SLEEP
+
+salt-ssh $OPTS --roster=cache -i -r 'uname -a' $MINION_NAME
+echo "EXIT $?"
+sleep $SLEEP
+
+salt-cloud $OPTS -d $MINION_NAME -y
+echo "EXIT $?"
+sleep $SLEEP
+
+pkill -F $ROOT_DIR/var/run/salt-master.pid
+rm -rf $ROOT_DIR $FILE_ROOT_BASE
+```
+### Steps to Reproduce Issue
+
+Run the script with `update_cachedir` toggled.
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.7
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.3 (default, Sep 14 2017, 22:58:41)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.3
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.2
+            ZMQ: 4.1.6
+ 
+System Versions:
+           dist: Ubuntu 17.04 zesty
+         locale: UTF-8
+        machine: x86_64
+        release: 4.12.0-041200rc6-generic
+         system: Linux
+        version: Ubuntu 17.04 zesty
+```

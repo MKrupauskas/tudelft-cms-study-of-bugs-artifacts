@@ -1,0 +1,210 @@
+### Description of Issue/Question
+On oxygen.rc1 on py3 setup when trying to run a state file using salt-ssh, it fails with this error.
+There's nothing in the log file /var/log/salt/ssh
+
+```
+ssh:
+----------
+          ID: echo
+    Function: cmd.run
+        Name: echo 'This is a test!'
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/var/tmp/.root_62a99a_salt/py3/salt/state.py", line 1905, in call
+                  **cdata['kwargs'])
+                File "/var/tmp/.root_62a99a_salt/py3/salt/loader.py", line 1822, in wrapper
+                  return f(*args, **kwargs)
+                File "/var/tmp/.root_62a99a_salt/py3/salt/states/cmd.py", line 865, in run
+                  'shell': shell or __grains__['shell'],
+                File "/var/tmp/.root_62a99a_salt/py3/salt/utils/context.py", line 228, in __getitem__
+                  return self._dict()[key]
+              KeyError: 'shell'
+     Started: 19:56:36.251433
+    Duration: 6.909 ms
+     Changes:   
+```
+### Setup
+Set up roster file and make a state file. 
+
+```
+/srv/salt/test.sls
+echo:
+  cmd.run:
+    - name: "echo 'This is a test!'"
+```
+
+### Steps to Reproduce Issue
+Run the state file, and it will fail. Other salt-ssh commands seems to run fine.
+```
+[root@localhost ~]# salt-ssh \* test.ping
+ssh:
+    True
+[root@localhost ~]# salt-ssh \* grains.item pythonversion
+ssh:
+    ----------
+    pythonversion:
+        - 3
+        - 4
+        - 5
+        - final
+        - 0
+[root@localhost ~]# salt-ssh \* state.sls test
+ssh:
+----------
+          ID: echo
+    Function: cmd.run
+        Name: echo 'This is a test!'
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/var/tmp/.root_62a99a_salt/py3/salt/state.py", line 1905, in call
+                  **cdata['kwargs'])
+                File "/var/tmp/.root_62a99a_salt/py3/salt/loader.py", line 1822, in wrapper
+                  return f(*args, **kwargs)
+                File "/var/tmp/.root_62a99a_salt/py3/salt/states/cmd.py", line 865, in run
+                  'shell': shell or __grains__['shell'],
+                File "/var/tmp/.root_62a99a_salt/py3/salt/utils/context.py", line 228, in __getitem__
+                  return self._dict()[key]
+              KeyError: 'shell'
+     Started: 19:59:09.841980
+    Duration: 5.435 ms
+     Changes:   
+
+Summary for ssh
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:   5.435 ms
+[root@localhost ~]# 
+```
+
+Running the state file using salt \*, salt-call, salt-run seems to work correctly
+```
+[root@localhost ~]# salt \* state.sls test
+10.1.51.199:
+----------
+          ID: echo
+    Function: cmd.run
+        Name: echo 'This is a test!'
+      Result: True
+     Comment: Command "echo 'This is a test!'" run
+     Started: 20:02:48.962473
+    Duration: 12.587 ms
+     Changes:   
+              ----------
+              pid:
+                  16599
+              retcode:
+                  0
+              stderr:
+              stdout:
+                  This is a test!
+
+Summary for 10.1.51.199
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  12.587 ms
+[root@localhost ~]# salt-call --local state.sls test
+local:
+----------
+          ID: echo
+    Function: cmd.run
+        Name: echo 'This is a test!'
+      Result: True
+     Comment: Command "echo 'This is a test!'" run
+     Started: 20:03:03.047677
+    Duration: 11.503 ms
+     Changes:   
+              ----------
+              pid:
+                  16661
+              retcode:
+                  0
+              stderr:
+              stdout:
+                  This is a test!
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  11.503 ms
+[root@localhost ~]# salt-run state.sls test
+10.1.51.199_master:
+----------
+          ID: echo
+    Function: cmd.run
+        Name: echo 'This is a test!'
+      Result: True
+     Comment: Command "echo 'This is a test!'" run
+     Started: 20:03:17.474604
+    Duration: 9.203 ms
+     Changes:   
+              ----------
+              pid:
+                  16823
+              retcode:
+                  0
+              stderr:
+              stdout:
+                  This is a test!
+
+Summary for 10.1.51.199_master
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   9.203 ms
+[root@localhost ~]# 
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.2.0-2305-ga501c19
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.4
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.4.5 (default, Dec 11 2017, 14:22:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.6
+ 
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+```

@@ -1,0 +1,73 @@
+I've come across a strange bug - or something I'm doing wrong that I can't pinpoint.  I'm using the yamlex renderer and !reset, however reset is not honored when run through salt.
+
+If I run the same yaml through the yamlex deserializer on the command line it works as expected.  I'm running 2014.7.0.
+
+Here's an example of the issue I've found:
+
+```
+[root@salt-master pillar]# cat base/ssh.sls
+#!yamlex
+ssh: !aggregate
+  keys: !aggregate
+    - one: b
+      two: a
+
+[root@salt-master pillar]# cat group/ssh.sls
+#!yamlex
+!reset ssh: !aggregate
+  !reset keys: !aggregate
+    - three: a
+      four: b
+
+[root@salt-master pillar]# cat base/top.sls
+base:
+  '*':
+    - ssh
+group:
+  '*':
+    - ssh
+
+[root@salt-master pillar]# salt 'qa-server*' pillar.items
+qa-server:
+    ----------
+    ssh:
+        ----------
+        keys:
+            |_
+              ----------
+              four:
+                  b
+              three:
+                  a
+            |_
+              ----------
+              one:
+                  b
+              two:
+                  a
+```
+
+The above should have reset the 'keys' array and contained only the single array with 'four' and 'three' keys.  The below test is how I expected this to act, and it appears to work correctly if run on the command line with the same yaml.
+
+```
+[root@salt-master pillar]# cat test.py
+#!/usr/bin/python
+
+from salt.utils.serializers.yamlex import serialize, deserialize
+
+parseme = '''
+ssh: !aggregate
+  keys: !aggregate
+    - one: b
+      two: a
+
+!reset ssh: !aggregate
+  !reset keys: !aggregate
+    - three: a
+      four: b
+'''
+
+print deserialize(parseme)
+[root@salt-master pillar]# python test.py
+{ssh: {keys: [{three: a, four: b}]}}
+```

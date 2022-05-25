@@ -1,0 +1,115 @@
+I am running into issues implementing the boto_rds state. Below is my config files. I am getting the following error:
+
+```
+[ERROR   ] 'provider'
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/parsers.py", line 169, in parse_args
+    process_option_func()
+  File "/usr/lib/python2.7/dist-packages/salt/utils/parsers.py", line 451, in process_config_dir
+    self.config.update(self.setup_config())
+  File "/usr/lib/python2.7/dist-packages/salt/utils/parsers.py", line 2638, in setup_config
+    return config.cloud_config(self.get_config_file_path())
+  File "/usr/lib/python2.7/dist-packages/salt/config.py", line 1899, in cloud_config
+    providers_config)
+  File "/usr/lib/python2.7/dist-packages/salt/config.py", line 2058, in vm_profiles_config
+    return apply_vm_profiles_config(providers, overrides, defaults)
+  File "/usr/lib/python2.7/dist-packages/salt/config.py", line 2085, in apply_vm_profiles_config
+    if ':' in details['provider']:
+KeyError: 'provider'
+```
+
+cloud.maps.d/stage-environment.map
+
+```
+stage-web:
+  - Salt-Minion1
+  - Salt-Minion2
+stage-rds:
+  - Salt-Stage-RDS1
+```
+
+cloud.profiles.d/servers.conf
+
+```
+base:
+  provider: ec2
+  size: t2.micro
+  image: <image_id>
+  minion:
+    master: my.address.com
+    master_port: 4508
+
+stage-web:
+  extends: base
+  minion:
+    master: my.address.com
+    master_port: 4508
+    grains:
+      role: webserver
+      env: stage
+
+stage-rds:
+    region: us-east-1
+
+prod-web:
+  extends: base
+  minion:
+    master: my.address.com
+    master_port: 4508
+    grains:
+      role: webserver
+      env: prod
+
+```
+
+salt/top.sls
+
+```
+base:
+  '*':
+    - requirements
+    - users
+    - ssh
+    - logging
+    - php
+    - composer
+  'Salt-Minion':
+    - nginx
+  'Salt-Stage-RDS1'
+    - rds
+```
+
+salt/rds/top.sls
+
+```
+Ensure myrds RDS exists:
+  boto_rds.present:
+    - name: myrds
+    - allocated_storage: 5
+    - db_instance_class: db.t2.micro
+    - engine: MySQL
+    - master_username: {{ pillar['rds']['master_username'] }}
+    - master_user_password: {{ pillar['rds']['master_user_password'] }}
+    - region: us-east-1
+    - keyid: {{ pillar['rds']['keyid'] }}
+    - key: {{ pillar['rds']['key'] }}
+```
+
+pillar/top.sls
+
+```
+base:
+  '*':
+    - users
+    - rds
+```
+
+pillar/rds.sls
+
+```
+rds:
+    keyid: <key_id>
+    key: <key>
+    master_username: <master_username>
+    master_user_password: <master_user_password>
+```

@@ -1,0 +1,63 @@
+Certain state failures do not set `retcode` properly.  Consequently the master does not enumerate the minions as failed and summary information is incorrect.  This appears to be related to states that cause additional salt calls that instantiate new `__context__`.  The roll-up of child `__context__` to the parent `__context__` fails and then `__context__['retcode']` is incorrect.
+
+It is notable that when the master _parses_ the return information for colorization that the failed states are correctly colorized due to state return structures correctly indicate the failure.  Unfortunately the overall success/failure is determined by reading `retcode` which is incorrect.  Consequently summary information provided by `-v --summary` is incorrect.  This can go unnoticed when visually scanning the output from a few minions, but when there are thousands of minions the summary information must be reliable.
+
+Put the following contents in `junk/foo.sls`:
+
+``` sls
+#!jinja|yaml
+
+foo:
+  cmd.run:
+    - name: 'true'
+    - check_cmd:
+      - 'false'
+```
+
+The following is expected output:
+
+``` yaml
+[root@orc1.ut1 ~]# salt -v --summary minion-a state.apply junk.foo
+Executing job with jid 20160204153220765528
+-------------------------------------------
+
+minion-a:
+----------
+          ID: foo
+    Function: cmd.run
+        Name: true
+      Result: False
+     Comment: check_cmd determined the state failed
+     Started: 15:32:22.346851
+    Duration: 785.631 ms
+     Changes:
+              ----------
+              pid:
+                  13114
+              retcode:
+                  0
+              stderr:
+              stdout:
+
+Summary for minion-a
+------------
+Succeeded: 0 (changed=1)
+Failed:    1
+------------
+Total states run:     1
+Total run time: 785.631 ms
+
+
+-------------------------------------------
+Summary
+-------------------------------------------
+# of minions targeted: 1
+# of minions returned: 1
+# of minions that did not return: 0
+# of minions with errors: 1
+Minions with failures: minion-a
+-------------------------------------------
+ERROR: Minions returned with non-zero exit code
+```
+
+While `minion-a` shows a `Failed: 1` it does not show as a minion with errors.

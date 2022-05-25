@@ -1,0 +1,150 @@
+### Description of Issue
+Hi, I upgraded from a working 2018.3.5 setup to 3000.1 today on some testing VMs and my salt-mine stopped functioning. When I flush the mine I am no longer able to run any mine updates.
+
+```
+[root@saltmaster] # salt '*' mine.valid                                                                                                                         
+/usr/lib/python2.7/site-packages/requests/__init__.py:91: RequestsDependencyWarning: urllib3 (1.25.8) or chardet (2.2.1) doesn't match a supported version!                  
+  RequestsDependencyWarning)                                                                                                                                                 
+server01:                                                                                                                                             
+    None                                                                                                                                                                     
+server02:                                                                                                                                           
+    None                                                                                                                                                                    
+server03:                                                                                                                                            
+    Passed invalid arguments to mine.valid: unhashable type: 'list'                         <====== this                                                                                 
+                                                                                                                                                                             
+        List valid entries in mine configuration.                                                                                                                            
+                                                                                                                                                                             
+        CLI Example:                                                                                                                                                         
+                                                                                                                                                                             
+        .. code-block:: bash
+     
+            salt '*' mine.valid
+```
+### Setup
+`test.sh`
+```
+#!/bin/bash
+echo "$(date)" >> /tmp/test.log
+```
+
+`/etc/salt/minion.d/my-test-func.sls`
+```
+mine_functions:
+  my-test-func:
+    mine_function: cmd.shell
+    cmd: ["/opt/test.sh"]
+    timeout: 600
+    runas: root
+```
+
+### Steps to Reproduce Issue
+```
+# On the saltmaster
+$ salt '*' mine.flush
+/usr/lib/python2.7/site-packages/requests/__init__.py:91: RequestsDependencyWarning: urllib3 (1.25.8) or chardet (2.2.1) doesn't match a supported version!                  
+  RequestsDependencyWarning)                                                                                                                                                 
+server01:                                                                                                                                             
+    True                                                                                                                                                                     
+server02:                                                                                                                                           
+    True                                                                                                                                                                    
+server03:                                                                                                                                            
+    True
+
+$ salt-run cache.clear_all tgt='*' tgt_type='glob'
+/usr/lib/python2.7/site-packages/requests/__init__.py:91: RequestsDependencyWarning: urllib3 (1.25.8) or chardet (2.2.1) doesn't match a supported version!
+  RequestsDependencyWarning)
+True
+
+# On the malfunctioning minion
+$ salt-call mine.valid
+
+Passed invalid arguments: unhashable type: 'list'.
+
+Usage:
+
+    List valid entries in mine configuration.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' mine.valid
+    
+$ salt-call mine.update
+ERROR   ] Function cmd.shell in mine.update failed to execute                                                                                                               
+local:
+    True
+
+$ salt-call -l debug mine.valid
+...
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded mine.valid
+[DEBUG   ] LazyLoaded direct_call.execute
+[DEBUG   ] LazyLoaded config.merge
+[DEBUG   ] LazyLoaded cmd.shell
+
+Passed invalid arguments: unhashable type: 'list'.
+
+Usage:
+
+    List valid entries in mine configuration.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' mine.valid
+    
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/cli/caller.py", line 218, in call
+    ret['return'] = self.minion.executors[fname](self.opts, data, func, args, kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/executors/direct_call.py", line 12, in execute
+    return func(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/mine.py", line 553, in valid
+    function_name: function_args + [{key, value} for key, value in six.iteritems(function_kwargs)]
+TypeError: unhashable type: 'list'
+...
+```
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+```
+Salt Version:
+           Salt: 3000.1
+ 
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  7 2019, 00:51:29)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.7.1908 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1062.18.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.7.1908 Core
+```

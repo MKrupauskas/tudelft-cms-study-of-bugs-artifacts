@@ -1,0 +1,88 @@
+**Salt:**
+
+```
+                      Salt: 2014.7.2
+                    Python: 2.7.9 (default, Apr  2 2015, 15:33:21)
+                    Jinja2: 2.7.3
+                  M2Crypto: 0.21.1
+            msgpack-python: 0.4.2
+              msgpack-pure: Not Installed
+                  pycrypto: 2.6.1
+                   libnacl: Not Installed
+                    PyYAML: 3.11
+                     ioflo: Not Installed
+                     PyZMQ: 14.4.1
+                      RAET: Not Installed
+                       ZMQ: 4.0.5
+                      Mako: 1.0.0
+     Debian source package: 2014.7.2+ds-1utopic2
+```
+
+**OS:** Ubuntu 15.04, using 14.10 Salt packages
+
+When declaring a requisite like
+
+``` SaltStack
+include:
+  - apache.modules
+[…]
+  - require_in:
+    - sls: apache.modules
+```
+
+the state will fail with a message like this:
+
+```
+    Cannot extend ID 'apache.modules' in 'base:config'. It is not part of the high state.
+This is likely due to a missing include statement or an incorrectly typed ID.
+Ensure that a state with an ID of 'apache.modules' is available
+in environment 'base' and to SLS 'config'
+```
+
+Using just `apache` as include/requisite, everything will work just fine, but once a "sub-SLS" is declared, it will fail as described above.
+
+**EDIT:** A minimal working example:
+**foo/bar.sls**
+
+``` SaltStack
+some-test-stuff:
+  test.succeed_with_changes
+```
+
+**config.sls**
+
+``` SaltStack
+include:
+  - foo.bar
+
+another-test-state:
+  test.succeed_with_changes:
+    - require_in:
+      - sls: foo.bar
+```
+
+**Result:**
+
+```
+salt-call state.sls config
+[WARNING ] Although 'dmidecode' was found in path, the current user cannot execute it. Grains output might not be accurate.
+[WARNING ] Although 'dmidecode' was found in path, the current user cannot execute it. Grains output might not be accurate.
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'config.sls'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://foo/bar.sls'
+local:
+    Data failed to compile:
+----------
+    Cannot extend ID 'foo.bar' in 'base:config'. It is not part of the high state.
+This is likely due to a missing include statement or an incorrectly typed ID.
+Ensure that a state with an ID of 'foo.bar' is available
+in environment 'base' and to SLS 'config'
+root@moria:~/salt-teststates# cat config.sls 
+include:
+  - foo.bar
+
+another-test-state:
+  test.succeed_with_changes:
+    - require_in:
+      - sls: foo.bar
+```

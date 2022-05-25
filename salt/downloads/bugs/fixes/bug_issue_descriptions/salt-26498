@@ -1,0 +1,59 @@
+When testing the changes made in #26479 I discovered that you can create VMs that have the same name across various providers, as long as you only do so once per provider. 
+
+For example, if you create a VM named `nt-1` in Linode, which returns successfully, and then try to create another VM also named `nt-1` in Digital Ocean, the second VM will also get created successfully. Only one VM will be visible in `salt-key -L` (presumably the last one created), but both VMs are present in their respective cloud hosts, resulting in this situation when trying to delete VMs:
+
+```
+# salt-cloud -d nt-1
+The following virtual machines are set to be destroyed:
+  linode-config:
+    linode:
+      nt-1
+  digital_ocean:
+    digital_ocean:
+      nt-1
+  ec2-config:
+    ec2:
+      nt-1
+
+Proceed? [N/y]
+```
+
+This is related to the concerns raised in #16356, and those should be addressed when this is fixed since they're related. However, from a salt-cloud perspective, we should **not** be allowing VMs to be created with the same name across providers.
+
+Note that the appropriate errors are raised if `nt-1` attempts to be created on a host that already contains `nt-1` if it's on the same provider.
+
+I mainly tested this on the 2015.8 branch:
+
+```
+# salt-cloud --versions
+Salt Version:
+            Salt: 2015.8.0rc3-48-gacf450e
+
+Dependency Versions:
+ Apache Libcloud: 0.18.0
+          Jinja2: 2.7.3
+        M2Crypto: 0.21.1
+            Mako: 0.9.1
+          PyYAML: 3.11
+           PyZMQ: 14.0.1
+          Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+            RAET: Not Installed
+         Tornado: 4.2
+             ZMQ: 4.0.4
+           ioflo: Not Installed
+         libnacl: Not Installed
+    msgpack-pure: Not Installed
+  msgpack-python: 0.4.4
+        pycrypto: 2.6.1
+         timelib: 0.2.4
+
+System Versions:
+            dist: Ubuntu 14.04 trusty
+         machine: x86_64
+         release: 3.13.0-30-generic
+          system: Ubuntu 14.04 trusty
+```
+
+I also ran one test on the 2015.5 branch, and it also exhibits this behavior.
+
+FYI @techhat and @cro 

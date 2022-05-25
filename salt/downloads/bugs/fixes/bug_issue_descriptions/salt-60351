@@ -1,0 +1,115 @@
+**Description**
+`hosts.rm_host` throws an error when any host line in `/etc/hosts` have the `#` character. As `hosts.rm_host` is used by `host.absent` state module, this error also prevents its execution.
+
+This is specially annoying as the hosts entries inserted by `host.present` state module with a comment or using `hosts.set_comment` renders the `hosts.rm_host` unusable.
+
+**Setup**
+An `/etc/hosts` with any line with the following format:
+```
+192.168.99.98   host-to-keep            # Some comment here
+```
+The offending part is the `# Some comment here`. The line with the comment can be anywhere in the hosts file. Comment lines that begins with `#` are parsed correctly.
+
+**Steps to Reproduce the behavior**
+I am using an `/etc/hosts` file with the following content:
+```
+#
+# hosts         This file describes a number of hostname-to-address
+#               mappings for the TCP/IP subsystem. It is mostly
+#               used at boot time, when no name servers are running.
+#               On small systems, this file can be used instead of a
+#               "named" name server.  Just add the names, addresses
+#               and any aliases to this file...
+#
+# For loopbacking.
+127.0.0.1               localhost
+::1             localhost
+
+192.168.99.98   host-to-keep            # Some comment here
+192.168.99.99   undesired-host
+```
+Then I try to remove the `undesired-host`:
+```
+# salt-call hosts.rm_host 192.168.99.99 undesired-host
+
+Passed invalid arguments: a bytes-like object is required, not 'str'.
+
+Usage:
+
+    Remove a host entry from the hosts file
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' hosts.rm_host <ip> <alias>
+```
+If I change the hosts file to:
+```
+#
+# hosts         This file describes a number of hostname-to-address
+#               mappings for the TCP/IP subsystem. It is mostly
+#               used at boot time, when no name servers are running.
+#               On small systems, this file can be used instead of a
+#               "named" name server.  Just add the names, addresses
+#               and any aliases to this file...
+#
+# For loopbacking.
+127.0.0.1               localhost
+::1             localhost
+
+192.168.99.98   host-to-keep
+192.168.99.99   undesired-host
+```
+The execution runs OK:
+```
+# salt-call hosts.rm_host 192.168.99.99 undesired-host
+local:
+    True
+```
+
+**Expected behavior**
+I expect to remove host lines and alias from `/etc/hosts` even when some hosts entries have a comment.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+```
+Salt Version:
+          Salt: 3003
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.2
+       libgit2: Not Installed
+      M2Crypto: 0.37.1
+          Mako: 1.1.4
+       msgpack: 0.5.6
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.10.1
+        pygit2: Not Installed
+        Python: 3.9.5 (default, May  4 2021, 18:07:24)
+  python-gnupg: Not Installed
+        PyYAML: 5.3.1
+         PyZMQ: 19.0.2
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+ 
+System Versions:
+          dist: slackware 14.2 current
+        locale: utf-8
+       machine: x86_64
+       release: 5.10.41
+        system: Linux
+       version: Slackware 14.2 current
+```
+</details>

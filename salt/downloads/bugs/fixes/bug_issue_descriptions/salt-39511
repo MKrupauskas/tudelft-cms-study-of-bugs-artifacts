@@ -1,0 +1,97 @@
+### Description of Issue/Question
+Today i try to use the `influxdb_returner` and realize that after configure `master_job_cache: influxdb` one of my stated not running anymore. First i thought the state is broken but then i delete the master_job_cache and the state runs again.
+
+### Setup
+Try to use the following similar state:
+```
+nginx_default_cert:
+    x509.certificate_managed:
+        - name: /etc/nginx/certs/{{ hostname }}.crt
+        - ca_server: ca.server.net
+        - signing_policy: webserver
+        - public_key: /etc/nginx/certs/{{ hostname }}.key
+        - C: DE
+        - L: L
+        - ST: ST
+        - O: O
+        - CN: {{ hostname }}
+        - Email: AAA@BBB.CC
+        - days_valid: 365
+        - days_remaining: 45
+        - require:
+            - x509: nginx_default_privkey
+```
+For debuging i enter following in `/usr/lib/python2.7/site-packages/salt/modules/x509.py` line 1371:
+```
+        print ('ca_server:', ca_server)
+        print ('kwargs:', str(kwargs))
+        print ('_salt_:', __salt__['publish.publish']( tgt=ca_server, fun='x509.sign_remote_certificate', arg=str(kwargs)))
+```
+
+### Steps to Reproduce Issue
+Running with `master_job_cache: influxdb`: (output of the print):
+```
+('ca_server:', 'ca.server.net')
+('kwargs:', "{'signing_policy': 'webserver', 'public_key': '-----BEGIN PUBLIC KEY-----MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwBNY5/+365AT1JmI8zxxIDbD/QdcWlMZnxvMSFTX4JKd3K7vjntaYaa0oBx8hy3Fosk6UkbHgEGvyjS3UEqcBiynBs2Erai9Y2QyJ5qOPlBvp38XKbsWFKsKXTvIz0tev4BASrVkym+gfsN6cwkY6OoqWei9MedwNH+2H5ATJUVGK8eas4fkeqKBtuRL3RGjj0iWZgRT7ysp+xs3usR0yQbHHoCJgRNlTgQbiZhgiuW52feyvkj8pkpenfVb5ow6pKP4UJzHwbCKj+t5YzE2yOEIrz68gWlUt3r2uNqMimClSplRK+Q17ZXpTMij3rlCaHnEiQXvvTWtnpGA1FZHJwIDAQAB-----END PUBLIC KEY-----', 'C': 'DE', 'CN': 'AAAAA', 'L': 'L', 'O': 'O', 'ST': 'ST', 'days_valid': 365, 'public_key_passphrase': None, 'testrun': True, 'Email': 'AAA@BBB.CC'}")
+('_salt_:', {})
+
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 1746, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1702, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/states/x509.py", line 494, in certificate_managed
+    new = __salt__['x509.create_certificate'](testrun=True, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/x509.py", line 1374, in create_certificate
+    cert_txt = __salt__['publish.publish']( tgt=ca_server, fun='x509.sign_remote_certificate', arg=str(kwargs))[ca_server]
+KeyError: 'ca.server.net'
+```
+Delete the `master_job_cache` entry (output of the shortened print):
+```
+('ca_server:', 'ca.server.net')
+('kwargs:', "{'signing_policy': 'webserver', 'public_key': '-----BEGIN PUBLIC KEY-----MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwBNY5/+365AT1JmI8zxxIDbD/QdcWlMZnxvMSFTX4JKd3K7vjntaYaa0oBx8hy3Fosk6UkbHgEGvyjS3UEqcBiynBs2Erai9Y2QyJ5qOPlBvp38XKbsWFKsKXTvIz0tev4BASrVkym+gfsN6cwkY6OoqWei9MedwNH+2H5ATJUVGK8eas4fkeqKBtuRL3RGjj0iWZgRT7ysp+xs3usR0yQbHHoCJgRNlTgQbiZhgiuW52feyvkj8pkpenfVb5ow6pKP4UJzHwbCKj+t5YzE2yOEIrz68gWlUt3r2uNqMimClSplRK+Q17ZXpTMij3rlCaHnEiQXvvTWtnpGA1FZHJwIDAQAB-----END PUBLIC KEY-----', 'C': 'DE', 'CN': 'AAAAA', 'L': 'L', 'O': 'O', 'ST': 'ST', 'days_valid': 365, 'public_key_passphrase': None, 'testrun': True, 'Email': 'AAA@BBB.CC'}")
+('_salt_:', {'ca.server.net': {'Issuer Public Key': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEArrk5X/HUX7ahlK23u+3U\nGkNXhkOMjgxkbGTNeqRd1ALzB27/EHwOVlDOG/5cFn6hgmygtopz9KDhIv8QJ930\n365yBigjcqs9wGlyVoqEBhMcrk8K1FiehSmrITT+TLza0ZSyg1JTWlwn3BKWhafl\nocquQEYuTDfLfu4QlBrqxc4eh3LuY5ChBgVCJQ/ykdvrYzDq2yvdDua7dl3OuY/a\nkxfN97aoQ6wGtD4v5sU8Y2zz2AxQI/YnA78rFT/X1W0czevrTp8vMJqxP/Iu2jtD\nKoH7e4Ul7Jos0eH9kDlxzMLNSgP6t1d4rVid6dzdetEP4M5mrdOKePhGsSr6q0DD\n/8vxQlFzPPwRUO7iCoy5jKuGQWT2hqocIFaYnJUrk8FS2eaFq9Z1cT7RfRfvu9yY\noqK+3pcQE5FIvSomWx7dYcE8mGRFkZWjaQDFlUh1UldRi3jIOUONpdFVdmpiAdJX\nTlRG6GSNqSiu1612m6vRnpIKFw/RT5DZ23RzvnfOKAiz/Ol5/iCNi9SJJob/yaQ4\nCz27kExSTOzAOUA6TIwuB0RPuiSPJIVIDnlsR+QCiNJudy7pWMveqJaordsH+/tx\nnH770mAINMXLm4ivykbBrJLI6zwdsfkP6wEjORJD9QiBhbGUqyjpon6WSvHuN81q\nomcHxUu927Co9Uy1+yAvqr0CAwEAAQ==\n-----END PUBLIC KEY-----\n', 'Not After': '2018-02-20 14:15:03', 'Subject Hash': '77:D3:F3:0A', 'Serial Number': 'E9:B0:8E:AD:3C:4F:FD:3F', 'SHA1 Finger Print': '35:E3:20:90:DC:AC:78:23:08:D2:BC:70:83:83:15:9A:7B:17:ED:B8', 'SHA-256 Finger Print': 'A2:7F:35:24:26:92:87:36:A4:8F:F8:4E:97:C9:F9:30:ED:35:68:7C:33:54:8B:66:BC:71:B3:C9:6E:CD:4D:C8', 'MD5 Finger Print': '1B:DC:E9:14:EB:EE:1B:1A:4B:82:BE:A9:59:95:37:90', 'Version': 3, 'Public Key': '-----BEGIN PUBLIC KEY----- ...}})
+```
+So it seams that the function `publish.publish` does not work in case of `master_job_cache`.
+Also it doesn't matter what returner is specified (tried mysql and local), in all cases the `_salt_:` print is empty.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11 branch / commit: c3e541e0a2efcdc08823bfec33ab0de4dc1a9ec3
+ 
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: unknown
+       dateutil: 2.6.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.5
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Dec 21 2016, 07:16:46)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.2.0
+ 
+System Versions:
+           dist:   
+        machine: x86_64
+        release: 4.9.8-1-ARCH
+         system: Linux
+        version: Not Installed
+```

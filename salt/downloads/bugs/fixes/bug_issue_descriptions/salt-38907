@@ -1,0 +1,144 @@
+### Description of Issue/Question
+Error when creating an instance on Azure with salt-cloud.
+
+### Setup
+salt-cloud azure provider
+```
+# cat /etc/salt/cloud.providers.d/azure.provider.conf 
+azure:
+  driver: azure
+  subscription_id: <my_subscription_id>
+  certificate_path: /etc/salt/azure.pem
+  minion:
+    master: master.internal
+```
+salt-cloud azure profile
+```
+# cat /etc/salt/cloud.profiles.d/azure.profiles.conf 
+azure-win:
+  provider: azure
+  image: '96316178b0644ae08bc4e037635ce104__HPC-Pack-2016-HN-5.0.5826.0-WS2012R2-ENU'
+  size: Basic_A0
+  location: 'West US 2'
+  ssh_username: <user>
+  ssh_password: <password>
+  slot: production
+  media_link: 'https://testresourcegroup7987.blob.core.windows.net/vhds'
+  virtual_network_name: Test-ResourceGroup-vnet
+  subnet_name: default
+```
+
+
+### Steps to Reproduce Issue
+I created 2 certificates: 
+```
+-- first one used in salt-cloud
+# openssl req -x509 -nodes -days 365 -newkey rsa:1024 -keyout azure.pem -out azure.pem
+
+-- second one uploaded to Azure via Classic Portal -> Settings -> Management Certificates -> Upload
+# openssl x509 -inform pem -in azure.pem -outform der -out azure.cer
+```
+
+I tested it with "requests (2.7.0)", "azure (1.0.2)" or "azure (1.0.3)",
+as I see as deps required in the doc: https://docs.saltstack.com/en/latest/topics/cloud/azure.html
+```
+Microsoft Azure SDK for Python >= 1.0.2
+The python-requests library, for Python < 2.7.9.
+```
+
+Then I found this: https://docs.saltstack.com/en/latest/ref/clouds/all/salt.cloud.clouds.azurearm.html#module-salt.cloud.clouds.azurearm
+
+and - after upgrading salt to 2016.11.1 - I tested it again with "azure (2.0.0rc5)", "azure-storage (0.32.0)", "requests (2.7.0)" or "requests (2.12.5)",
+as I see as deps required for this module:
+```
+Microsoft Azure SDK for Python >= 2.0rc5
+Microsoft Azure Storage SDK for Python >= 0.32
+```
+
+I always receive the same error when I try to spin up an instance:
+```
+# salt-cloud  -p azure-win test-win -l debug
+...
+[INFO    ] Creating Cloud VM test-win
+[DEBUG   ] vm_kwargs: {'system_config': <azure.servicemanagement.models.LinuxConfigurationSet object at 0x3c45a10>, 'deployment_slot': 'production', 'role_size': 'Basic_A0', 'deployment_name': 'test-win', 'virtual_network_name': 'Test-ResourceGroup-vnet', 'service_name': 'test-win', 'role_name': 'test-win', 'network_config': <azure.servicemanagement.models.ConfigurationSet object at 0x3c45950>, 'os_virtual_hard_disk': <azure.servicemanagement.models.OSVirtualHardDisk object at 0x3c45b10>, 'label': 'test-win'}
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event: tag = salt/cloud/test-win/requesting; data = {'_stamp': '2017-01-24T05:11:35.361633', 'service_kwargs': {'service_name': 'test-win', 'label': 'test-win', 'location': 'West US 2', 'description': 'test-win'}, 'event': 'requesting instance', 'vm_kwargs': {'deployment_slot': 'production', 'role_size': 'Basic_A0', 'deployment_name': 'test-win', 'virtual_network_name': 'Test-ResourceGroup-vnet', 'service_name': 'test-win', 'label': 'test-win', 'role_name': 'test-win'}}
+[DEBUG   ] vm_kwargs: {'system_config': <azure.servicemanagement.models.LinuxConfigurationSet object at 0x3c45a10>, 'deployment_slot': 'production', 'role_size': 'Basic_A0', 'deployment_name': 'test-win', 'virtual_network_name': 'Test-ResourceGroup-vnet', 'service_name': 'test-win', 'role_name': 'test-win', 'network_config': <azure.servicemanagement.models.ConfigurationSet object at 0x3c45950>, 'os_virtual_hard_disk': <azure.servicemanagement.models.OSVirtualHardDisk object at 0x3c45b10>, 'label': 'test-win'}
+[DEBUG   ] Cloud service already exists
+[ERROR   ] Error creating test-win on Azure.
+
+The Virtual Machine could not be created. If you are using an already existing Cloud Service, make sure you set up the `port` variable corresponding to the SSH port exists and that the port number is not already in use.
+The following exception was thrown when trying to run the initial deployment: 
+Not Found
+<Error xmlns="http://schemas.microsoft.com/windowsazure" xmlns:i="http://www.w3.org/2001/XMLSchema-instance"><Code>ResourceNotFound</Code><Message>The hosted service does not exist.</Message></Error>
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/msazure.py", line 587, in create
+    result = conn.create_virtual_machine_deployment(**vm_kwargs)
+  File "/usr/lib/python2.7/site-packages/azure/servicemanagement/servicemanagementservice.py", line 1377, in create_virtual_machine_deployment
+    async=True)
+  File "/usr/lib/python2.7/site-packages/azure/servicemanagement/servicemanagementclient.py", line 382, in _perform_post
+    response = self.perform_post(path, body, x_ms_version)
+  File "/usr/lib/python2.7/site-packages/azure/servicemanagement/servicemanagementclient.py", line 224, in perform_post
+    response = self._perform_request(request)
+  File "/usr/lib/python2.7/site-packages/azure/servicemanagement/servicemanagementclient.py", line 339, in _perform_request
+    return _management_error_handler(ex)
+  File "/usr/lib/python2.7/site-packages/azure/servicemanagement/servicemanagementclient.py", line 417, in _management_error_handler
+    return _general_error_handler(http_error)
+  File "/usr/lib/python2.7/site-packages/azure/servicemanagement/_common_error.py", line 34, in _general_error_handler
+    raise AzureHttpError(message, http_error.status)
+AzureMissingResourceHttpError: Not Found
+<Error xmlns="http://schemas.microsoft.com/windowsazure" xmlns:i="http://www.w3.org/2001/XMLSchema-instance"><Code>ResourceNotFound</Code><Message>The hosted service does not exist.</Message></Error>
+Error: There was a profile error: Failed to deploy VM
+
+
+```
+
+
+### Versions Report
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2016.11.1
+ 
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: Not Installed
+       dateutil: 2.6.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: 0.2.4
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.3.1611 Core
+        machine: x86_64
+        release: 3.10.0-514.2.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```
+
+
+Any idea?
+
+Thanks

@@ -1,0 +1,178 @@
+### Description of Issue/Question
+
+Hi !
+
+I'm experiencing a bad error handling about the salt cp module, involve in the cmd.script state.
+(and I think #28206 and #31236  are talking about the same issue)
+
+Actually, it's the first time I use cmd.script with an inexistent file/path (weird, uh? :D)
+
+I've made some researches.
+
+Here is the error I've got (debug below):
+```
+    Function: cmd.script
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1746, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1704, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/cmd.py", line 1108, in script
+                  cmd_all = __salt__['cmd.script'](source, python_shell=True, **cmd_kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/cmdmod.py", line 2082, in script
+                  **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/cp.py", line 261, in get_template
+                  **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 679, in get_template
+                  if not os.path.exists(sfn):
+                File "/usr/lib/python2.7/genericpath.py", line 18, in exists
+                  os.stat(path)
+              TypeError: coercing to Unicode: need string or buffer, bool found
+```
+
+I think since this commit c0e2f2d104725148a4320f730b25fa0e4e9773af, salt double check the existence of the path of a file before get it :
+
+in`get_file` func in fileclient : 
+https://github.com/saltstack/salt/blob/6ca3607770c1cbbe90c4e4a3c822381a74e15d44/salt/fileclient.py#L1079-L1086
+
+and in`get_template` func in fileclient
+https://github.com/saltstack/salt/blob/6ca3607770c1cbbe90c4e4a3c822381a74e15d44/salt/fileclient.py#L757-L759
+
+Badly, in `get_template`, after the call to `cache_file` the value of `sfn` var is `False`.
+
+I don't know salt core very well, so I not making a suggested PR to resolve that, but I hope my research will help.
+
+
+### Setup
+Here is the state I used (with an incorrect path)
+```
+gitlab-runner-registration:
+  cmd.script:
+    - source: salt://role/gitlab/files/registration-runner.sh
+    - template: jinja
+    - context:
+      token: {{ gitlab_runner_registration_token }}
+    - onchanges:
+      - pkg: gitlab-runner-package
+    - require:
+      - pkg: gitlab-runner-package
+```
+
+### Steps to Reproduce Issue
+When I execute my (above) state, the debug loglevel give me :
+```
+[INFO    ] Running state [gitlab-runner-registration] at time 16:06:28.614240
+[INFO    ] Executing state cmd.script for gitlab-runner-registration
+[DEBUG   ] LazyLoaded cmd.script
+[DEBUG   ] LazyLoaded cp.get_template
+[DEBUG   ] Could not find file 'salt://role/gitlab/files/registration-runner.sh' in saltenv 'base'
+[DEBUG   ] result value: False
+[DEBUG   ] sfn value: False
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1746, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1704, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/states/cmd.py", line 1108, in script
+    cmd_all = __salt__['cmd.script'](source, python_shell=True, **cmd_kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/cmdmod.py", line 2082, in script
+    **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/cp.py", line 261, in get_template
+    **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 681, in get_template
+    if not os.path.exists(sfn):
+  File "/usr/lib/python2.7/genericpath.py", line 18, in exists
+    os.stat(path)
+TypeError: coercing to Unicode: need string or buffer, bool found
+
+[INFO    ] Completed state [gitlab-runner-registration] at time 16:06:28.632955 duration_in_ms=18.715
+```
+
+### Versions Report
+salt-minion
+```
+Salt Version:
+           Salt: 2016.11.5
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+      docker-py: 1.7.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.9
+        machine: x86_64
+        release: 3.14.79
+         system: Linux
+        version: debian 8.9
+```
+
+salt-master :
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2016.11.5
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+      docker-py: Not Installed
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: 0.3.6
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.7
+        machine: x86_64
+        release: 3.14.79
+         system: Linux
+        version: debian 8.7
+```

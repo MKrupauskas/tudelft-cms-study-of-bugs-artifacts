@@ -1,0 +1,312 @@
+## Description of Issue
+I'm running salt 2018.3.4.  I'm having an issue where I'm trying to install a package that creates a user, HOWEVER, I want salt to create the user BEFORE the package gets installed so I can specify groups and uid/gid etc. 
+I have declared the package to require the oracle user [I've tried multiple ways requiring the full oracledb/user.sls or just requiring the user oracle with no luck].
+
+No matter what I do, it seems to pull in the package from this new state, and installs it at the same time as another state installs packages, completely ignoring any includes/requirements I've set that need to happen first!
+
+And what's really odd is that the lowstate seems to show the correct order, but what salt actually applies doesn't match the order listed in the lowstate. 
+
+
+
+## Setup
+```
+### Relevant states ####
+
+################
+### salt/top.sls ###
+################
+base:
+  # States which should be applied to ALL minions
+  '*':
+    - mysite-packages
+    <snip> other common states to be run
+
+
+  'minionid':
+    - match: compound
+    - oracledb
+
+ 
+#######################
+### oracledb/package.sls ###
+########################
+# -*- coding: utf-8 -*-
+# vim: ft=sls
+
+{% from "oracledb/map.jinja" import oracledb with context %}
+
+include:
+  - oracledb.user
+
+< snip some logic  to set the name of the preinstallpkg based on the oracle version to be installed>
+
+{{ preinstallpkg }}:
+  pkg.installed:
+    - require:
+      - user: users_{{ oracledb.user }}
+{% endif %}
+
+
+
+######################
+### oracledb/user.sls ### [I've tried with/without the require_in for the package sls or just the individual package with no luck]
+######################
+# -*- coding: utf-8 -*-
+# vim: ft=sls
+
+{% from "oracledb/map.jinja" import oracledb with context %}
+groups_{{ oracledb.group }}:
+  group.present:
+    - name: {{ oracledb.group }}
+    - gid: {{ oracledb.groupid }}
+
+groups_{{ oracledb.dbagrp }}:
+  group.present:
+    - name: {{ oracledb.dbagrp }}
+    - gid: {{ oracledb.dbagid }}
+
+users_{{ oracledb.user }}:
+  user.present:
+    - name: {{ oracledb.user }}
+    - home: {{ oracledb.homedir }}
+    - uid: {{ oracledb.userid }}
+    - gid: {{ oracledb.group }}
+    - shell: {{ oracledb.shell }}
+    - password: {{ oracledb.pwhash }}
+    - enforce_password: {{ oracledb.enforce_password }}
+    - fullname: {{ oracledb.fullname }}
+    - createhome: {{ oracledb.createhome }}
+    - groups:
+      - {{ oracledb.dbagrp }}
+    - require:
+      - group: groups_{{ oracledb.dbagrp }}
+      - group: groups_{{ oracledb.group }}
+
+
+
+## NOTE:  The {{ preinstallpkg }} is ***NOT*** in the list of packages that gets installed by mysite-packages, and it is ***NOT*** a dependency of any of those packages at are. 
+
+#####################
+### mysite-packages ###
+#####################
+# Install package groups
+{% for group,args in pillar.get('mygroups', {}).items() %}
+  group_{{ args['grpname'] }}:
+    pkg.group_installed:
+      - name: {{ args['grpname'] }}
+{% endfor %}
+
+# Install individual packages
+{% for package,args in pillar.get('mypackages', {}).items() %}
+  package_{{ args['pkgname'] }}:
+    pkg.{{ args['state'] }}:
+      - name: {{ args['pkgname'] }}
+      {% if args['version'] is defined %}
+      - version: {{ args['version'] }}
+      {% endif %}
+      {% if args['hold'] is defined %}
+      - hold: {{ args['hold'] }}
+      {% endif %}
+{% endfor %}
+
+
+#####################  
+#### oracledb/init.sls ### 
+#####################
+### NOTE: This default.yaml/pillar just determines if we run a client.sls or server.sls
+# -*- coding: utf-8 -*-
+# vim: ft=sls
+
+{% from "oracledb/map.jinja" import oracledb with context %}
+
+# Will only include the correct install type 
+include:
+  - oracledb.{{ oracledb.installtype|lower }}
+
+###########################
+#### oracledb/defaults.yaml ####
+###########################
+oracledb:
+  installtype: user
+  user: oracle
+  userid: 60016
+  group: oinstall
+  groupid: 15057
+  dbagrp: dba
+  dbagid: 15054
+  shell: /bin/ksh
+  homedir: /home/oracle
+  enforce_password: True
+  fullname: 'Oracle DB Service Account'
+  createhome: True
+  basedir: /opt/oracle
+  configfile: /etc/oraInst.loc
+  # Default will be 12.1.0.2.0 if it's not otherwise specified
+  installversions:
+    - 12.1.0.2.0
+
+####################################
+#### pillar/oracledb/testdb99odb04.sls ####
+###################################
+   ##NOTE:  pillar/oracledb/user.sls contains only the 'pwhash'
+include:
+  - oracledb.user
+oracledb:
+  lookup:
+    installtype: server
+
+
+
+#################################
+#### pillar/mysite-packages/init.sls ####
+#################################
+mypackages:
+  adcli:
+    pkgname: adcli
+    state: installed
+  atop:
+    pkgname: atop
+    state: installed
+  bash:
+    pkgname: bash
+    state: installed
+  bash-completion:
+    pkgname: bash-completion
+    state: installed
+<snip> 
+```
+
+
+## Steps to Reproduce Issue
+#### EXPECTED RESULT:
+1. install packages listed in mysite-packages
+2. create oracle user with specific UID
+3. install oracle preinstall package
+
+
+#### Actual Result 1 [FAIL]
+salt -C 'minionid' state.apply
+1. installs packages listed in mysite-packages AND installs the oracle preinstall package at the same time
+2. Fails to create oracle user because it already exists with a different UID. 
+
+
+#### Actual Result 2: [SUCCESS, but only if I apply states separately]
+salt -C 'minionid' state.apply mysite-packages && salt -C 'minionid' state.apply oracledb
+1. Installs packages listed for this state 
+2. Creates oracle user with correct UID
+3. Installs oracle preinstall package 
+
+
+#### Lowstate ####
+##### oracle-rdbms-server-12cR1-preinstall package: order 10193 #####
+```
+    |_
+      ----------
+      __env__:
+          base
+      __id__:
+          oracle-rdbms-server-12cR1-preinstall
+      __sls__:
+          oracledb.packages
+      fun:
+          installed
+      name:
+          oracle-rdbms-server-12cR1-preinstall
+      order:
+          10193
+      require:
+          |_
+            ----------
+            user:
+                users_oracle
+      state:
+          pkg
+```
+##### oracle.user: order 10192 #####
+```
+    |_
+      ----------
+      __env__:
+          base
+      __id__:
+          users_oracle
+      __sls__:
+          oracledb.user
+      createhome:
+          True
+      enforce_password:
+          True
+      fullname:
+          Oracle DB Service Account
+      fun:
+          present
+      gid:
+          oinstall
+      groups:
+          - dba
+      home:
+          /home/oracle
+      name:
+          oracle
+      order:
+          10192
+      password:
+           {{HASH HERE}}}
+      require:
+          |_
+            ----------
+            group:
+                groups_dba
+          |_
+            ----------
+            group:
+                groups_oinstall
+      shell:
+          /bin/ksh
+      state:
+          user
+      uid:
+          60016
+```
+## Versions Report
+Salt Version:
+           Salt: 2018.3.4
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: 0.24.6
+        libnacl: Not Installed
+       M2Crypto: 0.31.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.24.2
+         Python: 2.7.5 (default, Apr  9 2019, 16:02:27)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: oracle 7.6
+         locale: UTF-8
+        machine: x86_64
+        release: 4.1.12-124.26.10.el7uek.x86_64
+         system: Linux
+        version: Oracle Linux Server 7.6
+

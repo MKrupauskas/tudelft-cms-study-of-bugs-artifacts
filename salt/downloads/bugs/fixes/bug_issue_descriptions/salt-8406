@@ -1,0 +1,66 @@
+See this gist: https://gist.github.com/karlgrz/7414031
+
+And this salt state:
+
+```
+rethinkdb-ppa:
+  pkgrepo.managed:
+    - ppa: rethinkdb/ppa
+
+rethinkdb:
+  pkg:
+    - installed
+    - require:
+      - pkgrepo.managed: rethinkdb-ppa 
+  service:
+    - running
+    - enable: True
+    - reload: True
+    - require:
+      - pkg: rethinkdb
+    - watch:
+      - file: /etc/rethinkdb/instances.d/instance1.conf
+
+/etc/rethinkdb/instances.d:
+  file.directory:
+    - mode: 755
+
+/etc/rethinkdb/instances.d/instance1.conf:
+  file.managed:
+    - source: salt://rethinkdb/instance1.conf
+    - mode: 755
+    - require:
+      - file.directory: /etc/rethinkdb/instances.d
+      - pkg: rethinkdb
+```
+
+I run this state locally from the minion:
+
+```
+salt-call --local state.highstate
+```
+
+The logs show that the service is in the desired state:
+
+```
+2013-11-11 09:52:26,466 [salt.state       ][INFO    ] Executing state pkgrepo.managed for rethinkdb-ppa
+2013-11-11 09:52:26,529 [salt.state       ][INFO    ] Package repo 'rethinkdb-ppa' already configured
+2013-11-11 09:52:26,531 [salt.state       ][INFO    ] Executing state pkg.installed for rethinkdb
+2013-11-11 09:52:26,537 [salt.state       ][INFO    ] Package rethinkdb is already installed
+2013-11-11 09:52:26,546 [salt.state       ][INFO    ] Executing state file.directory for /etc/rethinkdb/instances.d
+2013-11-11 09:52:26,547 [salt.state       ][INFO    ] Directory /etc/rethinkdb/instances.d is in the correct state
+2013-11-11 09:52:26,549 [salt.state       ][INFO    ] Executing state file.managed for /etc/rethinkdb/instances.d/instance1.conf
+2013-11-11 09:52:26,552 [salt.state       ][INFO    ] File /etc/rethinkdb/instances.d/instance1.conf is in the correct state
+2013-11-11 09:52:26,554 [salt.state       ][INFO    ] Executing state service.running for rethinkdb
+2013-11-11 09:52:26,560 [salt.loaded.int.module.cmdmod][INFO    ] Executing command 'service rethinkdb status' in directory '/root'
+2013-11-11 09:52:26,603 [salt.state       ][INFO    ] Service rethinkdb is already enabled, and is in the desired state
+```
+
+However, if I run service rethinkdb status after this, I see the following:
+
+```
+root@karlgrz-web:/srv/salt# service rethinkdb status
+rethinkdb: instance1: stop/crashed
+```
+
+I never saw this behavior on Ubuntu 13.04

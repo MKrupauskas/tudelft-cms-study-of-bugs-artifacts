@@ -1,0 +1,106 @@
+I encountered this error using RabbitMQ 3.5.3.-1 and Salt 2015.5.2 on Centos 6.5.
+
+This appears to actually be an issue with the `list_users` feature.  Before setting tags, salt checks to see which tags have already been set (see https://github.com/saltstack/salt/blob/develop/salt/states/rabbitmq_user.py#L73).  However, `list_users` is not returning anything.
+
+My salt state is:
+
+``` SaltStack
+rabbitmq_user_taurus:
+  rabbitmq_user.present:
+    - name: taurus
+    {%- if 'taurus_user_password' in salt['pillar.get']('rabbitmq', {}) %}
+    - password: {{ salt['pillar.get']('rabbitmq:taurus_user_password') }}
+    {%- else %}
+    - password: taurus
+    {%- endif %}
+    - tags: administrator
+    - force: True
+    - perms:
+      - '/':
+        - '.*'
+        - '.*'
+        - '.*'
+    - runas: root
+    - require:
+      - service: rabbitmq-server
+```
+
+And the resulting error is:
+
+``` python
+          ID: rabbitmq_user_taurus
+    Function: rabbitmq_user.present
+        Name: taurus
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.6/site-packages/salt/state.py", line 1563, in call
+                  **cdata['kwargs'])
+                File "/usr/lib64/python2.6/contextlib.py", line 34, in __exit__
+                  self.gen.throw(type, value, traceback)
+                File "/usr/lib/python2.6/site-packages/salt/utils/context.py", line 42, in func_globals_inject
+                  yield
+                File "/usr/lib/python2.6/site-packages/salt/state.py", line 1563, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.6/site-packages/salt/states/rabbitmq_user.py", line 147, in present
+                  if _check_tags_changes(name, tags):
+                File "/usr/lib/python2.6/site-packages/salt/states/rabbitmq_user.py", line 70, in _check_tags_changes
+                  return __salt__['rabbitmq.list_users']()[name] - set(newtags)
+              KeyError: 'taurus'
+     Started: 23:13:21.447446
+    Duration: 1308.043 ms
+     Changes:
+```
+
+I tried a few salt-cli commands and it appears that `list_users` just isn't returning anything and `user_exists` is returning bad information:
+
+``` SaltStack
+[jcasner@salt]/opt/numenta/git/products% sudo salt 'role-rabbitmq-us-west-2c-i-ce088206' rabbitmq.list_users
+
+[jcasner@salt]/opt/numenta/git/products% sudo salt 'role-rabbitmq-us-west-2c-i-ce088206' rabbitmq.user_exists taurus
+role-rabbitmq-us-west-2c-i-ce088206:
+    False
+
+[jcasner@salt]/opt/numenta/git/products% sudo salt 'role-rabbitmq-us-west-2c-i-ce088206' rabbitmq.user_exists guest
+role-rabbitmq-us-west-2c-i-ce088206:
+    True
+
+[jcasner@salt]/opt/numenta/git/products% sudo salt 'role-rabbitmq-us-west-2c-i-ce088206' rabbitmq.add_user taurus taurus
+role-rabbitmq-us-west-2c-i-ce088206:
+    ----------
+    Error:
+        Creating user "taurus" ...
+        Error: user_already_exists: taurus
+[jcasner@salt]/opt/numenta/git/products% sudo salt 'role-rabbitmq-us-west-2c-i-ce088206' rabbitmq.user_exists taurus
+role-rabbitmq-us-west-2c-i-ce088206:
+    False
+```
+
+On the target machine, I can see the user list:
+
+``` Shell
+[jcasner@jared-rabbit-test-2015-07-23]~% sudo rabbitmqctl list_users
+Listing users ...
+guest   [administrator]
+taurus  []
+```
+
+And if I use the salt CLI to add the tags to the new user, I can do that:
+
+``` Shell
+[jcasner@salt]/opt/numenta/git/products% sudo salt 'role-rabbitmq-us-west-2c-i-ce088206' rabbitmq.set_user_tags taurus 'administrator'
+role-rabbitmq-us-west-2c-i-ce088206:
+    ----------
+    Tag(s) set:
+        Setting tags for user "taurus" to [administrator] ...
+```
+
+Which correctly grants the new tag to the user
+
+``` Shell
+[jcasner@jared-rabbit-test-2015-07-23]~% sudo rabbitmqctl list_users
+Listing users ...
+guest   [administrator]
+taurus  [administrator]
+```
+
+Appreciate the help getting this sorted out!

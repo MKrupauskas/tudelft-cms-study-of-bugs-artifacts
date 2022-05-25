@@ -1,0 +1,79 @@
+## Description
+
+Sometimes the saltmaster fails to apply the specified environment inheritance pattern.
+## Error
+
+```
+local:
+    Data failed to compile:
+----------
+    No matching sls found for 'prototypes.email-service-queue' in env 'local'
+```
+## Setup
+
+I use a grain called prototypes which specifies our minion's roles. I have 3 environments whose roots inherit from each other like so (Note that dev and local pillars intentionally do not inherit production):
+
+```
+file_roots:
+  production:
+    - /srv/salt/production
+  development:
+    - /srv/salt/development
+    - /srv/salt/production
+  local:
+    - /srv/salt/local
+    - /srv/salt/development
+    - /srv/salt/production
+
+pillar_roots:
+  production:
+    - /srv/pillar/production
+  development:
+    - /srv/pillar/development
+  local:
+    - /srv/pillar/local
+    - /srv/pillar/development
+```
+
+I created 3 new minions, all with the same if "nick-carenza.local" (the environment is determined by the suffix of the minon_id). Each minion pointed to the same salmaster and these are their minion files:
+- minion 1
+
+```
+master: saltmaster.dev
+grains:
+  prototypes:
+    - email-service-api
+```
+- minion 2
+
+```
+master: saltmaster.dev
+grains:
+  prototypes:
+    - email-service-mysql
+```
+- minion 3
+
+```
+master: saltmaster.dev
+grains:
+  prototypes:
+    - email-service-queue
+```
+
+I created an init.sls file on the saltmaster under the production file_root for each of them. If anyone thinks the contents of those file might be significant, I may post them). I also created empty init.sls files for each prototype under the development and production pillar roots.
+
+```
+$ find . -ipath '*email-service-*' -iname init.sls
+./pillar/development/prototypes/email-service-api/init.sls
+./pillar/development/prototypes/email-service-mysql/init.sls
+./pillar/development/prototypes/email-service-queue/init.sls
+./pillar/production/prototypes/email-service-api/init.sls
+./pillar/production/prototypes/email-service-mysql/init.sls
+./pillar/production/prototypes/email-service-queue/init.sls
+./salt/production/prototypes/email-service-api/init.sls
+./salt/production/prototypes/email-service-mysql/init.sls
+./salt/production/prototypes/email-service-queue/init.sls
+```
+
+When I called highstate on each of the machines and only the email-service-queue machine failed and I cannot figure out why.

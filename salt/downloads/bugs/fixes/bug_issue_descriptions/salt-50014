@@ -1,0 +1,288 @@
+### Description of Issue/Question
+
+Kernel addons can provide additional IPtables extensions. These extensions can have their own arguments. However, Salt's IPtables module uses `ArgumentParser`'s `parse_args` function to parse IPtables rules, which throws an exception on unrecognized arguments.
+
+### Setup
+I experienced this issue with `ngcp-rtpengine-iptables`, but likely applies to other extensions as well. 
+
+```
+linux-headers-amd64:
+  pkg.installed: []
+
+dkms:
+  pkg.installed: []
+
+/var/spool/rtpengine:
+  file.directory: []
+
+sipwise_repository:
+  pkgrepo.managed:
+    - name: deb http://deb.sipwise.com/spce/mr4.5.5 {{ grains.oscodename }} main
+    - file: /etc/apt/sources.list.d/sipwise.list
+    - key_url: https://deb.sipwise.com/spce/sipwise.gpg
+    - refresh_db: True
+    - require_in:
+      - pkg: ngcp-rtpengine-daemon
+
+ngcp-rtpengine-daemon:
+  pkg.installed:
+    - pkgs:
+      - ngcp-rtpengine-daemon
+      - ngcp-rtpengine-iptables
+      - ngcp-rtpengine-kernel-dkms
+  service.running:
+    - require:
+      - pkg: ngcp-rtpengine-daemon
+    - enable: True
+    - watch:
+      - file: /etc/default/ngcp-rtpengine-daemon
+
+/etc/default/ngcp-rtpengine-daemon:
+  file.managed:
+    - contents:
+        RUN_RTPENGINE=yes
+        LISTEN_NG=12321
+        INTERFACES="127.0.0.1"
+        TIMEOUT=60
+        SILENT_TIMEOUT=3600
+        PIDFILE=/var/run/ngcp-rtpengine-daemon.pid
+        FORK=yes
+        TABLE=0
+        NO_FALLBACK=yes
+        PORT_MIN=30000
+        PORT_MAX=50000
+```
+
+### Steps to Reproduce Issue
+After applying the SLS above, run `salt-call -l info iptables.get_rules`. This will produce the following output:
+
+```
+[INFO    ] Executing command '/sbin/iptables-save' in directory '/root'
+usage: salt-call [-h] [-A APPEND] [-D DELETE] [-I INSERT] [-R REPLACE]
+                 [-L LIST] [-F FLUSH] [-Z ZERO] [-N NEW-CHAIN]
+                 [-X DELETE-CHAIN] [-P POLICY] [-E RENAME-CHAIN] [-p PROTOCOL]
+                 [-s SOURCE] [-d DESTINATION] [-j JUMP] [-g GOTO]
+                 [-i IN-INTERFACE] [-o OUT-INTERFACE] [-f FRAGMENT]
+                 [-c SET-COUNTERS] [-m MATCH] [--src-type SRC-TYPE]
+                 [--dst-type DST-TYPE] [--limit-iface-in LIMIT-IFACE-IN]
+                 [--limit-iface-out LIMIT-IFACE-OUT] [--ahspi AHSPI]
+                 [--ahlen AHLEN] [--ahres AHRES] [--bytecode BYTECODE]
+                 [--cluster-total-nodes CLUSTER-TOTAL-NODES]
+                 [--cluster-local-node CLUSTER-LOCAL-NODE]
+                 [--cluster-local-nodemask CLUSTER-LOCAL-NODEMASK]
+                 [--cluster-hash-seed CLUSTER-HASH-SEED] [--h-length H-LENGTH]
+                 [--mangle-mac-s MANGLE-MAC-S] [--mangle-mac-d MANGLE-MAC-D]
+                 [--comment COMMENT] [--connbytes CONNBYTES]
+                 [--connbytes-dir CONNBYTES-DIR]
+                 [--connbytes-mode CONNBYTES-MODE] [--label LABEL]
+                 [--connlimit-upto CONNLIMIT-UPTO]
+                 [--connlimit-above CONNLIMIT-ABOVE]
+                 [--connlimit-mask CONNLIMIT-MASK]
+                 [--connlimit-saddr CONNLIMIT-SADDR]
+                 [--connlimit-daddr CONNLIMIT-DADDR] [--mark MARK]
+                 [--ctstate CTSTATE] [--ctproto CTPROTO]
+                 [--ctorigsrc CTORIGSRC] [--ctorigdst CTORIGDST]
+                 [--ctreplsrc CTREPLSRC] [--ctrepldst CTREPLDST]
+                 [--ctorigsrcport CTORIGSRCPORT]
+                 [--ctorigdstport CTORIGDSTPORT]
+                 [--ctreplsrcport CTREPLSRCPORT]
+                 [--ctrepldstport CTREPLDSTPORT] [--ctstatus CTSTATUS]
+                 [--ctexpire CTEXPIRE] [--ctdir CTDIR] [--cpu CPU]
+                 [--sport SOURCE_PORT] [--dport DESTINATION_PORT]
+                 [--dccp-types DCCP-TYPES] [--dccp-option DCCP-OPTION]
+                 [--src-group SRC-GROUP] [--dst-group DST-GROUP] [--dscp DSCP]
+                 [--dscp-class DSCP-CLASS] [--dst-len DST-LEN]
+                 [--dst-opts DST-OPTS] [--ecn-tcp-cwr ECN-TCP-CWR]
+                 [--ecn-tcp-ece ECN-TCP-ECE] [--ecn-ip-ect ECN-IP-ECT]
+                 [--espspi ESPSPI] [--fragid FRAGID] [--fraglen FRAGLEN]
+                 [--fragres FRAGRES] [--fragfirst FRAGFIRST]
+                 [--fragmore FRAGMORE] [--fraglast FRAGLAST]
+                 [--hashlimit-upto HASHLIMIT-UPTO]
+                 [--hashlimit-above HASHLIMIT-ABOVE]
+                 [--hashlimit-burst HASHLIMIT-BURST]
+                 [--hashlimit-mode HASHLIMIT-MODE]
+                 [--hashlimit-srcmask HASHLIMIT-SRCMASK]
+                 [--hashlimit-dstmask HASHLIMIT-DSTMASK]
+                 [--hashlimit-name HASHLIMIT-NAME]
+                 [--hashlimit-htable-size HASHLIMIT-HTABLE-SIZE]
+                 [--hashlimit-htable-max HASHLIMIT-HTABLE-MAX]
+                 [--hashlimit-htable-expire HASHLIMIT-HTABLE-EXPIRE]
+                 [--hashlimit-htable-gcinterval HASHLIMIT-HTABLE-GCINTERVAL]
+                 [--hbh-len HBH-LEN] [--hbh-opts HBH-OPTS] [--helper HELPER]
+                 [--hl-eq HL-EQ] [--hl-lt HL-LT] [--hl-gt HL-GT]
+                 [--icmp-type ICMP-TYPE] [--icmpv6-type ICMPV6-TYPE]
+                 [--src-range SRC-RANGE] [--dst-range DST-RANGE] [--soft SOFT]
+                 [--header HEADER] [--ipvs IPVS] [--vproto VPROTO]
+                 [--vaddr VADDR] [--vport VPORT] [--vdir VDIR]
+                 [--vmethod VMETHOD] [--vportctl VPORTCTL] [--length LENGTH]
+                 [--limit LIMIT] [--limit-burst LIMIT-BURST]
+                 [--mac-source MAC-SOURCE] [--mh-type MH-TYPE]
+                 [--sports SOURCE-PORTS] [--dports DESTINATION-PORTS]
+                 [--ports PORTS] [--nfacct-name NFACCT-NAME] [--genre GENRE]
+                 [--ttl TTL] [--log LOG] [--uid-owner UID-OWNER]
+                 [--gid-owner GID-OWNER] [--socket-exists SOCKET-EXISTS]
+                 [--physdev-in PHYSDEV-IN] [--physdev-out PHYSDEV-OUT]
+                 [--physdev-is-in PHYSDEV-IS-IN]
+                 [--physdev-is-out PHYSDEV-IS-OUT]
+                 [--physdev-is-bridged PHYSDEV-IS-BRIDGED]
+                 [--pkt-type PKT-TYPE] [--dir DIR] [--pol POL]
+                 [--strict STRICT] [--reqid REQID] [--spi SPI] [--proto PROTO]
+                 [--mode MODE] [--tunnel-src TUNNEL-SRC]
+                 [--tunnel-dst TUNNEL-DST] [--next NEXT] [--quota QUOTA]
+                 [--rateest RATEEST] [--rateest1 RATEEST1]
+                 [--rateest2 RATEEST2] [--rateest-delta RATEEST-DELTA]
+                 [--rateest-bps RATEEST-BPS] [--rateest-bps1 RATEEST-BPS1]
+                 [--rateest-bps2 RATEEST-BPS2] [--rateest-pps RATEEST-PPS]
+                 [--rateest-pps1 RATEEST-PPS1] [--rateest-pps2 RATEEST-PPS2]
+                 [--rateest-lt RATEEST-LT] [--rateest-gt RATEEST-GT]
+                 [--rateest-eq RATEEST-EQ] [--rateest-name RATEEST-NAME]
+                 [--rateest-interval RATEEST-INTERVAL]
+                 [--rateest-ewma RATEEST-EWMA] [--realm REALM] [--name NAME]
+                 [--set SET] [--rsource RSOURCE] [--rdest RDEST] [--mask MASK]
+                 [--rcheck RCHECK] [--update UPDATE] [--remove REMOVE]
+                 [--seconds SECONDS] [--reap REAP] [--hitcount HITCOUNT]
+                 [--rttl RTTL] [--loose LOOSE] [--validmark VALIDMARK]
+                 [--accept-local ACCEPT-LOCAL] [--invert INVERT]
+                 [--rt-type RT-TYPE] [--rt-segsleft RT-SEGSLEFT]
+                 [--rt-len RT-LEN] [--rt-0-res RT-0-RES]
+                 [--rt-0-addrs RT-0-ADDRS] [--rt-0-not-strict RT-0-NOT-STRICT]
+                 [--chunk-types CHUNK-TYPES] [--match-set MATCH-SET]
+                 [--return-nomatch RETURN-NOMATCH]
+                 [--update-counters UPDATE-COUNTERS]
+                 [--update-subcounters UPDATE-SUBCOUNTERS]
+                 [--packets-eq PACKETS-EQ] [--packets-lt PACKETS-LT]
+                 [--packets-gt PACKETS-GT] [--bytes-eq BYTES-EQ]
+                 [--bytes-lt BYTES-LT] [--bytes-gt BYTES-GT]
+                 [--transparent TRANSPARENT] [--nowildcard NOWILDCARD]
+                 [--state STATE] [--probability PROBABILITY] [--every EVERY]
+                 [--packet PACKET] [--algo ALGO] [--from FROM] [--to TO]
+                 [--string STRING] [--hex-string HEX-STRING]
+                 [--tcp-flags TCP-FLAGS] [--syn SYN] [--tcp-option TCP-OPTION]
+                 [--mss MSS] [--datestart DATESTART] [--datestop DATESTOP]
+                 [--timestart TIMESTART] [--timestop TIMESTOP]
+                 [--monthdays MONTHDAYS] [--weekdays WEEKDAYS]
+                 [--contiguous CONTIGUOUS] [--kerneltz KERNELTZ] [--utc UTC]
+                 [--localtz LOCALTZ] [--tos TOS] [--ttl-eq TTL-EQ]
+                 [--ttl-gt TTL-GT] [--ttl-lt TTL-LT] [--u32 U32]
+                 [--condition CONDITION] [--mac MAC]
+                 [--lower-limit LOWER-LIMIT] [--upper-limit UPPER-LIMIT]
+                 [--src-cc SOURCE-COUNTRY] [--dst-cc DESTINATION-COUNTRY]
+                 [--enabled ENABLED] [--disabled DISABLED] [--iface IFACE]
+                 [--dev-in DEV-IN] [--dev-out DEV-OUT] [--up UP] [--down DOWN]
+                 [--broadcast BROADCAST] [--loopback LOOPBACK]
+                 [--pointtopoint POINTTOPOINT] [--running RUNNING]
+                 [--noarp NOARP] [--arp ARP] [--promisc PROMISC]
+                 [--multicast MULTICAST] [--dynamic DYNAMIC]
+                 [--lower-up LOWER-UP] [--dormant DORMANT] [--edk EDK]
+                 [--kazaa KAZAA] [--gnu GNU] [--dc DC] [--bit BIT]
+                 [--apple APPLE] [--soul SOUL] [--winmx WINMX] [--ares ARES]
+                 [--debug DEBUG] [--flags FLAGS] [--any ANY] [--layer3 LAYER3]
+                 [--layer4 LAYER4] [--layer5 LAYER5] [--stealth STEALTH]
+                 [--synscan SYNSCAN] [--cnscan CNSCAN] [--grscan GRSCAN]
+                 [--psd-weight-threshold PSD-WEIGHT-THRESHOLD]
+                 [--psd-delay-threshold PSD-DELAY-THRESHOLD]
+                 [--psd-lo-ports-weight PSD-LO-PORTS-WEIGHT]
+                 [--psd-hi-ports-weight PSD-HI-PORTS-WEIGHT] [--grow GROW]
+                 [--no-change NO-CHANGE] [--packets PACKETS]
+                 [--knockports KNOCKPORTS] [--time TIME]
+                 [--autoclose AUTOCLOSE] [--checkip CHECKIP] [--type TYPE]
+                 [--checksum-fill CHECKSUM-FILL] [--set-class SET-CLASS]
+                 [--new NEW] [--hashmode HASHMODE] [--clustermac CLUSTERMAC]
+                 [--total-nodes TOTAL-NODES] [--local-node LOCAL-NODE]
+                 [--hash-init HASH-INIT] [--set-xmark SET-XMARK]
+                 [--save-mark SAVE-MARK] [--restore-mark RESTORE-MARK]
+                 [--and-mark AND-MARK] [--or-mark OR-MARK]
+                 [--xor-mark XOR-MARK] [--set-mark SET-MARK] [--save SAVE]
+                 [--restore RESTORE] [--notrack NOTRACK] [--ctevents CTEVENTS]
+                 [--expevents EXPEVENTS] [--zone ZONE] [--timeout TIMEOUT]
+                 [--to-destination TO-DESTINATION] [--random RANDOM]
+                 [--persistent PERSISTENT] [--src-pfx SRC-PFX]
+                 [--dst-pfx DST-PFX] [--set-dscp SET-DSCP]
+                 [--set-dscp-class SET-DSCP-CLASS]
+                 [--ecn-tcp-remove ECN-TCP-REMOVE] [--hl-set HL-SET]
+                 [--hl-dec HL-DEC] [--hl-inc HL-INC]
+                 [--hmark-tuple HMARK-TUPLE] [--hmark-mod HMARK-MOD]
+                 [--hmark-offset HMARK-OFFSET]
+                 [--hmark-src-prefix HMARK-SRC-PREFIX]
+                 [--hmark-dst-prefix HMARK-DST-PREFIX]
+                 [--hmark-sport-mask HMARK-SPORT-MASK]
+                 [--hmark-dport-mask HMARK-DPORT-MASK]
+                 [--hmark-spi-mask HMARK-SPI-MASK]
+                 [--hmark-proto-mask HMARK-PROTO-MASK] [--hmark-rnd HMARK-RND]
+                 [--led-trigger-id LED-TRIGGER-ID] [--led-delay LED-DELAY]
+                 [--led-always-blink LED-ALWAYS-BLINK] [--log-level LOG-LEVEL]
+                 [--log-prefix LOG-PREFIX]
+                 [--log-tcp-sequence LOG-TCP-SEQUENCE]
+                 [--log-tcp-options LOG-TCP-OPTIONS]
+                 [--log-ip-options LOG-IP-OPTIONS] [--log-uid LOG-UID]
+                 [--to-ports TO-PORTS] [--nflog-group NFLOG-GROUP]
+                 [--nflog-prefix NFLOG-PREFIX] [--nflog-range NFLOG-RANGE]
+                 [--nflog-threshold NFLOG-THRESHOLD] [--queue-num QUEUE-NUM]
+                 [--queue-balance QUEUE-BALANCE] [--queue-bypass QUEUE-BYPASS]
+                 [--queue-cpu-fanout QUEUE-CPU-FANOUT]
+                 [--rateest-ewmalog RATEEST-EWMALOG]
+                 [--reject-with REJECT-WITH] [--nodst NODST] [--selctx SELCTX]
+                 [--add-set ADD-SET] [--del-set DEL-SET] [--exist EXIST]
+                 [--to-source TO-SOURCE] [--set-mss SET-MSS]
+                 [--clamp-mss-to-pmtu CLAMP-MSS-TO-PMTU]
+                 [--strip-options STRIP-OPTIONS] [--gateway GATEWAY]
+                 [--set-tos SET-TOS] [--and-tos AND-TOS] [--or-tos OR-TOS]
+                 [--xor-tos XOR-TOS] [--on-port ON-PORT] [--on-ip ON-IP]
+                 [--tproxy-mark TPROXY-MARK] [--ttl-set TTL-SET]
+                 [--ttl-dec TTL-DEC] [--ttl-inc TTL-INC]
+                 [--ulog-nlgroup ULOG-NLGROUP] [--ulog-prefix ULOG-PREFIX]
+                 [--ulog-cprange ULOG-CPRANGE]
+                 [--ulog-qthreshold ULOG-QTHRESHOLD] [--addr ADDR]
+                 [--tname TNAME] [--delude DELUDE] [--tarpit TARPIT]
+                 [--set-mac SET-MAC] [--prefix PREFIX] [--reuse REUSE]
+                 [--static STATIC] [--and-mask AND-MASK] [--or-mask OR-MASK]
+                 [--shift SHIFT] [--honeypot HONEYPOT] [--reset RESET]
+salt-call: error: unrecognized arguments: --id 0
+``` 
+
+After some debugging, it appears this error is raised by `ArgumentParter.parse_args`. This function breaks on unrecognized arguments. A simple fix would be to use `parse_known_args`, which ignores unknown arguments (but would produce incorrect output).
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.9
+ 
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Sep 25 2018, 20:42:16)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 8.11 
+        machine: x86_64
+        release: 4.9.0-0.bpo.8-amd64
+         system: Linux
+        version: debian 8.11 
+```
+
+I know this release is out of date, but I have checked the code in develop and don't see any notable changes compared to 2016.11. So I don't see any reason to believe this issue is fixed in newer releases.

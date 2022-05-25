@@ -1,0 +1,123 @@
+### Description of Issue/Question
+
+When using "tcp" as transport option I noticed that minions don't alway reconnect when connection to master is lost. Simply restart the salt-master and minions are lost... forever :(
+
+### Setup
+
+Saltmaster running on CentOS 6.8, with 250+ minions on CentOS 5,6 and 7. Network is stable and this issue seems to be related to 2016.11.2 only.
+
+### Steps to Reproduce Issue
+
+- Run salt-master -l debug (default config, normal worker threads and "transport: tcp" option.)
+- Run salt-minion -l debug 
+- stop salt-master && restart
+
+Sometimes minions reconnect, but most of the time I see errors like this;
+
+Failing minion
+
+```
+[DEBUG   ] tcp stream to 3xxx5:4505 closed, unable to recv
+[DEBUG   ] Sending event: tag = __master_disconnected; data = {'_stamp': '2017-02-16T20:53:23.504616', 'master': 'saltstack'}
+[DEBUG   ] Minion of "saltstack" is handling event tag '__master_disconnected'
+[INFO    ] Connection to master saltstack lost
+[DEBUG   ] Initializing new AsyncTCPReqChannel for ('/etc/salt/pki/minion', 'minion', 'tcp://37xxxx5:4506', 'clear')
+[ERROR   ] Exception in callback <functools.partial object at 0x5afd520>
+Traceback (most recent call last):
+  File "/usr/lib64/python2.6/site-packages/tornado/ioloop.py", line 591, in _run_callback
+    ret = callback()
+  File "/usr/lib64/python2.6/site-packages/tornado/stack_context.py", line 274, in null_wrapper
+    return fn(*args, **kwargs)
+  File "/usr/lib64/python2.6/site-packages/tornado/ioloop.py", line 597, in <lambda>
+    self.add_future(ret, lambda f: f.result())
+  File "/usr/lib64/python2.6/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib64/python2.6/site-packages/tornado/gen.py", line 876, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python2.6/site-packages/salt/transport/tcp.py", line 423, in connect_callback
+    yield self.send_id(self.tok, self._reconnected)
+  File "/usr/lib64/python2.6/site-packages/tornado/gen.py", line 870, in run
+    value = future.result()
+  File "/usr/lib64/python2.6/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib64/python2.6/site-packages/tornado/gen.py", line 876, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python2.6/site-packages/salt/transport/tcp.py", line 408, in send_id
+    yield self.auth.authenticate()
+  File "/usr/lib64/python2.6/site-packages/tornado/gen.py", line 870, in run
+    value = future.result()
+  File "/usr/lib64/python2.6/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+  File "<string>", line 3, in raise_exc_info
+SaltClientError: Attempt to authenticate with the salt master failed with timeout error
+[ERROR   ] Got response for message_id 1 that we are not tracking
+```
+
+Working minion
+
+```
+[DEBUG   ] tcp stream to 3xxxx5:4505 closed, unable to recv
+[DEBUG   ] Sending event: tag = __master_disconnected; data = {'_stamp': '2017-02-16T20:56:35.601754', 'master': 'saltstack'}
+[DEBUG   ] Minion of "saltstack" is handling event tag '__master_disconnected'
+[INFO    ] Connection to master saltstack lost
+[DEBUG   ] Initializing new AsyncTCPReqChannel for ('/etc/salt/pki/minion', 'minion', 'tcp://3xxxx5:4506', 'clear')
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] SaltEvent PUB socket URI: /var/run/salt/minion/minion_event_7cdd3fe6c4_pub.ipc
+[DEBUG   ] SaltEvent PULL socket URI: /var/run/salt/minion/minion_event_7cdd3fe6c4_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/minion/minion_event_7cdd3fe6c4_pull.ipc
+[DEBUG   ] Sending event: tag = salt/auth/creds; data = {'_stamp': '2017-02-16T20:56:51.170782', 'creds': {'publish_port': 4505, 'aes': 'yQfqC+JngW7sKlUDqUbjAAvGZSJJliu0YT9ZMlxy66SBCemXVSXvjJK5t7KDpzBgehxfIvqkgkw=', 'master_uri': 'tcp://37.203.216.75:4506'}, 'key': ('/etc/salt/pki/minion', 'minion', 'tcp://3xxxx5:4506')}
+[DEBUG   ] tcp stream to 3xxxx5:4506 closed, unable to recv
+[DEBUG   ] Sending event: tag = __master_connected; data = {'_stamp': '2017-02-16T20:56:51.173179', 'master': 'saltstack'}
+[DEBUG   ] Initializing new AsyncTCPReqChannel for ('/etc/salt/pki/minion', 'minion', 'tcp://37.203.216.75:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'minion', 'tcp://37.203.216.75:4506')
+[DEBUG   ] Minion of "saltstack" is handling event tag 'salt/auth/creds'
+[DEBUG   ] Updating auth data for ('/etc/salt/pki/minion', 'minion', 'tcp://3xxxx5:4506'): {'publish_port': 4505, 'aes': 'yQfqC+JngW7sKlUDqUbjAAvGZSJJliu0YT9ZMlxy66SBCemXVSXvjJK5t7KDpzBgehxfIvqkgkw=', 'master_uri': 'tcp://3xxxx5:4506'} -> {'publish_port': 4505, 'aes': 'yQfqC+JngW7sKlUDqUbjAAvGZSJJliu0YT9ZMlxy66SBCemXVSXvjJK5t7KDpzBgehxfIvqkgkw=', 'master_uri': 'tcp://3xxxx5:4506'}
+[DEBUG   ] Minion of "saltstack" is handling event tag '__master_connected'
+[INFO    ] Connection to master saltstack re-established
+```
+
+I'm sure the salt-master has enought resources and no IO wait etc. I even disabled reactors and increased worker threads etc, but no dice. The result seems to depend on "luck", when restarting the salt-master sometimes minions reconnect.
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.11.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: 1.1.0
+         Jinja2: 2.5.5
+        libgit2: Not Installed
+        libnacl: 1.4.0
+       M2Crypto: 0.21.1
+           Mako: 1.0.0
+   msgpack-pure: 0.1.3
+ msgpack-python: 0.4.5
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.8 (unknown, Aug 19 2015, 14:55:21)
+   python-gnupg: Not Installed
+         PyYAML: 3.08
+          PyZMQ: 14.5.0
+           RAET: 0.4.2
+          smmap: Not Installed
+        timelib: 0.2.4
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: redhat 5.11 Final
+        machine: x86_64
+        release: 2.6.18-417.el5
+         system: Linux
+        version: CentOS 5.11 Final
+
+```

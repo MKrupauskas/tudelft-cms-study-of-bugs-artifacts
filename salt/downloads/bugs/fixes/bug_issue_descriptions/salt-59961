@@ -1,0 +1,107 @@
+**Description**
+
+Existing salt extensions that are loaded via entry points in python packages and had loader functions that yielded, fail to load at all in salt 3003.
+
+**Setup**
+
+Existing loader function in the python package:
+
+```py
+import os
+
+PKG_DIR = os.path.abspath(os.path.dirname(__file__))
+
+def pillar_dirs():
+    yield os.path.join(PKG_DIR, "pillar")
+```
+
+Entry point definition:
+
+```
+[salt.loader]
+pillar_dirs = "module.loader:pillar_dirs"
+```
+
+**Steps to Reproduce the behavior**
+
+Try to load the plugin using the existing loader function above.
+
+**Expected behavior**
+
+I would have expected to have old plugins working with previous versions to be loaded with 3003 too.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+Salt Version:
+          Salt: 3003
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: 4.0.7
+     gitpython: 3.1.14
+        Jinja2: 2.11.3
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 1.0.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.10.1
+        pygit2: Not Installed
+        Python: 3.9.2 (default, Feb 28 2021, 17:03:44)
+  python-gnupg: Not Installed
+        PyYAML: 5.4.1
+         PyZMQ: 22.0.3
+         smmap: 4.0.0
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+ 
+Salt Extensions:
+    salt-tower: 1.6.0
+ 
+System Versions:
+          dist: debian testing bullseye
+        locale: utf-8
+       machine: x86_64
+       release: 5.10.0-5-amd64
+        system: Linux
+       version: Debian GNU/Linux testing bullseye
+```
+</details>
+
+**Additional context**
+
+Before #58943 the result from loader functions were [processed in a loop](https://github.com/saltstack/salt/pull/58943/files#diff-e8686c624191c5109ca13f27e7fee3ca5ac3703958fe784bfb3fd4a7cc08b51eL161), in #58943 this was changed to type checking conditions on the return values. A generator functions worked fine in the loop but is not covered in the [type conditions handling the return value now](https://github.com/saltstack/salt/pull/58943/files#diff-e8686c624191c5109ca13f27e7fee3ca5ac3703958fe784bfb3fd4a7cc08b51eR176), because it is neither a list nor a dict, but a `<class 'generator'>`.
+
+This can of course be fixed in the extension as well, but also affects every existing release, every published package, that cannot be loaded with 3003 now. Maybe it is possible to change the code to first handle the newly supported dict format, and otherwise fall back to a loop? 
+
+Instead of 
+
+```py
+if isinstance(loaded_entry_point_value, list):
+    # ...
+    for path in loaded_entry_point_value:
+        loaded_entry_point_paths.add(path)
+elif isinstance(loaded_entry_point_value, dict):
+    # ...
+```
+
+do it like this:
+
+```py
+if isinstance(loaded_entry_point_value, dict):
+    # ...
+else:
+    # must be *like* a list here
+    # ...
+    for path in loaded_entry_point_value:
+        loaded_entry_point_paths.add(path)
+```

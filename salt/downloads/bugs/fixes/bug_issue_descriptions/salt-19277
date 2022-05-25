@@ -1,0 +1,35 @@
+Salt version 2014.7.0
+Tested on Microsoft Windows Web Server 2008 R2
+
+When using pillar based schedules on a Windows minion a 'seconds' based schedule works fine, but both 'when' based and 'cron' based schedules produce errors in the salt minion's logs.  All three jobs show up in the schedule (schedule.list), but only the seconds based one actually runs.
+
+Example 'when' error:
+[salt.utils.schedule][ERROR   ] Invalid date string Friday 2:05pm. Ignoring job test_when.
+
+Example 'cron' error:
+[salt.minion      ][ERROR   ] Exception Invalid format string occurred in scheduled job
+
+Example pillar setup:
+
+testminion:
+    schedule:
+      test_cron:
+        args:
+        - echo %DATE% >> c:\test_cron.txt
+        cron: '\* \* \* \* *'
+        function: cmd.run
+        name: test_cron
+      test_seconds:
+        args:
+        - echo %DATE% >> c:\test_seconds.txt
+        function: cmd.run
+        name: test_seconds
+        seconds: 60
+      test_when:
+        args:
+        - echo %DATE% >> c:\test_when.txt
+        function: cmd.run
+        when:
+        - Friday 2:05pm
+
+I've dug into what's happening here.  The issue is in the salt/utils/schedule.py eval() function.  strftime('%s') is used to format the times to epoch time.  However this is not actually supported by Python.  When this is done it is instead passed on to the underlying operating system.  Unix-like (I've tested this on CentOS 6.X) systems support the '%s' and pass this back to Python, but Windows does not support it and thus the error.

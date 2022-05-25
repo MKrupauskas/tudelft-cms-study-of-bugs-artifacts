@@ -1,0 +1,93 @@
+I recently switched my Salt setup to use gitfs instead of the local file roots. This issue apparently was happening before this, but this is when I noticed the issue. In our setup, Salt manages a lot of servers, but the highstate should only target servers running Ubuntu-14.04, since the older servers were configured in production before we started using salt. In the local file roots, I had 3 environments
+
+``` yaml
+file_roots:
+  base:
+    - /srv/salt/
+  windows:
+    - /srv/salt/windows/
+    - /srv/salt/
+  linux:
+    - /srv/salt/linux/
+    - /srv/salt/
+```
+
+In gitfs, I kept the same file structure and changed the highstate to account for the fact that git doesn't have these environments. Here is the relevant part of the highstate (note that linux is commented out; when using roots it was used to show the linux environment):
+
+``` yaml
+base:
+#linux:
+  'osfinger:Ubuntu-14.04': ## only Ubuntu 14.04 minions will run these
+    - match: grain
+    - linux.networkcheck
+    - linux.ssh
+    - linux.sysstat
+    - linux.postfix
+    - linux.rsyslog
+    - linux.keys.minion
+    - linux.splunk
+```
+
+However, when I run the highstate, either via 'salt' on the master or 'salt-call' on a minion, the highstate will run the linux.ssh state, and that state only. It is not mentioned anywhere else in the highstate file, and non-Ubuntu 14.04 minions should not be targeted with any states to begin with.
+
+salt 'oldminion' grains.get osfinger:
+
+``` yaml
+old minion:
+    Debian-7
+```
+
+salt 'oldminion' state.show__top
+
+``` yaml
+oldminion:
+    ----------
+    base:
+        - linux.ssh
+```
+
+When I look at /etc/ssh/sshd_config (one of the files manged by the linux.ssh state), I see that Salt managed the file before (I have "## This file is managed by Salt" at the top of the file).
+
+I have changed my fileserver back to using just root, and changed the target grain in top.sls, but all Linux minions will run ssh
+
+salt master --versions-report: 
+
+``` yaml
+                  Salt: 2015.5.3
+                Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+               Tornado: Not Installed
+ Debian source package: 2015.5.3+ds-1trusty1
+```
+
+salt oldminion --versions-report
+
+``` yaml
+                  Salt: 2015.5.3
+                Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+                Jinja2: 2.6
+              M2Crypto: 0.21.1
+        msgpack-python: 0.1.10
+          msgpack-pure: Not Installed
+              pycrypto: 2.6
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 13.1.0
+                  RAET: Not Installed
+                   ZMQ: 3.2.3
+                  Mako: 0.7.0
+               Tornado: Not Installed
+ Debian source package: 2015.5.3+ds-1~bpo70+2
+```

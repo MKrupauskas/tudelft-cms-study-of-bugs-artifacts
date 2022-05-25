@@ -1,0 +1,251 @@
+`win_wua.set_wu_settings` seems to work fine on Windows Server 2012R2, but on Windows Server 2016 it indicates success, but `win_wua.get_wu_settings` shows that it actually didn't work.
+
+I tested on Salt `2016.11.6`
+
+On Windows Server 2012 I get the following:
+
+Initial default settings:
+```
+[boucha@test]$ sudo salt win2012 win_wua.get_wu_settings
+win2012:
+    ----------
+    Featured Updates:
+        False
+    Group Policy Required:
+        False
+    Microsoft Update:
+        True
+    Needs Reboot:
+        False
+    Non Admins Elevated:
+        True
+    Notification Level:
+        1
+    Read Only:
+        False
+    Recommended Updates:
+        True
+    Scheduled Day:
+        Every Day
+    Scheduled Time:
+        03:00
+```
+Then let's change the settings:
+
+```
+[boucha@test]$ sudo salt win2012 win_wua.set_wu_settings level=2 recommended=True msupdate=True featured=True
+win2012:
+    ----------
+    Featured:
+        True
+    Level:
+        2
+    Reboot:
+        False
+    Recommended:
+        True
+    Success:
+        True
+    msupdate:
+        True
+```
+The above indicates success.
+
+Let's check to make sure:
+```
+[boucha@test]$ sudo salt win2012 win_wua.get_wu_settings
+win2012:
+    ----------
+    Featured Updates:
+        False
+    Group Policy Required:
+        False
+    Microsoft Update:
+        True
+    Needs Reboot:
+        False
+    Non Admins Elevated:
+        True
+    Notification Level:
+        2
+    Read Only:
+        False
+    Recommended Updates:
+        True
+    Scheduled Day:
+        Every Day
+    Scheduled Time:
+        03:00
+```
+So everything except for `featured` worked as expected.
+
+Now let's try on Windows Server 2016
+
+Initial default settings:
+```
+[boucha@test]$ sudo salt win2016 win_wua.get_wu_settings
+win2016:
+    ----------
+    Featured Updates:
+        False
+    Group Policy Required:
+        False
+    Microsoft Update:
+        False
+    Needs Reboot:
+        False
+    Non Admins Elevated:
+        True
+    Notification Level:
+        1
+    Read Only:
+        False
+    Recommended Updates:
+        True
+    Scheduled Day:
+        Every Day
+    Scheduled Time:
+        03:00
+```
+
+Let's try changing some settings:
+```
+[boucha@test]$ sudo salt win2016 win_wua.set_wu_settings level=2 recommended=True msupdate=True featured=True
+win2016:
+    ----------
+    Featured:
+        True
+    Level:
+        2
+    Reboot:
+        False
+    Recommended:
+        True
+    Success:
+        True
+    msupdate:
+        True
+```
+That command indicates that everything worked great.
+
+Let's check the settings now:
+```
+[boucha@test]$ sudo salt win2016 win_wua.get_wu_settings
+win2016:
+    ----------
+    Featured Updates:
+        False
+    Group Policy Required:
+        False
+    Microsoft Update:
+        True
+    Needs Reboot:
+        False
+    Non Admins Elevated:
+        True
+    Notification Level:
+        1
+    Read Only:
+        False
+    Recommended Updates:
+        True
+    Scheduled Day:
+        Every Day
+    Scheduled Time:
+        03:00
+```
+Oops! Nothing actually changed.
+
+Looking through the code, I think the reason the `win_wua.set_wu_settings`  function incorrectly reports success is because it is checking the return data of `obj_au_settings.Save()` which apparently doesn't return anything even on failure.  Instead the code should probably compare the before and after output of `win_ua.get_wu_settings` to see if the changes were successfully made.
+
+See here: https://github.com/saltstack/salt/blob/781fe13be76bad0771aefbc66bfe7c28025e44a1/salt/modules/win_wua.py#L1020
+
+I have no idea why this is not working on Windows Server 2016.
+
+
+### Versions Report
+```
+win2012:
+    Salt Version:
+               Salt: 2016.11.6
+     
+    Dependency Versions:
+               cffi: 1.10.0
+           cherrypy: 7.1.0
+           dateutil: 2.5.3
+          docker-py: Not Installed
+              gitdb: 0.6.4
+          gitpython: 2.0.8
+              ioflo: 1.5.5
+             Jinja2: 2.9.4
+            libgit2: Not Installed
+            libnacl: 1.4.5
+           M2Crypto: Not Installed
+               Mako: 1.0.4
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.8
+       mysql-python: Not Installed
+          pycparser: 2.17
+           pycrypto: 2.6.1
+       pycryptodome: Not Installed
+             pygit2: Not Installed
+             Python: 2.7.12 (v2.7.12:d33e0cf91556, Jun 27 2016, 15:24:40) [MSC v.1500 64 bit (AMD64)]
+       python-gnupg: 0.3.8
+             PyYAML: 3.11
+              PyZMQ: 16.0.1
+               RAET: Not Installed
+              smmap: 0.9.0
+            timelib: 0.2.4
+            Tornado: 4.4.1
+                ZMQ: 4.1.6
+     
+    System Versions:
+               dist:   
+            machine: AMD64
+            release: 2012ServerR2
+             system: Windows
+            version: 2012ServerR2 6.3.9600  Multiprocessor Free
+```
+
+```
+win2016:
+    Salt Version:
+               Salt: 2016.11.6
+     
+    Dependency Versions:
+               cffi: 1.10.0
+           cherrypy: 7.1.0
+           dateutil: 2.5.3
+          docker-py: Not Installed
+              gitdb: 0.6.4
+          gitpython: 2.0.8
+              ioflo: 1.5.5
+             Jinja2: 2.9.4
+            libgit2: Not Installed
+            libnacl: 1.4.5
+           M2Crypto: Not Installed
+               Mako: 1.0.4
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.8
+       mysql-python: Not Installed
+          pycparser: 2.17
+           pycrypto: 2.6.1
+       pycryptodome: Not Installed
+             pygit2: Not Installed
+             Python: 2.7.12 (v2.7.12:d33e0cf91556, Jun 27 2016, 15:24:40) [MSC v.1500 64 bit (AMD64)]
+       python-gnupg: 0.3.8
+             PyYAML: 3.11
+              PyZMQ: 16.0.1
+               RAET: Not Installed
+              smmap: 0.9.0
+            timelib: 0.2.4
+            Tornado: 4.4.1
+                ZMQ: 4.1.6
+     
+    System Versions:
+               dist:   
+            machine: AMD64
+            release: 2016Server
+             system: Windows
+            version: 2016Server 10.0.14393  Multiprocessor Free
+```

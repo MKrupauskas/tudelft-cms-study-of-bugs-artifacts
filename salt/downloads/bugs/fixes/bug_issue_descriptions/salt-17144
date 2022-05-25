@@ -1,0 +1,54 @@
+`salt-cloud -m map.file` fails if using softlayer as cloud provider. Map files contains two instances, one of them is created & running, the other one not. With no created instances it worked.
+
+_Output_
+
+```
+[INFO    ] salt-cloud starting
+[WARNING ] DEPRECATED: Mako will no longer be the default renderer for Salt Cloud maps in the Lithium release
+[INFO    ] Applying map from 'sl.map'.
+[INFO    ] POST https://api.softlayer.com/xmlrpc/v3.1/SoftLayer_Account
+[INFO    ] Starting new HTTPS connection (1): api.softlayer.com
+[ERROR   ] There was a query error: 'state'
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/cli.py", line 347, in run
+    dmap = mapper.map_data()
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 1407, in map_data
+    matching = get_matching_by_name(name)
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 1396, in get_matching_by_name
+    matches[driver] = details['state']
+KeyError: 'state'
+```
+
+_Version-Report_
+
+```
+           Salt: 2014.1.13
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.3
+```
+
+_Patch which fixed it for me_
+
+```
+--- softlayer.py.old    2014-11-04 08:06:54.000000000 -0600
++++ softlayer.py    2014-11-04 08:21:47.000000000 -0600
+@@ -550,6 +550,8 @@
+             ret[node]['public_ips'] = nodes[node]['primaryIpAddress']
+         if 'primaryBackendIpAddress' in nodes[node]:
+             ret[node]['private_ips'] = nodes[node]['primaryBackendIpAddress']
++        if 'status' in nodes[node]:
++            ret[node]['state'] = str(nodes[node]['status']['name'])
+     return ret
+
+
+
+```
+
+I'm not sure if state gets evaluated by salt-cloud. I looked into the digital_ocean.py and there it also simply takes API response and casts to string: `'state': str(node['status'])`

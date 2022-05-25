@@ -1,0 +1,136 @@
+### Description of Issue/Question
+
+Using salt 2013.3.4 we see a regression caused by method `IPv6AddressScoped._is_packed_binary()` [which is not python3 compatible](https://github.com/saltstack/salt/blob/4b37292ffb1a0ba7cee402071bf8e851fd7c90dc/salt/_compat.py#L193). 
+This finally breaks our ability to perform downloads e.g. from s3 due to the exception: 
+
+```
+2019-02-26 04:44:34,157 [salt.state       :1925][DEBUG   ][2808] An exception occurred in this state: Could not fetch from s3://bucket/folder/tool.zip.checksum. Exception: string argument without an encoding
+Traceback (most recent call last):
+  File "c:\salt\bin\lib\site-packages\salt\fileclient.py", line 532, in get_url
+    https_enable=s3_opt('https_enable', True))
+  File "c:\salt\bin\lib\site-packages\salt\utils\s3.py", line 174, in query
+    timeout=300)
+  File "c:\salt\bin\lib\site-packages\requests\api.py", line 60, in request
+    return session.request(method=method, url=url, **kwargs)
+  File "c:\salt\bin\lib\site-packages\requests\sessions.py", line 533, in request
+    resp = self.send(prep, **send_kwargs)
+  File "c:\salt\bin\lib\site-packages\requests\sessions.py", line 646, in send
+    r = adapter.send(request, **kwargs)
+  File "c:\salt\bin\lib\site-packages\requests\adapters.py", line 449, in send
+    timeout=timeout
+  File "c:\salt\bin\lib\site-packages\urllib3\connectionpool.py", line 600, in urlopen
+    chunked=chunked)
+  File "c:\salt\bin\lib\site-packages\urllib3\connectionpool.py", line 343, in _make_request
+    self._validate_conn(conn)
+  File "c:\salt\bin\lib\site-packages\urllib3\connectionpool.py", line 839, in _validate_conn
+    conn.connect()
+  File "c:\salt\bin\lib\site-packages\urllib3\connection.py", line 344, in connect
+    ssl_context=context)
+  File "c:\salt\bin\lib\site-packages\urllib3\util\ssl_.py", line 341, in ssl_wrap_socket
+    if ((server_hostname is not None and not is_ipaddress(server_hostname))
+  File "c:\salt\bin\lib\site-packages\urllib3\util\ssl_.py", line 376, in is_ipaddress
+    inet_pton(af, hostname)
+  File "c:\salt\bin\lib\site-packages\salt\ext\win_inet_pton.py", line 40, in inet_pton
+    ipaddress.ip_address(six.text_type(ip_string))
+  File "c:\salt\bin\lib\ipaddress.py", line 49, in ip_address
+    return IPv6Address(address)
+  File "c:\salt\bin\lib\site-packages\salt\_compat.py", line 175, in __init__
+    elif self._is_packed_binary(address):
+  File "c:\salt\bin\lib\site-packages\salt\_compat.py", line 194, in _is_packed_binary
+    packed = bool(int(str(bytearray(data)).encode('hex'), 16))
+TypeError: string argument without an encoding
+```
+
+
+The method is
+
+```
+    def _is_packed_binary(self, data):
+        '''
+        Check if data is hexadecimal packed
+        :param data:
+        :return:
+        '''
+        packed = False
+        if isinstance(data, bytes) and len(data) == 16 and b':' not in data:
+            try:
+                packed = bool(int(str(bytearray(data)).encode('hex'), 16))
+            except (ValueError, TypeError):
+                pass
+
+        return packed
+```
+
+and the line `packed = bool(int(str(bytearray(data)).encode('hex'), 16))` does not work in python 3. This should be something like `packed = bool(int(str(bytearray(data, 'utf-8')).encode('utf-8').hex(), 16))`
+
+or 
+
+```
+    def _is_packed_binary(self, data):
+        '''
+        Check if data is hexadecimal packed
+        :param data:
+        :return:
+        '''
+        packed = False
+        if isinstance(data, bytes) and len(data) == 16 and b':' not in data:
+            try:
+                if PY3:
+                    packed = bool(int(str(bytearray(data, 'utf-8')).encode('utf-8').hex(), 16))
+                else:
+                    packed = bool(int(str(bytearray(data)).encode('hex'), 16))
+            except (ValueError, TypeError):
+                pass
+
+        return packed
+```
+
+### Setup
+
+Vanilla Windows with vanilla salt 2018.3.4 py3 AMD 64
+
+### Versions Report
+
+
+```
+Salt Version:
+           Salt: 2018.3.4
+ 
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 10.2.1
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.3
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: 1.6.1
+       M2Crypto: Not Installed
+           Mako: 1.0.6
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.3 (v3.5.3:1880cb95a742, Jan 16 2017, 16:02:32) [MSC v.1900 64 bit (AMD64)]
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.3
+           RAET: Not Installed
+          smmap: 2.0.5
+        timelib: 0.2.4
+        Tornado: 4.5.1
+            ZMQ: 4.1.6
+ 
+System Versions:
+           dist:   
+         locale: cp1252
+        machine: AMD64
+        release: 2008ServerR2
+         system: Windows
+        version: 2008ServerR2 6.1.7601 SP1 Multiprocessor Free
+```

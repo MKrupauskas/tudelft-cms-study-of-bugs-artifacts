@@ -1,0 +1,344 @@
+**Description**
+We have a salt-master that's been in production for over a year, and we attempted to add another node to the cluster (as a new minion.) When I start the salt-minion on server35, its packets reach salt-master (server01) on port 4506, but when 01 tries to communicate back, instead of responding back to the original port, it tries to hit port 4506, which server35 isn't listening on... Here is a packet trace:
+
+```
+[root@server01 ~]# tcpdump -i ens160 host 10.16.114.34
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on ens160, link-type EN10MB (Ethernet), capture size 262144 bytes
+16:50:48.130943 IP server35.obfuscated.com.58438 > server01.obfuscated.com.4506: Flags [S], seq 3844356062, win 29200, options [mss 1460,sackOK,TS val 107441583 ecr 0,nop,wscale 7], length 0
+16:50:48.130985 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+16:50:53.210247 IP server35.obfuscated.com.58440 > server01.obfuscated.com.4506: Flags [S], seq 2304730130, win 29200, options [mss 1460,sackOK,TS val 107446662 ecr 0,nop,wscale 7], length 0
+16:50:53.210295 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+16:50:54.217841 IP server35.obfuscated.com.58442 > server01.obfuscated.com.4506: Flags [S], seq 182847836, win 29200, options [mss 1460,sackOK,TS val 107447670 ecr 0,nop,wscale 7], length 0
+16:50:54.217876 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+16:50:54.234478 IP server35.obfuscated.com.58444 > server01.obfuscated.com.4506: Flags [S], seq 2654379848, win 29200, options [mss 1460,sackOK,TS val 107447686 ecr 0,nop,wscale 7], length 0
+16:50:54.234522 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+16:50:54.360098 IP server35.obfuscated.com.58446 > server01.obfuscated.com.4506: Flags [S], seq 2004574531, win 29200, options [mss 1460,sackOK,TS val 107447812 ecr 0,nop,wscale 7], length 0
+16:50:54.360131 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+16:50:54.601627 IP server35.obfuscated.com.58448 > server01.obfuscated.com.4506: Flags [S], seq 20744466, win 29200, options [mss 1460,sackOK,TS val 107448054 ecr 0,nop,wscale 7], length 0
+16:50:54.601661 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+16:50:55.088321 IP server35.obfuscated.com.58450 > server01.obfuscated.com.4506: Flags [S], seq 3185579873, win 29200, options [mss 1460,sackOK,TS val 107448540 ecr 0,nop,wscale 7], length 0
+16:50:55.088360 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+16:50:55.986466 IP server35.obfuscated.com.58452 > server01.obfuscated.com.4506: Flags [S], seq 4016337837, win 29200, options [mss 1460,sackOK,TS val 107449438 ecr 0,nop,wscale 7], length 0
+16:50:55.986501 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+16:50:57.598315 IP server35.obfuscated.com.58454 > server01.obfuscated.com.4506: Flags [S], seq 411713038, win 29200, options [mss 1460,sackOK,TS val 107451050 ecr 0,nop,wscale 7], length 0
+16:50:57.598349 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+16:50:58.257511 IP server35.obfuscated.com.58456 > server01.obfuscated.com.4506: Flags [S], seq 4186269715, win 29200, options [mss 1460,sackOK,TS val 107451709 ecr 0,nop,wscale 7], length 0
+16:50:58.257549 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+16:51:00.839800 IP server35.obfuscated.com.58458 > server01.obfuscated.com.4506: Flags [S], seq 1632714235, win 29200, options [mss 1460,sackOK,TS val 107454292 ecr 0,nop,wscale 7], length 0
+16:51:00.839859 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+16:51:00.995619 ARP, Request who-has server01.obfuscated.com tell server35.obfuscated.com, length 46
+16:51:00.995636 ARP, Reply server01.obfuscated.com is-at 00:50:56:b8:fc:e2 (oui Unknown), length 28
+16:51:03.327809 IP server35.obfuscated.com.58460 > server01.obfuscated.com.4506: Flags [S], seq 3867483278, win 29200, options [mss 1460,sackOK,TS val 107456780 ecr 0,nop,wscale 7], length 0
+16:51:03.327863 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+16:51:05.908141 IP server35.obfuscated.com.58462 > server01.obfuscated.com.4506: Flags [S], seq 4081605240, win 29200, options [mss 1460,sackOK,TS val 107459360 ecr 0,nop,wscale 7], length 0
+16:51:05.908186 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+16:51:08.340041 IP server35.obfuscated.com.58464 > server01.obfuscated.com.4506: Flags [S], seq 4275421304, win 29200, options [mss 1460,sackOK,TS val 107461792 ecr 0,nop,wscale 7], length 0
+16:51:08.340099 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+16:51:10.953446 IP server35.obfuscated.com.58466 > server01.obfuscated.com.4506: Flags [S], seq 1663994321, win 29200, options [mss 1460,sackOK,TS val 107464405 ecr 0,nop,wscale 7], length 0
+16:51:10.953506 IP server01.obfuscated.com > server35.obfuscated.com: ICMP server01.obfuscated.com tcp port 4506 unreachable, length 68
+```
+
+I can reproduce the issue by executing netcat commands from the server35:
+
+`nc -v -z server01 4505`
+
+(I generated many via `for x in 1 2 3 4 5 6 7 8 9 10 11 12 13; do nc -v -z server01 4505; done`)
+
+When those commands are run from server35, they fail as follows:
+```
+Ncat: Version 7.50 ( https://nmap.org/ncat )
+Ncat: Connection refused.
+Ncat: Version 7.50 ( https://nmap.org/ncat )
+Ncat: Connection refused.
+Ncat: Version 7.50 ( https://nmap.org/ncat )
+Ncat: Connection refused.
+Ncat: Version 7.50 ( https://nmap.org/ncat )
+Ncat: Connection refused.
+Ncat: Version 7.50 ( https://nmap.org/ncat )
+Ncat: Connection refused.
+Ncat: Version 7.50 ( https://nmap.org/ncat )
+Ncat: Connection refused.
+```
+
+When they are run from server06, they succeed as follows:
+```
+Ncat: Version 7.50 ( https://nmap.org/ncat )
+Ncat: Connected to 10.16.113.138:4505.
+Ncat: 0 bytes sent, 0 bytes received in 0.01 seconds.
+Ncat: Version 7.50 ( https://nmap.org/ncat )
+Ncat: Connected to 10.16.113.138:4505.
+Ncat: 0 bytes sent, 0 bytes received in 0.01 seconds.
+Ncat: Version 7.50 ( https://nmap.org/ncat )
+Ncat: Connected to 10.16.113.138:4505.
+Ncat: 0 bytes sent, 0 bytes received in 0.01 seconds.
+Ncat: Version 7.50 ( https://nmap.org/ncat )
+Ncat: Connected to 10.16.113.138:4505.
+Ncat: 0 bytes sent, 0 bytes received in 0.01 seconds.
+```
+
+**Setup**
+Setup is very basic. 
+
+**On salt-master (server01):**
+
+/etc/salt/master:
+```
+renderer: jinja | yaml | gpg
+ext_pillar:
+  - stack: /srv/salt/pillar/stack.conf
+  - gpg:
+      gpg_keydir: /etc/salt/gpgkeys
+```
+
+/etc/salt/minion:
+`master: server01.obfuscated.com`
+
+/etc/salt/minion_id:
+`server01`
+
+**On new salt-minion (server35):**
+
+/etc/salt/minion:
+`master: server01.obfuscated.com`
+
+I've confirmed that DNS resolution is behaving correctly. 
+I've also confirmed that the packet trace appears as expected for our minions that are able to connect. 
+Here's proof:
+
+```
+[root@server01 salt]# tcpdump -i ens160 host 10.16.113.146
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on ens160, link-type EN10MB (Ethernet), capture size 262144 bytes
+18:28:46.887357 IP server06.obfuscated.com.38882 > server01.obfuscated.com.bmcpatrolagent: Flags [P.], seq 2805755871:2805755895, ack 17509933, win 52886, options [nop,nop,TS val 1477441135 ecr 1134408501], length 24
+18:28:46.887591 IP server01.obfuscated.com.bmcpatrolagent > server06.obfuscated.com.38882: Flags [P.], seq 1:196, ack 24, win 21416, options [nop,nop,TS val 1134448501 ecr 1477441135], length 195
+18:28:46.887756 IP server06.obfuscated.com.38882 > server01.obfuscated.com.bmcpatrolagent: Flags [.], ack 196, win 52886, options [nop,nop,TS val 1477441135 ecr 1134448501], length 0
+18:28:48.615170 IP server01.obfuscated.com.45070 > server06.obfuscated.com.6650: Flags [P.], seq 513054953:513054966, ack 2904872524, win 229, options [nop,nop,TS val 1134450229 ecr 1477424836], length 13
+18:28:48.615333 IP server06.obfuscated.com.6650 > server01.obfuscated.com.45070: Flags [.], ack 13, win 235, options [nop,nop,TS val 1477442863 ecr 1134450229], length 0
+18:28:48.615380 IP server06.obfuscated.com.6650 > server01.obfuscated.com.45070: Flags [P.], seq 1:14, ack 13, win 235, options [nop,nop,TS val 1477442863 ecr 1134450229], length 13
+18:28:48.636148 IP server06.obfuscated.com.43220 > server01.obfuscated.com.4505: Flags [S], seq 4049508866, win 29200, options [mss 1460,sackOK,TS val 1477442883 ecr 0,nop,wscale 7], length 0
+18:28:48.636202 IP server01.obfuscated.com.4505 > server06.obfuscated.com.43220: Flags [S.], seq 400386627, ack 4049508867, win 28960, options [mss 1460,sackOK,TS val 1134450250 ecr 1477442883,nop,wscale 7], length 0
+18:28:48.636326 IP server06.obfuscated.com.43220 > server01.obfuscated.com.4505: Flags [.], ack 1, win 229, options [nop,nop,TS val 1477442884 ecr 1134450250], length 0
+18:28:48.636434 IP server06.obfuscated.com.43220 > server01.obfuscated.com.4505: Flags [F.], seq 1, ack 1, win 229, options [nop,nop,TS val 1477442884 ecr 1134450250], length 0
+18:28:48.636503 IP server01.obfuscated.com.4505 > server06.obfuscated.com.43220: Flags [F.], seq 1, ack 2, win 227, options [nop,nop,TS val 1134450250 ecr 1477442884], length 0
+18:28:48.636591 IP server06.obfuscated.com.43220 > server01.obfuscated.com.4505: Flags [.], ack 2, win 229, options [nop,nop,TS val 1477442884 ecr 1134450250], length 0
+18:28:48.651040 IP server06.obfuscated.com.43222 > server01.obfuscated.com.4505: Flags [S], seq 4004612945, win 29200, options [mss 1460,sackOK,TS val 1477442898 ecr 0,nop,wscale 7], length 0
+18:28:48.651094 IP server01.obfuscated.com.4505 > server06.obfuscated.com.43222: Flags [S.], seq 1066065407, ack 4004612946, win 28960, options [mss 1460,sackOK,TS val 1134450265 ecr 1477442898,nop,wscale 7], length 0
+18:28:48.651236 IP server06.obfuscated.com.43222 > server01.obfuscated.com.4505: Flags [.], ack 1, win 229, options [nop,nop,TS val 1477442899 ecr 1134450265], length 0
+18:28:48.651287 IP server06.obfuscated.com.43222 > server01.obfuscated.com.4505: Flags [F.], seq 1, ack 1, win 229, options [nop,nop,TS val 1477442899 ecr 1134450265], length 0
+18:28:48.651402 IP server01.obfuscated.com.4505 > server06.obfuscated.com.43222: Flags [F.], seq 1, ack 2, win 227, options [nop,nop,TS val 1134450265 ecr 1477442899], length 0
+18:28:48.651500 IP server06.obfuscated.com.43222 > server01.obfuscated.com.4505: Flags [.], ack 2, win 229, options [nop,nop,TS val 1477442899 ecr 1134450265], length 0
+18:28:48.655793 IP server01.obfuscated.com.45070 > server06.obfuscated.com.6650: Flags [.], ack 14, win 229, options [nop,nop,TS val 1134450270 ecr 1477442863], length 0
+18:28:48.665044 IP server06.obfuscated.com.43224 > server01.obfuscated.com.4505: Flags [S], seq 990510360, win 29200, options [mss 1460,sackOK,TS val 1477442912 ecr 0,nop,wscale 7], length 0
+18:28:48.665090 IP server01.obfuscated.com.4505 > server06.obfuscated.com.43224: Flags [S.], seq 2520161577, ack 990510361, win 28960, options [mss 1460,sackOK,TS val 1134450279 ecr 1477442912,nop,wscale 7], length 0
+18:28:48.665214 IP server06.obfuscated.com.43224 > server01.obfuscated.com.4505: Flags [.], ack 1, win 229, options [nop,nop,TS val 1477442913 ecr 1134450279], length 0
+18:28:48.665275 IP server06.obfuscated.com.43224 > server01.obfuscated.com.4505: Flags [F.], seq 1, ack 1, win 229, options [nop,nop,TS val 1477442913 ecr 1134450279], length 0
+18:28:48.665392 IP server01.obfuscated.com.4505 > server06.obfuscated.com.43224: Flags [F.], seq 1, ack 2, win 227, options [nop,nop,TS val 1134450279 ecr 1477442913], length 0
+18:28:48.665492 IP server06.obfuscated.com.43224 > server01.obfuscated.com.4505: Flags [.], ack 2, win 229, options [nop,nop,TS val 1477442913 ecr 1134450279], length 0
+18:28:48.678950 IP server06.obfuscated.com.43226 > server01.obfuscated.com.4505: Flags [S], seq 2219669685, win 29200, options [mss 1460,sackOK,TS val 1477442926 ecr 0,nop,wscale 7], length 0
+18:28:48.678988 IP server01.obfuscated.com.4505 > server06.obfuscated.com.43226: Flags [S.], seq 558154129, ack 2219669686, win 28960, options [mss 1460,sackOK,TS val 1134450293 ecr 1477442926,nop,wscale 7], length 0
+18:28:48.679094 IP server06.obfuscated.com.43226 > server01.obfuscated.com.4505: Flags [.], ack 1, win 229, options [nop,nop,TS val 1477442926 ecr 1134450293], length 0
+18:28:48.679156 IP server06.obfuscated.com.43226 > server01.obfuscated.com.4505: Flags [F.], seq 1, ack 1, win 229, options [nop,nop,TS val 1477442926 ecr 1134450293], length 0
+18:28:48.679269 IP server01.obfuscated.com.4505 > server06.obfuscated.com.43226: Flags [F.], seq 1, ack 2, win 227, options [nop,nop,TS val 1134450293 ecr 1477442926], length 0
+18:28:48.679342 IP server06.obfuscated.com.43226 > server01.obfuscated.com.4505: Flags [.], ack 2, win 229, options [nop,nop,TS val 1477442927 ecr 1134450293], length 0
+18:28:48.693422 IP server06.obfuscated.com.43230 > server01.obfuscated.com.4505: Flags [S], seq 4061850038, win 29200, options [mss 1460,sackOK,TS val 1477442941 ecr 0,nop,wscale 7], length 0
+18:28:48.693453 IP server01.obfuscated.com.4505 > server06.obfuscated.com.43230: Flags [S.], seq 3471916767, ack 4061850039, win 28960, options [mss 1460,sackOK,TS val 1134450307 ecr 1477442941,nop,wscale 7], length 0
+18:28:48.693566 IP server06.obfuscated.com.43230 > server01.obfuscated.com.4505: Flags [.], ack 1, win 229, options [nop,nop,TS val 1477442941 ecr 1134450307], length 0
+18:28:48.693681 IP server06.obfuscated.com.43230 > server01.obfuscated.com.4505: Flags [F.], seq 1, ack 1, win 229, options [nop,nop,TS val 1477442941 ecr 1134450307], length 0
+18:28:48.693729 IP server01.obfuscated.com.4505 > server06.obfuscated.com.43230: Flags [F.], seq 1, ack 2, win 227, options [nop,nop,TS val 1134450307 ecr 1477442941], length 0
+18:28:48.693811 IP server06.obfuscated.com.43230 > server01.obfuscated.com.4505: Flags [.], ack 2, win 229, options [nop,nop,TS val 1477442941 ecr 1134450307], length 0
+18:28:48.708397 IP server06.obfuscated.com.43232 > server01.obfuscated.com.4505: Flags [S], seq 3252921212, win 29200, options [mss 1460,sackOK,TS val 1477442956 ecr 0,nop,wscale 7], length 0
+18:28:48.708437 IP server01.obfuscated.com.4505 > server06.obfuscated.com.43232: Flags [S.], seq 2119148982, ack 3252921213, win 28960, options [mss 1460,sackOK,TS val 1134450322 ecr 1477442956,nop,wscale 7], length 0
+18:28:48.708559 IP server06.obfuscated.com.43232 > server01.obfuscated.com.4505: Flags [.], ack 1, win 229, options [nop,nop,TS val 1477442956 ecr 1134450322], length 0
+18:28:48.708675 IP server06.obfuscated.com.43232 > server01.obfuscated.com.4505: Flags [F.], seq 1, ack 1, win 229, options [nop,nop,TS val 1477442956 ecr 1134450322], length 0
+18:28:48.708675 IP server01.obfuscated.com.4505 > server06.obfuscated.com.43232: Flags [P.], seq 1:11, ack 1, win 227, options [nop,nop,TS val 1134450322 ecr 1477442956], length 10
+18:28:48.708708 IP server01.obfuscated.com.4505 > server06.obfuscated.com.43232: Flags [F.], seq 11, ack 2, win 227, options [nop,nop,TS val 1134450322 ecr 1477442956], length 0
+```
+
+Please be as specific as possible and give set-up details.
+
+Nodes are all running in as VMs on on-prem hardware. 
+  
+**Steps to Reproduce the behavior**
+(Include debug logs if possible and relevant)
+
+Start salt-minion on the new VM, server35:
+
+```
+[root@server35 ~]# salt-minion -l debug
+/usr/lib/python2.7/site-packages/salt/scripts.py:212: DeprecationWarning: Python 2.7 will reach the end of its life on January 1st, 2020. Please upgrade your Python as Python 2.7 won't be maintained after that date.  Salt will drop support for Python 2.7 in the Sodium release or later.
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: server35.obfuscated.com
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[INFO    ] Setting up the Salt Minion "server35.obfuscated.com"
+[DEBUG   ] Marking 'base64_encode' as a jinja filter
+[DEBUG   ] Marking 'base64_decode' as a jinja filter
+[DEBUG   ] Marking 'md5' as a jinja filter
+[DEBUG   ] Marking 'sha1' as a jinja filter
+[DEBUG   ] Marking 'sha256' as a jinja filter
+[DEBUG   ] Marking 'sha512' as a jinja filter
+[DEBUG   ] Marking 'hmac' as a jinja filter
+[DEBUG   ] Marking 'hmac_compute' as a jinja filter
+[DEBUG   ] Marking 'random_hash' as a jinja filter
+[DEBUG   ] Marking 'rand_str' as a jinja filter
+[DEBUG   ] Marking 'file_hashsum' as a jinja filter
+[DEBUG   ] Marking 'http_query' as a jinja filter
+[DEBUG   ] Marking 'strftime' as a jinja filter
+[DEBUG   ] Marking 'date_format' as a jinja filter
+[DEBUG   ] Marking 'yaml_dquote' as a jinja filter
+[DEBUG   ] Marking 'yaml_squote' as a jinja filter
+[DEBUG   ] Marking 'yaml_encode' as a jinja filter
+[DEBUG   ] Marking 'raise' as a jinja global
+[DEBUG   ] Marking 'match' as a jinja test
+[DEBUG   ] Marking 'equalto' as a jinja test
+[DEBUG   ] Marking 'skip' as a jinja filter
+[DEBUG   ] Marking 'sequence' as a jinja filter
+[DEBUG   ] Marking 'to_bool' as a jinja filter
+[DEBUG   ] Marking 'tojson' as a jinja filter
+[DEBUG   ] Marking 'quote' as a jinja filter
+[DEBUG   ] Marking 'regex_escape' as a jinja filter
+[DEBUG   ] Marking 'regex_search' as a jinja filter
+[DEBUG   ] Marking 'regex_match' as a jinja filter
+[DEBUG   ] Marking 'regex_replace' as a jinja filter
+[DEBUG   ] Marking 'uuid' as a jinja filter
+[DEBUG   ] Marking 'unique' as a jinja filter
+[DEBUG   ] Marking 'min' as a jinja filter
+[DEBUG   ] Marking 'max' as a jinja filter
+[DEBUG   ] Marking 'avg' as a jinja filter
+[DEBUG   ] Marking 'union' as a jinja filter
+[DEBUG   ] Marking 'intersect' as a jinja filter
+[DEBUG   ] Marking 'difference' as a jinja filter
+[DEBUG   ] Marking 'symmetric_difference' as a jinja filter
+[DEBUG   ] Created pidfile: /var/run/salt-minion.pid
+[INFO    ] Starting up the Salt Minion
+[DEBUG   ] AsyncEventPublisher PUB socket URI: /var/run/salt/minion/minion_event_d6c4b7da09_pub.ipc
+[DEBUG   ] AsyncEventPublisher PULL socket URI: /var/run/salt/minion/minion_event_d6c4b7da09_pull.ipc
+[INFO    ] Starting pull socket on /var/run/salt/minion/minion_event_d6c4b7da09_pull.ipc
+[DEBUG   ] SaltEvent PUB socket URI: /var/run/salt/minion/minion_event_d6c4b7da09_pub.ipc
+[DEBUG   ] SaltEvent PULL socket URI: /var/run/salt/minion/minion_event_d6c4b7da09_pull.ipc
+[DEBUG   ] Grains refresh requested. Refreshing grains.
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Loading static grains from /etc/salt/grains
+[DEBUG   ] LazyLoaded zfs.is_supported
+[INFO    ] Creating minion process manager
+[DEBUG   ] Process Manager starting!
+[DEBUG   ] Process Manager starting!
+[DEBUG   ] Connecting to master. Attempt 1 of 1
+[DEBUG   ] Master URI: tcp://10.16.113.138:4506
+[DEBUG   ] Initializing new AsyncAuth for (u'/etc/salt/pki/minion', u'server35.obfuscated.com', u'tcp://10.16.113.138:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (3081)
+[DEBUG   ] Setting zmq_reconnect_ivl to '3081ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for (u'/etc/salt/pki/minion', u'server35.obfuscated.com', u'tcp://10.16.113.138:4506', 'clear')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://10.16.113.138:4506
+[DEBUG   ] Trying to connect to: tcp://10.16.113.138:4506
+[DEBUG   ] salt.crypt.get_rsa_pub_key: Loading public key
+[DEBUG   ] SaltReqTimeoutError, retrying. (1/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (2/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (3/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (4/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (5/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (6/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (7/7)
+[DEBUG   ] Re-init ZMQ socket: Message timed out
+[DEBUG   ] Trying to connect to: tcp://10.16.113.138:4506
+[DEBUG   ] Closing AsyncZeroMQReqChannel instance
+[ERROR   ] Error while bringing up minion for multi-master. Is master at 10.16.113.138 responding?
+[DEBUG   ] Connecting to master. Attempt 1 of 1
+[DEBUG   ] Master URI: tcp://10.16.113.138:4506
+[DEBUG   ] Initializing new AsyncAuth for (u'/etc/salt/pki/minion', u'server35.obfuscated.com', u'tcp://10.16.113.138:4506')
+```
+
+**Expected behavior**
+The minion should start and connect to the salt-master. 
+
+
+**Versions Report**
+On salt-master:
+
+```
+[root@server01 salt]# salt --versions-report
+Salt Version:
+           Salt: 3000.9
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: 1.10.6
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.26.3
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, Aug  7 2019, 00:51:29)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.7.1908 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1062.1.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.7.1908 Core
+```
+
+On the new salt-minion (server35):
+
+[root@server35 salt]# salt-call --versions-report
+```
+Salt Version:
+           Salt: 3000.9
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.3.1611 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-514.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```
+
+Network engineering said that there's no firewall between these nodes. 

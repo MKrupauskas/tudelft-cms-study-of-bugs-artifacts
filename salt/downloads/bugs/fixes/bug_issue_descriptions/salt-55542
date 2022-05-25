@@ -1,0 +1,124 @@
+### Description of Issue
+`require_any` crashes state jobs with "maximum recursion depth exceeded" when any of its argument requisites are not defined. This deviates from the behavior of `require` which fails the task with the comment, "The following requisites were not found:[requisite]" when a requisite is undefined. It would be great if `require_any` would handle an undefined requisite gracefully.
+
+### Setup
+test.sls:
+```
+{% if False %}
+one:
+  pkg.installed:
+    - name: git
+{% endif %}
+
+test:
+  cmd.run:
+    - name: echo
+    - require_any:
+      - pkg: one
+```
+
+require_any error:
+```
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python3/dist-packages/salt/scripts.py", line 431, in salt_call
+    client.run()
+  File "/usr/lib/python3/dist-packages/salt/cli/call.py", line 57, in run
+    caller.run()
+  File "/usr/lib/python3/dist-packages/salt/cli/caller.py", line 138, in run
+    ret = self.call()
+  File "/usr/lib/python3/dist-packages/salt/cli/caller.py", line 237, in call
+    ret['return'] = self.minion.executors[fname](self.opts, data, func, args, kwargs)
+  File "/usr/lib/python3/dist-packages/salt/executors/direct_call.py", line 12, in execute
+    return func(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/modules/state.py", line 778, in apply_
+    return sls(mods, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/modules/state.py", line 1340, in sls
+    ret = st_.state.call_high(high_, orchestration_jid)
+  File "/usr/lib/python3/dist-packages/salt/state.py", line 2789, in call_high
+    ret = self.call_chunks(chunks)
+  File "/usr/lib/python3/dist-packages/salt/state.py", line 2151, in call_chunks
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python3/dist-packages/salt/state.py", line 2588, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python3/dist-packages/salt/state.py", line 2588, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python3/dist-packages/salt/state.py", line 2588, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  [Previous line repeated 979 more times]
+  File "/usr/lib/python3/dist-packages/salt/state.py", line 2468, in call_chunk
+    low = self._mod_aggregate(low, running, chunks)
+  File "/usr/lib/python3/dist-packages/salt/state.py", line 828, in _mod_aggregate
+    agg_opt = self.functions['config.option']('state_aggregate')
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 1208, in __getitem__
+    func = super(LazyLoader, self).__getitem__(item)
+  File "/usr/lib/python3/dist-packages/salt/utils/lazy.py", line 98, in __getitem__
+    if self._missing(key):
+RecursionError: maximum recursion depth exceeded
+```
+
+For comparison here is the result with `require_any` replaced by `require`:
+```
+local:
+----------
+          ID: test
+    Function: cmd.run
+        Name: echo
+      Result: False
+     Comment: The following requisites were not found:
+                                 require:
+                                     pkg: one
+     Started: 03:45:51.602734
+    Duration: 0.01 ms
+     Changes:
+```
+
+### Steps to Reproduce Issue
+```
+$ salt-call state.apply test
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2019.2.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.9 (default, Nov  7 2019, 10:44:02)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-50-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```

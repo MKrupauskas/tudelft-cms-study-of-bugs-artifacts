@@ -1,0 +1,147 @@
+### Description of Issue/Question
+
+In NetBSD 8 the output of ifconfig was changed. The netmask is now returned as part of the IP address. The ip/ifconfig parsing code is shared between all *NIX/BSD variants so it doesn't expect this new format.
+
+What's the best way to handle this within salt? Some rough ideas:
+
+1. Detect NetBSD >= 8 in [utils/network.py:interfaces()](https://github.com/saltstack/salt/blob/v2018.3.2/salt/utils/network.py#L960) and call a new function (e.g.: ``netbsd_interfaces()``
+2. Add code to [utils/network.py:_interfaces_ifconfig()](https://github.com/saltstack/salt/blob/v2018.3.2/salt/utils/network.py#L736) to strip any trailing netmask (e.g.: 127.0.0.1/8 -> 127.0.0.1)?
+3. use libc [getifaddrs(3)](https://gist.github.com/provegard/1536682) which might avoid scraping ifconfig output altogether.
+
+### Setup
+
+Sample ifconfig output:
+
+NetBSD < 8
+```
+# ifconfig
+vioif0: flags=8943<UP,BROADCAST,RUNNING,PROMISC,SIMPLEX,MULTICAST> mtu 1500
+        address: 00:a0:98:e6:83:18
+        inet 192.168.1.80 netmask 0xffffff00 broadcast 192.168.1.255
+        inet6 fe80::2a0:98ff:fee6:8318%vioif0 prefixlen 64 scopeid 0x1
+lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 33648
+        inet 127.0.0.1 netmask 0xff000000
+        inet6 ::1 prefixlen 128
+        inet6 fe80::1%lo0 prefixlen 64 scopeid 0x2
+```
+
+NetBSD >= 8
+```
+# ifconfig
+vioif0: flags=0x8943<UP,BROADCAST,RUNNING,PROMISC,SIMPLEX,MULTICAST> mtu 1500
+        ec_capabilities=1<VLAN_MTU>
+        ec_enabled=0
+        address: 00:a0:98:e6:83:18
+        inet 192.168.1.80/24 broadcast 192.168.1.255 flags 0x0
+        inet6 fe80::2a0:98ff:fee6:8318%vioif0/64 flags 0x0 scopeid 0x1
+lo0: flags=0x8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 33624
+        inet 127.0.0.1/8 flags 0x0
+        inet6 ::1/128 flags 0x20<NODAD>
+        inet6 fe80::1%lo0/64 flags 0x0 scopeid 0x2
+```
+
+### Steps to Reproduce Issue
+```
+# salt-master
+[ERROR   ] '127.0.0.1/8' does not appear to be an IPv4 or IPv6 address
+Traceback (most recent call last):
+  File "/usr/pkg/lib/python2.7/site-packages/salt/utils/parsers.py", line 210, in parse_args
+    process_option_func()
+  File "/usr/pkg/lib/python2.7/site-packages/salt/utils/parsers.py", line 548, in process_config_dir
+    self.config.update(self.setup_config())
+  File "/usr/pkg/lib/python2.7/site-packages/salt/utils/parsers.py", line 1770, in setup_config
+    return config.master_config(self.get_config_file_path())
+  File "/usr/pkg/lib/python2.7/site-packages/salt/config/__init__.py", line 3854, in master_config
+    opts = apply_master_config(overrides, defaults)
+  File "/usr/pkg/lib/python2.7/site-packages/salt/config/__init__.py", line 3950, in apply_master_config
+    cache_minion_id=None)
+  File "/usr/pkg/lib/python2.7/site-packages/salt/config/__init__.py", line 3608, in get_id
+    newid = salt.utils.network.generate_minion_id()
+  File "/usr/pkg/lib/python2.7/site-packages/salt/utils/network.py", line 172, in generate_minion_id
+    ret = salt.utils.stringutils.to_unicode(_generate_minion_id().first())
+  File "/usr/pkg/lib/python2.7/site-packages/salt/utils/network.py", line 161, in _generate_minion_id
+    return hosts.extend([addr for addr in ip_addrs()
+  File "/usr/pkg/lib/python2.7/site-packages/salt/utils/network.py", line 1202, in ip_addrs
+    return _ip_addrs(interface, include_loopback, interface_data, 'inet')
+  File "/usr/pkg/lib/python2.7/site-packages/salt/utils/network.py", line 1190, in _ip_addrs
+    addr = ipaddress.ip_address(addr.get('address'))
+  File "/usr/pkg/lib/python2.7/site-packages/salt/ext/ipaddress.py", line 120, in ip_address
+    address)
+ValueError: '127.0.0.1/8' does not appear to be an IPv4 or IPv6 address
+Usage: salt-master [options]
+
+salt-master: error: Error while processing <bound method Master.process_config_dir of <salt.cli.daemons.Master object at 0x7f19ce047d50>>: Traceback (most recent call last):
+  File "/usr/pkg/lib/python2.7/site-packages/salt/utils/parsers.py", line 210, in parse_args
+    process_option_func()
+  File "/usr/pkg/lib/python2.7/site-packages/salt/utils/parsers.py", line 548, in process_config_dir
+    self.config.update(self.setup_config())
+  File "/usr/pkg/lib/python2.7/site-packages/salt/utils/parsers.py", line 1770, in setup_config
+    return config.master_config(self.get_config_file_path())
+  File "/usr/pkg/lib/python2.7/site-packages/salt/config/__init__.py", line 3854, in master_config
+    opts = apply_master_config(overrides, defaults)
+  File "/usr/pkg/lib/python2.7/site-packages/salt/config/__init__.py", line 3950, in apply_master_config
+    cache_minion_id=None)
+  File "/usr/pkg/lib/python2.7/site-packages/salt/config/__init__.py", line 3608, in get_id
+    newid = salt.utils.network.generate_minion_id()
+  File "/usr/pkg/lib/python2.7/site-packages/salt/utils/network.py", line 172, in generate_minion_id
+    ret = salt.utils.stringutils.to_unicode(_generate_minion_id().first())
+  File "/usr/pkg/lib/python2.7/site-packages/salt/utils/network.py", line 161, in _generate_minion_id
+    return hosts.extend([addr for addr in ip_addrs()
+  File "/usr/pkg/lib/python2.7/site-packages/salt/utils/network.py", line 1202, in ip_addrs
+    return _ip_addrs(interface, include_loopback, interface_data, 'inet')
+  File "/usr/pkg/lib/python2.7/site-packages/salt/utils/network.py", line 1190, in _ip_addrs
+    addr = ipaddress.ip_address(addr.get('address'))
+  File "/usr/pkg/lib/python2.7/site-packages/salt/ext/ipaddress.py", line 120, in ip_address
+    address)
+ValueError: '127.0.0.1/8' does not appear to be an IPv4 or IPv6 address
+```
+
+
+
+### Versions Report
+```
+# uname -v
+NetBSD 8.0 (GENERIC) #0: Tue Jul 17 14:59:51 UTC 2018  mkrepro@mkrepro.NetBSD.org:/usr/src/sys/arch/amd64/compile/GENERIC
+
+# salt --versions-report
+Salt Version:
+           Salt: 2018.3.2
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 3.6.4
+   pycryptodome: 3.6.4
+         pygit2: Not Installed
+         Python: 2.7.15 (default, Jul 27 2018, 19:53:55)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist:
+         locale: 646
+        machine: amd64
+        release: 8.0
+         system: NetBSD
+        version: Not Installed
+```

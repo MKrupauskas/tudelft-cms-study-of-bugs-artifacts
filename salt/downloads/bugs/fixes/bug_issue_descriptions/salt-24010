@@ -1,0 +1,36 @@
+When I troubleshooted this problem: 
+
+https://github.com/saltstack/salt/pull/23965
+
+the reason that BadName exception was raised because gitfs code check branch X of repo B against repo A. As branch X is not in A, it ran off all the if condition and reach https://github.com/saltstack/salt/blob/25763016313ef4dab1276b942ca82939b2a89c73/salt/fileserver/gitfs.py#L393 then raise exception.
+
+The check in https://github.com/saltstack/salt/blob/25763016313ef4dab1276b942ca82939b2a89c73/salt/fileserver/gitfs.py#L380 is not very useful, as envs() returns ALL envs by ALL repo, it will check many branch of repo B against repo A in this line https://github.com/saltstack/salt/blob/25763016313ef4dab1276b942ca82939b2a89c73/salt/fileserver/gitfs.py#L381
+
+when the number of repos increased, and the number of branches also increased, this will wasted many useless loop.
+
+``` python
+# code copy here for easier reference
+def _get_tree_gitpython(repo, tgt_env):
+    '''
+    Return a git.Tree object if the branch/tag/SHA is found, otherwise None
+    '''
+    if tgt_env == 'base':
+        tgt_env = repo['base']
+    if tgt_env == repo['base'] or tgt_env in envs():
+        for ref in repo['repo'].refs:
+            if isinstance(ref, (git.RemoteReference, git.TagReference)):
+                parted = ref.name.partition('/')
+                rspec = parted[2] if parted[2] else parted[0]
+                if rspec == tgt_env:
+                    return ref.commit.tree
+
+    # Branch or tag not matched, check if 'tgt_env' is a commit
+    if not _env_is_exposed(tgt_env):
+        return None
+
+    try:
+        commit = repo['repo'].rev_parse(tgt_env)
+        return commit.tree
+    except gitdb.exc.ODBError:
+        return None
+```

@@ -1,0 +1,150 @@
+### Description of Issue/Question
+
+Executing differents orchestration files in different terminal at the same time; one output shows some references to a minion in another orchestration file.
+
+### Setup
+
+- lvm1.sls
+
+```
+test1.lvm.state:
+    salt.state:
+        - tgt: 'vm1'
+        - tgt_type: compound
+        - sls:
+            - lvm
+
+test1.lvm.extend:
+    salt.function:
+        - name: cmd.run
+        - tgt: 'vm1'
+        - tgt_type: compound
+        - arg:
+            - lvextend -r -l +100%FREE /dev/centos/root
+```
+
+- lvm2.sls
+
+```
+test2.lvm.state:
+    salt.state:
+        - tgt: 'vm2'
+        - tgt_type: compound
+        - sls:
+            - lvm
+
+test2.lvm.extend:
+    salt.function:
+        - name: cmd.run
+        - tgt: 'vm2'
+        - tgt_type: compound
+        - arg:
+            - lvextend -r -l +100%FREE /dev/centos/root
+```
+
+### Steps to Reproduce Issue
+
+Having the above orchestration files. Both are executed at the same time in different terminal sessions, one of them (output of `lvm1.sls`) shows some reference to a minion in another file (`lvm2.sls`).
+
+Look at the following execution:
+
+* salt-run state.orch lvm1
+
+```
+[INFO    ] Executing command 'date +%d-%m-%Y_%H%M%S' in directory '/home/test'
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Running state [test1.lvm.state] at time 17:17:04.355997
+[INFO    ] Executing state salt.state for [test1.lvm.state]
+[WARNING ] Output from salt state not highstate
+[ERROR   ] {u'ret': {'vm2': False, u'vm1': {u'pkg_|-lvm.pkg_|-lvm2_|-installed': {u'comment': u'All specified packages are already installed', u'name': u'lvm2', u'start_time': u'17:17:12.267005', u'result': True, u'duration': 1021.478, u'__run_num__': 0, u'__sls__': u'lvm.install', u'changes': {}, u'__id__': u'lvm.pkg'}, u'lvm_|-lvm.pv.create_/dev/sdb_|-/dev/sdb_|-pv_present': {u'comment': u'Created Physical Volume /dev/sdb', u'name': u'/dev/sdb', u'start_time': u'17:17:13.289967', u'result': True, u'duration': 195.747, u'__run_num__': 1, u'__sls__': u'lvm.config', u'changes': {u'created': True}, u'__id__': u'lvm.pv.create_/dev/sdb'}, u'lvm_|-lvm.pv.create_/dev/sda2_|-/dev/sda2_|-pv_present': {u'comment': u'Physical Volume /dev/sda2 already present', u'name': u'/dev/sda2', u'start_time': u'17:17:13.486188', u'result': True, u'duration': 27.152, u'__run_num__': 2, u'__sls__': u'lvm.config', u'changes': {}, u'__id__': u'lvm.pv.create_/dev/sda2'}, u'lvm_|-lvm.lv.create_root_|-root_|-lv_present': {u'comment': u'Logical Volume root already present', u'name': u'root', u'start_time': u'17:17:13.694721', u'result': True, u'duration': 19.956, u'__run_num__': 4, u'__sls__': u'lvm.config', u'changes': {}, u'__id__': u'lvm.lv.create_root'}, u'lvm_|-lvm.vg.create_centos_|-centos_|-vg_present': {u'comment': u'Volume Group centos already present\n/dev/sda2 is part of Volume Group', u'name': u'centos', u'start_time': u'17:17:13.513756', u'result': True, u'duration': 180.547, u'__run_num__': 3, u'__sls__': u'lvm.config', u'changes': {u'/dev/sdb': u'added to centos'}, u'__id__': u'lvm.vg.create_centos'}}}, u'out': u'highstate'}
+[INFO    ] Completed state [test1.lvm.state] at time 17:17:19.802487 (duration_in_ms=15446.491)
+[INFO    ] Running state [cmd.run] at time 17:17:19.802951
+[INFO    ] Executing state salt.function for [cmd.run]
+[INFO    ] {u'ret': {u'vm1': u'  Size of logical volume centos/root changed from <8.47 GiB (2168 extents) to 18.50 GiB (4737 extents).\n  Logical volume centos/root successfully resized.\nmeta-data=/dev/mapper/centos-root isize=256    agcount=4, agsize=555008 blks\n         =                       sectsz=512   attr=2, projid32bit=1\n         =                       crc=0        finobt=0 spinodes=0\ndata     =                       bsize=4096   blocks=2220032, imaxpct=25\n         =                       sunit=0      swidth=0 blks\nnaming   =version 2              bsize=4096   ascii-ci=0 ftype=0\nlog      =internal               bsize=4096   blocks=2560, version=2\n         =                       sectsz=512   sunit=0 blks, lazy-count=1\nrealtime =none                   extsz=4096   blocks=0, rtextents=0\ndata blocks changed from 2220032 to 4850688'}, u'out': u'highstate'}
+[INFO    ] Completed state [cmd.run] at time 17:17:35.131365 (duration_in_ms=15328.413)
+salt_master:
+----------
+          ID: test1.lvm.state
+    Function: salt.state
+      Result: False
+     Comment: Run failed on minions: vm2
+     Started: 17:17:04.355996
+    Duration: 15446.491 ms
+     Changes:   
+              vm2:
+                  False
+              vm1:
+              ----------
+                        ID: lvm.pkg
+                  Function: pkg.installed
+                      Name: lvm2
+                    Result: True
+                   Comment: All specified packages are already installed
+                   Started: 17:17:12.267005
+                  Duration: 1021.478 ms
+                   Changes:   
+              ----------
+                        ID: lvm.pv.create_/dev/sdb
+                  Function: lvm.pv_present
+                      Name: /dev/sdb
+                    Result: True
+                   Comment: Created Physical Volume /dev/sdb
+                   Started: 17:17:13.289967
+                  Duration: 195.747 ms
+                   Changes:   
+                            ----------
+                            created:
+                                True
+              ----------
+                        ID: lvm.pv.create_/dev/sda2
+                  Function: lvm.pv_present
+```
+
+It shows `Comment: Run failed on minions: vm2` but in the `lvm1.sls` file there is no reference to that minion. We executed at the same time in another terminal de other orchestration file `salt-run state.orch lvm2` (I don't know if this can cause this strange behaviour).
+
+Could be something related to the bus event?
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2018.3.3
+ 
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: 3.2.2
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Oct 26 2016, 20:30:19)
+   python-gnupg: 0.3.6
+         PyYAML: 3.10
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: Ubuntu 14.04 trusty
+         locale: UTF-8
+        machine: x86_64
+        release: 3.13.0-129-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```

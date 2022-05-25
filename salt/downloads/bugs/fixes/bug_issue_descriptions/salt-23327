@@ -1,0 +1,146 @@
+Running the official vm-depot image as a master and the 2014.7.5 version of the client (on Windows). I've made a state to update the minion config. But I cant seem to get it out to my minion, it just says that the file was not found, even though I can copy it manually with the `cp` command.
+## minion-config.sls
+
+```
+salt-minion:
+  service.running:
+    - enable: True
+    - watch:
+      - file: C:/salt/conf/minion
+  file.managed:
+    - name: C:/salt/conf/minion
+    - template: jinja
+    - source:
+      - salt://salt/config/minion.jinja
+```
+## show_sls on the minion
+
+To check I have no stale cache stuff, I'm checking the minions idea of how the state should look and it seems correct.
+
+```
+[root@vmdepot-saltm saltpad]# salt 'dev-eu-iceb-01' state.show_sls salt.minion-config  -t 600
+dev-eu-iceb-01:
+    ----------
+    salt-minion:
+        ----------
+        __env__:
+            base
+        __sls__:
+            salt.minion-config
+        file:
+            |_
+              ----------
+              name:
+                  C:/salt/conf/minion
+            |_
+              ----------
+              template:
+                  jinja
+            |_
+              ----------
+              source:
+                  - salt://salt/config/minion.jinja
+            - managed
+            |_
+              ----------
+              order:
+                  10001
+        service:
+            |_
+              ----------
+              enable:
+                  True
+            |_
+              ----------
+              watch:
+                  |_
+                    ----------
+                    file:
+                        C:/salt/conf/minion
+            - running
+            |_
+              ----------
+              order:
+                  10000
+```
+## cp.get_file
+
+To test so that the saltmaster actually have the file I do a cp.get_file which succeeds (green text returned and I've verified that the file gets copied to the minion).
+
+```
+[root@vmdepot-saltm saltpad]# salt 'dev-eu-iceb-01' cp.get_file salt://salt/config/minion.jinja  C:/dummy.txt
+dev-eu-iceb-01:
+    C:/dummy.txt
+```
+## state.sls
+
+But, when I run the state...it says it can't find the file. I've enabled trace logging but it says nothing but this error.
+
+```
+[root@vmdepot-saltm saltpad]# salt 'dev-eu-iceb-01' state.sls salt.minion-config  -t 600
+dev-eu-iceb-01:
+----------
+          ID: salt-minion
+    Function: file.managed
+        Name: C:/salt/conf/minion
+      Result: False
+     Comment: Unable to manage file: none of the specified sources were found
+     Started: 14:12:13.155000
+    Duration: 941.0 ms
+     Changes:
+----------
+          ID: salt-minion
+    Function: service.running
+      Result: False
+     Comment: One or more requisite failed: salt.minion-config.salt-minion
+     Started:
+    Duration:
+     Changes:
+
+Summary
+------------
+Succeeded: 0
+Failed:    2
+------------
+Total states run:     2
+```
+## minion versions_report
+
+```
+[root@vmdepot-saltm saltpad]# salt 'dev-eu-iceb-01' test.versions_report
+dev-eu-iceb-01:
+               Salt: 2014.7.5
+             Python: 2.7.8 (default, Jun 30 2014, 16:08:48) [MSC v.1500 64 bit (AMD64)]
+             Jinja2: 2.7.3
+           M2Crypto: 0.21.1
+     msgpack-python: 0.4.5
+       msgpack-pure: Not Installed
+           pycrypto: 2.6
+            libnacl: Not Installed
+             PyYAML: 3.11
+              ioflo: Not Installed
+              PyZMQ: 14.5.0
+               RAET: Not Installed
+                ZMQ: 4.0.5
+               Mako: Not Installed
+```
+## master versions_report
+
+```
+[root@vmdepot-saltm saltpad]# salt --versions-report
+           Salt: 2014.7.5
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.4
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+[root@vmdepot-saltm saltpad]#
+```

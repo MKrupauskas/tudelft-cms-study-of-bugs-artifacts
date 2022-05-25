@@ -1,0 +1,174 @@
+### Description of Issue/Question
+
+My Vagrant setup  (that works with 2016.11 and earlier) results in an unhandled exception using version 2017.7.1. It appears that the symbolic links that Vagrant creates cause a problem.
+
+I believe this PR #39746 is the source of the change in behaviour.
+@terminalmage can you help?
+
+```
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded state.apply
+[DEBUG   ] LazyLoaded grains.get
+[DEBUG   ] LazyLoaded saltutil.is_running
+[DEBUG   ] LazyLoaded roots.envs
+[DEBUG   ] Could not LazyLoad roots.init: 'roots.init' is not available.
+[DEBUG   ] Updating roots fileserver cache
+...
+...
+[TRACE   ] roots: Processing C:\srv\winrepo\win
+[TRACE   ] roots: C:\srv\winrepo\win is not a link
+[TRACE   ] roots: C:\srv\winrepo\win relative path is win
+[TRACE   ] roots: Processing C:\srv\winrepo\win\repo-ng
+[TRACE   ] roots: C:\srv\winrepo\win\repo-ng is not a link
+[TRACE   ] roots: C:\srv\winrepo\win\repo-ng relative path is win/repo-ng
+[TRACE   ] roots: Processing C:\srv\winrepo\win\repo-ng\salt-winrepo-ng
+[TRACE   ] roots: C:\srv\winrepo\win\repo-ng\salt-winrepo-ng is a link
+[TRACE   ] roots: C:\srv\winrepo\win\repo-ng\salt-winrepo-ng relative path is win/repo-ng/salt-winrepo-ng
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+error: (3, 'GetLongPathName', 'The system cannot find the path specified.')
+Traceback (most recent call last):
+  File "C:\salt\bin\Scripts\salt-call", line 11, in <module>
+    salt_call()
+  File "C:\salt\bin\lib\site-packages\salt\scripts.py", line 391, in salt_call
+    client.run()
+  File "C:\salt\bin\lib\site-packages\salt\cli\call.py", line 58, in run
+    caller.run()
+  File "C:\salt\bin\lib\site-packages\salt\cli\caller.py", line 134, in run
+    ret = self.call()
+  File "C:\salt\bin\lib\site-packages\salt\cli\caller.py", line 204, in call
+    ret['return'] = func(*args, **kwargs)
+  File "C:\salt\bin\lib\site-packages\salt\modules\state.py", line 593, in apply_
+    return highstate(**kwargs)
+  File "C:\salt\bin\lib\site-packages\salt\modules\state.py", line 866, in highstate
+    initial_pillar=_get_initial_pillar(opts))
+  File "C:\salt\bin\lib\site-packages\salt\state.py", line 3785, in __init__
+    BaseHighState.__init__(self, opts)
+  File "C:\salt\bin\lib\site-packages\salt\state.py", line 2659, in __init__
+    self.avail = self.__gather_avail()
+  File "C:\salt\bin\lib\site-packages\salt\state.py", line 2669, in __gather_avail
+    avail[saltenv] = self.client.list_states(saltenv)
+  File "C:\salt\bin\lib\site-packages\salt\fileclient.py", line 383, in list_states
+    for path in self.file_list(saltenv):
+  File "C:\salt\bin\lib\site-packages\salt\fileclient.py", line 1221, in file_list
+    return [sdecode(fn_) for fn_ in self.channel.send(load)]
+  File "C:\salt\bin\lib\site-packages\salt\fileserver\__init__.py", line 896, in send
+    return getattr(self.fs, cmd)(load)
+  File "C:\salt\bin\lib\site-packages\salt\fileserver\__init__.py", line 756, in file_list
+    ret.update(self.servers[fstr](load))
+  File "C:\salt\bin\lib\site-packages\salt\fileserver\roots.py", line 421, in file_list
+    return _file_lists(load, 'files')
+  File "C:\salt\bin\lib\site-packages\salt\fileserver\roots.py", line 396, in _file_lists
+    _add_to(ret['dirs'], path, root, dirs)
+  File "C:\salt\bin\lib\site-packages\salt\fileserver\roots.py", line 365, in _add_to
+    link_dest = salt.utils.path.readlink(abs_path)
+  File "C:\salt\bin\lib\site-packages\salt\utils\path.py", line 111, in readlink
+    target = win32file.GetLongPathName(target)
+error: (3, 'GetLongPathName', 'The system cannot find the path specified.')
+```
+Despite the error `'The system cannot find the path specified.'`, Windows can find the path:
+```
+PS C:\Users\vagrant\Downloads> ls C:\srv\winrepo\win\repo-ng\salt-winrepo-ng
+
+
+    Directory: C:\srv\winrepo\win\repo-ng\salt-winrepo-ng
+
+
+Mode                LastWriteTime     Length Name
+----                -------------     ------ ----
+d----        16/08/2017     21:09            chocolatey
+d----        15/12/2016     20:43            wmi_provider
+d----        15/12/2016     20:43            zipinstaller
+-----        23/06/2017     17:38       2724 7zip.sls
+-----        15/12/2016     20:43        617 activeperl_x64.sls
+-----        15/12/2016     20:43       1123 activeperl_x86.sls
+-----        08/08/2017     14:03        798 adobeair.sls
+-----        15/12/2016     20:43        700 adobereader-dc-classic.sls
+-----        15/12/2016     20:43        851 adobereader-xi.sls
+-----        15/12/2016     20:43        830 adobereader.sls
+...
+```
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+Minion (masterless) config:
+```
+PS C:\Users\vagrant\Downloads> r 29
+cat C:\salt\conf\minion
+file_client: local
+file_roots:
+  base:
+    - C:\srv\salt
+    - C:\srv\winrepo
+pillar_roots:
+  base:
+    - C:\srv\pillar
+```
+
+Vagrant config (relevant part):
+```
+config.vm.synced_folder "../../salt-winrepo-ng" => "/srv/winrepo/win/repo-ng/salt-winrepo-ng"
+```
+
+The directory setup is as follows:
+```
+c:\srv\winrepo\win\repo-ng>dir
+ Volume in drive C has no label.
+ Volume Serial Number is 92B0-33FE
+
+ Directory of c:\srv\winrepo\win\repo-ng
+
+15/09/2017  20:27    <DIR>          .
+15/09/2017  20:27    <DIR>          ..
+14/09/2017  15:47    <SYMLINKD>     salt-winrepo-ng [\\vboxsrv\srv_winrepo_win_repo-ng_salt-winrepo-ng]
+               0 File(s)              0 bytes
+               4 Dir(s)  10,800,726,016 bytes free
+```
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+`salt-call state.apply test=True`
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.1
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 10.2.1
+       dateutil: 2.6.0
+      docker-py: Not Installed
+          gitdb: 2.0.2
+      gitpython: 2.1.3
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.6
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (v2.7.13:a06454b1afa1, Dec 17 2016, 20:53:40) [MSC v.1500 64 bit (AMD64)]
+   python-gnupg: 0.4.0
+         PyYAML: 3.11
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: 0.2.4
+        Tornado: 4.5.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+         locale: cp1252
+        machine: AMD64
+        release: 8.1
+         system: Windows
+        version: 8.1 6.3.9600  Multiprocessor Free
+```

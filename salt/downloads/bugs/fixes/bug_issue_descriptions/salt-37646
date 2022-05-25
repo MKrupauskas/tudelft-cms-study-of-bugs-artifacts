@@ -1,0 +1,177 @@
+### Description of Issue/Question
+Running salt-minion on the master runs into following recursion and eats up the cpu, making master unresponsive.
+```
+Process Process-1:926:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/multiprocessing/process.py", line 258, in _bootstrap
+    self.run()
+  File "/usr/lib/python2.7/multiprocessing/process.py", line 114, in run
+    self._target(*self._args, **self._kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/schedule.py", line 737, in handle_func
+    channel.send(load)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/async.py", line 74, in wrap
+    ret = self._block_future(ret)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/async.py", line 84, in _block_future
+    return future.result()
+  File "/usr/lib/python2.7/dist-packages/tornado/concurrent.py", line 215, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 876, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 240, in send
+    ret = yield self._crypted_transfer(load, tries=tries, timeout=timeout)
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 870, in run
+    value = future.result()
+  File "/usr/lib/python2.7/dist-packages/tornado/concurrent.py", line 215, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 876, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 208, in _crypted_transfer
+    ret = yield _do_transfer()
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 870, in run
+    value = future.result()
+  File "/usr/lib/python2.7/dist-packages/tornado/concurrent.py", line 215, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 230, in wrapper
+    yielded = next(result)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 192, in _do_transfer
+    self._package_load(self.auth.crypticle.dumps(load)),
+  File "/usr/lib/python2.7/dist-packages/salt/crypt.py", line 1187, in dumps
+    return self.encrypt(self.PICKLE_PAD + self.serial.dumps(obj))
+  File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 164, in dumps
+    return msgpack.dumps(verylong_encoder(msg))
+  File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 149, in verylong_encoder
+    obj[key] = verylong_encoder(value)
+  File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 154, in verylong_encoder
+    obj[idx] = verylong_encoder(entry)
+  File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 149, in verylong_encoder
+    obj[key] = verylong_encoder(value)
+  ...
+  (1000 repeated lines)
+  ...  
+  File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 154, in verylong_encoder
+    obj[idx] = verylong_encoder(entry)
+  File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 149, in verylong_encoder
+    obj[key] = verylong_encoder(value)
+  File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 154, in verylong_encoder
+    obj[idx] = verylong_encoder(entry)
+  File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 151, in verylong_encoder
+    elif isinstance(obj, (list, tuple)):
+RuntimeError: maximum recursion depth exceeded while calling a Python object
+```
+### Setup
+```
+$ cat /etc/salt/minion.d/*
+log_file: file:///dev/log
+log_fmt_logfile: '%(name)s %(message)s'
+log_fmt_console: '%(asctime)s,%(msecs)03.0f [%(name)-10s][%(levelname)-8s] %(message)s'
+master: <master>
+#scaling issues
+random_reauth_delay: 180
+
+recon_default: 3000
+recon_max: 177000
+recon_randomize: True
+
+keysize: 2048
+hash_type: sha256
+schedule:
+  __mine_interval: {function: mine.update, jid_include: true, maxrunning: 2, minutes: 60,
+    return_job: false}
+verify_master_pubkey_sign: True
+```
+```
+cat /etc/salt/master
+user: salt
+auto_accept: True
+worker_threads: 64
+job_cache: False
+hash_type: sha256
+open_mode: True
+keep_jobs: 1
+
+state_aggregate:
+  - pkg
+```
+
+### Steps to Reproduce Issue
+Its randomly happening so dont have exact steps to reproduce this. But its not uncommon.
+
+### Versions Report
+```
+$ salt-call  --versions-report
+Salt Version:
+           Salt: 2015.8.12
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: 0.1.3
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-63-generic
+         system: Ubuntu 14.04 trusty
+```
+```
+$ salt  --versions-report
+Salt Version:
+           Salt: 2015.8.12
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: 0.1.3
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-63-generic
+         system: Ubuntu 14.04 trusty
+```

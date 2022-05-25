@@ -1,0 +1,122 @@
+I have the following map.jinja on a formula
+
+``` jinja
+{%
+  set package_table = {
+    "Debian": {
+      "source": "salt://sensu/files/sensu.list",
+      "filename": "/etc/apt/sources.list.d/sensu.list",
+      "pkgs": [
+        "ruby",
+        "ruby-dev",
+        "git",
+        "build-essential"
+      ]
+    },
+    "Redhat": {
+      "source": "salt://sensu/files/sensu.repo",
+      "filename": "/etc/yum.repos.d/sensu.repo",
+      "pkgs": [
+        "rubygems",
+        "git"
+      ]
+    },
+  }
+%}
+
+{%
+  set sensu = {
+    "client": {
+      "name": salt["grains.get"]("fqdn"),
+      "address": salt["network.ip_addrs"]("eth0")[0],
+      "subscriptions": ["all"]
+    },
+    "rabbitmq": {
+      "host": "1.2.3.4.5",
+      "password": "password",
+      "port": "1234",
+      "user": "user",
+      "vhost": "/vhsot"
+    }
+  }
+%}
+
+{% do sensu.update(salt["pillar.get"]("sensu")) %}
+
+{% if grains["os_family"] in package_table %}
+  {% set map = package_table[grains["os_family"]] %}
+{% endif %}
+
+# vi: set ft=sls :
+```
+
+The `sensu["name"]` and `sensu["address"]` do not get set when using salt from a salt-master. While testing with salt-call and [kitchen-salt](https://github.com/simonmcc/kitchen-salt) they get they proper value just fine.
+
+Both on the salt masterless, the minions and the master are on `Helium` above go the detailed versions-report
+**Test box:** Always built from scratch
+
+```
+salt-call --versions-report
+                  Salt: 2014.7.2
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:38)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2014.7.2+ds-1trusty2
+```
+
+**The minions:**
+
+```
+salt-minion --versions-report
+                  Salt: 2014.7.2
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2014.7.2+ds-1trusty2
+```
+
+**The master:** --versions-report is breaking
+
+```
+# salt --versions-report
+Traceback (most recent call last):
+  File "/usr/bin/salt", line 10, in <module>
+    salt_main()
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 241, in salt_main
+    client.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/__init__.py", line 45, in run
+    self.parse_args()
+  File "/usr/lib/python2.7/dist-packages/salt/utils/parsers.py", line 126, in parse_args
+    self.print_versions_report()
+  File "/usr/lib/python2.7/dist-packages/salt/utils/parsers.py", line 193, in print_versions_report
+    print('\n'.join(version.versions_report()), file=file)
+  File "/usr/lib/python2.7/dist-packages/salt/version.py", line 542, in versions_report
+    libs = list(versions_information(include_salt_cloud=include_salt_cloud))
+  File "/usr/lib/python2.7/dist-packages/salt/version.py", line 527, in versions_information
+    imp = __import__(imp)
+  File "/usr/local/lib/python2.7/dist-packages/libnacl/__init__.py", line 75, in <module>
+    nacl = _get_nacl()
+  File "/usr/local/lib/python2.7/dist-packages/libnacl/__init__.py", line 73, in _get_nacl
+    raise OSError(msg)
+OSError: Could not locate nacl lib, searched for libsodium.so, libsodium.so.13, libsodium.so.10, libsodium.so.5, libsodium.so.4,  and tweetnacl.so
+```

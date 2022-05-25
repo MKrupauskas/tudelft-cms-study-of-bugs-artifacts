@@ -1,0 +1,48 @@
+### Description of Issue/Question
+Unexpected error happened when use Redis as ext job cache.
+
+
+### Setup
+I do the configurations below as the offical tutorial wrote:
+
+```
+redis.db: '0'
+redis.host: 'xx.xx.xx.xx'
+redis.port: 6379
+
+master_job_cache: redis
+```
+And error log will be appended every 10 minutes into '/var/log/salt/master' file
+```
+2017-01-06 02:07:13,435 [salt.utils.process][ERROR   ][17537] An un-handled exception from the multiprocessing process 'Maintenance-11' was caught:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/utils/process.py", line 644, in _run
+    return self._original_run()
+  File "/usr/lib/python2.7/site-packages/salt/master.py", line 236, in run
+    salt.daemons.masterapi.clean_old_jobs(self.opts)
+  File "/usr/lib/python2.7/site-packages/salt/daemons/masterapi.py", line 193, in clean_old_jobs
+    mminion.returners[fstr]()
+  File "/usr/lib/python2.7/site-packages/salt/returners/redis_return.py", line 230, in clean_old_jobs
+    serv.delete(*to_remove)
+  File "/usr/lib/python2.7/site-packages/redis/client.py", line 824, in delete
+    return self.execute_command('DEL', *names)
+  File "/usr/lib/python2.7/site-packages/redis/client.py", line 565, in execute_command
+    return self.parse_response(connection, command_name, **options)
+  File "/usr/lib/python2.7/site-packages/redis/client.py", line 577, in parse_response
+    response = connection.read_response()
+  File "/usr/lib/python2.7/site-packages/redis/connection.py", line 574, in read_response
+    raise response
+```
+### How to resolve this issue:
+In the line ("/usr/lib/python2.7/site-packages/salt/returners/redis_return.py", line 230,) before we call delete, we simply judge the length of 'to_remove' varriable.
+
+```
+    for ret_key in serv.keys('ret:*'):
+        load_key = ret_key.replace('ret:', 'load:', 1)
+        if load_key not in living_jids:
+            to_remove.append(ret_key)
+    if(len(to_remove) != 0):
+        serv.delete(*to_remove)
+```
+### Versions Report
+salt 2016.11.1 (Carbon)

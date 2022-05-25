@@ -1,0 +1,46 @@
+I've recently been suffering from terrible SaltReqTimeoutError syndrome on a simple installation of 0.17.4 from the Fedora EPEL repository ...
+
+After a restart, the salt-master generally (but not always) worked; but after a few minutes my Nagios/Check_mk scripts that call manage.down eventually stopped working with the usual "Waited 60 seconds".
+
+Running an instance of the salt-master --log-level=info showed the following traceback :- 
+
+```
+Process MWorker-8:
+Traceback (most recent call last):
+  File "/usr/lib64/python2.6/multiprocessing/process.py", line 232, in _bootstrap
+    self.run()
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 705, in run
+    self.__bind()
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 610, in __bind
+    ret = self.serial.dumps(self._handle_payload(payload))
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 634, in _handle_payload
+    'clear': self._handle_clear}[key](load)
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 643, in _handle_clear
+    return getattr(self.clear_funcs, load['cmd'])(load)
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 2445, in publish
+    extra.get('nocache', False)
+  File "/usr/lib/python2.6/site-packages/salt/utils/__init__.py", line 524, in prep_jid
+    os.makedirs(jid_dir_)
+  File "/usr/lib64/python2.6/os.py", line 157, in makedirs
+    mkdir(name, mode)
+OSError: [Errno 13] Permission denied: '/var/cache/salt/master/jobs/8f/dcd8e62cf248ea40450743035b6b61'
+```
+
+Checking /var/cache/salt/master/jobs showed that some directories were owned by root:root, and some were owned by the current "user: saltmaster", because I'd recently decided that running as root was not sensible ... I just chown'd all the files, noting that /var/cache/salt/master/jobs itself was already owned correctly by saltmaster.
+
+The /etc/salt/master comments say :- 
+
+```
+# The user to run the salt-master as. Salt will update all permissions to
+# allow the specified user to run the master. If the modified files cause
+# conflicts set verify_env to False.
+#user: root
+user: saltmaster
+```
+
+So there appear to be a number of things going on here that might not be ideal and might need to be 'fixed' ...
+- The config file comment about 'Salt will update all permissions' is not true in practice
+- An OSError in /var/cache/salt/master/jobs triggers a SaltReqTimeoutError instead of some more helpful error condition; I don't know how such an error should be propogated in this case, so I make no specific suggestion
+- The OSError traceback appeared on stdout but not in the log files, when running the server with "/usr/bin/salt-master --log-file=/tmp/salt-master.debug.log --log-file-level=all --log-level=info"
+
+I'm not sure how to characterise the situation where once I'd got my first SaltReqTimeoutError it seemed like all subsequent requests were broken, because I didn't reproduce that situation/validate the statement; therefore that might not be a correct description.

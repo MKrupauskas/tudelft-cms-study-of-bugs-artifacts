@@ -1,0 +1,42 @@
+My config like this:
+
+demo-tools.xx.com Salt Master
+
+demo-syndic.xx.com Salt Syndic + SaltMaster
+
+demo-minion01.xx.com Salt Minion
+demo-minion02.xx.com Salt Minion
+
+This command works:
+root@demo-tools# salt "demo-*" test.ping
+demo-minion01.xx.com True
+demo-minion02.xx.com True
+
+But this one doesn't work:
+root@demo-tools# salt "demo-m*" test.ping
+
+After several hours diagnostic, I find something interesting:
+1. Both demo-minion01 and demo-minion02 get the job and returned
+2. salt master and salt syndic also did the job on demo-syndic 
+3. demo-tools get the response as well, but it refuse to output.
+
+Root cause is here:
+With syndic configured, top level master only see syndic's pki, no other minions.
+
+I also find the code where broke things:
+
+On develop branch, commit 4a6baf0f07b2b2bd9d2451694ded7e94d0811852
+master.py line 2433
+
+``` python
+        minions = self.ckminions.check_minions(
+                clear_load['tgt'],
+                clear_load.get('tgt_type', 'glob')
+                )
+```
+
+In my case, minions return []
+
+The only workaround I can try is to share pki directory for top level master and all syndics, but it may be insecure. Want to hear about your comments.
+
+By the way, I spend more than 6 hours to go through minion/master/syndic codes and write a workflow chart to help me understand the whole process. The only doc about this is http://docs.saltstack.com/ref/topology.html, but it's much much simpler than the real world. If you have anything I can use to understand salt easily, I can help more.

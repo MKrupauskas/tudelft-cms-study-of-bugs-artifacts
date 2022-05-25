@@ -1,0 +1,136 @@
+Easier to explain with examples:
+
+asdf.sls:
+
+``` YAML
+prereq_command:
+    cmd.run:
+        - name: echo prereq
+        - prereq:
+            - cmd: asdf
+
+asdf:
+    cmd.wait:
+        - name: echo asdf
+        - watch:
+            - cmd: fdsa
+
+fdsa:
+    cmd.run:
+        - name: echo fdsa
+```
+
+I expect all 3 states to be run in the order of: fdsa, prereq_command, asdf
+
+test=True output:
+
+```
+local:
+----------
+          ID: fdsa
+    Function: cmd.run
+        Name: echo fdsa
+      Result: None
+     Comment: Command "echo fdsa" would have been executed
+     Started: 22:06:51.962681
+    Duration: 1.887 ms
+     Changes:
+----------
+          ID: prereq_command
+    Function: cmd.run
+        Name: echo prereq
+      Result: True
+     Comment: No changes detected
+     Started:
+    Duration:
+     Changes:
+----------
+          ID: asdf
+    Function: cmd.wait
+        Name: echo asdf
+      Result: True
+     Comment:
+     Started: 22:06:51.966291
+    Duration: 1.763 ms
+     Changes:
+
+Summary
+------------
+Succeeded: 3 (unchanged=1)
+Failed:    0
+------------
+Total states run:     3
+```
+
+The test=True output claims that prereq_command won't be run, which is incorrect. Interesting enough, the state that is prereq'd (asdf) shows that it will be run but is shown in green not bold yellow.
+
+When I run the state normally:
+
+actual output (no test=True):
+
+```
+local:
+----------
+          ID: fdsa
+    Function: cmd.run
+        Name: echo fdsa
+      Result: True
+     Comment: Command "echo fdsa" run
+     Started: 22:13:16.788309
+    Duration: 46.629 ms
+     Changes:
+              ----------
+              pid:
+                  29771
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  fdsa
+----------
+          ID: prereq_command
+    Function: cmd.run
+        Name: echo prereq
+      Result: True
+     Comment: Command "echo prereq" run
+     Started: 22:13:16.836022
+    Duration: 45.985 ms
+     Changes:
+              ----------
+              pid:
+                  29772
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  prereq
+----------
+          ID: asdf
+    Function: cmd.wait
+        Name: echo asdf
+      Result: True
+     Comment: Command "echo asdf" run
+     Started: 22:13:16.884032
+    Duration: 45.527 ms
+     Changes:
+              ----------
+              pid:
+                  29773
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  asdf
+
+Summary
+------------
+Succeeded: 3 (changed=3)
+Failed:    0
+------------
+Total states run:     3
+```
+
+This exhibits the correct and expected behavior, however test=True mode didn't seem to agree. Reading the documentation on prereq, I believe having test=True mode be truthful is critical to the correctness of prereq states.

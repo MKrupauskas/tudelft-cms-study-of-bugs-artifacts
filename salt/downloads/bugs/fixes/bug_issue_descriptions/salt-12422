@@ -1,0 +1,61 @@
+**Bug**
+file.blockreplace will introduce an unwanted final new line when given multi-line content. 
+
+Patch to correct this bug has been included at end.
+
+**Cause**
+The behaviour of split when the separating string is provided is to return a list including one more item than the number of occurrences of the separator in the string.
+
+In the original code this means a line with a terminating new line character at the end will return a list of two items being the line content and the terminating line character. As the original code then introduces a new line for each item in the list, the unwanted final new line is thus produced.
+
+**Reproduce**
+
+``` yaml
+test:
+  file.blockreplace:
+    - name: /tmp/testfile
+    - marker_start: "# STARTMARKER"
+    - marker_end: "# ENDMARKER"
+    - content: |
+        # TEST LINE 1
+        # TEST LINE 2
+    - backup: False
+```
+
+**Expected Output**
+
+```
+# STARTMARKER
+# TEST LINE 1
+# TEST LINE 2
+# ENDMARKER
+```
+
+**Actual Output**
+
+```
+# STARTMARKER
+# TEST LINE 1
+# TEST LINE 2
+
+# ENDMARKER
+```
+
+**Patch**
+
+```
+--- ./salt/modules/file.py.orig 2014-04-17 03:25:04.000000000 +0000
++++ ./salt/modules/file.py  2014-04-30 17:27:12.000000000 +0000
+@@ -1110,6 +1110,11 @@
+                     # end of block detected
+                     in_block = False
+
++                    # Check for multi-line '\n' terminated content as split will
++                    # introduce an unwanted additional new line.
++                    if content[-1] == '\n':
++                        content = content[:-1]
++
+                     # push new block content in file
+                     for cline in content.split("\n"):
+                         new_file.append(cline + "\n")
+```

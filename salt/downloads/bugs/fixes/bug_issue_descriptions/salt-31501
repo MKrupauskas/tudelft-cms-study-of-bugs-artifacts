@@ -1,0 +1,114 @@
+**Salt states fail with error  'Failed to return clean data' when using salt-ssh in Amazon EC2 when applying a state as non-root user**
+### Expected Behavior
+
+States should successfully apply over Salt SSH if `sudo: True` is set when the SSH connection is from a non-root user that is in the sodoers.
+- WORKING command
+  `salt-ssh test-minion status.uptime`
+- EXPECTED WORKING command
+  `salt-ssh test-minion state.sls setup.test`
+### Actual Behavior
+- EXPECTED WORKING command
+  `salt-ssh test-minion state.sls setup.test`
+
+```
+# key fragments from large output
+...
+ _error:
+        Failed to return clean data
+...
+retcode:
+        0
+    stderr:
+        Connection to 172.31.5.246 closed.
+...
+```
+### Steps to Reproduce Issue
+
+ Create 2 CentOS 6.5 or CentOS 7.x image VMS in AWS.
+Install Salt master and Salt-ssh on one VM
+Setup roster in the following format:
+
+```
+# file: /etc/salt/roster (fragment)
+test-minion:
+  host : <your-IP>
+  priv: /etc/salt/your_key.pem
+  user: <your-non-root-user>
+  sudo: True
+  tty: True
+```
+
+Create a simple state:
+
+```
+# test state
+push_text:
+  file.managed:
+    - name: /etc/foobar.txt
+    - contents: 
+       - 'version: 2.0'
+       - 'Test'
+```
+
+Run the following command to see the error:
+
+```
+salt-ssh test-minion state.sls setup.test 
+or 
+salt-ssh test-minion state.sls setup.test |less
+```
+
+NOTE: Re-created in VirtualBox on local workstation, but does not exhibit any errors.
+
+If I use a new CentOS 7.0 AWS image that uses a non-root 'ec2-user' account then it appears that I make an salt-ssh connection, but it disconnects immediately and does not apply the state.  
+
+I first tried running the master in a virtualbox on my workstation and then salt-ssh to minions in AWS.  This has worked for months if the image allows for root ssh.  However, thinking that  there might be a network issue between my workstation and AWS, I created a VM in AWS in the same VPC and then tried the salt-ssh again with the same error.  The ec2-user is in the sudo's file so system permissions seem to be set correctly.
+
+I did run into bug https://github.com/saltstack/salt/issues/18425 , but manually applied the fix and got past that. 
+### Versions Report
+
+*\* Provided by running `salt --versions-report`**
+
+```
+# salt-ssh --versions-report
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: 0.20.0
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: 0.20.3
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 6.5 Final
+        machine: x86_64
+        release: 2.6.32-431.el6.x86_64
+         system: CentOS 6.5 Final
+```
+### Relevant Logs, Configs, or States
+
+See attachement for full log.
+[salt-ssh-err.txt](https://github.com/saltstack/salt/files/147477/salt-ssh-err.txt)

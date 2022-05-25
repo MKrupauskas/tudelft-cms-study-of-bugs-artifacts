@@ -1,0 +1,87 @@
+**Description**
+The [documentation for mod_aggregate](https://docs.saltproject.io/en/latest/ref/states/aggregate.html#in-config-files) indicates that the `state_aggregate` configuration option can be set in *either* the master configuration file or the minion configuration file.
+
+However due to combination of the master logic to pass options to the minions and the minion logic to check that master option, the minion option will never take effect on a system with a connected master.
+
+Here's a snippet of the [master logic](https://github.com/saltstack/salt/blob/master/salt/master.py#L1405) where the "state_aggregate" key will always be present in the master options presented to the minion:
+```
+mopts = {}
+mopts["state_aggregate"] = self.opts["state_aggregate"]
+```
+
+And here's the [state system logic](https://github.com/saltstack/salt/blob/master/salt/state.py#L3537) that the minion uses to determine if that option is set:
+```
+opts["state_aggregate"] = mopts.get(
+    "state_aggregate", opts.get("state_aggregate", False)
+)
+```
+
+The value of the "state_aggregate" key in the `mopts` dictionary will *always* be used regardless of the value (`True`, `False`, a list of states, or `None`) as long *as the key is present*.
+
+**Steps to Reproduce the behavior**
+Script recreating the possible outcomes:
+```py
+from itertools import permutations
+
+mopts = {}
+opts = {}
+
+possible = [None, True, False, ["pkg"]]
+
+for combo in permutations(possible, 2):
+    mopts["state_aggregate"] = combo[0]
+    opts["state_aggregate"] = combo[1]
+    result = mopts.get("state_aggregate", opts.get("state_aggregate", False))
+    print(f"mopts = {combo[0]}\topts = {combo[1]}\tresult = {result}")
+```
+
+Output:
+```py
+mopts = None	opts = True	result = None
+mopts = None	opts = False	result = None
+mopts = None	opts = ['pkg']	result = None
+mopts = True	opts = None	result = True
+mopts = True	opts = False	result = True
+mopts = True	opts = ['pkg']	result = True
+mopts = False	opts = None	result = False
+mopts = False	opts = True	result = False
+mopts = False	opts = ['pkg']	result = False
+mopts = ['pkg']	opts = None	result = ['pkg']
+mopts = ['pkg']	opts = True	result = ['pkg']
+mopts = ['pkg']	opts = False	result = ['pkg']
+```
+...which tracks the master option regardless of value.
+
+**Expected behavior**
+Modify the script to use "or" logic (or whatever seems smarter):
+```py
+from itertools import permutations
+
+mopts = {}
+opts = {}
+
+possible = [None, True, False, ["pkg"]]
+
+for combo in permutations(possible, 2):
+    mopts["state_aggregate"] = combo[0]
+    opts["state_aggregate"] = combo[1]
+    result = opts.get("state_aggregate") or mopts.get("state_aggregate") or False
+    print(f"mopts = {combo[0]}\topts = {combo[1]}\tresult = {result}")
+```
+
+Output:
+```py
+mopts = None	opts = True	result = True
+mopts = None	opts = False	result = False
+mopts = None	opts = ['pkg']	result = ['pkg']
+mopts = True	opts = None	result = True
+mopts = True	opts = False	result = True
+mopts = True	opts = ['pkg']	result = ['pkg']
+mopts = False	opts = None	result = False
+mopts = False	opts = True	result = True
+mopts = False	opts = ['pkg']	result = ['pkg']
+mopts = ['pkg']	opts = None	result = ['pkg']
+mopts = ['pkg']	opts = True	result = True
+mopts = ['pkg']	opts = False	result = ['pkg']
+```
+...which tracks how I'd expect it to work and also how the documentation reads.

@@ -1,0 +1,79 @@
+Version report:
+
+```
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.5.0
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 4.2.0-18-generic
+         system: Ubuntu 14.04 trusty
+```
+
+Here are the (scrubbed) logs on the minion:
+
+```
+2016-02-20 06:56:05,354 [salt.state       ][INFO    ][1392] Executing state archive.extracted for /opt/topology/build-118
+2016-02-20 06:56:05,354 [salt.loaded.int.states.archive][DEBUG   ][1392] Input seem valid so far
+2016-02-20 06:56:05,354 [salt.loaded.int.states.archive][DEBUG   ][1392] Archive file [S3 bz2 file] is not in cache, download it
+2016-02-20 06:56:05,355 [salt.loaded.int.states.archive][DEBUG   ][1392] file.managed: ['The function "state.highstate" is running as PID 1410 and was started at 2016, Feb 20 06:44:20.587598 with jid 20160220064420587598', 'The function "state.highstate" is running as PID 5271 and was started at 2016, Feb 20 06:55:18.396751 with jid 20160220065518396751', 'The function "state.highstate" is running as PID 5259 and was started at 2016, Feb 20 01:55:17.857360 with jid 20160220015517857360']
+2016-02-20 06:56:05,355 [salt.loaded.int.module.file][DEBUG   ][1392] Creating directory: /opt/topology
+2016-02-20 06:56:05,355 [salt.loaded.int.module.file][DEBUG   ][1392] Creating directory: /opt/topology/build-118
+2016-02-20 06:56:05,356 [salt.loaded.int.states.archive][DEBUG   ][1392] Extract /var/cache/salt/minion/files/base/_opt_topology_build-118_.tar in /opt/topology/build-118/
+2016-02-20 06:56:05,357 [salt.state       ][ERROR   ][1392] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1594, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1491, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/states/archive.py", line 220, in extracted
+    with closing(tarfile.open(filename, 'r')) as tar:
+  File "/usr/lib/python2.7/tarfile.py", line 1660, in open
+    return func(name, "r", fileobj, **kwargs)
+  File "/usr/lib/python2.7/tarfile.py", line 1722, in gzopen
+    fileobj = bltn_open(name, mode + "b")
+IOError: [Errno 2] No such file or directory: '/var/cache/salt/minion/files/base/_opt_topology_build-118_.tar'
+
+2016-02-20 06:56:05,358 [salt.state       ][INFO    ][1392] Completed state [/opt/topology/build-118] at time 06:56:05.357476
+```
+
+Here's the state:
+
+``` yaml
+s3_file:
+  archive.extracted:
+    - source: s3://{{ s3_path }}
+    - source_hash: sha256={{ hash }}
+    - name: /opt/topology/{{ release_tag }}
+    - archive_format: tar
+    - failhard: true
+```
+
+The directory that is supposed to be extracted to is created, but empty. I can reproduce this by running `salt-call state.highstate` on the minion and then immediately doing `salt minion state.highstate queue=True` on the master. The salt-call succeeds, and the queued highstate fails as above. Other file.managed states succeed, so it seems to be specific to archive.extracted.

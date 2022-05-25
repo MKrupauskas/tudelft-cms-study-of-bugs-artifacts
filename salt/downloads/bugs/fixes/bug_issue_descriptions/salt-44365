@@ -1,0 +1,165 @@
+### Description of Issue/Question
+Testing with minion filesystem local files, I am unable to get `file.managed` to trigger a state failure with a corrupted source file not matching the sha256 (or sha1) stored in a properly associated hash file. The evidence of the issue, beyond the state succeeding, are these two lines of debug output:
+```
+[DEBUG   ] file.extract_hash: Line '5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03  trythis' matches source '/tmp/trythis'
+[DEBUG   ] file.extract_hash: Returning sha256 hash '5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03' as a match of /tmp/trythis
+```
+In this case, the source file's hash file has the contents `5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03` but the actual sha256 of the source file is `71573b922a87abc3fd1a957f2cfa09d9e16998567dd878a85e12166112751806`.
+
+The bug is confirmed present on both `2016.11.6` and `2017.7` (I think my colleague was using `2017.7.2`).
+
+### Setup
+This is the repro case salt state:
+```
+trythis:
+  file.managed:
+    - name: /tmp/trythis.copy
+    - source: /tmp/trythis
+    - source_hash: /tmp/trythis.shasum
+```
+and the rest of the details are in the next section.
+
+### Steps to Reproduce Issue
+```
+[user@machine ~]$ cat /srv/salt/test/test_file.sls
+trythis:
+  file.managed:
+    - name: /tmp/trythis.copy
+    - source: /tmp/trythis
+    - source_hash: /tmp/trythis.shasum
+
+[user@machine ~]$ cd /tmp
+[user@machine tmp]$ echo hello > trythis
+[user@machine tmp]$ sha256sum trythis > trythis.shasum
+[user@machine tmp]$ echo goodbye > trythis
+[user@machine tmp]$ sha256sum trythis
+71573b922a87abc3fd1a957f2cfa09d9e16998567dd878a85e12166112751806  trythis
+[user@machine tmp]$ cat trythis.shasum
+5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03  trythis
+[user@machine tmp]$ sha256sum -c trythis.shasum
+trythis: FAILED
+sha256sum: WARNING: 1 computed checksum did NOT match
+
+[user@machine tmp]$ sudo salt-call state.apply test.test_file
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'test/test_file.sls'
+[INFO    ] Running state [/tmp/trythis.copy] at time 22:28:45.538022
+[INFO    ] Executing state file.managed for /tmp/trythis.copy
+[INFO    ] File changed:
+New file
+[INFO    ] Completed state [/tmp/trythis.copy] at time 22:28:45.549910 duration_in_ms=11.888
+local:
+----------
+          ID: trythis
+    Function: file.managed
+        Name: /tmp/trythis.copy
+      Result: True
+     Comment: File /tmp/trythis.copy updated
+     Started: 22:28:45.538022
+    Duration: 11.888 ms
+     Changes:
+              ----------
+              diff:
+                  New file
+              mode:
+                  0644
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  11.888 ms
+
+[user@machine tmp]$ sudo salt-call state.apply test.test_file -l debug
+<SNIP>
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/test/test_file.sls:
+trythis:
+  file.managed:
+    - name: /tmp/trythis.copy
+    - source: /tmp/trythis
+    - source_hash: /tmp/trythis.shasum
+
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('trythis', OrderedDict([('file.managed', [OrderedDict([('name', '/tmp/trythis.copy')]), OrderedDict([('source', '/tmp/trythis')]), OrderedDict([('source_hash', '/tmp/trythis.shasum')])])]))])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/test/test_file.sls' using 'yaml' renderer: 0.00430607795715
+[DEBUG   ] LazyLoaded file.managed
+[INFO    ] Running state [/tmp/trythis.copy] at time 22:47:14.782462
+[INFO    ] Executing state file.managed for /tmp/trythis.copy
+[DEBUG   ] LazyLoaded file.source_list
+[DEBUG   ] file.extract_hash: Extracting any supported hash for file matching either of the following: /tmp/trythis.copy, /tmp/trythis
+[DEBUG   ] file.extract_hash: Line '5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03  trythis' matches source '/tmp/trythis'
+[DEBUG   ] file.extract_hash: Returning sha256 hash '5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03' as a match of /tmp/trythis
+[DEBUG   ] LazyLoaded cp.cache_file
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'ip-10-128-120-46.ec2.internal', 'tcp://127.0.0.1:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'ip-10-128-120-46.ec2.internal', 'tcp://127.0.0.1:4506')
+[INFO    ] File /tmp/trythis.copy is in the correct state
+[INFO    ] Completed state [/tmp/trythis.copy] at time 22:47:14.793998 duration_in_ms=11.535
+[DEBUG   ] File /var/cache/salt/minion/accumulator/34895440 does not exist, no need to cleanup.
+[DEBUG   ] LazyLoaded config.option
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'ip-10-128-120-46.ec2.internal', 'tcp://127.0.0.1:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'ip-10-128-120-46.ec2.internal', 'tcp://127.0.0.1:4506')
+[DEBUG   ] LazyLoaded highstate.output
+local:
+----------
+          ID: trythis
+    Function: file.managed
+        Name: /tmp/trythis.copy
+      Result: True
+     Comment: File /tmp/trythis.copy is in the correct state
+     Started: 22:47:14.782463
+    Duration: 11.535 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:  11.535 ms
+```
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.6
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: unknown
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.3.1611 Core
+        machine: x86_64
+        release: 3.10.0-693.2.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```

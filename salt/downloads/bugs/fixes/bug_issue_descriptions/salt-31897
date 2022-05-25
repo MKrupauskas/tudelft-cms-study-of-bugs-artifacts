@@ -1,0 +1,78 @@
+While trying to run a state.highstate on a new minion, I was getting this output:-
+
+```
+root@saltmaster:~# salt aws-beta-f-ngx-1 state.highstate --state-output=mixed
+aws-beta-f-ngx-1:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1071, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/state.py", line 568, in highstate
+        whitelist=kwargs.get('whitelist')
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 3112, in call_highstate
+        high, errors = self.render_highstate(matches)
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2981, in render_highstate
+        sls, saltenv, mods, matches)
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2733, in render_state
+        re.match(r'^(\.+)(.*)$', inc_sls).groups()
+    AttributeError: 'NoneType' object has no attribute 'groups'
+```
+
+After adding some debugging code, I narrowed it down to an indentation error in my YAML state, like this:-
+
+```
+include:                                                                                                                                                                                                                                       
+  - .shared.network
+  - .shared.locale
+  - .shared.edit.vim
+  - .shared.utils.openssh
+  - .shared.groups⋅
+  - users
+  - .shared.apparmor.remove
+  - .shared.utils.base
+  - .shared.utils.git
+  - .shared.utils.mercurial
+  - .shared.snmpd
+  {% if 'rly' not in salt['pillar.get']('roles',[]) %}
+  - .shared.ssmtp
+  {% endif %}
+  - .shared.opsview
+  - .shared.ppa-support
+  - .shared.partitions
+  {% if grains['os'] == 'Ubuntu' %}
+  - .shared.remove-whoopsie
+  {% endif %}
+  - .shared.nscd
+  - .shared.ipv6.disable
+  {% if pillar['location'] == 'aws' %}
+    - .shared.cloudyn
+  {% endif %}
+```
+
+The "shared.cloudyn" line is wrong, but it's not easy to spot!
+
+The failing code is in state.py and is:-
+
+```
+                    if inc_sls.startswith('.'):
+                        levels, include = \
+                            re.match(r'^(\.+)(.*)$', inc_sls).groups()
+```
+
+This could be improved with something like:-
+
+```
+                    if inc_sls.startswith('.'):
+                        match = re.match(r'^(\.+)(.*)$', inc_sls)
+                        if match:
+                            levels, include = match.groups()
+                        else:
+                            msg = ('Badly formatted include {0} found in include '
+                                    'in SLS \'{2}:{3}\''
+                                    .format(inc_sls, saltenv, sls))
+                            log.error(msg)
+                            errors.append(msg)
+                            continue
+
+```
+
+Untested!

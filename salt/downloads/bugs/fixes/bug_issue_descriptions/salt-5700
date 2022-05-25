@@ -1,0 +1,32 @@
+I've found a lot of open issues on github/saltstack related to this code:
+
+# A normal daemonization redirects the process output to /dev/null.
+# Unfortunately when a python multiprocess is called the output is
+# not cleanly redirected and the parent process dies when the
+# multiprocessing process attempts to access stdout or err.
+#dev_null = open('/dev/null', 'rw')
+#os.dup2(dev_null.fileno(), sys.stdin.fileno())
+#os.dup2(dev_null.fileno(), sys.stdout.fileno())
+#os.dup2(dev_null.fileno(), sys.stderr.fileno())
+
+but have not found clear description of consequences. I already mentioned this issue in #5199. 
+
+Let's say I logged to SSH and restarted some salt process (master, minion or api) and logged out. Processes have not changed its output FD's and since my pts doesn't exist anymore (deleted after SSH stopped) we got:
+
+salt-master 32288 root    0u   CHR  136,2      0t0       4 /dev/pts/2 (deleted)
+salt-master 32288 root    1u   CHR  136,2      0t0       4 /dev/pts/2 (deleted)
+salt-master 32288 root    2u   CHR  136,2      0t0       4 /dev/pts/2 (deleted)
+
+Then when this process (master, minion or api) put output to stdout or err, we got 
+
+salt-api output:
+write(1, "127.0.0.1 - - [24/Jun/2013:12:41:43] \"GET /jobs/20130624124143585565 HTTP/1.1\" 500 57 \"\" \"\"\n", 92) = -1 EIO (Input/output error) 
+
+minion output:
+2013-05-22 15:31:33,433 [salt.minion ][ERROR ] Exception [Errno 5] Input/output error occurred in scheduled job
+
+and the same happens to master.
+
+The way to workaround this - start/restart processes from server console.
+
+I'd like @basepi and @whiteinge (as we told on IRC) to take a look at this. I realize that this cannot be fixed as 1+1, but should be aware of.

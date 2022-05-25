@@ -1,0 +1,173 @@
+### Description of Issue/Question
+In 2019.2.0 , mysql_user.present can't verifiy if user exist.
+(Linked with #51866 ?)
+
+### Setup
+My test state
+```
+# Teach Salt to use the debian.cnf file
+{%- if grains.os_family == 'Debian' %}
+mariadb_salt_minion_mysql_config:
+  file.managed:
+    - name: /etc/salt/minion.d/mysql.conf
+    - contents: "mysql.default_file: '/etc/mysql/debian.cnf'"
+{%- endif %}
+
+mariadb_salt_requirement:
+  pkg.installed:
+    - name: python-mysqldb
+
+mariadb_database_testdb:
+  mysql_database.present:
+    - name: testdb
+
+mariadb_database_testdb_testuser:
+  mysql_user.present:
+    - name: testuser
+    - host: remoteserver
+    - password: testpassword
+
+# WARNING, bug with GRANT
+# https://github.com/saltstack/salt/issues/49297
+mariadb_database_testdb_testuser_grant:
+  mysql_grants.present:
+    - grant: 'SELECT'
+    - database: "testdb.*"
+    - user: testuser
+    - host: remoteserver
+```
+
+I have setup 2 VM (mdb1 and mdb2), Debian 9.8, with salt-minion installed from Salt repository. And MariaDB 10.3 installed from MariaDB repository.
+```
+root@mdb1:~# salt-call --version
+salt-call 2019.2.0 (Fluorine)
+-------
+root@mdb2:~# salt-call --version
+salt-call 2018.3.3 (Oxygen)
+```
+
+first apply:
+```
+mdb1:
+----------
+          ID: mariadb_database_testdb_testuser
+    Function: mysql_user.present
+        Name: testuser
+      Result: True
+     Comment: The user testuser@remoteserver has been added
+     Started: 11:01:21.576759
+    Duration: 12.881 ms
+     Changes:  
+              ----------
+              testuser:
+                  Present
+```
+```
+mdb2:
+----------
+          ID: mariadb_database_testdb_testuser
+    Function: mysql_user.present
+        Name: testuser
+      Result: True
+     Comment: The user testuser@remoteserver has been added
+     Started: 11:01:21.576759
+    Duration: 12.881 ms
+     Changes:  
+              ----------
+              testuser:
+                  Present
+```
+
+Second apply:
+```
+mdb1:
+----------
+          ID: mariadb_database_testdb_testuser
+    Function: mysql_user.present
+        Name: testuser
+      Result: True
+     Comment: Password for user testuser@remoteserver has been changed
+     Started: 10:57:39.998240
+    Duration: 10.989 ms
+     Changes:  
+              ----------
+              testuser:
+                  Updated
+
+```
+```
+mdb2:
+----------
+          ID: mariadb_database_testdb_testuser
+    Function: mysql_user.present
+        Name: testuser
+      Result: True
+     Comment: User testuser@remoteserver is already present with the
+desired password
+     Started: 10:57:40.131032
+    Duration: 2.928 ms
+     Changes: 
+```
+
+
+### Debug Logs
+Logs on second apply.
+
+2019.2.0:
+```
+[DEBUG   ] Doing query: SELECT column_name from information_schema.COLUMNS WHERE table_schema=%(schema)s and table_name=%(table)s and column_name=%(column)s args: {u'column': u'Password', u'table': u'user', u'schema': u'mysql'}
+[ERROR   ] MySQL Error 1045: Access denied for user 'testuser'@'localhost' (using password: YES)
+[DEBUG   ] Doing query: SELECT VERSION()
+[DEBUG   ] Doing query: SELECT column_name from information_schema.COLUMNS WHERE table_schema=%(schema)s and table_name=%(table)s and column_name=%(column)s args: {u'column': u'Password', u'table': u'user', u'schema': u'mysql'}
+[DEBUG   ] Doing query: SELECT User,Host FROM mysql.user WHERE User = %(user)s AND Host = %(host)s args: {u'host': u'remoteserver', u'user': u'testuser'}
+[DEBUG   ] Doing query: SELECT VERSION()
+[DEBUG   ] Doing query: SELECT column_name from information_schema.COLUMNS WHERE table_schema=%(schema)s and table_name=%(table)s and column_name=%(column)s args: {u'column': u'Password', u'table': u'user', u'schema': u'mysql'}
+[DEBUG   ] Doing query: ALTER USER 'testuser'@'remoteserver' IDENTIFIED BY 'testpassword';
+[DEBUG   ] Doing query: FLUSH PRIVILEGES;
+[INFO    ] Password for user 'testuser'@'remoteserver' has been changed
+```
+
+2018.3.3:
+```
+[DEBUG   ] Doing query: SELECT column_name from information_schema.COLUMNS WHERE table_schema=%(schema)s and table_name=%(table)s and column_name=%(column)s args: {u'column': u'Password', u'table': u'user', u'schema': u'mysql'}
+[DEBUG   ] Doing query: SELECT User,Host FROM mysql.user WHERE User = %(user)s AND Host = %(host)s AND Password = PASSWORD(%(password)s) args: {u'host': u'remoteserver', u'password': u'testpassword', u'user': u'testuser'}
+[INFO    ] User testuser@remoteserver is already present with the desired password
+```
+
+### Workaround
+It seems user_exist function try to use the defined user instead of 'admin' user for verification, and with 'host=localhost'.
+
+If I add this in state:
+```
+mariadb_database_testdb_testuser_FIX:
+  mysql_user.present:
+    - name: testuser
+    - host: localhost
+    - password: testpassword
+```
+It's ok on first apply in 2019.2.0: 
+```
+----------
+          ID: mariadb_database_testdb_testuser
+    Function: mysql_user.present
+        Name: testuser
+      Result: True
+     Comment: User testuser@remoteserver is already present with the
+desired password
+     Started: 11:01:21.932661
+    Duration: 2.691 ms
+     Changes:  
+----------
+          ID: mariadb_database_testdb_testuser_FIX
+    Function: mysql_user.present
+        Name: testuser
+      Result: True
+     Comment: The user testuser@localhost has been added
+     Started: 11:01:21.935519
+    Duration: 10.432 ms
+     Changes:  
+              ----------
+              testuser:
+                  Present
+```
+

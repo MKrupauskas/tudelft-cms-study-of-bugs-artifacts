@@ -1,0 +1,42 @@
+There seems to be an issue with seed.apply (actually, It affects also virt.init). The problem is that the image is never seeded with the minion. I tried it on an Ubuntu server 15.04, a Debian-8 guest image and salt version, 2015.5.0.
+
+The command: `salt 'id' seed.apply /srv/salt/vm-images/debian_test_chroot.qcow2 guest1` (the same happens with other images I tried)
+
+Returns always False and nothing is installed.
+
+I debugged it and I found the following:
+
+``` python
+salt/modules/seed.py:_install(mtp):
+
+    cmd = 'if type salt-minion; then exit 0; '
+    cmd += 'else sh {0} -c /tmp; fi'.format(salt.syspaths.BOOTSTRAP)
+```
+
+Which evaluates to:
+
+```
+ipdb> cmd
+"chroot /tmp/guest/srv.salt-images.debian_test_chroot.system.qcow2 /bin/bash -c 'if type salt-minion; then exit 0; else sh /usr/lib/python2.7/dist-packages/salt/cloud/deploy/bootstrap-salt.sh -c /tmp; fi'"
+```
+
+The problem is that `/usr/lib/python2.7/dist-packages/salt/cloud/deploy/bootstrap-salt.sh` is outside the chroot, so, when it tries to execute the command, the result is: `"/bin/bash: line 0: type: salt-minion: not found\nsh: 0: Can't open /usr/lib/python2.7/dist-packages/salt/cloud/deploy/bootstrap-salt.sh\n"`
+
+``` yaml
+Version report:
+                  Salt: 2015.5.0
+                Python: 2.7.9 (default, Apr  2 2015, 15:33:21)
+                Jinja2: 2.7.3
+              M2Crypto: 0.21.1
+        msgpack-python: 0.4.2
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.11
+                 ioflo: Not Installed
+                 PyZMQ: 14.4.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.5
+                  Mako: 1.0.0
+ Debian source package: 2015.5.0+ds-1utopic1
+```

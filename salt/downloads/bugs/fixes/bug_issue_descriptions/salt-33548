@@ -1,0 +1,104 @@
+### Description of Issue/Question
+
+It seems that Salt Python API is ignoring the 'saltenv' parameter, at least for some modules, tested with 'cp' module in this case. I noticed it with `cp.get_file` but it is also reproductible with `cp.list_master_dirs` as shown below.
+### Setup
+
+salt-master and salt-minion running in a LXC instance. Mostly default configuration 
+for both except few harmless tweaks such as:
+
+salt-master:
+
+```
+worker_threads: 10
+hash_type: sha384
+log_file: file:///dev/log    
+log_fmt_logfile: 'salt: [%(levelname)-8s] %(name)s: %(message)s'
+file_roots:
+  base:
+    - /srv/salt/Files
+  admin:
+    - /srv/admin/Files
+```
+
+salt-minion:
+
+```
+hash_type: sha384
+log_file: file:///dev/log    
+log_fmt_logfile: 'salt: [%(levelname)-8s] %(name)s: %(message)s'
+```
+
+Configuration files are in 'master.d' and 'minion.d' respectively while '/etc/salt/master' and '/etc/salt/minion' are empty files containing a single commented line (# salt)
+
+Getting rid of the configuration files in '*/.d' directories and merging into '/etc/salt/master|minon' directly does not change anything in case the information could be relevant.
+### Steps to Reproduce Issue
+
+'base' file_root contains a subdir 'foo' and 'admin' file_root contains a 'bar' subdir to show the issue.
+
+Command line
+
+```
+# salt 'salt*' cp.list_master_dirs
+salt.domain.tld:
+    - .
+    - foo
+
+# salt 'salt*' cp.list_master_dirs saltenv='admin'
+salt.domain.tld:
+    - .
+    - bar
+```
+
+Python API
+
+``` python
+>>> import salt.client
+>>> a = salt.client.LocalClient()
+>>> a.cmd( 'salt*', 'cp.list_master_dirs' )
+{'salt.domain.tld': ['.', 'foo']}
+
+>>> a.cmd( 'salt*', 'cp.list_master_dirs', saltenv = 'admin' )
+{'salt.domain.tld': ['.', 'foo']}
+```
+
+'saltenv' parameter seems to be ignored as the result is the same.
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.10
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-85-generic
+         system: Ubuntu 14.04 trusty
+```

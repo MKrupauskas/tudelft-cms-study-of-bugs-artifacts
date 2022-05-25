@@ -1,0 +1,79 @@
+### Description of Issue/Question
+On specific VMs I am getting the below error message.
+
+```
+                                                         ][CRITICAL][21632] Unexpected error while connecting to saltsyndic04.domain.com
+Traceback (most recent call last):
+  File "/opt/salt/lib/python2.6/site-packages/salt/minion.py", line 875, in _connect_minion
+    yield minion.connect_master(failed=failed)
+  File "/opt/salt/lib64/python2.6/site-packages/tornado/gen.py", line 870, in run
+    value = future.result()
+  File "/opt/salt/lib64/python2.6/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+  File "/opt/salt/lib64/python2.6/site-packages/tornado/gen.py", line 876, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/opt/salt/lib/python2.6/site-packages/salt/minion.py", line 1053, in connect_master
+    yield self._post_master_init(master)
+  File "/opt/salt/lib64/python2.6/site-packages/tornado/gen.py", line 870, in run
+    value = future.result()
+  File "/opt/salt/lib64/python2.6/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+  File "/opt/salt/lib64/python2.6/site-packages/tornado/gen.py", line 879, in run
+    yielded = self.gen.send(value)
+  File "/opt/salt/lib/python2.6/site-packages/salt/minion.py", line 1128, in _post_master_init
+    }, persist=True)
+  File "/opt/salt/lib/python2.6/site-packages/salt/utils/schedule.py", line 577, in add_job
+    tag='/salt/minion/minion_schedule_add_complete')
+  File "/opt/salt/lib/python2.6/site-packages/salt/utils/event.py", line 752, in fire_event
+    self.io_loop.run_sync(lambda: self.pusher.send(msg))
+  File "/opt/salt/lib64/python2.6/site-packages/tornado/ioloop.py", line 444, in run_sync
+    return future_cell[0].result()
+  File "/opt/salt/lib64/python2.6/site-packages/tornado/concurrent.py", line 214, in result 
+    raise_exc_info(self._exc_info)
+  File "/opt/salt/lib64/python2.6/site-packages/tornado/gen.py", line 879, in run 
+    yielded = self.gen.send(value)
+  File "/opt/salt/lib/python2.6/site-packages/salt/transport/ipc.py", line 413, in send
+    yield self.stream.write(pack)
+  File "/opt/salt/lib64/python2.6/site-packages/tornado/iostream.py", line 367, in write
+    self._check_closed()
+  File "/opt/salt/lib64/python2.6/site-packages/tornado/iostream.py", line 877, in _check_closed
+    raise StreamClosedError("Stream is closed")
+StreamClosedError: Stream is closed
+```
+
+Looking at the code it made sense to me to add retries to IPCMessageClient since they are not implemented.
+https://github.com/saltstack/salt/blob/develop/salt/transport/ipc.py#L414
+
+I would like to suggest the following 
+
+```
+    @tornado.gen.coroutine
+    def send(self, msg, timeout=None, tries=3):
+        '''
+        Send a message to an IPC socket
+
+        If the socket is not currently connected, a connection will be established.
+
+        :param dict msg: The message to be sent
+        :param int timeout: Timeout when sending message (Currently unimplemented)
+        '''
+        if not self.connected():
+            yield self.connect()
+        while tries > 0:
+            try:
+                pack = salt.transport.frame.frame_msg_ipc(msg, raw_body=True)
+                yield self.stream.write(pack)
+            except tornado.iostream.StreamClosedError as exc:
+                log.error('Could not connect to ips stream with error {0}.'.format(exc))
+                yield self.connect()
+            tries -= 1
+```
+@DmitryKuzmenko , @skizunov do you think this is the proper solution ?
+Any suggestions ? 
+
+### Steps to Reproduce Issue
+Cannot reproduce except for the existing vms. 
+Not sure why it only happens there. Any troubleshooting steps would be welcome.
+
+### Versions Report
+2016.11.5

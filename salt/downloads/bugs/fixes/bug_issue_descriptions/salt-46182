@@ -1,0 +1,86 @@
+### Description of Issue/Question
+
+If the docker daemon is running with multiple [`--default-ulimit`](https://docs.docker.com/engine/reference/commandline/dockerd/#default-ulimit-settings) settings, then `docker_container.running` may detect a container needs to be rebuilt based solely on the ordering of the list of dicts in the container's `HostConfig` `Ulimits` value, which does not appear to be return in a deterministic order.  Here's the info line showing the differences between an old and new container, which is based on order only:
+
+```text
+[INFO    ] {'container_id': {'removed': [u'9a74ab387855ccf465d98008a92adb7d8ef7ee46a1325fb65d2d811a814d02b7'], 'added': u'4171b28c93f58f03a9f279b4d4eb8755a335d1bae1065a166c41cde1a44b5722'}, 'container': {'HostConfig': {u'Ulimits': {'new': [{u'Hard': 65536, u'Soft': 65536, u'Name': u'nofile'}, {u'Hard': -1, u'Soft': -1, u'Name': u'core'}], 'old': [{u'Hard': -1, u'Soft': -1, u'Name': u'core'}, {u'Hard': 65536, u'Soft': 65536, u'Name': u'nofile'}]}}}}
+```
+
+```json
+            "Ulimits": [
+                {
+                    "Name": "core",
+                    "Hard": -1,
+                    "Soft": -1
+                },
+                {
+                    "Name": "nofile",
+                    "Hard": 65536,
+                    "Soft": 65536
+                }
+            ],
+```
+
+I suspect this could be a problem when using `ulimits` in the state itself too, but haven't tried that.
+
+### Setup
+
+* Docker daemon running with `--default-ulimit=core=-1:-1 --default-ulimit=nofile=65536:65536`
+* Run a simple `docker_container.running` state.  E.g.:
+
+```bash
+salt-call -l debug state.single docker_container.running name=redis image=redis:4.0.8-alpine
+```
+
+Run this several times, until the container is rebuilt because of an order issue with the `Ulimits` `HostConfig`, with a log message as shown above.  In my testing, it restarted maybe 1 in 4 or 5 times.  Not close to half the times anyway, so the ordering perhaps is not completely random.
+
+### Steps to Reproduce Issue
+
+Run a docker daemon and a `state.single` as above.
+
+### Versions Report
+
+```text
+Salt Version:
+           Salt: 2017.7.3
+ 
+Dependency Versions:
+           cffi: 1.11.4
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: 2.5.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: 1.2.3
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Nov 23 2017, 15:49:48)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: Ubuntu 14.04 trusty
+         locale: UTF-8
+        machine: x86_64
+        release: 3.13.0-103-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```
+
+Also tried upgrading the docker-py dependency to `docker==3.1.0`, no change.

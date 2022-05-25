@@ -1,0 +1,77 @@
+A possible issue with 2014.1.1-1 on CentOS 6.5 using the EPEL RPMs.
+
+I have a postgres user that was created just fine in the 0.17 series and before.  I updated this server to 2014.1.1 and now Salt wants to create the postgres user that already exists:
+
+```
+----------
+          ID: postgresql
+    Function: postgres_user.present
+        Name: samhain
+      Result: None
+     Comment: User samhain is set to be created
+
+Which of course if I try it without test=True fails:
+
+          ID: postgresql
+    Function: postgres_user.present
+        Name: samhain
+      Result: False
+     Comment: Failed to create user samhain
+     Changes:
+```
+
+Some debug with test=True enabled:
+
+```
+[INFO    ] Executing state postgres_user.present for samhain
+[INFO    ] Executing command '/usr/bin/psql --no-align --no-readline --dbname 
+postgres -c \'SELECT setting FROM pg_catalog.pg_settings WHERE name = 
+\'"\'"\'server_version\'"\'"\'\' -t' as user 'postgres' in directory 
+'/var/lib/pgsql'
+[INFO    ] stdout: 8.4.20
+[INFO    ] Executing command '/usr/bin/psql --no-align --no-readline --dbname 
+postgres -v datestyle=ISO,MDY -c \'COPY (SELECT pg_roles.rolname as 
+"name",pg_roles.rolsuper as "superuser", pg_roles.rolinherit as "inherits 
+privileges", pg_roles.rolcreaterole as "can create roles", 
+pg_roles.rolcreatedb as "can create databases", pg_roles.rolcatupdate as "can 
+update system catalogs", pg_roles.rolcanlogin as "can login", pg_roles.NULL as 
+"replication", pg_roles.rolconnlimit as "connections", 
+pg_roles.rolvaliduntil::timestamp(0) as "expiry time", pg_roles.rolconfig  as 
+"defaults variables", COALESCE(pg_shadow.passwd, pg_authid.rolpassword) as 
+"password" FROM pg_roles LEFT JOIN pg_authid ON pg_roles.oid = pg_authid.oid 
+LEFT JOIN pg_shadow ON pg_roles.oid = pg_shadow.usesysid) TO STDOUT WITH CSV 
+HEADER\'' as user 'postgres' in directory '/var/lib/pgsql'
+[ERROR   ] Command '/usr/bin/psql --no-align --no-readline --dbname postgres -
+v datestyle=ISO,MDY -c \'COPY (SELECT pg_roles.rolname as 
+"name",pg_roles.rolsuper as "superuser", pg_roles.rolinherit as "inherits 
+privileges", pg_roles.rolcreaterole as "can create roles", 
+pg_roles.rolcreatedb as "can create databases", pg_roles.rolcatupdate as "can 
+update system catalogs", pg_roles.rolcanlogin as "can login", pg_roles.NULL as 
+"replication", pg_roles.rolconnlimit as "connections", 
+pg_roles.rolvaliduntil::timestamp(0) as "expiry time", pg_roles.rolconfig  as 
+"defaults variables", COALESCE(pg_shadow.passwd, pg_authid.rolpassword) as 
+"password" FROM pg_roles LEFT JOIN pg_authid ON pg_roles.oid = pg_authid.oid 
+LEFT JOIN pg_shadow ON pg_roles.oid = pg_shadow.usesysid) TO STDOUT WITH CSV 
+HEADER\'' failed with return code: 1
+[ERROR   ] stderr: ERROR:  column pg_roles.null does not exist
+LINE 1: ...m catalogs", pg_roles.rolcanlogin as "can login", pg_roles.N...
+                                                             ^
+[INFO    ] User samhain is set to be created
+[INFO    ] Completed state [samhain] at time 16:48:30.441627
+```
+
+Some debug when I don't run test=True, it does see that the user exists.
+
+```
+[INFO    ] Executing command '/usr/bin/psql --no-align --no-readline --dbname 
+postgres -c \'CREATE ROLE "samhain" WITH  INHERIT NOCREATEDB NOSUPERUSER LOGIN 
+ENCRYPTED PASSWORD \'"\'"\'<SNIP>\'"\'"\'\'' as user 'postgres' in directory 
+'/var/lib/pgsql'
+[ERROR   ] Command '/usr/bin/psql --no-align --no-readline --dbname postgres -
+c \'CREATE ROLE "samhain" WITH  INHERIT NOCREATEDB NOSUPERUSER LOGIN ENCRYPTED 
+PASSWORD \'"\'"\'<SNIP>\'"\'"\'\'' failed with return code: 1
+[ERROR   ] stderr: ERROR:  role "samhain" already exists
+[ERROR   ] Failed to create user samhain
+```
+
+Thanks.

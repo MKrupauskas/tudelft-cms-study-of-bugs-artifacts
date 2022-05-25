@@ -1,0 +1,84 @@
+### Description of Issue/Question
+
+The `postfix` module's `set_main` function overwrites wrong keys in addition to the key it should overwrite. The reason is that Postfix' keys aren't prefix-free, but the `set_main` function assumes they are.
+
+### Setup
+
+First create a dummy `main.cf` file, e.g. `/tmp/test.cf`, and add the following content:
+
+```
+virtual_transport_rate_delay = $default_transport_rate_delay
+virtual_transport = virtual
+```
+
+Those are default values for two keys from an Ubuntu installation as given by `postconf | grep virtual`.
+
+Next, try setting `virtual_transport` while leaving `virtual_transport_rate_delay` as-is:
+
+```
+[0 mbunkus@reliant ~] sudo salt-call postfix.set_main virtual_transport testme path=/tmp/test.cf
+local:
+    - virtual_transport = testme
+    - virtual_transport = testme
+```
+
+The output already shows that two keys are replaced, not just one. Looking at the file via `cat /tmp/test.cf` confirms it:
+
+```
+[0 mbunkus@reliant ~] cat /tmp/test.cf
+virtual_transport = testme
+virtual_transport = testme
+```
+
+### Analysis
+
+The problem is that `set_main` assumes that keys are prefix-free. While iterating over the list of lines, it uses `line.startswith(key)` as the test whether or not to replace the line. This test is obviously true for `virtual_transport = …`, but unfortunately it's also true for any other key whose name starts with `virtual_transport`, such as the aforementioned `virtual_transport_rate_delay = …`
+
+Remedy: don't use `startswith(key)`; rather use something like "starts with the key followed by a whitespace or an equal", e.g. `re.match("^{0}[\\s=]".format(re.escape(key)), line)`. The regex could be compiled earlier in the function, of course.
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2017.7.5
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.15rc1 (default, Apr 15 2018, 21:51:34)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 3.13.0-88-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```
+
+Yeah, these are the 16.04 Salt packages on Ubuntu 18.04. However, the same code is still present in [today's git](https://github.com/saltstack/salt/blob/develop/salt/modules/postfix.py#L298); therefore the problem still exists.

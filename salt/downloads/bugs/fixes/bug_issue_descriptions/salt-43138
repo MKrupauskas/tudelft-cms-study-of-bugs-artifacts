@@ -1,0 +1,32 @@
+### Description of Issue/Question
+The `npm.installed` state throws an error when installing certain packages. I was able to track this down to packages where "is installed via remote" is printed to stdout. (Whatever that means, it's not really Google-able.) Examples for such packages are "sqlite3" or "bcrypt", and the exact line looks like this:
+
+> [bcrypt] Success: "/tmp/npm-test/node_modules/bcrypt/lib/binding/bcrypt_lib.node" is installed via remote"
+
+However, the packages acutally are successfully installed, so a subsequent highstate will succeed.
+
+The cause for this appears to be that the `npm.install` module cannot parse the output of `npm install --silent --json` because of that line. It therefore returns a string, which the `npm.installed` state counts as failure.
+
+Since #35075, there already is the special `_extract_json()` function in place, which tries to isolate the JSON from the other output like this:
+
+    while lines and not lines[0].startswith('{') and not lines[0].startswith('['):
+        lines = lines[1:]
+    while lines and not lines[-1].startswith('}') and not lines[-1].startswith(']'):
+        lines = lines[:-1]
+
+Unfortunately, the line from above starts with a '[', although it's not part of the JSON.
+
+NPM *appears* to always output a JSON object (not a list), so the checks could *probably* be limited to `startswith('{')`. But what do I know, I can't even find documentation for NPM's JSON output.
+
+### Steps to Reproduce Issue
+Create a target directory like "/tmp/npm-test" on the minion and try to install a NPM package like "sqlite3" or "bcrypt" using `npm.installed` like this:
+
+    sqlite3:
+      npm.installed:
+        - dir: /tmp/npm-test
+
+It will fail with the error "Could not install package(s) 'sqlite3'", but the package will still be installed.
+
+### Versions Report
+* Salt 2016.11.2, but the relevant code is also present on the current "develop" branch
+* NPM 3.10.10

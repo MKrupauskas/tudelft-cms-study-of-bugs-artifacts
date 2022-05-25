@@ -1,0 +1,126 @@
+Summary:
+A single set of states were placed on a 2014.1.0 master.
+When applied to a minion running 2014.1.0 by calling highstate, we get no response, and debug logs on the master mention timeouts
+When applied to the same minion running 0.17.5 highstate succeeds
+When the master is modified to set the timeout to 20 seconds rather than the default 5,
+calling highstate on the 2014.1.0 minion is able to succeed.
+The only two variables we adjusted were minion version and the timeout on the master.
+This suggests a performance regression in the 2014.1.0 minion.
+
+Workaround:
+In the master config file add this line:
+
+```
+timeout: 20
+```
+
+Details:
+Platform: SmartOS
+Everything was run in a single zone.
+Two different esky builds of salt were generated in the same build environment (same version of python, same version of zeromq, etc:
+
+"salt --versions-report" output for good measure:
+
+```
+[root@hostname /opt/salt-2014.1.0/bin]# ./salt --versions-report
+           Salt: 2014.1.0
+         Python: 2.7.6 (default, Feb 19 2014, 13:37:36)
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.4
+[root@hostname /opt/salt-0.17.5/bin]# ./salt --versions-report
+           Salt: 0.17.5
+         Python: 2.7.6 (default, Feb 19 2014, 13:37:36)
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.4
+```
+
+I was told that the 2014.1.0 build wasn't working and was asked to see if I could help figure out why not.
+The same host was being used as both master and minion.
+
+2014.1.0 master, 2014.1.0 minion:
+We noticed the master omniously warning about timeouts.
+
+0.17.5 master, 0.17.5 minion:
+Everything runs just fine. (The states get applied so further runs should only need to do verification
+
+2014.1.0 master, 2014.1.0 minion again:
+Still see the master omniously warning about timeouts.
+
+0.17.5 master, 2014.1.0 minion:
+Something was sad and wouldn't run and we didn't investigate further
+
+2014.1.0 master, 0.17.5 minion:
+Everything runs just fine.
+
+We remember the timeouts message and discover the setting that can be set on the master to up the timeouts.
+
+2014.1.0 master, 2014.1.0 minion this time with 20 second timeout on master:
+Everything runs fine.
+
+In the debug output of the (2014.1.0) minion we noticed a lot of (re)loading of the minion key:
+
+```
+[INFO    ] No change
+[INFO    ] Completed state [username-removed] at time 21:46:59.910290
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[INFO    ] Running state [username-removed] at time 21:47:00.552006
+[INFO    ] Executing state user.present for username-removed
+[INFO    ] Executing command 'passwd -s username-removed' in directory '/root'
+[INFO    ] stdout: username-removed  PS
+[INFO    ] User username-removed is present and up to date
+[INFO    ] Completed state [username-removed] at time 21:47:00.623880
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[INFO    ] Running state [username2-removed] at time 21:47:01.158740
+[INFO    ] Executing state group.present for username2-removed
+[INFO    ] No change
+[INFO    ] Completed state [username2-removed] at time 21:47:01.165488
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[INFO    ] Running state [username2-removed] at time 21:47:01.716089
+[INFO    ] Executing state user.present for username2-removed
+[INFO    ] Executing command 'passwd -s username2-removed' in directory '/root'
+[INFO    ] stdout: username2-removed   PS
+[INFO    ] User username2-removed is present and up to date
+[INFO    ] Completed state [username2-removed] at time 21:47:01.775943
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /opt/salt-2014.1.0/etc/pki/minion/minion.pem
+```
+
+So that's what I've figured out so far.
+Given the fact that the variables we touched were the version of code from the salt repo and the timeout on the master, it seems like a performance regression.
+
+Let me know what further diagnostics would be useful.

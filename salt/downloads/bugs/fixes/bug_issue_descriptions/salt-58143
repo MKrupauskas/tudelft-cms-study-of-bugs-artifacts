@@ -1,0 +1,58 @@
+**Description**
+When trying to run any mac_service modules on macOS Big Sur Beta4 you get the following traceback.
+
+```
+  File "/opt/local/bin/salt-call", line 11, in <module>
+    load_entry_point('salt==3001.1', 'console_scripts', 'salt-call')()
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001.1-py3.7.egg/salt/scripts.py", line 445, in salt_call
+    client.run()
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001.1-py3.7.egg/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001.1-py3.7.egg/salt/cli/caller.py", line 121, in run
+    ret = self.call()
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001.1-py3.7.egg/salt/cli/caller.py", line 229, in call
+    self.opts, data, func, args, kwargs
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001.1-py3.7.egg/salt/executors/direct_call.py", line 12, in execute
+    return func(*args, **kwargs)
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001.1-py3.7.egg/salt/modules/mac_service.py", line 505, in status
+    _get_service(name)
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001.1-py3.7.egg/salt/modules/mac_service.py", line 126, in _get_service
+    services = __utils__["mac_utils.available_services"]()
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001.1-py3.7.egg/salt/utils/mac_utils.py", line 487, in available_services
+    return _available_services(refresh)
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001.1-py3.7.egg/salt/utils/mac_utils.py", line 456, in _available_services
+    data = _read_plist_file(root, file_name)
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001.1-py3.7.egg/salt/utils/mac_utils.py", line 366, in _read_plist_file
+    plist = plistlib.load(handle)
+  File "/opt/salt/lib/python3.7/plistlib.py", line 950, in load
+    return p.parse(fp)
+  File "/opt/salt/lib/python3.7/plistlib.py", line 260, in parse
+    self.parser.ParseFile(fileobj)
+  File "/Users/saltadmin/dev/salt/pkg/osx/build/Python-3.7.4/Modules/pyexpat.c", line 471, in EndElement
+  File "/opt/salt/lib/python3.7/plistlib.py", line 272, in handle_end_element
+    handler()
+  File "/opt/salt/lib/python3.7/plistlib.py", line 332, in end_integer
+    self.add_object(int(self.get_data()))
+ValueError: invalid literal for int() with base 10: '0x0100000c'
+```
+
+This is caused by a new service that has been added in Big Sur. `/System/Library/LaunchAgents/com.apple.cvmsCompAgent3600_arm64.plist`
+
+it contains a new key value pair that causes the ValueError with `plistlib`.
+
+```
+	<key>BinaryOrderPreference</key>
+	<array>
+		<integer>0x0100000c</integer>
+	</array>
+```
+
+Technically this violates the spec at http://www.apple.com/DTDs/PropertyList-1.0.dtd. But this feels like a "Do as I say not as I do" situation from our friends over at the Fruit Co.
+
+I'll update the code to handle this issue.
+
+**Setup**
+macOS Big Sur Beta4 machine. (could be in earlier betas as well)
+
+**Steps to Reproduce the behavior**
+run ```sudo salt-call service.status com.saltstack.salt.minion```

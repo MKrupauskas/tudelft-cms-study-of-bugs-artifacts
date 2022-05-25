@@ -1,0 +1,39 @@
+I have a setup with a minion that should be creating an LXC container. I'm using a cloud profile/provider rather than the LXC tools directly as the setup will eventually be migrated to a cloud provider.
+
+The issue I'm having is that when I try to do a cloud.provide, it always reports that the instance already exists. I tracked this down to [salt/states/cloud.py](https://github.com/saltstack/salt/blob/develop/salt/states/cloud.py) lines 263 & 264 - a check is being done against a key in a dictionary for the characters 'Not Actioned'.
+
+What's happening for me is that `instance = {'Not Found': ['lxc-minion2'], 'Not Actioned/Not Running': ['lxc-minion2']}` and the six.iterkeys stuff is returning 'Not Found' rather than the 'Not Actioned' string.
+
+I have a potential fix that I will do a pull request for in a few minutes.
+
+For reference, I found this in 2015.8 and have checked that this still happens against the git develop branch. This is my setup:
+
+Provider conf (I have a minion called master-minion):
+
+``` devhost-local-lxc:
+  target: master-minion
+  driver: lxc
+```
+
+Profile Conf:
+
+```
+lxc-minion-profile:
+  provider: devhost-local-lxc
+  lxc_profile:
+    template: ubuntu
+  network_profile:
+    etho:
+      link: lxcbr0
+  minion:
+    master: 10.0.3.1
+    master_port: 4506
+```
+
+And state definition:
+
+```
+lxc-minion1:
+  cloud.profile:
+    - profile: lxc-minion-profile
+```

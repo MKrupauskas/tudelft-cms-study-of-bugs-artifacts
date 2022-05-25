@@ -1,0 +1,103 @@
+### Description of Issue/Question
+
+Despite the documentation (`sys.doc state.single`), `state.single` cannot handle JSON-formatted keyword values right now. This isn't urgent, or critical right now, because one can still work around it using keyword arguments; but I just want to have it on record here.
+### Setup
+
+Nothing special.
+### Steps to Reproduce Issue
+
+If you try to pass everything (including the name of the state) in JSON, this is what happens
+
+```
+# salt-call --local state.single user.present '{"fullname":"Salt user","name":"salt"}'
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+KeyError: '__sls__'
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 345, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 134, in run
+    ret = self.call()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 197, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/state.py", line 1345, in single
+    err = st_.verify_data(kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 986, in verify_data
+    data['name'], data['__sls__'], type(data['name']).__name__)
+KeyError: '__sls__'
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 345, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 134, in run
+    ret = self.call()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 197, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/state.py", line 1345, in single
+    err = st_.verify_data(kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 986, in verify_data
+    data['name'], data['__sls__'], type(data['name']).__name__)
+KeyError: '__sls__'
+```
+
+If you try to pass the name of the state as the required 2nd parameter instead of as a keyword argument (see signature of `salt.single` in the code), no errors get thrown, but you can see that nothing gets run (and no, it is not because the user's already present; it isn't as you can see). I've debugged the code in `user.present`, and it appears that the JSON parameters aren't being passed in (`user.present` sees `fullname` as `None`).
+
+Having said that, I don't see why `user.present` should not go ahead and carry on (`fullname` = `None` is alright, even if it is the wrong value!), but that's another issue, and this is about `state.single` not being able to handle JSON
+
+```
+# id salt
+id: salt: no such user
+# salt-call --local state.single user.present salt '{"fullname":"Salt user"}'
+local:
+----------
+          ID: salt
+    Function: user.present
+      Result: None
+     Comment: User salt set to be added
+     Started: 06:18:09.143563
+    Duration: 5.362 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 1 (unchanged=1)
+Failed:    0
+------------
+Total states run:     1
+```
+
+If you try to pass the name as a keyword argument, with the rest of the values as JSON (I am not saying that this should be supported or be a valid use case, btw; I am just trying it out to see what happens), you get the following. The error message is interesting ("multiple values for keyword argument 'name'"?):
+
+```
+# salt-call --local state.single user.present name=salt '{"fullname":"salt user"}'
+
+Passed invalid arguments: single() got multiple values for keyword argument 'name'.
+
+Usage:
+
+    Execute a single state function with the named kwargs, returns False if
+    insufficient data is sent to the command
+
+    By default, the values of the kwargs will be parsed as YAML. So, you can
+    specify lists values, or lists of single entry key-value maps, as you
+    would in a YAML salt file. Alternatively, JSON format of keyword values
+    is also supported.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' state.single pkg.installed name=vim
+
+
+#
+```
+### Versions Report
+
+2016.3.2 on both minion and master

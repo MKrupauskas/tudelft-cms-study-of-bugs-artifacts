@@ -1,0 +1,105 @@
+Previously, returner configuration details were shipped from the master config to the minions during minion initialization.  This functionality appears to have ceased working.
+
+```
+root@saltmaster:~# salt --versions
+                  Salt: 2015.5.2
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2015.5.2+ds-1trusty1
+```
+
+Pertinent master config:
+
+```
+root@saltmaster:~# grep ^redis /etc/salt/master
+redis.db: '0'
+redis.host: '192.168.56.101'
+redis.port: 6379
+```
+
+Minion config:
+
+```
+root@saltmaster:~# grep ^redis /etc/salt/minion
+root@saltmaster:~#
+```
+
+Proof redis endpoint is functional:
+
+```
+root@saltmaster:~# python -c "import redis; r = redis.StrictRedis(host='192.168.56.101'); r.set('foo', 'bar')"
+```
+
+Run a simple test, putting result into redis:
+
+```
+root@saltmaster:~# salt \* test.ping --return redis
+saltmaster:
+    True
+```
+
+The return comes back to the cli fine, however in the minion configuration:
+
+```
+2015-07-07 16:09:19,637 [salt.minion                              ][INFO    ][16733] User root Executing command test.ping with jid 20150707160919596888
+2015-07-07 16:09:19,637 [salt.minion                              ][DEBUG   ][16733] Command details {'tgt_type': 'glob', 'jid': '20150707160919596888', 'tgt': '*', 'ret': 'redis', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+2015-07-07 16:09:19,645 [salt.minion                              ][INFO    ][17328] Starting a new job with PID 17328
+2015-07-07 16:09:19,746 [salt.utils.lazy                          ][DEBUG   ][17328] LazyLoaded test.ping
+2015-07-07 16:09:19,747 [salt.minion                              ][INFO    ][17328] Returning information for job: 20150707160919596888
+2015-07-07 16:09:19,747 [salt.crypt                               ][DEBUG   ][17328] Re-using SAuth for ('/etc/salt/pki/minion', 'saltmaster', 'tcp://127.0.0.1:4506')
+2015-07-07 16:09:19,793 [salt.utils.lazy                          ][DEBUG   ][17328] LazyLoaded redis.returner
+2015-07-07 16:09:19,893 [salt.minion                              ][ERROR   ][17328] The return failed for job 20150707160919596888 Error -3 connecting salt:6379. Temporary failure in name resolution.
+2015-07-07 16:09:19,894 [salt.minion                              ][ERROR   ][17328] Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1238, in _thread_return
+    )](ret)
+  File "/usr/lib/python2.7/dist-packages/salt/returners/redis_return.py", line 101, in returner
+    serv.set('{0}:{1}'.format(ret['id'], ret['jid']), json.dumps(ret))
+  File "/usr/lib/python2.7/dist-packages/redis/client.py", line 666, in set
+    return self.execute_command('SET', name, value)
+  File "/usr/lib/python2.7/dist-packages/redis/client.py", line 364, in execute_command
+    connection.send_command(*args)
+  File "/usr/lib/python2.7/dist-packages/redis/connection.py", line 301, in send_command
+    self.send_packed_command(self.pack_command(*args))
+  File "/usr/lib/python2.7/dist-packages/redis/connection.py", line 283, in send_packed_command
+    self.connect()
+  File "/usr/lib/python2.7/dist-packages/redis/connection.py", line 231, in connect
+    raise ConnectionError(self._error_message(e))
+ConnectionError: Error -3 connecting salt:6379. Temporary failure in name resolution.
+
+```
+
+Reverse the config:
+
+```
+root@saltmaster:~# grep ^redis /etc/salt/minion
+redis.db: '0'
+redis.host: '192.168.56.101'
+redis.port: 6379
+root@saltmaster:~# grep ^redis /etc/salt/master
+root@saltmaster:~#
+```
+
+Rerun the test, and the returned values are present:
+
+```
+2015-07-07 16:20:44,398 [salt.minion                              ][INFO    ][17577] User root Executing command test.ping with jid 20150707162044392601
+2015-07-07 16:20:44,398 [salt.minion                              ][DEBUG   ][17577] Command details {'tgt_type': 'glob', 'jid': '20150707162044392601', 'tgt': '*', 'ret': 'redis', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+2015-07-07 16:20:44,440 [salt.minion                              ][INFO    ][18227] Starting a new job with PID 18227
+2015-07-07 16:20:44,502 [salt.utils.lazy                          ][DEBUG   ][18227] LazyLoaded test.ping
+2015-07-07 16:20:44,503 [salt.minion                              ][INFO    ][18227] Returning information for job: 20150707162044392601
+2015-07-07 16:20:44,503 [salt.crypt                               ][DEBUG   ][18227] Re-using SAuth for ('/etc/salt/pki/minion', 'saltmaster', 'tcp://127.0.0.1:4506')
+2015-07-07 16:20:44,555 [salt.utils.lazy                          ][DEBUG   ][18227] LazyLoaded redis.returner
+```
+
+Last version I knew this worked in was `0.17.5`

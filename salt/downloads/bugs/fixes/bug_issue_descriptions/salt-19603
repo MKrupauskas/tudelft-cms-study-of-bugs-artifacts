@@ -1,0 +1,111 @@
+The following git.latest state fails; seemingly because the path to the target directory is not understood by git.
+
+```
+https://github.com/ajmccluskey/vim-settings:
+  git.latest:
+    - submodules: True
+    - target: C:\git\vim-settings
+```
+
+Below is the error seen on the salt master
+
+```
+      ID: https://github.com/ajmccluskey/vim-settings
+Function: git.latest
+  Result: False
+ Comment: fatal: could not create leading directories of ''C:\\git\\vim-settings'': Invalid argument
+ Started: 17:28:30.349000
+Duration: 78.0 ms
+ Changes:
+```
+
+This is the error in the salt-minion output on Windows XP
+
+```
+[ERROR   ] Command "git clone https://github.com/ajmccluskey/vim-settings 'C:\\\\git\\\\vim-settings' " failed with return code: 128
+[ERROR   ] stderr: fatal: could not create leading directories of ''C:\\git\\vim-settings'': Invalid argument
+[ERROR   ] retcode: 128
+[ERROR   ] fatal: could not create leading directories of ''C:\\git\\vim-settings'': Invalid argument
+```
+
+Different methods of quoting and escaping backslashes don't seem to work. The following target values all fail.
+- 'C:\git\vim-settings' => yields the same error
+- "C:\git\vim-settings" => yields the same error
+
+From the error message it seems that there are two sets of single quotes around the target path. Experimenting on Windows with msysgit leads me to believe that single quoting the target path causes the error.
+
+```
+C:\Documents and Settings\IEUser>git clone https://github.com/ajmccluskey/vim-settings 'C:\git\vim-settings'
+fatal: could not create leading directories of ''C:\git\vim-settings'': Invalid argument
+
+C:\Documents and Settings\IEUser>git clone https://github.com/ajmccluskey/vim-settings "C:\git\vim-settings"
+Cloning into 'C:\git\vim-settings'...
+remote: Counting objects: 118, done.
+remote: Total 118 (delta 0), reused 0 (delta 0)
+Receiving objects: 100% (118/118), 13.60 KiB | 0 bytes/s, done.
+Resolving deltas: 100% (31/31), done.
+Checking connectivity... done.
+```
+
+Having looked at the code for the git module, my guess is that the string formatting for the `git clone` command in the `clone()` function is worth investigating. Line 202 in `salt/modules/git.py` of the develop branch is as follows:
+
+```
+cmd = 'git clone {0} {1!r} {2}'.format(repository, cwd, opts)
+```
+
+The use of `{1!r}` in the format string causes `repr` to be called on `cwd` before it's substituted into the string. `repr('C:\git\vim-settings')` produces `"'C:\\\\git\\x0bim-settings'"`, which has single quotes embedded in the string.
+
+Version information below.
+
+```
+$ salt --versions-report
+           Salt: 2014.7.0
+         Python: 2.7.6 (default, Sep  9 2014, 15:04:36)
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+
+C:\salt>salt-minion.exe --versions-report
+           Salt: 2014.7.0
+         Python: 2.7.5 (default, May 15 2013, 22:43:36) [MSC v.1500 32 bit (Intel)]
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.1.1
+           RAET: Not Installed
+            ZMQ: 4.0.4
+           Mako: Not Installed
+Traceback (most recent call last):
+  File "<string>", line 6, in <module>
+  File "__main__.py", line 726, in <module>
+  File "__main__.py", line 332, in bootstrap
+  File "__main__.py", line 359, in chainload
+  File "__main__.py", line 715, in _chainload
+  File "__main__.py", line 128, in <module>
+  File "__main__salt-minion__.py", line 17, in <module>
+  File "salt/scripts.py", line 56, in salt_minion
+  File "salt/__init__.py", line 262, in start
+  File "salt/__init__.py", line 168, in prepare
+  File "salt/utils/parsers.py", line 126, in parse_args
+  File "salt/utils/parsers.py", line 194, in print_versions_report
+AttributeError: 'module' object has no attribute 'EX_OK'
+```

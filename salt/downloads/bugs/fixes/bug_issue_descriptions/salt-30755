@@ -1,0 +1,73 @@
+I am creating a database, and populating it with default values using Salt. Repeated runs of the DDL to create the tables are no problem, but the DML calls to add lines to the table give a "fail" result when the state.sls is run.  The following is from the console log when running "salt-call state.sls exim"
+
+``` python-traceback
+[INFO    ] Completed state [exim_create_tables2] at time 18:48:59.639130
+[INFO    ] Running state [exim_create_tables3] at time 18:48:59.640225
+[INFO    ] Executing state mysql_query.run for exim_create_tables3
+[ERROR   ] MySQL Error 1050: Table 'vacations' already exists
+[INFO    ] {'query': 'Executed'}
+[INFO    ] Completed state [exim_create_tables3] at time 18:48:59.644355
+[INFO    ] Running state [exim_populate_tables] at time 18:48:59.644891
+[INFO    ] Executing state mysql_query.run for exim_populate_tables
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1560, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/states/mysql_query.py", line 148, in run
+    query_result = __salt__['mysql.query'](database, query, **connection_args)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/mysql.py", line 603, in query
+    affected = _execute(cur, query)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/mysql.py", line 502, in _execute
+    return cur.execute(qry)
+  File "/usr/lib/python2.7/dist-packages/MySQLdb/cursors.py", line 176, in execute
+    if not self._defer_warnings: self._warning_check()
+  File "/usr/lib/python2.7/dist-packages/MySQLdb/cursors.py", line 85, in _warning_check
+    warnings = self._get_db().show_warnings()
+  File "/usr/lib/python2.7/dist-packages/MySQLdb/connections.py", line 317, in show_warnings
+    self.query("SHOW WARNINGS")
+ProgrammingError: (2014, "Commands out of sync; you can't run this command now")
+[INFO    ] Completed state [exim_populate_tables] at time 18:48:59.651850
+Exception _mysql_exceptions.ProgrammingError: (2014, "Commands out of sync; you can't run this command now") in <bound method Cursor.__del__ of <MySQLdb.cursors.Cursor object at 0x7fb3be677350>> ignored
+```
+
+The significant snippet from the state sls file is:
+
+``` yaml
+ exim_create_tables3:
+  mysql_query.run:
+    - database: email_accounts
+    - watch_in:
+      - cmd: update_exim4
+    - require:
+      - mysql_database: email_accounts
+      - mysql_query: exim_create_tables2
+    - connection_user: {{ pillar['mail_db_user'] }}
+    - connection_pass: {{ pillar['mail_db_password'] }}
+    - query: |
+        CREATE TABLE vacations (
+            id INT(10) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            mailbox_id INT(10) NOT NULL,
+            subject VARCHAR(250) NOT NULL,
+            body TEXT NOT NULL,
+            description VARCHAR(250) NULL,
+            active TINYINT(1) NOT NULL DEFAULT 0,
+            created TIMESTAMP NOT NULL DEFAULT NOW(),
+            modified TIMESTAMP NULL,
+            FOREIGN KEY (mailbox_id) REFERENCES mailboxes(id) ON DELETE CASCADE
+        );
+
+exim_populate_tables:
+  mysql_query.run:
+    - database: email_accounts
+    - require:
+      - mysql_query: exim_create_tables2
+    - connection_user: {{ pillar['mail_db_user'] }}
+    - connection_pass: {{ pillar['mail_db_password'] }}
+    - query: |
+        INSERT IGNORE INTO domains VALUES (NULL,"2txt.us","local","group txt interface",1,NOW(),NOW()),
+        (NULL,"2txt.me","local","personal text interface",1,NOW(),NOW()),
+        (NULL,"digvil.info","local","digital villages information and functions",1,NOW(),NOW());
+        INSERT IGNORE INTO mailboxes VALUES (NULL,(select id from domains where fqdn="2txt.us"),"vernon",MD5("Hannah11"),"My account for vernon@2txt.us",1,NOW(),NOW());
+        INSERT IGNORE INTO mailboxes VALUES (NULL,(select id from domains where fqdn="digvil.info"),"vernon",MD5("Hannah11"),"My account for vernon@digvil.info",1,NOW(),NOW());
+        insert IGNORE into aliases values (null, (select id from domains where fqdn="2txt.us"), "root", "vernon", "forward for root", 1, NOW(), NOW() );
+        insert IGNORE into aliases values (null, (select id from domains where fqdn="digvil.info"), "2coles", "vernondcole@gmail.com, vernon@vernonscomputershop.com", "forward for both of us", 1, NOW(), NOW() );
+```

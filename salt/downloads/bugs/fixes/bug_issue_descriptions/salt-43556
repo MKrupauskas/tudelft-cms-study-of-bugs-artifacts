@@ -1,0 +1,251 @@
+### Description of Issue/Question
+Restart of salt-master service fails due stop operation don't wait for termination and during the start the salt master port is still occupied by previous process.
+
+Is there any way to control/check service is fully stoped? 
+Is there any way to force service wait before it's started?
+
+### Setup
+I face this issue occasionally in docker/kitchen-salt setup with reclass on ext_pillar.
+
+### Logs from CLI restart
+```
+root@cfg01:~# service salt-master restart
+ * Restarting salt master control daemon salt-master                                                                                          WARNING: Unable to bind socket 0.0.0.0:4506, error: [Errno 98] Address already in use; Is there another salt-master running?
+The salt master is shutdown. The ports are not available to bind
+                                                                                                                                       [fail]
+root@cfg01:~# service salt-master restart
+ * Restarting salt master control daemon salt-master                                                                                   [ OK ] 
+root@cfg01:~# service salt-master restart     
+ * Restarting salt master control daemon salt-master                                                                                   [ OK ] 
+root@cfg01:~# service salt-master restart
+ * Restarting salt master control daemon salt-master                                                                                   [ OK ] 
+root@cfg01:~# service salt-master restart
+ * Restarting salt master control daemon salt-master                                                                                          ^[[A                                                                                                                                   [ OK ]
+root@cfg01:~# service salt-master restart
+ * Restarting salt master control daemon salt-master                                                                                   [ OK ] 
+```
+
+
+### Logs from state run
+The same behaviour during state service.running when the restart was triggered:
+
+```
+.....
+.....
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'salt/files/master.conf'
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'cfg01.aaa-ha-freeipa.local', 'tcp://127.0.0.1:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'cfg01.aaa-ha-freeipa.local', 'tcp://127.0.0.1:4506')
+[DEBUG   ] In saltenv 'base', looking at rel_path 'salt/map.jinja' to resolve 'salt://salt/map.jinja'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/salt/map.jinja' to resolve 'salt://salt/map.jinja'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'linux/map.jinja' to resolve 'salt://linux/map.jinja'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/linux/map.jinja' to resolve 'salt://linux/map.jinja'
+[INFO    ] File changed:
+--- 
++++ 
+@@ -16,9 +16,6 @@
+ pillar_opts: False
+ open_mode: True
+ max_event_size: 100000000
+-
+-
+-# Ext pillar's
+ reclass: &reclass
+   storage_type: yaml_fs
+   inventory_base_uri: /srv/salt/reclass
+@@ -26,5 +23,8 @@
+ master_tops:
+   reclass: *reclass
+ 
++
++
++
+ ext_pillar:
+-- reclass: *reclass
++  - reclass: *reclass
+
+[INFO    ] Completed state [/etc/salt/master.d/master.conf] at time 19:12:49.562498 duration_in_ms=150.837
+[INFO    ] Running state [/etc/salt/master.d/_acl.conf] at time 19:12:49.564263
+[INFO    ] Executing state file.managed for [/etc/salt/master.d/_acl.conf]
+[DEBUG   ] In saltenv 'base', looking at rel_path 'salt/files/_acl.conf' to resolve 'salt://salt/files/_acl.conf'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/salt/files/_acl.conf' to resolve 'salt://salt/files/_acl.conf'
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'cfg01.aaa-ha-freeipa.local', 'tcp://127.0.0.1:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'cfg01.aaa-ha-freeipa.local', 'tcp://127.0.0.1:4506')
+[DEBUG   ] In saltenv 'base', looking at rel_path 'salt/map.jinja' to resolve 'salt://salt/map.jinja'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/salt/map.jinja' to resolve 'salt://salt/map.jinja'
+[INFO    ] File /etc/salt/master.d/_acl.conf is in the correct state
+[INFO    ] Completed state [/etc/salt/master.d/_acl.conf] at time 19:12:49.622908 duration_in_ms=58.645
+[INFO    ] Running state [/etc/salt/master.d/_peer.conf] at time 19:12:49.624816
+[INFO    ] Executing state file.managed for [/etc/salt/master.d/_peer.conf]
+[DEBUG   ] In saltenv 'base', looking at rel_path 'salt/files/_peer.conf' to resolve 'salt://salt/files/_peer.conf'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/salt/files/_peer.conf' to resolve 'salt://salt/files/_peer.conf'
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'cfg01.aaa-ha-freeipa.local', 'tcp://127.0.0.1:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'cfg01.aaa-ha-freeipa.local', 'tcp://127.0.0.1:4506')
+[DEBUG   ] In saltenv 'base', looking at rel_path 'salt/map.jinja' to resolve 'salt://salt/map.jinja'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/salt/map.jinja' to resolve 'salt://salt/map.jinja'
+[INFO    ] File /etc/salt/master.d/_peer.conf is in the correct state
+[INFO    ] Completed state [/etc/salt/master.d/_peer.conf] at time 19:12:49.723812 duration_in_ms=98.995
+[DEBUG   ] LazyLoaded service.running
+[INFO    ] Running state [/etc/salt/master.d/_reactor.conf] at time 19:12:49.736342
+[INFO    ] Executing state file.managed for [/etc/salt/master.d/_reactor.conf]
+[DEBUG   ] In saltenv 'base', looking at rel_path 'salt/files/_reactor.conf' to resolve 'salt://salt/files/_reactor.conf'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/salt/files/_reactor.conf' to resolve 'salt://salt/files/_reactor.conf'
+[DEBUG   ] Fetching file from saltenv 'base', ** attempting ** 'salt://salt/files/_reactor.conf'
+[DEBUG   ] No dest file found
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'salt/files/_reactor.conf'
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'cfg01.aaa-ha-freeipa.local', 'tcp://127.0.0.1:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'cfg01.aaa-ha-freeipa.local', 'tcp://127.0.0.1:4506')
+[DEBUG   ] In saltenv 'base', looking at rel_path 'salt/map.jinja' to resolve 'salt://salt/map.jinja'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/salt/map.jinja' to resolve 'salt://salt/map.jinja'
+[INFO    ] File changed:
+New file
+[INFO    ] Completed state [/etc/salt/master.d/_reactor.conf] at time 19:12:49.804681 duration_in_ms=68.338
+[INFO    ] Running state [salt-master] at time 19:12:49.810164
+[INFO    ] Executing state service.running for [salt-master]
+[INFO    ] Executing command ['runlevel', '/run/utmp'] in directory '/root'
+[ERROR   ] Command '['runlevel', '/run/utmp']' failed with return code: 1
+[ERROR   ] output: Too many arguments.
+[INFO    ] Executing command ['service', 'salt-master', 'status'] in directory '/root'
+[DEBUG   ] output:  * salt-master is running
+[INFO    ] Executing command ['service', 'salt-master', 'start'] in directory '/root'
+[DEBUG   ] output:  * Starting salt master control daemon salt-master
+   ...done.
+[INFO    ] Executing command ['service', 'salt-master', 'status'] in directory '/root'
+[DEBUG   ] output:  * salt-master is running
+[ERROR   ] Service salt-master is already enabled, and is dead
+[INFO    ] Completed state [salt-master] at time 19:12:49.875299 duration_in_ms=65.134
+[INFO    ] Running state [salt-master] at time 19:12:49.875512
+[INFO    ] Executing state service.mod_watch for [salt-master]
+[INFO    ] Executing command ['service', 'salt-master', 'status'] in directory '/root'
+[DEBUG   ] output:  * salt-master is running
+[INFO    ] Executing command ['service', 'salt-master', 'stop'] in directory '/root'
+[DEBUG   ] output:  * Stopping salt master control daemon salt-master
+   ...done.
+[INFO    ] Executing command ['service', 'salt-master', 'start'] in directory '/root'
+[DEBUG   ] output:  * Starting salt master control daemon salt-master
+WARNING: Unable to bind socket 0.0.0.0:4506, error: [Errno 98] Address already in use; Is there another salt-master running?
+The salt master is shutdown. The ports are not available to bind
+   ...fail!
+[INFO    ] {'salt-master': True}
+[INFO    ] Completed state [salt-master] at time 19:12:51.089690 duration_in_ms=1214.177
+[INFO    ] Running state [/srv/salt/env] at time 19:12:51.090096
+[INFO    ] Executing state file.directory for [/srv/salt/env]
+[INFO    ] Directory /srv/salt/env is in the correct state
+Directory /srv/salt/env updated
+[INFO    ] Completed state [/srv/salt/env] at time 19:12:51.091515 duration_in_ms=1.418
+[DEBUG   ] LazyLoaded group.present
+[INFO    ] Running state [libvirtd] at time 19:12:51.092465
+[INFO    ] Executing state group.present for [libvirtd]
+[INFO    ] Group libvirtd is present and up to date
+[INFO    ] Completed state [libvirtd] at time 19:12:51.093252 duration_in_ms=0.787
+[DEBUG   ] LazyLoaded user.present
+[INFO    ] Running state [tux] at time 19:12:51.094787
+[INFO    ] Executing state user.present for [tux]
+[INFO    ] User tux is present and up to date
+[INFO    ] Completed state [tux] at time 19:12:51.096802 duration_in_ms=2.016
+[INFO    ] Running state [/home/tux] at time 19:12:51.099958
+[INFO    ] Executing state file.directory for [/home/tux]
+[INFO    ] Directory /home/tux is in the correct state
+Directory /home/tux updated
+[INFO    ] Completed state [/home/tux] at time 19:12:51.101335 duration_in_ms=1.377
+[INFO    ] Running state [/etc/sudoers.d/90-salt-user-tux] at time 19:12:51.106069
+[INFO    ] Executing state file.managed for [/etc/sudoers.d/90-salt-user-tux]
+[DEBUG   ] SaltReqTimeoutError, retrying. (1/3)
+[DEBUG   ] SaltReqTimeoutError, retrying. (2/3)
+[DEBUG   ] SaltReqTimeoutError, retrying. (3/3)
+[DEBUG   ] Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/states/file.py", line 2355, in managed
+    **kwargs
+  File "/usr/lib/python2.7/dist-packages/salt/modules/file.py", line 3804, in get_managed
+    source_sum = __salt__['cp.hash_file'](source, saltenv)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/cp.py", line 671, in hash_file
+    return _client().hash_file(path, saltenv)
+  File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 1278, in hash_file
+    return self.__hash_and_stat_file(path, saltenv)[0]
+  File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 1270, in __hash_and_stat_file
+    return self.channel.send(load)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/async.py", line 75, in wrap
+    ret = self._block_future(ret)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/async.py", line 85, in _block_future
+    return future.result()
+  File "/usr/lib/python2.7/dist-packages/tornado/concurrent.py", line 215, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 876, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 280, in send
+    ret = yield self._crypted_transfer(load, tries=tries, timeout=timeout, raw=raw)
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 870, in run
+    value = future.result()
+  File "/usr/lib/python2.7/dist-packages/tornado/concurrent.py", line 215, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 876, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 248, in _crypted_transfer
+    ret = yield _do_transfer()
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 870, in run
+    value = future.result()
+  File "/usr/lib/python2.7/dist-packages/tornado/concurrent.py", line 215, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 876, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 232, in _do_transfer
+    tries=tries,
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 870, in run
+    value = future.result()
+  File "/usr/lib/python2.7/dist-packages/tornado/concurrent.py", line 215, in result
+    raise_exc_info(self._exc_info)
+  File "<string>", line 3, in raise_exc_info
+SaltReqTimeoutError: Message timed out
+
+[ERROR   ] Unable to manage file: Message timed out
+....
+....
+```
+
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 4.4.0-93-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

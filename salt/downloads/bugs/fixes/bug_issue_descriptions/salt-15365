@@ -1,0 +1,29 @@
+Looking at the documentation of state docker.absent, it states that if a container is not absent it will be "killed and destroyed". However, the implementation only stops it.
+
+Perhaps this is intentional, but it seems that a stopped container is an inherently different container state than one that is actually removed (absent). These are real independent use-cases for us, where in one case we do not wish containers to at all exist, while in another scenario we need them to be stopped but available to be restarted.
+
+We have overwritten dockerio.py in our state repo with a modified absent(), but I think the main development line may benefit from this distinction.
+
+```
+...
+if is_running:
+    # Container still running: stop it gracefully
+    __salt__['docker.stop'](cid)
+    is_running = __salt__['docker.is_running'](cid)
+
+    if is_running:
+        comment = "Container {0!r} could not be stopped"
+        return _invalid(comment=comment.format(cid))
+
+# Remove the stopped container
+result = __salt__['docker.remove_container'](cid)
+
+if result['status'] is True:
+    return _valid(comment=result['comment'],
+                  changes={name: 'removed'})
+else:
+    comment = 'Container {0!r} stopped but could not be removed'
+    return _invalid(comment=comment.format(cid),
+                    changes={name: 'stopped'})
+...
+```

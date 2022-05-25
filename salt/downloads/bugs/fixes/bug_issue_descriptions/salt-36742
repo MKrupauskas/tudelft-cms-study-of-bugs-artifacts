@@ -1,0 +1,118 @@
+### Description of Issue/Question
+
+I just ran: `salt-cloud -P -m path/to/map/file.map`
+In total, 9 instances were launched in EC2.
+
+All launched, however the output from salt-cloud included the following:
+
+```
+[INFO    ] Calculating dependencies for one-of-my-ec2-host-names
+...
+[INFO    ] Creating Cloud VM one-of-my-ec2-host-names in us-west-2
+...
+[ERROR   ] Public IP not detected.  If private IP is meant for bootstrap you must specify "ssh_interface: private_ips" in your profile.
+...
+[INFO    ] Since parallel deployment is in use, ssh console output is disabled. All ssh output will be logged though
+[INFO    ] Cloud pool size: 9
+...
+[ERROR   ] AWS Response Status Code and Error: [503 503 Server Error: Service Unavailable] {'Errors': {'Error': {'Message': 'Request limit exceeded.', 'Code': 'RequestLimitExceeded'}}, 'RequestID': '5942ac04-232c-4e69-9d45-cd701e8dd213'}; Attempts remaining: 4
+...
+[INFO    ] Created node one-of-my-ec2-host-names
+...
+[ERROR   ] Failed to deploy 'one-of-my-ec2-host-names'. Error: Command 'ssh -t -t -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oIdentitiesOnly=yes -oKbdInteractiveAuthentication=no -i /root/.ssh/id_rsa -p 22 root@172.20.0.1 /tmp/.saltcloud-5a40a8ca-f160-4fb4-a39d-23f910bc306f/deploy.sh' failed. Exit code: 100
+```
+
+Note the docs say top put `ssh_interface: private_ips` in the provider, which is what I have done. I have since put it in the profile as well, although the correct interface was used anyway. That error appears to be thrown in error.
+
+The normal output of the command showed the following:
+
+```
+one-of-my-ec2-host-names:
+    ----------
+    Error:
+        Command 'ssh -t -t -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oIdentitiesOnly=yes -oKbdInteractiveAuthentication=no -i /root/.ssh/id_rsa -p 22 root@172.20.0.1 /tmp/.saltcloud-5a40a8ca-f160-4fb4-a39d-23f910bc306f/deploy.sh' failed. Exit code: 100
+```
+
+PR #10154 implies that this was fixed a long time ago, but it doesn't look like it's been fixed completely.
+
+When I run sudo `salt '*' test.ping`, the response I get back from this minion is `Minion did not return. [Not connected]`. I think that the deploy script (used to bootstrap the minion) did not run at all.
+
+From the new minion's /var/log/auth.log file:
+
+```
+Oct  3 11:15:00 ip-172-20-0-1 sshd[1396]: Server listening on 0.0.0.0 port 22.
+Oct  3 11:15:00 ip-172-20-0-1 sshd[1396]: Server listening on :: port 22.
+Oct  3 11:15:00 ip-172-20-0-1 sshd[1429]: error: Could not load host key: /etc/ssh/ssh_host_ed25519_key
+Oct  3 11:15:00 ip-172-20-0-1 sshd[1429]: Did not receive identification string from 172.20.0.10
+Oct  3 11:15:00 ip-172-20-0-1 sshd[1430]: error: Could not load host key: /etc/ssh/ssh_host_ed25519_key
+Oct  3 11:15:01 ip-172-20-0-1 sshd[1430]: Accepted publickey for root from 172.20.0.10 port 33741 ssh2: RSA 9d:8a:1d:f1:25:6f:53:3d:e8:28:ef:5d:7b:d2:10:aa
+Oct  3 11:15:01 ip-172-20-0-1 sshd[1430]: pam_unix(sshd:session): session opened for user root by (uid=0)
+Oct  3 11:15:01 ip-172-20-0-1 sshd[1430]: Received disconnect from 172.20.0.10: 11: disconnected by user
+Oct  3 11:15:01 ip-172-20-0-1 sshd[1430]: pam_unix(sshd:session): session closed for user root
+Oct  3 11:15:02 ip-172-20-0-1 sshd[1459]: error: Could not load host key: /etc/ssh/ssh_host_ed25519_key
+Oct  3 11:15:02 ip-172-20-0-1 sshd[1459]: Did not receive identification string from 172.20.0.10
+Oct  3 11:15:02 ip-172-20-0-1 sshd[1460]: error: Could not load host key: /etc/ssh/ssh_host_ed25519_key
+Oct  3 11:15:02 ip-172-20-0-1 sshd[1460]: Accepted publickey for root from 172.20.0.10 port 33755 ssh2: RSA 9d:8a:1d:f1:25:6f:53:3d:e8:28:ef:5d:7b:d2:10:aa
+Oct  3 11:15:02 ip-172-20-0-1 sshd[1460]: pam_unix(sshd:session): session opened for user root by (uid=0)
+Oct  3 11:15:02 ip-172-20-0-1 sshd[1460]: Received disconnect from 172.20.0.10: 11: disconnected by user
+Oct  3 11:15:02 ip-172-20-0-1 sshd[1460]: pam_unix(sshd:session): session closed for user root
+Oct  3 11:15:04 ip-172-20-0-1 sshd[1463]: error: Could not load host key: /etc/ssh/ssh_host_ed25519_key
+Oct  3 11:15:04 ip-172-20-0-1 sshd[1463]: Accepted publickey for root from 172.20.0.10 port 33765 ssh2: RSA 9d:8a:1d:f1:25:6f:53:3d:e8:28:ef:5d:7b:d2:10:aa
+Oct  3 11:15:04 ip-172-20-0-1 sshd[1463]: pam_unix(sshd:session): session opened for user root by (uid=0)
+Oct  3 11:15:04 ip-172-20-0-1 sshd[1463]: Received disconnect from 172.20.0.10: 11: disconnected by user
+Oct  3 11:15:04 ip-172-20-0-1 sshd[1463]: pam_unix(sshd:session): session closed for user root
+```
+
+The last 5 lines repeat 10 or so times, so looks like 12 attempts in total.
+
+If I manually run `'ssh -t -t -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oIdentitiesOnly=yes -oKbdInteractiveAuthentication=no -i /root/.ssh/id_rsa -p 22 root@172.20.0.1 /tmp/.saltcloud-5a40a8ca-f160-4fb4-a39d-23f910bc306f/deploy.sh` the bootstrap works fine. Yes, all the required files did get copied to `/tmp/.saltcloud-5a40a8ca-f160-4fb4-a39d-23f910bc306f/`, so all the SSH connections shown in the auth.log file were successful.
+
+The auth.log after running the above command looks the same as the last 5 lines above. ie. There is no connection problem, as expected (since no errors indicating as such were logged, and all other instances were fine). Being between two EC2 instances, it is unlikely there was an intermittent networking issue. Even more unlikely that the instance with the error just happened to be the one with the API warning.
+
+So it seems to me that having RequestLimitExceeded thrown can or does result in a deploy script failure.
+### Setup
+
+Just a standard map file. Nothing unusual about it. Works fine if I don't launch so many instances at once in parallel.
+### Steps to Reproduce Issue
+
+As above. Try launching 9+ instances (all t2.nano instances, except for one t2.small and one t2.medium). That's what triggered it for me.
+### Versions Report
+
+This is running 2016.3.1. Not the latest, but no open tickets about this recently so I assume the problem still exists. I want to wait for v2016.3.4 to be released before I can upgrade due to some regressions since solved but not yet released.
+
+```
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.3.7
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.4.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.5 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.5 
+```

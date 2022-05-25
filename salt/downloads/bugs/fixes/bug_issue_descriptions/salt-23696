@@ -1,0 +1,175 @@
+According to [`installation/ubuntu`](http://docs.saltstack.com/en/latest/topics/installation/ubuntu.html), I should be able to install Salt and use its features after:
+- Adding the repo
+- `apt-get install salt-master`
+- `apt-get install salt-minion`
+
+Let's try that in a Docker container running 14.04:
+
+```
+docker pull ubuntu:trusty # for fresh copy
+docker run -t -i ubuntu:trusty
+
+# then, in, the container:
+
+export ARCHIVE=archive.ubuntu.com
+cat > /etc/apt/sources.list <<EOF
+deb http://${ARCHIVE}/ubuntu/ trusty main restricted
+deb http://${ARCHIVE}/ubuntu/ trusty universe
+deb http://${ARCHIVE}/ubuntu/ trusty-updates main restricted
+deb http://${ARCHIVE}/ubuntu/ trusty-updates universe
+deb http://${ARCHIVE}/ubuntu/ trusty-security main restricted
+deb http://${ARCHIVE}/ubuntu/ trusty-security universe
+deb http://ppa.launchpad.net/saltstack/salt/ubuntu trusty main
+EOF
+apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 0E27C0A6
+apt-get update
+
+apt-get -y install salt-master salt-minion
+
+salt --versions-report
+echo master: `hostname` > /etc/salt/minion
+echo "ca.cert_base_path: '/etc/pki'" >> /etc/salt/minion
+salt-master -l info &
+# wait until "Worker binding to socket"
+salt-minion -l info &
+# wait until "The Salt Master has cached the public key for this node"
+salt-key -y -a `hostname`
+salt-call test.ping
+```
+
+Ignore the spam about `dmidecode`; it's just #15846 in action.
+
+For `salt --versions-report`, I got:
+
+```
+                  Salt: 2015.5.0
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2015.5.0+ds-1trusty1
+```
+
+For `salt-call test.ping`, I got:
+
+```
+local:
+    True
+```
+
+So far, so good. Now, let's use [`salt.modules.tls`](http://docs.saltstack.com/en/latest/ref/modules/all/salt.modules.tls.html):
+
+```
+# salt-call tls.create_ca ca_name=demo CN=demo-ca days=3560
+'tls' __virtual__ returned False: ['PyOpenSSL must be installed before this module can be used.']
+```
+
+Really? Surely it's set as a dependency of `salt-master` or `salt-minion`?
+
+```
+# python -c 'import OpenSSL; print OpenSSL.__version__'
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+ImportError: No module named OpenSSL
+```
+
+I guess not. Easily fixed, `#salt` cries; open `python-openssl`! So, we blow away the container and start again, this time with:
+
+```
+apt-get -y install salt-master salt-minion python-openssl
+```
+
+Back to `tls`:
+
+```
+# salt-call tls.create_ca ca_name=demo CN=demo-ca days=3560
+local:
+    Created Private Key: "/etc/pki/demo/demo_ca_cert.key." Created CA "demo": "/etc/pki/demo/demo_ca_cert.crt."
+
+# salt-call tls.create_csr ca_name=demo CN=salt.example.com
+local:
+    Created Private Key: "/etc/pki/demo/certs/salt.example.com.key." Created CSR for "demo": "/etc/pki/demo/certs/salt.example.com.csr."
+
+# salt-call tls.create_ca_signed_cert ca_name=demo days=1825 CN=salt.example.com
+[ERROR   ] Support for extensions is not available, upgrade PyOpenSSL
+Passed invalid arguments: string indices must be integers, not str
+```
+
+A quick search for "upgrade PyOpenSSL" leads us to [`/salt/modules/tls.py:824`](https://github.com/saltstack/salt/blob/v2015.5.0/salt/modules/tls.py#L824), from which we derive this quick test:
+
+```
+# python -c 'import OpenSSL; print OpenSSL.__version__; print len(dir(OpenSSL._util))'
+0.13
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+AttributeError: 'module' object has no attribute '_util'
+```
+
+As averse as some are to `pip`, let's blow away our container again and try that, instead, replacing our installation block with:
+
+```
+apt-get -y install salt-master salt-minion python-pip python-dev libssl-dev libffi-dev
+pip install pyopenssl
+```
+
+That install takes quite a while. I'm glad I'm only using `tls` on one server.
+
+```
+# python -c 'import OpenSSL; print OpenSSL.__version__; print len(dir(OpenSSL._util))'
+0.15.1
+22
+
+# salt-call tls.create_ca ca_name=demo CN=demo-ca days=3560
+local:
+    Created Private Key: "/etc/pki/demo/demo_ca_cert.key." Created CA "demo": "/etc/pki/demo/demo_ca_cert.crt."
+
+# salt-call tls.create_csr ca_name=demo CN=salt.example.com
+local:
+    Created Private Key: "/etc/pki/demo/certs/salt.example.com.key." Created CSR for "demo": "/etc/pki/demo/certs/salt.example.com.csr."
+
+# salt-call -l debug tls.create_ca_signed_cert ca_name=demo days=1825 CN=salt.example.com
+Passed invalid arguments: string indices must be integers, not str
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 138, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/tls.py", line 851, in create_ca_signed_cert
+    name, extensions[name]['critical'], extensions[name]['options']))
+TypeError: string indices must be integers, not str
+```
+
+Boom.
+
+---
+
+At this point, we might need another issue unless the installation caused the problem; please advise. The trouble starts around [`salt/modules/tls.py:849`](https://github.com/saltstack/salt/blob/v2015.5.0/salt/modules/tls.py#L849):
+
+```
+    for name in extensions:
+        log.debug("name: {0}, critical: {1}, options: {2}".format(
+            name, extensions[name]['critical'], extensions[name]['options']))
+        extensions_list.append(OpenSSL.crypto.X509Extension(
+            name,
+            extensions[name]['critical'],
+            extensions[name]['options']))
+```
+
+The first `name` is `'__pub_fun'`, for which `extensions[name]` is a string. The next is an int. Filtering out `name` values starting with with `__` fixes the problem:
+
+```
+    for name in extensions:
+        if name[:2] == '__':
+            continue
+```
+
+... which we'll need @thatch45 to double-check, given it came in as part of #20342. For all I know, I'm disabling the functionality entirely.
+
+Many thanks to @number5 and @neogenix for helping me out. 

@@ -1,0 +1,148 @@
+**Description**
+When I give a mix of installed and non-installed packages to `pkg.remove` I get an exception from `state.apply`. But `state.test` works fine. This wasn't happening with the previous releases.
+
+The problem does not happen if only non-installed packages are supplied.
+
+**Setup**
+This is `test.sls`:
+```
+foo:
+  pkg.installed:
+    - pkgs:
+      - jq
+
+bar:
+  pkg.removed:
+    - pkgs:
+      - idonotexist
+      - jq
+```
+
+CentOS 7 VM running under VmWare.
+  
+**Steps to Reproduce the behavior**
+Run `salt minion state.apply test`
+
+I'm getting:
+```
+# salt stest-app-01.xdc state.apply test
+stest-app-01.xdc:
+----------
+          ID: foo
+    Function: pkg.installed
+      Result: True
+     Comment: The following packages were installed/updated: jq
+     Started: 13:38:03.720095
+    Duration: 19793.569 ms
+     Changes:   
+              ----------
+              jq:
+                  ----------
+                  new:
+                      1.6-2.el7
+                  old:
+              oniguruma:
+                  ----------
+                  new:
+                      6.8.2-1.el7
+                  old:
+----------
+          ID: bar
+    Function: pkg.removed
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3.6/site-packages/salt/state.py", line 2180, in call
+                  *cdata["args"], **cdata["kwargs"]
+                File "/usr/lib/python3.6/site-packages/salt/loader/lazy.py", line 149, in __call__
+                  return self.loader.run(run_func, *args, **kwargs)
+                File "/usr/lib/python3.6/site-packages/salt/loader/lazy.py", line 1201, in run
+                  return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+                File "/usr/lib/python3.6/site-packages/contextvars/__init__.py", line 38, in run
+                  return callable(*args, **kwargs)
+                File "/usr/lib/python3.6/site-packages/salt/loader/lazy.py", line 1216, in _run_as
+                  return _func_or_method(*args, **kwargs)
+                File "/usr/lib/python3.6/site-packages/salt/loader/lazy.py", line 1249, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3.6/site-packages/salt/states/pkg.py", line 3090, in removed
+                  **kwargs
+                File "/usr/lib/python3.6/site-packages/salt/states/pkg.py", line 2961, in _uninstall
+                  name, pkgs=pkgs, version=version, **kwargs
+                File "/usr/lib/python3.6/site-packages/salt/loader/lazy.py", line 149, in __call__
+                  return self.loader.run(run_func, *args, **kwargs)
+                File "/usr/lib/python3.6/site-packages/salt/loader/lazy.py", line 1201, in run
+                  return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+                File "/usr/lib/python3.6/site-packages/contextvars/__init__.py", line 38, in run
+                  return callable(*args, **kwargs)
+                File "/usr/lib/python3.6/site-packages/salt/loader/lazy.py", line 1216, in _run_as
+                  return _func_or_method(*args, **kwargs)
+                File "/usr/lib/python3.6/site-packages/salt/modules/yumpkg.py", line 2125, in remove
+                  installed_versions = old[target].split(",")
+              KeyError: 'idonotexist'
+     Started: 13:38:23.594857
+    Duration: 71.498 ms
+     Changes:   
+
+Summary for stest-app-01.xdc
+------------
+Succeeded: 1 (changed=1)
+Failed:    1
+------------
+Total states run:     2
+Total run time:  19.865 s
+ERROR: Minions returned with non-zero exit code
+```
+
+**Expected behavior**
+`jq` should have been uninstalled and message about `idonotexist` not being present should have been printed.
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+{stest-app-01}~# salt-minion --versions-report
+Salt Version:
+          Salt: 3004rc1
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.1
+       libgit2: Not Installed
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: Not Installed
+        pygit2: Not Installed
+        Python: 3.6.8 (default, Nov 16 2020, 16:55:22)
+  python-gnupg: Not Installed
+        PyYAML: 3.13
+         PyZMQ: 17.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.1.4
+ 
+System Versions:
+          dist: centos 7 Core
+        locale: ISO-8859-2
+       machine: x86_64
+       release: 3.10.0-1160.42.2.el7.x86_64
+        system: Linux
+       version: CentOS Linux 7 Core
+```
+</details>
+
+**Additional context**
+Add any other context about the problem here.

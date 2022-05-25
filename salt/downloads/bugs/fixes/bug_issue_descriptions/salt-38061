@@ -1,0 +1,108 @@
+### Description of Issue/Question
+When using the `crl_managed` state in versions 2016.3.4 and 2016.11.0 and digest is not specified there is an error as follows:
+
+```
+          ID: id
+    Function: x509.crl_managed
+        Name: filename
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/testing/salt/state.py", line 1733, in call
+                  **cdata['kwargs'])
+                File "/testing/salt/loader.py", line 1653, in wrapper
+                  return f(*args, **kwargs)
+                File "/testing/salt/states/x509.py", line 572, in crl_managed
+                  signing_cert=signing_cert, revoked=revoked, days_valid=days_valid, digest=digest, include_expired=include_expired)
+                File "/testing/salt/modules/x509.py", line 783, in create_crl
+                  crltext = crl.export(cert, key, OpenSSL.crypto.FILETYPE_PEM, days=days_valid, digest=bytes(digest))
+                File "/usr/lib/python2.7/site-packages/OpenSSL/crypto.py", line 2110, in export
+                  raise ValueError("No such digest method")
+              ValueError: No such digest method
+     Started: 21:57:15.293882
+    Duration: 28.933 ms
+     Changes:   
+```
+
+### Setup
+1. /srv/salt/test.sls:
+
+```
+/etc/pki/ca.key:
+  x509.private_key_managed:
+    - bits: 4096
+    - backup: True
+
+/etc/pki/ca.crt:
+  x509.certificate_managed:
+    - signing_private_key: /etc/pki/ca.key
+    - CN: ca.example.com
+    - C: US
+    - ST: Utah
+    - L: Salt Lake City
+    - basicConstraints: "critical CA:true"
+    - keyUsage: "critical cRLSign, keyCertSign"
+    - subjectKeyIdentifier: hash
+    - authorityKeyIdentifier: keyid,issuer:always
+    - days_valid: 3650
+    - days_remaining: 0
+    - backup: True
+id:
+  x509.crl_managed:
+    - name: filename
+    - signing_private_key: /etc/pki/ca.key
+    - signing_cert: /etc/pki/ca.crt
+    - revoked:
+      - commonName:
+        - serial_number: 40:e6:ec:ad:e3:88:fb:d5
+        - revocation_date: 2016-01-01 00:00:00
+        - reason: superseded
+    - days_valid: 3650
+    - days_remaining: 0
+```
+### Steps to Reproduce Issue
+you can run `salt-call --local state.sls test` with the sls file above. Or you can use the dock container as detailed below:
+
+1. `docker run -it -v /home/ch3ll/git/salt/:/testing/ ch3ll/issues:38029` (where /home/ch3ll/git/salt/ is a local cloned git salt repo)
+2. `salt-call --local state.sls test`
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.4
+ 
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: 3.2.2
+       dateutil: 2.5.3
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Sep 15 2016, 22:37:39)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 4.4.14-200.fc22.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```

@@ -1,0 +1,292 @@
+**Description**
+When a playbook or ansible.call run is issued and fails, Saltstack doesn't report a failure.
+
+**Setup**
+I don't have a great example... I'm testing with Ansible's GCE modules/cloud modules for orchestration purposes...
+
+_Salt state example_
+```
+{% set name = 'test-instance %}
+{% set domain = 'example.lcl' %}
+{% set service_account_file = '/path/to/serviceaccount/keyfile.json' %}
+{% set project = 'my-gce-project %}
+{% set zone = 'us-west1-a' %}
+{% set machine_type = 'n1-standard-1' %}
+{% set image = 'projects/suse-byos-cloud/global/images/sles-15-sp1-byos-v20200610' %}
+{%
+    set network_interfaces = [
+                               { 'network': { 'selfLink': "projects/my-gce-project/global/networks/default" },
+                                 'subnetwork': { 'selfLink': "projects/my-gce-project/regions/us-west1/subnetworks/default" } },
+                             ]
+%}
+
+{% set ansible_kwargs = {'extra_vars':
+                            { 'name': name,
+                              'domain': domain,
+                              'service_account_file': service_account_file,
+                              'project': project,
+                              'zone': zone,
+                              'machine_type': machine_type,
+                              'image': image,
+                              'network_interfaces': network_interfaces
+
+                            }
+       }
+%}
+
+orch_instance_gcp_deployed:
+    module.run:
+        - name: ansible.playbooks
+        - playbook: /srv/salt/orch/instance/gcp/playbooks/playbook-deployed.yml
+        - check: False
+        - extra_vars: {{ ansible_kwargs['extra_vars'] | tojson }}
+```
+_ansible playbook example:_
+```
+- name: Create GCP Instance
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+  - name: Create a GCP Instance
+    gcp_compute_instance:
+        name: "{{ name }}"
+        hostname: "{{ name }}.{{ domain }}"
+        machine_type: "{{ machine_type }}"
+        disks:
+            - auto_delete: True
+              boot: yes
+              initialize_params:
+                  source_image: "{{ image }}"
+                  disk_size_gb: 40
+        network_interfaces: "{{ network_interfaces }}"
+        zone: "{{ zone }}"
+        project: "{{ project }}"
+        auth_kind: serviceaccount
+        service_account_file: "{{ service_account_file }}"
+        state: present
+```
+**Steps to Reproduce the behavior**
+If the above state is run twice, it will produce an error (since the instance already exists). Salt will mark it as successful with changes. 
+
+If you choose to use the above example, you'll need to create a gcp service account in a gcp project and acquire a service account key. https://cloud.google.com/iam/docs/creating-managing-service-account-keys
+**Expected behavior**
+Salt should report it as failed.
+
+**Screenshots**
+_Saltstack output:_
+```
+module_|-orch_instance_gcp_deployed_|-ansible.playbooks_|-run:
+    ----------
+    __id__:
+        orch_instance_gcp_deployed
+    __run_num__:
+        0
+    __sls__:
+        orch.instance.gcp.deployed
+    changes:
+        ----------
+        ret:
+            ----------
+            custom_stats:
+                ----------
+            global_custom_stats:
+                ----------
+            plays:
+                |_
+                  ----------
+                  play:
+                      ----------
+                      duration:
+                          ----------
+                          end:
+                              2020-07-02T15:11:07.821863Z
+                          start:
+                              2020-07-02T15:11:06.566000Z
+                      id:
+                          42010a20-0458-ae8b-0d4c-000000000005
+                      name:
+                          Create GCP Instance
+                  tasks:
+                      |_
+                        ----------
+                        hosts:
+                            ----------
+                            localhost:
+                                ----------
+                                _ansible_no_log:
+                                    False
+                                action:
+                                    gcp_compute_instance
+                                changed:
+                                    False
+                                exception:
+                                    Traceback (most recent call last):
+                                      File "/var/lib/salt/.ansible/tmp/ansible-tmp-1593702666.6738384-145552361200225/AnsiballZ_gcp_compute_instance.py", line 102, in <module>
+                                        _ansiballz_main()
+                                      File "/var/lib/salt/.ansible/tmp/ansible-tmp-1593702666.6738384-145552361200225/AnsiballZ_gcp_compute_instance.py", line 94, in _ansiballz_main
+                                        invoke_module(zipped_mod, temp_path, ANSIBALLZ_PARAMS)
+                                      File "/var/lib/salt/.ansible/tmp/ansible-tmp-1593702666.6738384-145552361200225/AnsiballZ_gcp_compute_instance.py", line 40, in invoke_module
+                                        runpy.run_module(mod_name='ansible.modules.cloud.google.gcp_compute_instance', init_globals=None, run_name='__main__', alter_sys=True)
+                                      File "/usr/lib64/python3.6/runpy.py", line 205, in run_module
+                                        return _run_module_code(code, init_globals, run_name, mod_spec)
+                                      File "/usr/lib64/python3.6/runpy.py", line 96, in _run_module_code
+                                        mod_name, mod_spec, pkg_name, script_name)
+                                      File "/usr/lib64/python3.6/runpy.py", line 85, in _run_code
+                                        exec(code, run_globals)
+                                      File "/tmp/ansible_gcp_compute_instance_payload_ojdpx3jt/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py", line 1739, in <module>
+                                      File "/tmp/ansible_gcp_compute_instance_payload_ojdpx3jt/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py", line 1062, in main
+                                      File "/tmp/ansible_gcp_compute_instance_payload_ojdpx3jt/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py", line 1092, in update
+                                      File "/tmp/ansible_gcp_compute_instance_payload_ojdpx3jt/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py", line 1098, in update_fields
+                                      File "/tmp/ansible_gcp_compute_instance_payload_ojdpx3jt/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py", line 1383, in deletion_protection_update
+                                    KeyError: 'deletionProtection'
+                                failed:
+                                    True
+                                module_stderr:
+                                    Traceback (most recent call last):
+                                      File "/var/lib/salt/.ansible/tmp/ansible-tmp-1593702666.6738384-145552361200225/AnsiballZ_gcp_compute_instance.py", line 102, in <module>
+                                        _ansiballz_main()
+                                      File "/var/lib/salt/.ansible/tmp/ansible-tmp-1593702666.6738384-145552361200225/AnsiballZ_gcp_compute_instance.py", line 94, in _ansiballz_main
+                                        invoke_module(zipped_mod, temp_path, ANSIBALLZ_PARAMS)
+                                      File "/var/lib/salt/.ansible/tmp/ansible-tmp-1593702666.6738384-145552361200225/AnsiballZ_gcp_compute_instance.py", line 40, in invoke_module
+                                        runpy.run_module(mod_name='ansible.modules.cloud.google.gcp_compute_instance', init_globals=None, run_name='__main__', alter_sys=True)
+                                      File "/usr/lib64/python3.6/runpy.py", line 205, in run_module
+                                        return _run_module_code(code, init_globals, run_name, mod_spec)
+                                      File "/usr/lib64/python3.6/runpy.py", line 96, in _run_module_code
+                                        mod_name, mod_spec, pkg_name, script_name)
+                                      File "/usr/lib64/python3.6/runpy.py", line 85, in _run_code
+                                        exec(code, run_globals)
+                                      File "/tmp/ansible_gcp_compute_instance_payload_ojdpx3jt/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py", line 1739, in <module>
+                                      File "/tmp/ansible_gcp_compute_instance_payload_ojdpx3jt/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py", line 1062, in main
+                                      File "/tmp/ansible_gcp_compute_instance_payload_ojdpx3jt/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py", line 1092, in update
+                                      File "/tmp/ansible_gcp_compute_instance_payload_ojdpx3jt/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py", line 1098, in update_fields
+                                      File "/tmp/ansible_gcp_compute_instance_payload_ojdpx3jt/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py", line 1383, in deletion_protection_update
+                                    KeyError: 'deletionProtection'
+                                module_stdout:
+                                msg:
+                                    MODULE FAILURE
+                                    See stdout/stderr for the exact error
+                                rc:
+                                    1
+                        task:
+                            ----------
+                            duration:
+                                ----------
+                                end:
+                                    2020-07-02T15:11:07.821863Z
+                                start:
+                                    2020-07-02T15:11:06.587196Z
+                            id:
+                                42010a20-0458-ae8b-0d4c-000000000007
+                            name:
+                                Create a GCP Instance
+            stats:
+                ----------
+                localhost:
+                    ----------
+                    changed:
+                        0
+                    failures:
+                        1
+                    ignored:
+                        0
+                    ok:
+                        0
+                    rescued:
+                        0
+                    skipped:
+                        0
+                    unreachable:
+                        0
+    comment:
+        Module function ansible.playbooks executed
+    duration:
+        3034.303
+    name:
+        ansible.playbooks
+    result:
+        True
+    start_time:
+        09:11:04.952419
+```
+_Ansible output:_
+```
+[WARNING]: provided hosts list is empty, only localhost is available. Note that the implicit localhost does not match 'all'
+[WARNING]: Found variable using reserved name: name
+ ____________________________
+< PLAY [Create GCP Instance] >
+ ----------------------------
+        \   ^__^
+         \  (oo)\_______
+            (__)\       )\/\
+                ||----w |
+                ||     ||
+
+ ______________________________
+< TASK [Create a GCP Instance] >
+ ------------------------------
+        \   ^__^
+         \  (oo)\_______
+            (__)\       )\/\
+                ||----w |
+                ||     ||
+
+An exception occurred during task execution. To see the full traceback, use -vvv. The error was: KeyError: 'deletionProtection'
+fatal: [localhost]: FAILED! => {"changed": false, "module_stderr": "Traceback (most recent call last):\n  File \"/root/.ansible/tmp/ansible-tmp-1593722799.1080034-11932906934944/AnsiballZ_gcp_compute_instance.py\", line 102, in <module>\n    _ansiballz_main()\n  File \"/root/.ansible/tmp/ansible-tmp-1593722799.1080034-11932906934944/AnsiballZ_gcp_compute_instance.py\", line 94, in _ansiballz_main\n    invoke_module(zipped_mod, temp_path, ANSIBALLZ_PARAMS)\n  File \"/root/.ansible/tmp/ansible-tmp-1593722799.1080034-11932906934944/AnsiballZ_gcp_compute_instance.py\", line 40, in invoke_module\n    runpy.run_module(mod_name='ansible.modules.cloud.google.gcp_compute_instance', init_globals=None, run_name='__main__', alter_sys=True)\n  File \"/usr/lib64/python3.6/runpy.py\", line 205, in run_module\n    return _run_module_code(code, init_globals, run_name, mod_spec)\n  File \"/usr/lib64/python3.6/runpy.py\", line 96, in _run_module_code\n    mod_name, mod_spec, pkg_name, script_name)\n  File \"/usr/lib64/python3.6/runpy.py\", line 85, in _run_code\n    exec(code, run_globals)\n  File \"/tmp/ansible_gcp_compute_instance_payload_cjoahokh/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py\", line 1739, in <module>\n  File \"/tmp/ansible_gcp_compute_instance_payload_cjoahokh/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py\", line 1062, in main\n  File \"/tmp/ansible_gcp_compute_instance_payload_cjoahokh/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py\", line 1092, in update\n  File \"/tmp/ansible_gcp_compute_instance_payload_cjoahokh/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py\", line 1098, in update_fields\n  File \"/tmp/ansible_gcp_compute_instance_payload_cjoahokh/ansible_gcp_compute_instance_payload.zip/ansible/modules/cloud/google/gcp_compute_instance.py\", line 1383, in deletion_protection_update\nKeyError: 'deletionProtection'\n", "module_stdout": "", "msg": "MODULE FAILURE\nSee stdout/stderr for the exact error", "rc": 1}
+ ____________
+< PLAY RECAP >
+ ------------
+        \   ^__^
+         \  (oo)\_______
+            (__)\       )\/\
+                ||----w |
+                ||     ||
+
+localhost                  : ok=0    changed=0    unreachable=0    failed=1    skipped=0    rescued=0    ignored=0
+```
+**Versions Report**
+I'm running 2019.2 but I've tested with the latest ansible execution and state modules in my environment and am having the same problems. The goal is to use this as a part of an orchestration so I'm executing the state via salt-run salt.cmd state.apply orch.instance.gcp.deployed.
+<details><summary>
+Salt Version:
+           Salt: 2019.2.0
+
+Dependency Versions:
+           cffi: 1.11.2
+       cherrypy: unknown
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+        libnacl: 1.6.1
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.10 (default, Dec 19 2019, 15:48:40) [GCC]
+   python-gnupg: Not Installed
+         PyYAML: 5.1.2
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.3
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 4.12.14-197.45-default
+         system: Linux
+        version: Not Installed</summary>
+</details>
+
+

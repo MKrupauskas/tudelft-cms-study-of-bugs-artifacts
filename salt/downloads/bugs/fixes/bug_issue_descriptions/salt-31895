@@ -1,0 +1,90 @@
+### Description of Issue/Question
+
+The state.pkg.group_installed function is not using the supplied enablerepo option when running the underlying repoquery on the minion to list the packages that make up a group.
+
+To clarify, for security we keep most yum repos in our master Pulp system disabled and use the "enablerepo" option in the state.pkg module to activate all the repos beginning with "ccs-" at package install time. This works fine for state.pkg.installed but not for state.pkg.group_installed which results in a traceback.
+
+The following example shows how we are trying to stand up a new pulp server using packages in our master pulp repo.
+### Setup
+
+```
+pulp.sls
+-----------
+pulp_core_packages_installed:
+  pkg.group_installed:
+    - name: pulp-server-qpid
+    - enablerepo: ccs-*
+```
+
+```
+yum.repos.d/ccs.repo
+----------------------------
+[ccs-pulp]
+name = CCS Pulp for RHEL6
+enabled = 0
+sslverify = 1
+gpgcheck = 0
+sslcacert = /etc/pki/tls/certs/ca-bundle.crt
+baseurl = https://pulp.ourcompany.com/pulp/repos/repos/pulp/pulp/stable/latest/6/x86_64
+```
+### Steps to Reproduce Issue
+
+Create a yum repo that is disabled by default
+Create a state that calls state.pkg.group_installed for a package group in that repo
+Run the state and you should observe a traceback such as:
+
+```
+An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 1594, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.6/site-packages/salt/loader.py", line 1491, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/states/pkg.py", line 1903, in group_installed
+    diff = __salt__['pkg.group_diff'](name)
+  File "/usr/lib/python2.6/site-packages/salt/modules/yumpkg.py", line 1643, in group_diff
+    group_pkgs = group_info(name)
+  File "/usr/lib/python2.6/site-packages/salt/modules/yumpkg.py", line 1597, in group_info
+    raise CommandExecutionError('Group \'{0}\' not found'.format(name))
+CommandExecutionError: Group 'pulp-server-qpid' not found
+```
+### Versions Report
+
+_Provided by running_ `salt --versions-report`
+
+```
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.5.0
+         Python: 2.6.6 (r266:84292, May 22 2015, 08:34:51)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.4.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: redhat 6.7 Santiago
+        machine: x86_64
+        release: 2.6.32-431.el6.x86_64
+         system: Red Hat Enterprise Linux Server 6.7 Santiago
+```

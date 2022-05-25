@@ -1,0 +1,956 @@
+### Description of Issue/Question
+
+Fetching the CA from the mine function works fine on 2016.3.3, it breaks in get_pem_entry in 2016.11.0.rc1
+### Setup
+
+fragment from role.certificate.authority:
+
+``` yaml
+mine.send:
+  module.run:
+    - func: x509.get_pem_entries
+    - kwargs:
+        glob_path: {{ certcfg['config']['authority_dir'] }}/ca.crt
+{% if ca_host in ca_crt and ca_crt_path in ca_crt[ca_host] and certcfg['config']['castore_dir'] %}
+    - onchanges:
+      - x509: certificate.authority::certificate
+{% endif %}
+```
+
+common/certificate/config.jinja
+
+``` jinja
+######
+## certificate configuration
+## -----------------------------------
+######
+
+## macros
+{% from '_macros/common.jinja' import config_merge with context %}
+
+## defaults
+{% set certcfg =
+  {
+    'config': {
+      'authority_id': 'cronos',
+      'authority_dir': '/salt/pki',
+      'castore_dir': false,
+      'castore_bin': false,
+      'pki_dir': '/etc/pki',
+      'packages': [ 'openssl' ]
+    },
+    'policy': {
+      'organization': 'XXXX',
+      'country': 'BE',
+      'state': 'XXX',
+      'city': 'XXX',
+      'email': 'XXX@XXX.be'
+    },
+  }
+%}
+
+## platform specific + pillar overwrite
+{% do config_merge(certcfg, salt['grains.filter_by']({
+    'SmartOS': {
+      'config': {
+        'castore_dir': '/opt/local/etc/openssl/certs',
+        'castore_bin': '/opt/local/bin/c_rehash',
+        'pki_dir':     '/opt/local/etc/pki',
+        'packages': [ 'perl', 'openssl' ]
+      }
+    },
+    'CentOS': {
+      'config': {
+        'castore_dir': '/etc/pki/ca-trust/source/anchors',
+        'castore_bin': '/usr/bin/update-ca-trust extract'
+      }
+    },
+    'Ubuntu': {
+      'config': {
+        'castore_dir': '/usr/local/share/ca-certificates',
+        'castore_bin': '/usr/sbin/update-ca-certificates'
+      }
+    },
+    'default': {}
+  },
+  grain="os", merge=salt.pillar.get('certificate', {})))
+%}
+
+# vim: tabstop=2 expandtab shiftwidth=2 softtabstop=2
+```
+
+common/certificate/macros.jinja
+
+``` jinja
+######
+## certificate macros
+## -----------------------------------
+######
+## import
+{% from 'common/certificate/config.jinja' import certcfg with context %}
+
+## macros
+{% macro managed_certificate(fqdn, email, dns_alias=[], ip_alias=[], key_size=2048, days_valid=90, policy='server') %}
+  {% set subjectAltNames = [] %}
+  {% if dns_alias|length > 0  and fqdn not in dns_alias %}
+    {% do subjectAltNames.append('DNS:' ~ fqdn) %}
+  {% endif %}
+  {% for alt in dns_alias %}
+    {% do subjectAltNames.append('DNS:' ~ alt) %}
+  {% endfor %}
+  {% for alt in ip_alias %}
+    {% do subjectAltNames.append('IP:' ~ alt) %}
+  {% endfor %}
+
+certificate.key::{{ fqdn }}:
+  x509.private_key_managed:
+    - name: {{ certcfg['config']['pki_dir'] ~ '/' ~ fqdn ~ '.key' }}
+    - bits: {{ key_size }}
+    - require:
+        - certificate::truststore
+        - file: certificate::keystore
+    - watch:
+        - certificate::truststore
+
+certificate.crt::{{ fqdn }}:
+  x509.certificate_managed:
+    - name: {{ certcfg['config']['pki_dir'] ~ '/' ~ fqdn ~ '.crt' }}
+    - ca_server: {{ certcfg['config']['authority_id'] }}
+    - signing_policy: {{ policy }}
+    - public_key: {{ certcfg['config']['pki_dir'] ~ '/' ~ fqdn ~ '.key' }}
+    - CN: {{ fqdn }}
+    - Email: {{ email }}
+    {%- if subjectAltNames|length > 0 %}
+    - subjectAltName: {{ subjectAltNames|join(',') }}
+    {%- endif %}
+    - days_valid: {{ days_valid }}
+    - days_remaining: 7
+    - backup: True
+    - require:
+        - x509: certificate.key::{{ fqdn }}
+    - watch:
+        - x509: certificate.key::{{ fqdn }}
+{% endmacro %}
+
+# vim: tabstop=2 expandtab shiftwidth=2 softtabstop=2
+```
+
+common/certificate/init.sls
+
+``` yaml
+######
+## certificate state
+## -----------------------------------
+######
+## import
+{% from 'common/certificate/config.jinja' import certcfg with context %}
+{% from 'common/certificate/macros.jinja' import managed_certificate with context %}
+
+## variables
+{% set ca_host = certcfg['config']['authority_id'] %}
+{% set ca_crt_path = certcfg['config']['authority_dir'] ~ '/ca.crt' %}
+{% set ca_crt = salt['mine.get'](ca_host, 'x509.get_pem_entries') %}
+
+## publish authority root cert
+{% if ca_host in ca_crt and ca_crt_path in ca_crt[ca_host] and certcfg['config']['castore_dir'] %}
+certificate::packages::
+  pkg.installed:
+    - names: {{ certcfg['config']['packages'] }}
+
+certificate::truststore:
+  file.directory:
+    - name: {{ certcfg['config']['castore_dir'] }}
+  x509.pem_managed:
+    - name: {{ certcfg['config']['castore_dir'] }}/internal-ca.crt
+    - text: {{ ca_crt[ca_host][ca_crt_path]|replace('\n', '') }}
+    - require:
+        - file: certificate::truststore
+  {% if certcfg['config']['castore_bin'] %}
+  cmd.wait:
+    - name: {{ certcfg['config']['castore_bin'] }}
+    - watch:
+        - x509: certificate::truststore
+  {% endif %}
+
+certificate::keystore:
+  file.directory:
+    - name: {{ certcfg['config']['pki_dir'] }}
+{% else %}
+certificate::truststore:
+  test.show_notification:
+    - text: root authority certificate not found, signing requests will fail
+{% endif %}
+
+{% if ca_host in ca_crt and ca_crt_path in ca_crt[ca_host] and certcfg['config']['castore_dir'] %}
+  {% for fqdn in certcfg %}
+    {% if fqdn not in ['config', 'policy'] %}
+      {% set email = certcfg['policy']['email'] %}
+      {% set dns_alias = [] %}
+      {% set ip_alias = [] %}
+      {% set days_valid = 90 %}
+      {% set policy = 'server' %}
+      {% if certcfg[fqdn] and 'aliases' in certcfg[fqdn] %}
+        {% set dns_alias = certcfg[fqdn]['aliases'] %}
+      {% endif %}
+      {% if certcfg[fqdn] and 'ips' in certcfg[fqdn] %}
+        {% if certcfg[fqdn]['ips'] == 'auto' %}
+          {% for ip in salt.grains.get('ipv6', []) %}
+            {% if ip != '::1' and not ip.startswith('fe80') %}
+              {% do ip_alias.append(ip) %}
+            {% endif %}
+          {% endfor %}
+          {% for ip in salt.grains.get('ipv4', []) %}
+            {% if ip != '127.0.0.1' %}
+              {% do ip_alias.append(ip) %}
+            {% endif %}
+          {% endfor %}
+        {% else %}
+          {% set ip_alias = certcfg[fqdn]['ips'] %}
+        {% endif %}
+      {% endif %}
+      {% if 'policy' in certcfg[fqdn] and certcfg[fqdn]['policy'] in ['client', 'server'] %}
+        {% set policy = certcfg[fqdn]['policy'] %}
+      {% endif %}
+      {% if 'email' in certcfg[fqdn] %}
+        {% set email = certcfg[fqdn]['email'] %}
+      {% endif %}
+      {% if 'days_valid' in certcfg[fqdn] %}
+        {% set days_valid = certcfg[fqdn]['days_valid'] %}
+      {% endif %}
+      {{ managed_certificate(fqdn, email, dns_alias, ip_alias, days_valid=days_valid, policy=policy) }}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
+# vim: tabstop=2 expandtab shiftwidth=2 softtabstop=2
+```
+### Steps to Reproduce Issue
+
+(Include debug logs if possible and relevant.)
+
+2016.3.3:
+
+``` yaml
+[!]$ salt-call -l debug state.apply common.certificate
+[DEBUG   ] Reading configuration from /opt/local/etc/salt/minion
+[DEBUG   ] Including configuration from '/opt/local/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /opt/local/etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Including configuration from '/opt/local/etc/salt/minion.d/smtp.conf'
+[DEBUG   ] Reading configuration from /opt/local/etc/salt/minion.d/smtp.conf
+[DEBUG   ] Configuration file path: /opt/local/etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /opt/local/etc/salt/minion
+[DEBUG   ] Including configuration from '/opt/local/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /opt/local/etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Including configuration from '/opt/local/etc/salt/minion.d/smtp.conf'
+[DEBUG   ] Reading configuration from /opt/local/etc/salt/minion.d/smtp.conf
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[WARNING ] /opt/local/lib/python2.7/site-packages/salt/grains/core.py:1493: DeprecationWarning: The "osmajorrelease" will be a type of an integer.
+
+[DEBUG   ] Connecting to master. Attempt 1 of 1
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (1566)
+[DEBUG   ] Setting zmq_reconnect_ivl to '1566ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506', 'clear')
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /salt/config/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /salt/config/pki/minion/minion.pem
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506')
+[DEBUG   ] Loaded minion key: /salt/config/pki/minion/minion.pem
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded state.apply
+[DEBUG   ] LazyLoaded saltutil.is_running
+[DEBUG   ] LazyLoaded grains.get
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506')
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506')
+[DEBUG   ] Loaded minion key: /salt/config/pki/minion/minion.pem
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] Could not find file from saltenv 'base', 'salt://common/certificate.sls'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'common/certificate/init.sls' to resolve 'salt://common/certificate/init.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/common/certificate/init.sls' to resolve 'salt://common/certificate/init.sls'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://common/certificate/init.sls'
+[DEBUG   ] compile template: /var/cache/salt/minion/files/base/common/certificate/init.sls
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506')
+[DEBUG   ] In saltenv 'base', looking at rel_path 'common/certificate/config.jinja' to resolve 'salt://common/certificate/config.jinja'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/common/certificate/config.jinja' to resolve 'salt://common/certificate/config.jinja'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://common/certificate/config.jinja'
+[DEBUG   ] In saltenv 'base', looking at rel_path '_macros/common.jinja' to resolve 'salt://_macros/common.jinja'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/_macros/common.jinja' to resolve 'salt://_macros/common.jinja'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://_macros/common.jinja'
+[DEBUG   ] LazyLoaded grains.filter_by
+[DEBUG   ] In saltenv 'base', looking at rel_path 'common/certificate/macros.jinja' to resolve 'salt://common/certificate/macros.jinja'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/common/certificate/macros.jinja' to resolve 'salt://common/certificate/macros.jinja'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://common/certificate/macros.jinja'
+[DEBUG   ] LazyLoaded mine.get
+[DEBUG   ] Initializing new SAuth for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506')
+[DEBUG   ] Loaded minion key: /salt/config/pki/minion/minion.pem
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506')
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/common/certificate/init.sls' using 'jinja' renderer: 0.351361989975
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/common/certificate/init.sls:
+######
+## certificate state
+## -----------------------------------
+######
+## import
+
+
+
+## variables
+
+
+
+
+## publish authority root cert
+
+certificate::packages::
+  pkg.installed:
+    - names: ['perl', 'openssl']
+
+certificate::truststore:
+  file.directory:
+    - name: /opt/local/etc/openssl/certs
+  x509.pem_managed:
+    - name: /opt/local/etc/openssl/certs/internal-ca.crt
+    - text: -----BEGIN CERTIFICATE-----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-----END CERTIFICATE-----
+    - require:
+        - file: certificate::truststore
+
+  cmd.wait:
+    - name: /opt/local/bin/c_rehash
+    - watch:
+        - x509: certificate::truststore
+
+
+certificate::keystore:
+  file.directory:
+    - name: /opt/local/etc/pki
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+certificate.key::goto.acheron.be:
+  x509.private_key_managed:
+    - name: /opt/local/etc/pki/goto.acheron.be.key
+    - bits: 2048
+    - require:
+        - certificate::truststore
+        - file: certificate::keystore
+    - watch:
+        - certificate::truststore
+
+certificate.crt::goto.acheron.be:
+  x509.certificate_managed:
+    - name: /opt/local/etc/pki/goto.acheron.be.crt
+    - ca_server: cronos
+    - signing_policy: server
+    - public_key: /opt/local/etc/pki/goto.acheron.be.key
+    - CN: goto.acheron.be
+    - Email: certadm@acheron.be
+    - subjectAltName: DNS:goto.acheron.be,DNS:go.acheron.be,DNS:goto,DNS:go,IP:2001:470:7ee7:30::123,IP:172.16.30.123
+    - days_valid: 90
+    - days_remaining: 7
+    - backup: True
+    - require:
+        - x509: certificate.key::goto.acheron.be
+    - watch:
+        - x509: certificate.key::goto.acheron.be
+
+
+
+
+
+# vim: tabstop=2 expandtab shiftwidth=2 softtabstop=2
+
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('certificate::packages:', OrderedDict([('pkg.installed', [OrderedDict([('names', ['perl', 'openssl'])])])])), ('certificate::truststore', OrderedDict([('file.directory', [OrderedDict([('name', '/opt/local/etc/openssl/certs')])]), ('x509.pem_managed', [OrderedDict([('name', '/opt/local/etc/openssl/certs/internal-ca.crt')]), OrderedDict([('text', '-----BEGIN CERTIFICATE-----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-----END CERTIFICATE-----')]), OrderedDict([('require', [OrderedDict([('file', 'certificate::truststore')])])])]), ('cmd.wait', [OrderedDict([('name', '/opt/local/bin/c_rehash')]), OrderedDict([('watch', [OrderedDict([('x509', 'certificate::truststore')])])])])])), ('certificate::keystore', OrderedDict([('file.directory', [OrderedDict([('name', '/opt/local/etc/pki')])])])), ('certificate.key::goto.acheron.be', OrderedDict([('x509.private_key_managed', [OrderedDict([('name', '/opt/local/etc/pki/goto.acheron.be.key')]), OrderedDict([('bits', 2048)]), OrderedDict([('require', ['certificate::truststore', OrderedDict([('file', 'certificate::keystore')])])]), OrderedDict([('watch', ['certificate::truststore'])])])])), ('certificate.crt::goto.acheron.be', OrderedDict([('x509.certificate_managed', [OrderedDict([('name', '/opt/local/etc/pki/goto.acheron.be.crt')]), OrderedDict([('ca_server', 'cronos')]), OrderedDict([('signing_policy', 'server')]), OrderedDict([('public_key', '/opt/local/etc/pki/goto.acheron.be.key')]), OrderedDict([('CN', 'goto.acheron.be')]), OrderedDict([('Email', 'certadm@acheron.be')]), OrderedDict([('subjectAltName', 'DNS:goto.acheron.be,DNS:go.acheron.be,DNS:goto,DNS:go,IP:2001:470:7ee7:30::123,IP:172.16.30.123')]), OrderedDict([('days_valid', 90)]), OrderedDict([('days_remaining', 7)]), OrderedDict([('backup', True)]), OrderedDict([('require', [OrderedDict([('x509', 'certificate.key::goto.acheron.be')])])]), OrderedDict([('watch', [OrderedDict([('x509', 'certificate.key::goto.acheron.be')])])])])]))])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/common/certificate/init.sls' using 'yaml' renderer: 0.0749590396881
+[DEBUG   ] LazyLoaded pkg.install
+[DEBUG   ] LazyLoaded pkg.installed
+[DEBUG   ] Failed to import module inspectlib:
+Traceback (most recent call last):
+  File "/opt/local/lib/python2.7/site-packages/salt/loader.py", line 1286, in _load_module
+    ), None, fpath, desc)
+  File "/opt/local/lib/python2.7/site-packages/salt/modules/inspectlib/__init__.py", line 22, in <module>
+    from salt.modules.inspectlib.exceptions import InspectorSnapshotException
+  File "/opt/local/lib/python2.7/site-packages/salt/modules/inspectlib/__init__.py", line 23, in <module>
+    from salt.modules.inspectlib.dbhandle import DBHandle
+  File "/opt/local/lib/python2.7/site-packages/salt/modules/inspectlib/dbhandle.py", line 19, in <module>
+    import sqlite3
+  File "/opt/local/lib/python2.7/sqlite3/__init__.py", line 24, in <module>
+    from dbapi2 import *
+  File "/opt/local/lib/python2.7/sqlite3/dbapi2.py", line 28, in <module>
+    from _sqlite3 import *
+ImportError: No module named _sqlite3
+[DEBUG   ] Failed to import module node:
+Traceback (most recent call last):
+  File "/opt/local/lib/python2.7/site-packages/salt/loader.py", line 1298, in _load_module
+    ), fn_, fpath, desc)
+  File "/opt/local/lib/python2.7/site-packages/salt/modules/node.py", line 24, in <module>
+    from salt.modules.inspectlib.exceptions import (InspectorQueryException,
+  File "/opt/local/lib/python2.7/site-packages/salt/modules/inspectlib/__init__.py", line 23, in <module>
+    from salt.modules.inspectlib.dbhandle import DBHandle
+  File "/opt/local/lib/python2.7/site-packages/salt/modules/inspectlib/dbhandle.py", line 19, in <module>
+    import sqlite3
+  File "/opt/local/lib/python2.7/sqlite3/__init__.py", line 24, in <module>
+    from dbapi2 import *
+  File "/opt/local/lib/python2.7/sqlite3/dbapi2.py", line 28, in <module>
+    from _sqlite3 import *
+ImportError: No module named _sqlite3
+[DEBUG   ] Could not LazyLoad pkg.ex_mod_init
+[INFO    ] Running state [openssl] at time 15:23:47.425141
+[INFO    ] Executing state pkg.installed for openssl
+[INFO    ] Executing command '/opt/local/bin/pkgin ls' in directory '/home/sjorge'
+[DEBUG   ] Could not LazyLoad pkg.normalize_name
+[DEBUG   ] Could not LazyLoad pkg.hold
+[INFO    ] Package openssl is already installed
+[INFO    ] Completed state [openssl] at time 15:23:48.004555 duration_in_ms=579.414
+[INFO    ] Running state [perl] at time 15:23:48.005311
+[INFO    ] Executing state pkg.installed for perl
+[DEBUG   ] Could not LazyLoad pkg.normalize_name
+[DEBUG   ] Could not LazyLoad pkg.hold
+[INFO    ] Package perl is already installed
+[INFO    ] Completed state [perl] at time 15:23:48.046412 duration_in_ms=41.101
+[DEBUG   ] LazyLoaded file.directory
+[INFO    ] Running state [/opt/local/etc/openssl/certs] at time 15:23:48.053830
+[INFO    ] Executing state file.directory for /opt/local/etc/openssl/certs
+[INFO    ] Directory /opt/local/etc/openssl/certs is in the correct state
+[INFO    ] Completed state [/opt/local/etc/openssl/certs] at time 15:23:48.056539 duration_in_ms=2.709
+[DEBUG   ] LazyLoaded x509.pem_managed
+[INFO    ] Running state [/opt/local/etc/openssl/certs/internal-ca.crt] at time 15:23:48.060002
+[INFO    ] Executing state x509.pem_managed for /opt/local/etc/openssl/certs/internal-ca.crt
+[INFO    ] The file is already in the correct state
+[INFO    ] Completed state [/opt/local/etc/openssl/certs/internal-ca.crt] at time 15:23:48.062231 duration_in_ms=2.229
+[DEBUG   ] LazyLoaded cmd.wait
+[INFO    ] Running state [/opt/local/bin/c_rehash] at time 15:23:48.065529
+[INFO    ] Executing state cmd.wait for /opt/local/bin/c_rehash
+[INFO    ] No changes made for /opt/local/bin/c_rehash
+[INFO    ] Completed state [/opt/local/bin/c_rehash] at time 15:23:48.067203 duration_in_ms=1.674
+[INFO    ] Running state [/opt/local/etc/pki] at time 15:23:48.067678
+[INFO    ] Executing state file.directory for /opt/local/etc/pki
+[INFO    ] Directory /opt/local/etc/pki is in the correct state
+[INFO    ] Completed state [/opt/local/etc/pki] at time 15:23:48.070112 duration_in_ms=2.434
+[DEBUG   ] Could not LazyLoad sysctl.show
+[DEBUG   ] LazyLoaded apache.a2ensite
+[DEBUG   ] LazyLoaded selinux.getenforce
+[DEBUG   ] LazyLoaded boto_lambda.function_exists
+[DEBUG   ] LazyLoaded lvs.get_rules
+[DEBUG   ] LazyLoaded keyboard.get_sys
+[DEBUG   ] LazyLoaded dockerng.version
+[DEBUG   ] LazyLoaded layman.add
+[DEBUG   ] LazyLoaded win_servermanager.install
+[DEBUG   ] LazyLoaded boto_iam.role_exists
+[DEBUG   ] LazyLoaded iptables.version
+[DEBUG   ] LazyLoaded boto_iot.policy_exists
+[DEBUG   ] LazyLoaded ipset.version
+[DEBUG   ] Registered VCS backend: git
+[DEBUG   ] Registered VCS backend: hg
+[DEBUG   ] Registered VCS backend: svn
+[DEBUG   ] Registered VCS backend: bzr
+[DEBUG   ] LazyLoaded boto_cfn.exists
+[DEBUG   ] LazyLoaded ifttt.trigger_event
+[DEBUG   ] LazyLoaded victorops.create_event
+[DEBUG   ] LazyLoaded boto_asg.exists
+[DEBUG   ] LazyLoaded mysql.user_create
+[DEBUG   ] LazyLoaded portage_config.get_missing_flags
+[DEBUG   ] LazyLoaded boto_elb.exists
+[DEBUG   ] Could not LazyLoad docker.version
+[DEBUG   ] Could not LazyLoad augeas.execute
+[DEBUG   ] LazyLoaded glusterfs.list_volumes
+[DEBUG   ] LazyLoaded makeconf.get_var
+[DEBUG   ] LazyLoaded postgres.cluster_exists
+[DEBUG   ] LazyLoaded openvswitch.bridge_create
+[DEBUG   ] LazyLoaded xmpp.send_msg
+[DEBUG   ] Could not LazyLoad ip.get_interface
+[DEBUG   ] Could not LazyLoad pkg.get_selections
+[DEBUG   ] LazyLoaded chocolatey.install
+[DEBUG   ] LazyLoaded boto_cloudwatch.get_alarm
+[DEBUG   ] Could not LazyLoad elasticsearch.exists
+[DEBUG   ] LazyLoaded keystone.auth
+[DEBUG   ] LazyLoaded postgres.datadir_init
+[DEBUG   ] Could not LazyLoad win_dacl.add_ace
+[DEBUG   ] LazyLoaded memcached.status
+[DEBUG   ] LazyLoaded reg.read_key
+[DEBUG   ] Could not LazyLoad influxdb.db_exists
+[DEBUG   ] LazyLoaded splunk_search.get
+[DEBUG   ] LazyLoaded apache.config
+[DEBUG   ] LazyLoaded lvs.get_rules
+[DEBUG   ] LazyLoaded postgres.privileges_grant
+[DEBUG   ] LazyLoaded win_dns_client.add_dns
+[DEBUG   ] LazyLoaded boto_vpc.exists
+[DEBUG   ] LazyLoaded boto_ec2.get_key
+[DEBUG   ] LazyLoaded rdp.enable
+[DEBUG   ] LazyLoaded mysql.query
+[DEBUG   ] LazyLoaded boto_datapipeline.create_pipeline
+[DEBUG   ] LazyLoaded apache.a2enmod
+[DEBUG   ] LazyLoaded zabbix.host_create
+[DEBUG   ] LazyLoaded boto_secgroup.exists
+[DEBUG   ] LazyLoaded postgres.schema_exists
+[DEBUG   ] LazyLoaded ddns.update
+[DEBUG   ] Could not LazyLoad firewall.get_config
+[DEBUG   ] LazyLoaded postgres.language_create
+[DEBUG   ] LazyLoaded chassis.cmd
+[DEBUG   ] LazyLoaded mysql.db_exists
+[DEBUG   ] LazyLoaded apache.a2enconf
+[DEBUG   ] LazyLoaded git.version
+[DEBUG   ] LazyLoaded boto_asg.exists
+[DEBUG   ] LazyLoaded eselect.exec_action
+[DEBUG   ] LazyLoaded nftables.version
+[DEBUG   ] LazyLoaded trafficserver.set_var
+[DEBUG   ] LazyLoaded boto_sqs.exists
+[DEBUG   ] LazyLoaded cyg.list
+[DEBUG   ] LazyLoaded postgres.group_create
+[DEBUG   ] LazyLoaded kmod.available
+[DEBUG   ] LazyLoaded pecl.list
+[DEBUG   ] LazyLoaded chef.client
+[DEBUG   ] LazyLoaded zabbix.usergroup_create
+[DEBUG   ] LazyLoaded boto_elasticache.exists
+[DEBUG   ] LazyLoaded esxi.cmd
+[DEBUG   ] LazyLoaded mysql.grant_exists
+[DEBUG   ] Could not LazyLoad vmadm.create
+[DEBUG   ] LazyLoaded blockdev.tune
+[DEBUG   ] LazyLoaded win_path.rehash
+[DEBUG   ] Could not LazyLoad influxdb.db_exists
+[DEBUG   ] LazyLoaded mongodb.user_exists
+[DEBUG   ] LazyLoaded boto_cloudtrail.exists
+[DEBUG   ] LazyLoaded openvswitch.port_add
+[DEBUG   ] LazyLoaded zk_concurrency.lock
+[DEBUG   ] LazyLoaded virt.node_info
+[DEBUG   ] LazyLoaded boto_s3_bucket.exists
+[DEBUG   ] LazyLoaded boto_dynamodb.exists
+[DEBUG   ] LazyLoaded zabbix.user_create
+[DEBUG   ] LazyLoaded zabbix.hostgroup_create
+[DEBUG   ] LazyLoaded boto_rds.exists
+[DEBUG   ] LazyLoaded boto_sns.exists
+[DEBUG   ] LazyLoaded postgres.tablespace_exists
+[DEBUG   ] LazyLoaded boto_kms.describe_key
+[DEBUG   ] Could not LazyLoad redis.set_key
+[DEBUG   ] LazyLoaded stormpath.create_account
+[DEBUG   ] LazyLoaded boto_route53.get_record
+[DEBUG   ] LazyLoaded quota.report
+[DEBUG   ] LazyLoaded boto_iam.get_user
+[DEBUG   ] LazyLoaded postgres.user_exists
+[DEBUG   ] LazyLoaded splunk.list_users
+[DEBUG   ] LazyLoaded github.list_users
+[DEBUG   ] LazyLoaded postgres.user_exists
+[DEBUG   ] Could not LazyLoad pkg.mod_repo
+[DEBUG   ] LazyLoaded tomcat.status
+[DEBUG   ] LazyLoaded monit.summary
+[DEBUG   ] LazyLoaded postgres.create_extension
+[DEBUG   ] LazyLoaded bower.list
+[DEBUG   ] Could not LazyLoad x509.mod_watch
+[INFO    ] Running state [/opt/local/etc/pki/goto.acheron.be.key] at time 15:23:49.021062
+[INFO    ] Executing state x509.private_key_managed for /opt/local/etc/pki/goto.acheron.be.key
+[INFO    ] The Private key is already in the correct state
+[INFO    ] Completed state [/opt/local/etc/pki/goto.acheron.be.key] at time 15:23:49.023627 duration_in_ms=2.565
+[DEBUG   ] Could not LazyLoad x509.mod_watch
+[INFO    ] Running state [/opt/local/etc/pki/goto.acheron.be.crt] at time 15:23:49.037307
+[INFO    ] Executing state x509.certificate_managed for /opt/local/etc/pki/goto.acheron.be.crt
+[INFO    ] Publishing 'x509.sign_remote_certificate' to tcp://[2001:470:7ee7:30::130]:4506
+[DEBUG   ] Re-using SAuth for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506')
+[DEBUG   ] Loaded minion key: /salt/config/pki/minion/minion.pem
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506')
+[INFO    ] The certificate is already in the correct state
+[INFO    ] Completed state [/opt/local/etc/pki/goto.acheron.be.crt] at time 15:23:49.443660 duration_in_ms=406.353
+[DEBUG   ] File /var/cache/salt/minion/accumulator/18446741324879575760 does not exist, no need to cleanup.
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'apollo', 'tcp://[2001:470:7ee7:30::130]:4506')
+[DEBUG   ] LazyLoaded highstate.output
+local:
+  Name: openssl - Function: pkg.installed - Result: Clean Started: - 15:23:47.425141 Duration: 579.414 ms
+  Name: perl - Function: pkg.installed - Result: Clean Started: - 15:23:48.005311 Duration: 41.101 ms
+  Name: /opt/local/etc/openssl/certs - Function: file.directory - Result: Clean Started: - 15:23:48.053830 Duration: 2.709 ms
+  Name: /opt/local/etc/openssl/certs/internal-ca.crt - Function: x509.pem_managed - Result: Clean Started: - 15:23:48.060002 Duration: 2.229 ms
+  Name: /opt/local/bin/c_rehash - Function: cmd.wait - Result: Clean Started: - 15:23:48.065529 Duration: 1.674 ms
+  Name: /opt/local/etc/pki - Function: file.directory - Result: Clean Started: - 15:23:48.067678 Duration: 2.434 ms
+  Name: /opt/local/etc/pki/goto.acheron.be.key - Function: x509.private_key_managed - Result: Clean Started: - 15:23:49.021062 Duration: 2.565 ms
+  Name: /opt/local/etc/pki/goto.acheron.be.crt - Function: x509.certificate_managed - Result: Clean Started: - 15:23:49.037307 Duration: 406.353 ms
+
+Summary for local
+------------
+Succeeded: 8
+Failed:    0
+------------
+Total states run:     8
+Total run time:   1.038 s
+```
+
+2016.11.0rc1
+
+``` yaml
+[DEBUG   ] Reading configuration from /opt/local/etc/salt/minion
+[DEBUG   ] Including configuration from '/opt/local/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /opt/local/etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Including configuration from '/opt/local/etc/salt/minion.d/smtp.conf'
+[DEBUG   ] Reading configuration from /opt/local/etc/salt/minion.d/smtp.conf
+[DEBUG   ] Configuration file path: /opt/local/etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /opt/local/etc/salt/minion
+[DEBUG   ] Including configuration from '/opt/local/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /opt/local/etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Including configuration from '/opt/local/etc/salt/minion.d/smtp.conf'
+[DEBUG   ] Reading configuration from /opt/local/etc/salt/minion.d/smtp.conf
+[WARNING ] /etc/resolv.conf: The domain and search keywords are mutually exclusive.
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] Connecting to master. Attempt 1 of 1
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (9471)
+[DEBUG   ] Setting zmq_reconnect_ivl to '9471ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506', 'clear')
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /salt/config/pki/minion/minion.pem
+[DEBUG   ] SaltEvent PUB socket URI: /var/run/salt/minion/minion_event_3baac24f68_pub.ipc
+[DEBUG   ] SaltEvent PULL socket URI: /var/run/salt/minion/minion_event_3baac24f68_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/minion/minion_event_3baac24f68_pull.ipc
+[DEBUG   ] Loaded minion key: /salt/config/pki/minion/minion.pem
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506')
+[DEBUG   ] Loaded minion key: /salt/config/pki/minion/minion.pem
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded state.apply
+[DEBUG   ] LazyLoaded saltutil.is_running
+[DEBUG   ] LazyLoaded grains.get
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506')
+[WARNING ] /opt/local/lib/python2.7/site-packages/salt/state.py:2491: DeprecationWarning: The top_file_merging_strategy 'merge' has been renamed to 'default'. Please comment out the 'top_file_merging_strategy' line or change it to 'default'.
+
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506')
+[DEBUG   ] Loaded minion key: /salt/config/pki/minion/minion.pem
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] Could not find file 'salt://common/certificate.sls' in saltenv 'base'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'common/certificate/init.sls' to resolve 'salt://common/certificate/init.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/common/certificate/init.sls' to resolve 'salt://common/certificate/init.sls'
+[DEBUG   ] No file mode available for 'salt://common/certificate/init.sls'
+[DEBUG   ] compile template: /var/cache/salt/minion/files/base/common/certificate/init.sls
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506')
+[DEBUG   ] In saltenv 'base', looking at rel_path 'common/certificate/config.jinja' to resolve 'salt://common/certificate/config.jinja'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/common/certificate/config.jinja' to resolve 'salt://common/certificate/config.jinja'
+[DEBUG   ] No file mode available for 'salt://common/certificate/config.jinja'
+[DEBUG   ] In saltenv 'base', looking at rel_path '_macros/common.jinja' to resolve 'salt://_macros/common.jinja'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/_macros/common.jinja' to resolve 'salt://_macros/common.jinja'
+[DEBUG   ] No file mode available for 'salt://_macros/common.jinja'
+[DEBUG   ] LazyLoaded grains.filter_by
+[DEBUG   ] In saltenv 'base', looking at rel_path 'common/certificate/macros.jinja' to resolve 'salt://common/certificate/macros.jinja'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/common/certificate/macros.jinja' to resolve 'salt://common/certificate/macros.jinja'
+[DEBUG   ] No file mode available for 'salt://common/certificate/macros.jinja'
+[DEBUG   ] LazyLoaded mine.get
+[DEBUG   ] Initializing new SAuth for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506')
+[DEBUG   ] Loaded minion key: /salt/config/pki/minion/minion.pem
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506')
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/common/certificate/init.sls' using 'jinja' renderer: 0.165760993958
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/common/certificate/init.sls:
+######
+## certificate state
+## -----------------------------------
+######
+## import
+
+
+
+## variables
+
+
+
+
+## publish authority root cert
+
+certificate::packages::
+  pkg.installed:
+    - names: ['perl', 'openssl']
+
+certificate::truststore:
+  file.directory:
+    - name: /opt/local/etc/openssl/certs
+  x509.pem_managed:
+    - name: /opt/local/etc/openssl/certs/internal-ca.crt
+    - text: -----BEGIN CERTIFICATE-----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-----END CERTIFICATE-----
+    - require:
+        - file: certificate::truststore
+
+  cmd.wait:
+    - name: /opt/local/bin/c_rehash
+    - watch:
+        - x509: certificate::truststore
+
+
+certificate::keystore:
+  file.directory:
+    - name: /opt/local/etc/pki
+
+
+
+
+
+
+
+
+
+
+# vim: tabstop=2 expandtab shiftwidth=2 softtabstop=2
+
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('certificate::packages:', OrderedDict([('pkg.installed', [OrderedDict([('names', ['perl', 'openssl'])])])])), ('certificate::truststore', OrderedDict([('file.directory', [OrderedDict([('name', '/opt/local/etc/openssl/certs')])]), ('x509.pem_managed', [OrderedDict([('name', '/opt/local/etc/openssl/certs/internal-ca.crt')]), OrderedDict([('text', '-----BEGIN CERTIFICATE-----MIIGgjCCBGqgAwIBAgIIfijCQL3rF6MwDQYJKoZIhvcNAQELBQAwgYExCzAJBgNVBAYTAkJFMRgwFgYDVQQDDA9BY2hlcm9uIFJvb3QgQ0ExETAPBgNVBAcMCEthcGVsbGVuMRAwDgYDVQQIDAdBbnR3ZXJwMRAwDgYDVQQKDAdBY2hlcm9uMSEwHwYJKoZIhvcNAQkBFhJjZXJ0YWRtQGFjaGVyb24uYmUwHhcNMTYwMzI4MTYyOTQ4WhcNMjYwMzI2MTYyOTQ4WjCBgTELMAkGA1UEBhMCQkUxGDAWBgNVBAMMD0FjaGVyb24gUm9vdCBDQTERMA8GA1UEBwwIS2FwZWxsZW4xEDAOBgNVBAgMB0FudHdlcnAxEDAOBgNVBAoMB0FjaGVyb24xITAfBgkqhkiG9w0BCQEWEmNlcnRhZG1AYWNoZXJvbi5iZTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBANTZdENt7iIqpwPH8BuuHuqVecttb/33F9l3mt4GQHqJovSX2oL6mRoijlgUz6doEdRZrWeRts1TbMunAAaX3bwDMzUMkHTaJaQ2ZR6IoKWJRKE5vhd5niPxv5vN6VOigv2owULP/iR2s3b9VnsI5mNUOXli3MadwPqi1BVYrYuvhdEnDHwBom4e+A3LN8rGNcbO3rI8yx54QbkKiL9cVXXCH3Hwse+M5848qe/VysNlnRuzZCpoI2lBq1MeHWIRWUgNhiTyztn2ZZWDAfRC8gVtlFAvBKKByXwjvH++AzvyJ1lg9NE92rF3wLSKI9kuL8YeB6ypkugY0sYAj7i2gV6B7RTa9fPECwlOdPtnCgkeUfcS0zODAtus7gZhhGpBy5aWpgbpbqmZGOsjsf9XO5zgjF24XHpU8vkbygp2nmOO3Zr+I2VwJn7in+leGXagLpapR6gZWX1GL/b36ZmusRpGJllSOPvgUuTsKaA6AGKjWXH7iC2wcqu1orxibKCsMpHhlAMUB4pLuta2DhYq7RZZjsl4GiihlKsFt4QLtyQZTq8cN18zsrcxraTb5TKNm5dD1b52bFQ/wUym+lRS6Vsa7+dtoLfU1zVc+mlNta89xXNlfZ4+isYknvIjfkoKMwDEDAk2AjxbE+bQrbyuXa7Z2eqayIqnJ/x+joISKH6jAgMBAAGjgfswgfgwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwHQYDVR0OBBYEFGyY2Zuqk/MAN/33jAJmQVPI+LgbMIG1BgNVHSMEga0wgaqAFGyY2Zuqk/MAN/33jAJmQVPI+LgboYGHpIGEMIGBMQswCQYDVQQGEwJCRTEYMBYGA1UEAwwPQWNoZXJvbiBSb290IENBMREwDwYDVQQHDAhLYXBlbGxlbjEQMA4GA1UECAwHQW50d2VycDEQMA4GA1UECgwHQWNoZXJvbjEhMB8GCSqGSIb3DQEJARYSY2VydGFkbUBhY2hlcm9uLmJlggh+KMJAvesXozANBgkqhkiG9w0BAQsFAAOCAgEAKr1+USflxSacoTMRSMPZ3XNUn45sJG5a+5Wp0Z/WEBGZA/wVDS9oHHwk9H/Xlm3Jh7a5CkqCwr8jccoir7iWza/OA5PWbV+ULXkU21Tr+aj5+mli6yegj6hUbOdsZZTwYJplQSyGiSubEMWeA+RRLq26HGw1nsPBVQeCIpLmux5nJM4utPd2Y8CjwkSc4+A64RTX4kgDnoN6rJm7uQshtyaHfhAiKoGhPSK4swYlrooLDg/lbtP118r/Lu5/UQR10r5+MfxP6CSTqrKZHvewBflruJrDxd6Oe0O0D1r4bJaf0xwjluRJ6l7n9xU+wPMnFyYfgkwFFkc7fmZBg0vJH9+gLwp8BHGP2P1cqd/QtRbiw0KAPv/zbONyZVsGzHibLINMYBOSSzZVYnoV87xSWHiZomgAd7lwsa1Hi4zwY5btBbk406d5SzftKl3Pc+A8L4V8ojpgTu8arXgkxS25xm6p3z12nK+szpvvAmiqQy8sMCmL1eLSFMz81LGbOJyUTKPpmWDt+rO453BT4AloM0qKBfWiUeQz/6jWhjm7K3beXAcEycZJcJyTtnFKxP+TiK46hKR/oC8lB6yKC/3j93MEQ2xn3kLwl9kXTsFXUx9ewVPjZAxioQNn83pCOwtJoBqLmbQw2KcciV8PlpU+WZXXUav5cvLWQOxiqKjvgTo=-----END CERTIFICATE-----')]), OrderedDict([('require', [OrderedDict([('file', 'certificate::truststore')])])])]), ('cmd.wait', [OrderedDict([('name', '/opt/local/bin/c_rehash')]), OrderedDict([('watch', [OrderedDict([('x509', 'certificate::truststore')])])])])])), ('certificate::keystore', OrderedDict([('file.directory', [OrderedDict([('name', '/opt/local/etc/pki')])])]))])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/common/certificate/init.sls' using 'yaml' renderer: 0.0155048370361
+[DEBUG   ] LazyLoaded pkg.install
+[DEBUG   ] LazyLoaded pkg.installed
+[ERROR   ] Exception raised when processing __virtual__ function for runit. Module will not be loaded 'init'
+Traceback (most recent call last):
+  File "/opt/local/lib/python2.7/site-packages/salt/loader.py", line 1583, in process_virtual
+    virtual = getattr(mod, virtual_func)()
+  File "/opt/local/lib/python2.7/site-packages/salt/modules/runit.py", line 91, in __virtual__
+    if __grains__['init'] == 'runit':
+  File "/opt/local/lib/python2.7/site-packages/salt/utils/context.py", line 194, in __getitem__
+    return self._dict()[key]
+KeyError: 'init'
+[WARNING ] salt.loaded.int.module.runit.__virtual__() is wrongly returning `None`. It should either return `True`, `False` or a new name. If you're the developer of the module 'runit', please fix this.
+[DEBUG   ] Could not LazyLoad pkg.ex_mod_init: 'pkg.ex_mod_init' is not available.
+[INFO    ] Running state [openssl] at time 15:30:01.133644
+[INFO    ] Executing state pkg.installed for openssl
+[INFO    ] Executing command '/opt/local/bin/pkgin ls' in directory '/root'
+[DEBUG   ] Could not LazyLoad pkg.normalize_name: 'pkg.normalize_name' is not available.
+[DEBUG   ] Could not LazyLoad pkg.hold: 'pkg.hold' is not available.
+[INFO    ] Package openssl is already installed
+[INFO    ] Completed state [openssl] at time 15:30:01.419285 duration_in_ms=285.641
+[INFO    ] Running state [perl] at time 15:30:01.419607
+[INFO    ] Executing state pkg.installed for perl
+[DEBUG   ] Could not LazyLoad pkg.normalize_name: 'pkg.normalize_name' is not available.
+[DEBUG   ] Could not LazyLoad pkg.hold: 'pkg.hold' is not available.
+[INFO    ] Package perl is already installed
+[INFO    ] Completed state [perl] at time 15:30:01.438791 duration_in_ms=19.184
+[DEBUG   ] LazyLoaded file.directory
+[INFO    ] Running state [/opt/local/etc/openssl/certs] at time 15:30:01.443118
+[INFO    ] Executing state file.directory for /opt/local/etc/openssl/certs
+[INFO    ] Directory /opt/local/etc/openssl/certs is in the correct state
+[INFO    ] Completed state [/opt/local/etc/openssl/certs] at time 15:30:01.444413 duration_in_ms=1.295
+[DEBUG   ] LazyLoaded x509.pem_managed
+[INFO    ] Running state [/opt/local/etc/openssl/certs/internal-ca.crt] at time 15:30:01.445673
+[INFO    ] Executing state x509.pem_managed for /opt/local/etc/openssl/certs/internal-ca.crt
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/opt/local/lib/python2.7/site-packages/salt/state.py", line 1744, in call
+    **cdata['kwargs'])
+  File "/opt/local/lib/python2.7/site-packages/salt/loader.py", line 1704, in wrapper
+    return f(*args, **kwargs)
+  File "/opt/local/lib/python2.7/site-packages/salt/states/x509.py", line 628, in pem_managed
+    new = __salt__['x509.get_pem_entry'](text=text)
+  File "/opt/local/lib/python2.7/site-packages/salt/modules/x509.py", line 429, in get_pem_entry
+    'PEM text not valid:\n{0}'.format(text)
+SaltInvocationError: PEM text not valid:
+-----BEGIN CERTIFICATE-----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-----END CERTIFICATE-----
+
+[INFO    ] Completed state [/opt/local/etc/openssl/certs/internal-ca.crt] at time 15:30:01.448131 duration_in_ms=2.458
+[DEBUG   ] LazyLoaded cmd.wait
+[INFO    ] Running state [/opt/local/etc/pki] at time 15:30:01.449426
+[INFO    ] Executing state file.directory for /opt/local/etc/pki
+[INFO    ] Directory /opt/local/etc/pki is in the correct state
+[INFO    ] Completed state [/opt/local/etc/pki] at time 15:30:01.450315 duration_in_ms=0.889
+[DEBUG   ] File /var/cache/salt/minion/accumulator/18446741324878252944 does not exist, no need to cleanup.
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/salt/config/pki/minion', 'isotope', 'tcp://[2001:470:7ee7:30::130]:4506')
+[DEBUG   ] LazyLoaded highstate.output
+local:
+  Name: openssl - Function: pkg.installed - Result: Clean Started: - 15:30:01.133644 Duration: 285.641 ms
+  Name: perl - Function: pkg.installed - Result: Clean Started: - 15:30:01.419607 Duration: 19.184 ms
+  Name: /opt/local/etc/openssl/certs - Function: file.directory - Result: Clean Started: - 15:30:01.443118 Duration: 1.295 ms
+----------
+          ID: certificate::truststore
+    Function: x509.pem_managed
+        Name: /opt/local/etc/openssl/certs/internal-ca.crt
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/opt/local/lib/python2.7/site-packages/salt/state.py", line 1744, in call
+                  **cdata['kwargs'])
+                File "/opt/local/lib/python2.7/site-packages/salt/loader.py", line 1704, in wrapper
+                  return f(*args, **kwargs)
+                File "/opt/local/lib/python2.7/site-packages/salt/states/x509.py", line 628, in pem_managed
+                  new = __salt__['x509.get_pem_entry'](text=text)
+                File "/opt/local/lib/python2.7/site-packages/salt/modules/x509.py", line 429, in get_pem_entry
+                  'PEM text not valid:\n{0}'.format(text)
+              SaltInvocationError: PEM text not valid:
+              -----BEGIN CERTIFICATE-----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-----END CERTIFICATE-----
+     Started: 15:30:01.445673
+    Duration: 2.458 ms
+     Changes:
+----------
+          ID: certificate::truststore
+    Function: cmd.wait
+        Name: /opt/local/bin/c_rehash
+      Result: False
+     Comment: One or more requisite failed: common.certificate.certificate::truststore
+     Changes:
+  Name: /opt/local/etc/pki - Function: file.directory - Result: Clean Started: - 15:30:01.449426 Duration: 0.889 ms
+
+Summary for local
+------------
+Succeeded: 4
+Failed:    2
+------------
+Total states run:     6
+Total run time: 309.467 ms
+```
+### Versions Report
+
+minion running 2016.3.3:
+
+``` yaml
+[.]$ salt-call --versions-report
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: 1.4.2
+       cherrypy: 3.8.0
+       dateutil: 2.4.0
+          gitdb: 0.6.4
+      gitpython: 2.0.8
+          ioflo: 1.6.1
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: 1.5.0
+       M2Crypto: 0.22
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Sep 26 2016, 19:40:04)
+   python-gnupg: 0.3.9
+         PyYAML: 3.11
+          PyZMQ: 14.4.1
+           RAET: 0.6.5
+          smmap: 0.9.0
+        timelib: 0.2.4
+        Tornado: 4.3
+            ZMQ: 4.1.3
+
+System Versions:
+           dist:
+        machine: i86pc
+        release: 5.11
+         system: SunOS
+        version: Not Installed
+
+```
+
+minion running 2016.11.0rc1:
+
+``` yaml
+[root@isotope /var/log/salt]# salt-call --versions-report
+Salt Version:
+           Salt: 2016.11.0rc1
+
+Dependency Versions:
+           cffi: 1.4.2
+       cherrypy: 3.8.0
+       dateutil: 2.4.0
+          gitdb: 0.6.4
+      gitpython: 0.3.2 RC1
+          ioflo: 1.6.1
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: 1.5.0
+       M2Crypto: 0.22
+           Mako: 1.0.4
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.5
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Sep 26 2016, 19:40:04)
+   python-gnupg: 0.3.9
+         PyYAML: 3.11
+          PyZMQ: 15.4.0
+           RAET: 0.6.5
+          smmap: 0.9.0
+        timelib: 0.2.4
+        Tornado: 4.3
+            ZMQ: 4.1.3
+
+System Versions:
+           dist:
+        machine: i86pc
+        release: 5.11
+         system: SunOS
+        version: Not Installed
+
+```

@@ -1,0 +1,82 @@
+### Description of Issue/Question
+
+When a user is newly created using the 'user.present' state, the changes entry in the return dict contains the string 'XXX-REDACTED-XXX'  for the 'passwd' attribute. However if the user already exists but the shadow entry is changing, the new shadow entry appears in the return dict unredacted. This happens in both test and non-test mode.
+### Setup
+
+Bog standard user.present state for an existing user (but a changing shadow password)
+### Steps to Reproduce Issue
+
+Run the user.present state with an existing user (but changing shadow password).
+### Fix
+
+There are 2 places which need to be fixed I think:
+
+https://github.com/saltstack/salt/blob/develop/salt/states/user.py#L134
+
+```
+                if lshad['passwd'] != password:
+                    change['passwd'] = password
+```
+
+The value of change['passwd'] needs to be redacted here. This fixes the issue in test mode.
+
+https://github.com/saltstack/salt/blob/develop/salt/states/user.py#L553
+
+```
+        if 'shadow.info' in __salt__:
+            for key in spost:
+                if lshad[key] != spost[key]:
+                    ret['changes'][key] = spost[key]
+```
+
+Needs to be replaced with something like
+
+```
+        if 'shadow.info' in __salt__:
+            for key in spost:
+                if lshad[key] != spost[key]:
+                        ret['changes'][key] = spost[key] if key != 'passwd' else 'XXX-REDACTED-XXX'
+
+```
+
+This seems to fix the issue in non-test mode.
+### Versions Report
+
+Running masterless (don't think it makes a difference)
+[root@ip-172-31-27-155 ~]# salt-call --versions report
+Salt Version:
+           Salt: 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.10.1.el7.x86_64
+         system: CentOS Linux 7.2.1511 Core

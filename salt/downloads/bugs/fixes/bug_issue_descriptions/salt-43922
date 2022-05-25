@@ -1,0 +1,120 @@
+### Description of Issue
+
+from the docs https://docs.saltstack.com/en/2016.11/ref/states/all/salt.states.service.html :
+
+> By default if a service is triggered to refresh due to a watch statement the service is by default 
+> restarted. If the desired behavior is to reload the service, then set the reload value to True:
+
+With the following code I'd expect the service to be restarted as soon as the file `/etc/neo4j/neo4j.conf` changes:
+
+```sls
+/etc/neo4j/neo4j.conf:
+  file.managed:
+    - source: salt://neo4j/neo4j.conf
+    - require:
+      - pkg: neo4j
+
+neo4j_service:
+  service.running:
+    - name: neo4j
+    - enable: True
+    - restart: True
+    - watch:
+        - file: /etc/neo4j/neo4j.conf
+```
+
+What I get however is the following:
+
+```
+----------
+          ID: /etc/neo4j/neo4j.conf
+    Function: file.managed
+      Result: True
+     Comment: File /etc/neo4j/neo4j.conf updated
+     Started: 15:16:47.625258
+    Duration: 26.058 ms
+     Changes:
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -51,7 +51,7 @@
+                   
+                   # With default configuration Neo4j only accepts local connections.
+                   # To accept non-local connections, uncomment this line:
+                  -#dbms.connectors.default_listen_address=0.0.0.0
+                  +dbms.connectors.default_listen_address=0.0.0.0
+                   
+                   # You can also choose a specific network interface, and configure a non-default
+                   # port for each connector, by setting their individual listen_address.
+                  @@ -67,19 +67,119 @@
+                   
+                   # Bolt connector
+                   dbms.connector.bolt.enabled=true
+                  -#dbms.connector.bolt.tls_level=OPTIONAL
+                  -#dbms.connector.bolt.listen_address=:7687
+                  +dbms.connector.bolt.tls_level=DISABLED
+                  +dbms.connector.bolt.listen_address=0.0.0.0:7687
+...
+----------
+          ID: neo4j_service
+    Function: service.running
+        Name: neo4j
+      Result: True
+     Comment: Service neo4j has been enabled, and is in the desired state
+     Started: 15:16:47.708318
+    Duration: 5433.864 ms
+     Changes:
+              ----------
+              neo4j:
+                  True
+----------
+```
+
+The service gets enabled but is not restarted. It works fine on the second run when the file has changed, i.e. when the service is already enabled and running, it is restarted.
+
+### Versions Report
+
+I am using salt-ssh:
+
+```
+$ salt-ssh --versions-report
+Salt Version:
+           Salt: 2016.11.2
+ 
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: Not Installed
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: Not Installed
+ 
+System Versions:
+           dist: debian 8.9 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.9 
+ 
+```

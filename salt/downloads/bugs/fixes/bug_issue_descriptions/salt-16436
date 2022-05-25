@@ -1,0 +1,60 @@
+If the `salt-master` is ran as user salt and (as root) you run:
+
+```
+salt-run fileserver.update
+```
+
+To forcibly refresh gitfs, it changes permissions on several directories under `/var/cache/salt`, which cause any minion action afterwards to fail.
+
+Example to reproduce:
+
+``` bash
+[root@hostname] # getfacl /var/cache/salt/master/minions/
+getfacl: Removing leading '/' from absolute path names
+# file: var/cache/salt/master/minions/
+# owner: salt
+# group: salt
+user::rwx
+group::r-x
+other::r-x
+
+[root@hostname] # salt-run fileserver.update
+[root@hostname] # getfacl /var/cache/salt/master/minions/
+getfacl: Removing leading '/' from absolute path names
+# file: var/cache/salt/master/minions/
+# owner: root
+# group: root
+user::rwx
+group::r-x
+other::r-x
+```
+
+When this happens, all minions fail with the insanely unhelpful message of:
+
+``` python
+[root@minion] # salt-call state.highstate test=true
+[ERROR   ] Got a bad pillar from master, type str, expecting dict: 
+[ERROR   ] Got a bad pillar from master, type str, expecting dict: 
+[INFO    ] Loading fresh modules for state activity
+local:
+    Data failed to compile:
+----------
+    Traceback (most recent call last):
+  File "/usr/lib/pymodules/python2.6/salt/state.py", line 2494, in call_highstate
+    top = self.get_top()
+  File "/usr/lib/pymodules/python2.6/salt/state.py", line 2042, in get_top
+    tops = self.get_tops()
+  File "/usr/lib/pymodules/python2.6/salt/state.py", line 1902, in get_tops
+    self.opts['environment']
+  File "/usr/lib/pymodules/python2.6/salt/fileclient.py", line 143, in cache_file
+    return self.get_url(path, '', True, saltenv)
+  File "/usr/lib/pymodules/python2.6/salt/fileclient.py", line 503, in get_url
+    return self.get_file(url, dest, makedirs, saltenv)
+  File "/usr/lib/pymodules/python2.6/salt/fileclient.py", line 923, in get_file
+    if not data['data']:
+TypeError: string indices must be integers, not str
+```
+
+So when the master has the `user` setting as non-root, please run the gitfs code as said user so the permissions don't get ruined. Secondly, can the minion catch this a bit more gracefully and say something like, "The master is borka!".
+
+Thanks!

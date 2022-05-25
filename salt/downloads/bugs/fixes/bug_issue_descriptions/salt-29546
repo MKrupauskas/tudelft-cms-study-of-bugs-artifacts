@@ -1,0 +1,209 @@
+(This is reminiscent of, and may be somehow related to, #29465.)
+
+I can't seem to get `state.orchestrate` to recognize when a state has failed. My minimal test case consists of two state files and an orchestration.
+
+state/whatever/test1.sls:
+
+``` salt
+teststate1:
+  test.fail_without_changes: []
+```
+
+state/whatever/test2.sls:
+
+``` salt
+teststate2:
+  test.succeed_without_changes: []
+```
+
+orchestrate/testorchestration.sls:
+
+``` salt
+test1:
+  salt.state:
+    - tgt: bonnie.dallas.charlietango.com
+    - sls:
+      - state.whatever.test1
+
+test2:
+  salt.state:
+    - tgt: bonnie.dallas.charlietango.com
+    - sls:
+      - state.whatever.test2
+    - require:
+      - salt: test1
+```
+
+What _should_ happen, assuming I've done this right, is that `test1` should fail and `test2` should never be executed. But instead I get this:
+
+```
+[admin@bonnie ~]$ sudo salt-run state.orchestrate orchestrate.testorchestration
+bonnie.dallas.charlietango.com_master:
+----------
+          ID: test1
+    Function: salt.state
+      Result: True
+     Comment: States ran successfully. No changes made to bonnie.dallas.charlietango.com.
+     Started: 17:56:11.371163
+    Duration: 424.23 ms
+     Changes:   
+----------
+          ID: test2
+    Function: salt.state
+      Result: True
+     Comment: States ran successfully. No changes made to bonnie.dallas.charlietango.com.
+     Started: 17:56:11.795647
+    Duration: 427.469 ms
+     Changes:   
+
+Summary for bonnie.dallas.charlietango.com_master
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total states run:     2
+Total run time: 851.699 ms
+```
+
+Here's the relevant excerpt from the event bus:
+
+```
+salt/run/20151208175609296042/new   {
+    "_stamp": "2015-12-08T23:56:09.514278", 
+    "fun": "runner.state.orchestrate", 
+    "jid": "20151208175609296042", 
+    "user": "sudo_admin"
+}
+salt/job/20151208175611414293/new   {
+    "_stamp": "2015-12-08T23:56:11.415033", 
+    "arg": [
+        "state.whatever.test1", 
+        {
+            "__kwarg__": true, 
+            "concurrent": false, 
+            "saltenv": "base"
+        }
+    ], 
+    "fun": "state.sls", 
+    "jid": "20151208175611414293", 
+    "minions": [
+        "bonnie.dallas.charlietango.com"
+    ], 
+    "tgt": "bonnie.dallas.charlietango.com", 
+    "tgt_type": "glob", 
+    "user": "sudo_admin"
+}
+salt/job/20151208175611414293/ret/bonnie.dallas.charlietango.com    {
+    "_stamp": "2015-12-08T23:56:11.759752", 
+    "cmd": "_return", 
+    "fun": "state.sls", 
+    "fun_args": [
+        "state.whatever.test1", 
+        {
+            "concurrent": false, 
+            "saltenv": "base"
+        }
+    ], 
+    "id": "bonnie.dallas.charlietango.com", 
+    "jid": "20151208175611414293", 
+    "out": "highstate", 
+    "retcode": 2, 
+    "return": {
+        "test_|-teststate1_|-teststate1_|-fail_without_changes": {
+            "__run_num__": 0, 
+            "changes": {}, 
+            "comment": "Failure!", 
+            "duration": 1.059, 
+            "name": "teststate1", 
+            "result": false, 
+            "start_time": "17:56:11.650190"
+        }
+    }, 
+    "success": true
+}
+salt/job/20151208175611832721/new   {
+    "_stamp": "2015-12-08T23:56:11.833573", 
+    "arg": [
+        "state.whatever.test2", 
+        {
+            "__kwarg__": true, 
+            "concurrent": false, 
+            "saltenv": "base"
+        }
+    ], 
+    "fun": "state.sls", 
+    "jid": "20151208175611832721", 
+    "minions": [
+        "bonnie.dallas.charlietango.com"
+    ], 
+    "tgt": "bonnie.dallas.charlietango.com", 
+    "tgt_type": "glob", 
+    "user": "sudo_admin"
+}
+salt/job/20151208175611832721/ret/bonnie.dallas.charlietango.com    {
+    "_stamp": "2015-12-08T23:56:12.186007", 
+    "cmd": "_return", 
+    "fun": "state.sls", 
+    "fun_args": [
+        "state.whatever.test2", 
+        {
+            "concurrent": false, 
+            "saltenv": "base"
+        }
+    ], 
+    "id": "bonnie.dallas.charlietango.com", 
+    "jid": "20151208175611832721", 
+    "out": "highstate", 
+    "retcode": 0, 
+    "return": {
+        "test_|-teststate2_|-teststate2_|-succeed_without_changes": {
+            "__run_num__": 0, 
+            "changes": {}, 
+            "comment": "Success!", 
+            "duration": 0.939, 
+            "name": "teststate2", 
+            "result": true, 
+            "start_time": "17:56:12.077965"
+        }
+    }, 
+    "success": true
+}
+salt/run/20151208175609296042/ret   {
+    "_stamp": "2015-12-08T23:56:12.227510", 
+    "fun": "runner.state.orchestrate", 
+    "jid": "20151208175609296042", 
+    "return": {
+        "data": {
+            "bonnie.dallas.charlietango.com_master": {
+                "salt_|-test1_|-test1_|-state": {
+                    "__run_num__": 0, 
+                    "changes": {}, 
+                    "comment": "States ran successfully. No changes made to bonnie.dallas.charlietango.com.", 
+                    "duration": "424.23 ms", 
+                    "name": "test1", 
+                    "result": true, 
+                    "start_time": "17:56:11.371163"
+                }, 
+                "salt_|-test2_|-test2_|-state": {
+                    "__run_num__": 1, 
+                    "changes": {}, 
+                    "comment": "States ran successfully. No changes made to bonnie.dallas.charlietango.com.", 
+                    "duration": "427.469 ms", 
+                    "name": "test2", 
+                    "result": true, 
+                    "start_time": "17:56:11.795647"
+                }
+            }
+        }, 
+        "outputter": "highstate"
+    }, 
+    "success": true, 
+    "user": "sudo_admin"
+}
+```
+
+It looks _to me_ — and please recall that I'm a rank amateur at Salt — like the test1 state is pretty clearly returning word of its failure, but that the orchestrate runner is failing to correctly interpret that ret. But again, I'm still so new at this that you can practically assume I'm making all this up as I go.
+
+In any case, right now this is preventing me from deploying Salt in production. I really want to be able to trap failed states and interrupt orchestrations that have gone sideways before they wreak havoc. Any suggestions for such a workaround would be _incredibly_ welcome.
+
+Thanks!

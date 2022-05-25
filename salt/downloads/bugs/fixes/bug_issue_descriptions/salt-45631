@@ -1,0 +1,102 @@
+### Description of Issue/Question
+file.symlink's use of backupname is somewhat unclear in the docs, and the behaviour is also not intuitive at first when debugging.
+
+Case: symlink name to target - if "name" exists, make a backup.
+
+I see examples where the user _expects_ that where backupname == "filename" that file will be placed relative to the original symlinks path.
+
+This is not the case:
+A relative path or filename in "backupname" will be **_relative to the home directory of the user running salt_**, mostly "root".
+
+Two cases:
+
+1. The user overwrites a file/dir in roots home dir
+2. The user gets an error if the root filesystem is on another file system than the file being backed up
+
+A user trying to symlink in one file system, having av backupname with a relative path or just a file name will get the error:
+
+```
+salt-call state.single file.symlink /tmp/sas/bat/mat/trigger target=/tmp/sas/foo/bar/trigger backupname=trigger.old
+...
+          ID: envid-symlink
+    Function: file.symlink
+        Name: /tmp/sas/bat/mat/trigger
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/site-packages/salt/state.py", line 1765, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1705, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/states/file.py", line 975, in symlink
+                  os.rename(name, backupname)
+              OSError: [Errno 18] Invalid cross-device link
+     Started: 14:06:13.242857
+    Duration: 1.215 ms
+     Changes:
+```
+
+This error is somewhat counter intuitive - it fails since file.symlink tries to create a backup of "target" to ~root/trigger.old - which is on another file system, thus returning "Invalid cross-device link" from os.rename().
+
+It is also possibly dangerous, since if the symlink happens on the same file system as root's and the backupname is an actual file/directory in roots home directory, and with force:True, it will be removed.
+
+The docs do not mention that an absolute path is required.
+
+It is possible to argue that defining a simple file name is something one could expect to work - the file name should only go to the same directory as "target".
+
+### Setup
+```
+mkdir -p /tmp/sas/foo/bar/trigger /tmp/sas/bat/mat/trigger
+```
+
+### Steps to Reproduce Issue
+Will _work_ if the "target" is on the same file system as roots home directory file system, but should not.
+
+Will fail if root's home directory is on another file system than "target", but with an unclear error message.
+```
+salt-call state.single file.symlink /tmp/sas/bat/mat/trigger target=/tmp/sas/foo/bar/trigger backupname=trigger.old
+```
+
+### Versions Report
+See that this applies to develop as pr 23.01.2018
+
+```
+Salt Version:
+           Salt: 2016.11.8
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.4.3
+         pygit2: Not Installed
+         Python: 2.7.5 (default, May  3 2017, 07:55:04)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: redhat 7.4 Maipo
+        machine: x86_64
+        release: 3.10.0-693.5.2.el7.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 7.4 Maipo
+```

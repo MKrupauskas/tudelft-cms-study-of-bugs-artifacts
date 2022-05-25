@@ -1,0 +1,135 @@
+I'm getting a UnicodeDecodeError exception on Windows when using `--out json`, when the results contain byte strings with binary data. Linux does not generate the traceback. As a workaround, the yaml outputter works fine on both Linux and Windows.
+
+Here's a simple state to reproduce the issue:
+
+Contents of `test.sls`:
+
+```
+#!py
+
+def run():
+    config = {}
+
+    config['test json output'] = {
+        'test.configurable_test_state' : [
+            { 'name': 'foo' },
+            { 'changes': True },
+            { 'result': True },
+            { 'comment': '\xec' },
+        ],
+    }
+
+    return config
+```
+
+Output of `C:\salt\salt-call.bat --local state.sls test --out json`:
+
+```
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** done ** u'test.sls'
+[INFO    ] Running state [foo] at time 17:19:26.820000
+[INFO    ] Executing state test.configurable_test_state for foo
+[INFO    ] Made the following changes:
+'testing' changed from 'Unchanged' to 'Something pretended to change'
+
+[INFO    ] Completed state [foo] at time 17:19:27.328000
+[INFO    ] Executing command ['attrib', '-R', 'c:\\salt\\var\\cache\\salt\\minion\\sls.p'] in directory 'C:\\Users\\xxxxxx'
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+UnicodeDecodeError: 'utf8' codec can't decode byte 0xec in position 0: unexpected end of data
+Traceback (most recent call last):
+  File "C:\salt\bin\Scripts\salt-call", line 11, in <module>
+    salt_call()
+  File "C:\salt\bin\lib\site-packages\salt\scripts.py", line 331, in salt_call
+    client.run()
+  File "C:\salt\bin\lib\site-packages\salt\cli\call.py", line 53, in run
+    caller.run()
+  File "C:\salt\bin\lib\site-packages\salt\cli\caller.py", line 148, in run
+    self.opts)
+  File "C:\salt\bin\lib\site-packages\salt\output\__init__.py", line 86, in display_output
+    display_data = try_printout(data, out, opts)
+  File "C:\salt\bin\lib\site-packages\salt\output\__init__.py", line 39, in try_printout
+    return get_printout(out, opts)(data).rstrip()
+  File "C:\salt\bin\lib\site-packages\salt\output\json_out.py", line 57, in output
+    return json.dumps(data, default=repr, indent=4)
+  File "C:\salt\bin\lib\json\__init__.py", line 250, in dumps
+    sort_keys=sort_keys, **kw).encode(obj)
+  File "C:\salt\bin\lib\json\encoder.py", line 209, in encode
+    chunks = list(chunks)
+  File "C:\salt\bin\lib\json\encoder.py", line 434, in _iterencode
+    for chunk in _iterencode_dict(o, _current_indent_level):
+  File "C:\salt\bin\lib\json\encoder.py", line 408, in _iterencode_dict
+    for chunk in chunks:
+  File "C:\salt\bin\lib\json\encoder.py", line 408, in _iterencode_dict
+    for chunk in chunks:
+  File "C:\salt\bin\lib\json\encoder.py", line 390, in _iterencode_dict
+    yield _encoder(value)
+UnicodeDecodeError: 'utf8' codec can't decode byte 0xec in position 0: unexpected end of data
+Traceback (most recent call last):
+  File "C:\salt\bin\Scripts\salt-call", line 11, in <module>
+    salt_call()
+  File "C:\salt\bin\lib\site-packages\salt\scripts.py", line 331, in salt_call
+    client.run()
+  File "C:\salt\bin\lib\site-packages\salt\cli\call.py", line 53, in run
+    caller.run()
+  File "C:\salt\bin\lib\site-packages\salt\cli\caller.py", line 148, in run
+    self.opts)
+  File "C:\salt\bin\lib\site-packages\salt\output\__init__.py", line 86, in display_output
+    display_data = try_printout(data, out, opts)
+  File "C:\salt\bin\lib\site-packages\salt\output\__init__.py", line 39, in try_printout
+    return get_printout(out, opts)(data).rstrip()
+  File "C:\salt\bin\lib\site-packages\salt\output\json_out.py", line 57, in output
+    return json.dumps(data, default=repr, indent=4)
+  File "C:\salt\bin\lib\json\__init__.py", line 250, in dumps
+    sort_keys=sort_keys, **kw).encode(obj)
+  File "C:\salt\bin\lib\json\encoder.py", line 209, in encode
+    chunks = list(chunks)
+  File "C:\salt\bin\lib\json\encoder.py", line 434, in _iterencode
+    for chunk in _iterencode_dict(o, _current_indent_level):
+  File "C:\salt\bin\lib\json\encoder.py", line 408, in _iterencode_dict
+    for chunk in chunks:
+  File "C:\salt\bin\lib\json\encoder.py", line 408, in _iterencode_dict
+    for chunk in chunks:
+  File "C:\salt\bin\lib\json\encoder.py", line 390, in _iterencode_dict
+    yield _encoder(value)
+UnicodeDecodeError: 'utf8' codec can't decode byte 0xec in position 0: unexpected end of data
+```
+
+`C:\salt\salt-call.bat --local --versions-report`:
+
+```
+Salt Version:
+           Salt: 2015.8.1
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.10 (default, May 23 2015, 09:44:00) [MSC v.1500 64 bit (AMD64)]
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.2
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: 0.3.7
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist:
+        machine: AMD64
+        release: 8
+         system: 8 6.2.9200  Multiprocessor Free
+```

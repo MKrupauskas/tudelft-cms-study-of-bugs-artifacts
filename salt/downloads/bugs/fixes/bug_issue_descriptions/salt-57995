@@ -1,0 +1,100 @@
+We are using Ansible as automation code, so we need to have Ansible and Salt to coexist on our Uyuni servers and proxies. Unfortunately there is a conflict with the Python libraries which somehow breaks the use of some YAML parsing filters like ```from_yaml```.
+
+As example, here is a simple use of ```from_yaml``` filter, to get a dictionary from a YAML formatted string:
+
+```yaml
+---
+- hosts: localhost
+  gather_facts: false
+  pre_tasks:
+  - set_fact:
+      ldap_result: "gidNumber: 602\ncn: Bruce Wayne\ngivenName: Bruce\nmail: bruce.wayne@mymail.com\nsn: Wayne\nuidNumber: 696"
+  
+  - name: New fact with LDAP user details
+    set_fact:
+      ldap_user: "{{ ldap_result|from_yaml }}"
+  
+  - name: CN of LDAP user
+    debug:
+        msg: "{{ ldap_user.cn }}"
+```
+
+The working result:
+
+```
+# cat /etc/os-release
+NAME="openSUSE Leap"
+VERSION="15.1"
+ID="opensuse-leap"
+ID_LIKE="suse opensuse"
+VERSION_ID="15.1"
+PRETTY_NAME="openSUSE Leap 15.1"
+ANSI_COLOR="0;32"
+CPE_NAME="cpe:/o:opensuse:leap:15.1"
+BUG_REPORT_URL="https://bugs.opensuse.org"
+HOME_URL="https://www.opensuse.org/"
+# ansible --version
+ansible 2.9.6
+  config file = /etc/ansible/ansible.cfg
+  configured module search path = ['/root/.ansible/plugins/modules', '/usr/share/ansible/plugins/modules']
+  ansible python module location = /usr/lib/python3.6/site-packages/ansible
+  executable location = /usr/bin/ansible
+  python version = 3.6.10 (default, Jan 16 2020, 09:12:04) [GCC]
+# ansible-playbook test.yml 
+[WARNING]: provided hosts list is empty, only localhost is available. Note that the implicit localhost does not match 'all'
+
+PLAY [localhost] **************************************************************************************************************************************************************************
+
+TASK [set_fact] ***************************************************************************************************************************************************************************
+ok: [localhost]
+
+TASK [New fact with LDAP user details] ****************************************************************************************************************************************************
+ok: [localhost]
+
+TASK [CN of LDAP user] ********************************************************************************************************************************************************************
+ok: [localhost] => {
+    "msg": "Bruce Wayne"
+}
+
+PLAY RECAP ********************************************************************************************************************************************************************************
+localhost                  : ok=3    changed=0    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0   
+```
+In debug mode, I can see the ```core``` filter module being correctly loaded:
+
+```
+  2884 1590532591.64539: Loading TestModule 'files' from /usr/lib/python3.6/site-packages/ansible/plugins/test/files.py
+  2884 1590532591.64598: Loading TestModule 'mathstuff' from /usr/lib/python3.6/site-packages/ansible/plugins/test/mathstuff.py
+  2884 1590532591.65167: Loading FilterModule 'core' from /usr/lib/python3.6/site-packages/ansible/plugins/filter/core.py (found_in_cache=True, class_only=False)
+```
+However after the installation of ```python3-salt``` (being a direct dependency of ```salt```), the execution of this same playbook fail:
+
+```
+# salt-call --version
+salt-call 2019.2.0 (Fluorine)
+# ansible-playbook test.yml 
+[WARNING]: provided hosts list is empty, only localhost is available. Note that the implicit localhost does not match 'all'
+
+PLAY [localhost] **************************************************************************************************************************************************************************
+
+TASK [set_fact] ***************************************************************************************************************************************************************************
+ok: [localhost]
+
+TASK [New fact with LDAP user details] ****************************************************************************************************************************************************
+fatal: [localhost]: FAILED! => {"msg": "Unexpected templating type error occurred on ({{ ldap_result|from_yaml }}): a string or stream input is required"}
+
+PLAY RECAP ********************************************************************************************************************************************************************************
+localhost                  : ok=1    changed=0    unreachable=0    failed=1    skipped=0    rescued=0    ignored=0   
+```
+
+In debug mode, I can see that Ansible is failing to load the ```core``` filter module:
+
+```
+  2987 1590532711.65247: Loading TestModule 'files' from /usr/lib/python3.6/site-packages/ansible/plugins/test/files.py
+  2987 1590532711.65306: Loading TestModule 'mathstuff' from /usr/lib/python3.6/site-packages/ansible/plugins/test/mathstuff.py
+  2987 1590532711.65634: failing because of a type error, template data is: {{ ldap_result|from_yaml }}
+```
+
+Not sure how to go deeper on this, but if you have an idea I can perhaps help in checking more things.
+
+FYI, I have opened another bug in the Uyuni project (https://github.com/uyuni-project/uyuni/issues/2258), but creating this one too, as not really sure were the issue is coming from.
+

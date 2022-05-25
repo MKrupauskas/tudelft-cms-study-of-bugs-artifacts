@@ -1,0 +1,65 @@
+**Description**
+For mode4 linux bonds, valid hashing algorithms (xmit_hash_policy) encap2+3 and encap3+4 are considered invalid in salt/modules/rh_ip.py
+
+See https://www.kernel.org/doc/Documentation/networking/bonding.txt , encap2+3 and encap3+4 should be valid hashing algorithms
+
+**Setup**
+
+The following sls will be invalid due to invalid hashing-algorithm option, with the Following error
+```----------
+          ID: bond0
+    Function: network.managed
+      Result: False
+     Comment: Invalid option -- Interface: bond0, Option: hashing-algorithm, Expected: [layer2|layer2+3|layer3+4]
+     Started: 16:41:44.573290
+    Duration: 1.29 ms
+     Changes:
+```
+bond0:
+    network.managed:
+      - enabled: True
+      - ipaddr: 192.168.1.1
+      - netmask: 255.255.255.255
+      - proto: none
+      - peerdns: no
+      - type: eth
+      - dns:
+          - 8.8.8.8
+          - 4.4.4.4
+      - name: bond0
+      - type: bond
+      - mode: 802.3ad
+      - hashing-algorithm: encap3+4
+      - lacp_rate: fast
+
+**Steps to Reproduce the behavior**
+See above sls
+
+**Expected behavior**
+Above sls should be valid, and the resulting ifcfg file should have an option like
+BONDING_OPTS="downdelay=200 miimon=100 use_carrier=0 mode=4 xmit_hash_policy=encap3+4 updelay=0 lacp_rate=1 ad_select=0 "
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 2019.2.4
+```
+</details>
+
+**Additional context**
+I believe this can simply be fixed by adding encap2+3 and encap3+4 to the `valid` tuple in `salt/modules/rh_ip.py`
+
+```
+    if "hashing-algorithm" in opts:
+        valid = ("layer2", "layer2+3", "layer3+4")
+        if opts["hashing-algorithm"] in valid:
+            bond.update({"xmit_hash_policy": opts["hashing-algorithm"]})
+        else:
+            _raise_error_iface(iface, "hashing-algorithm", valid)
+```

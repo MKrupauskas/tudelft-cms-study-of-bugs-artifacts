@@ -1,0 +1,112 @@
+We use the salt message bus to do some event driven infrastructure. One example is pushing an event to the master every time we push a changeset to our mercurial server. 
+
+This is in a mercurial hook which is not asynchronous. So it is important to keep the time it takes to execute low. 
+
+Our first approach was to do the following :  
+
+```
+sudo salt-call --local --skip-grains --log-level quiet event.send hg$PWD
+```
+
+This worked rather well. (Looking back, the "--local" was a bit weird but since the message did get to the master with that we took it for "skip getting info from the master, shoot and forget"). Now we've upgraded to 2015.8 and it is way too long (feels like a freeze for the end user). 
+
+```
+# salt-call --local --skip-grains --log-level all event.send hg$PWD
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/smtp.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/smtp.conf
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/state_verbose.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/state_verbose.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: host.logilab.priv
+[TRACE   ] None of the required configuration sections, 'logstash_udp_handler' and 'logstash_zmq_handler', were found the in the configuration. Not loading the Logstash logging handlers module.
+[TRACE   ] Loaded sentry_mod as virtual sentry
+[TRACE   ] The required configuration section, 'fluent_handler', was not found the in the configuration. Not loading the fluent logging handlers module.
+[INFO    ] Processing `log_handlers.sentry`
+[DEBUG   ] No 'sentry_handler' key was found in the configuration
+[INFO    ] The `log_handlers.sentry.setup_handlers()` function returned `False` which means no logging handler was configured on purpose. Continuing...
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded event.send
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', 'host.logilab.priv', 'tcp://0.0.0.0:4506')
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'host.logilab.priv', 'tcp://0.0.0.0:4506', 'aes')
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', 'host.logilab.priv', 'tcp://0.0.0.0:4506')
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'host.logilab.priv', 'tcp://0.0.0.0:4506', 'clear')
+[DEBUG   ] SaltReqTimeoutError, retrying. (1/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (2/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (3/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (4/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (5/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (6/7)
+[DEBUG   ] SaltReqTimeoutError, retrying. (7/7)
+[DEBUG   ] LazyLoaded nested.output
+[TRACE   ] data = {'local': True}
+local:
+    True
+[DEBUG   ] Error deleting fd from IOLoop
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/tornado/ioloop.py", line 715, in remove_handler
+    self._impl.unregister(fd)
+  File "/usr/lib/python2.7/dist-packages/zmq/eventloop/ioloop.py", line 115, in unregister
+    return self._poller.unregister(fd)
+  File "/usr/lib/python2.7/dist-packages/zmq/sugar/poll.py", line 71, in unregister
+    idx = self._map.pop(socket)
+KeyError: None
+[DEBUG   ] Error deleting fd from IOLoop
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/tornado/ioloop.py", line 715, in remove_handler
+    self._impl.unregister(fd)
+  File "/usr/lib/python2.7/dist-packages/zmq/eventloop/ioloop.py", line 115, in unregister
+    return self._poller.unregister(fd)
+  File "/usr/lib/python2.7/dist-packages/zmq/sugar/poll.py", line 71, in unregister
+    idx = self._map.pop(socket)
+KeyError: None
+```
+
+(timing it now, but it's at least a few minutes)
+
+Versions
+
+```
+# salt-call --versions-report
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.2 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 8.2 
+```

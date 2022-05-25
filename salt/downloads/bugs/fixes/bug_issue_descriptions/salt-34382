@@ -1,0 +1,213 @@
+### salt['grains.get']('num_cpus') in Jinja seems to return str instead of int
+
+However the code seems to be right according to commit c4524819e427b5e3abd7151fbce8f450e3ea0030 that ensures the result of num_cpus is an integer.
+### Setup
+
+State:
+
+``` yaml
+{{ nginx_config_dir }}:
+  file.recurse:
+    - source: salt://nginx/files/config
+    - template: jinja
+    - context:
+        ssl_dir: {{ ssl_dir }}
+        subdomain: {{ pillar[grains['deployment']]['subdomain'] }}
+    - user: root
+    - group: {{ pillar['root_group'] }}
+    - file_mode: 0644
+    - require:
+      - file: {{ ssl_dir }}
+```
+
+``` jinja
+{% set num_cpus = salt['grains.get']('num_cpus', '1') %}
+
+user www;
+worker_processes {{ num_cpus - 2 }};
+worker_rlimit_nofile 100000;
+
+# [ debug | info | notice | warn | error | crit ]
+error_log  /var/log/nginx/error.log notice;
+pid        /var/run/nginx.pid;
+
+
+events {
+    worker_connections 10240;
+    use kqueue;
+    kqueue_changes 2048;
+}
+
+
+http {
+    include http_options.conf;
+    include perceptyx_servers.conf;
+    include server_82_default.conf;
+}
+```
+### Error log
+
+``` log
+2016-06-30 00:03:20,692 [salt.fileclient  ][INFO    ][11859] Fetching file from saltenv 'appserver', ** done ** '|nginx/files/config/nginx.conf'
+2016-06-30 00:03:20,692 [salt.utils.jinja ][DEBUG   ][11859] Jinja search path: ['/var/cache/salt/minion/files/appserver']
+2016-06-30 00:03:20,768 [salt.utils.lazy  ][DEBUG   ][11859] LazyLoaded grains.get
+2016-06-30 00:03:20,802 [salt.utils.templates][DEBUG   ][11859] Jinja Error
+2016-06-30 00:03:20,802 [salt.utils.templates][DEBUG   ][11859] Exception: unsupported operand type(s) for -: 'str' and 'int'
+2016-06-30 00:03:20,802 [salt.utils.templates][DEBUG   ][11859] Out: 
+2016-06-30 00:03:20,803 [salt.utils.templates][DEBUG   ][11859] Line: 4
+2016-06-30 00:03:20,803 [salt.utils.templates][DEBUG   ][11859] TmplStr: {% set num_cpus = salt['grains.get']('num_cpus', '1') %}
+
+user www;
+worker_processes {{ num_cpus - 2 }};
+worker_rlimit_nofile 100000;
+
+# [ debug | info | notice | warn | error | crit ]
+error_log  /var/log/nginx/error.log notice;
+pid        /var/run/nginx.pid;
+
+
+events {
+    worker_connections 10240;
+    use kqueue;
+    kqueue_changes 2048;
+}
+
+
+http {
+    include http_options.conf;
+    include perceptyx_servers.conf;
+    include server_82_default.conf;
+}
+Traceback (most recent call last):
+  File "/usr/local/lib/python2.7/site-packages/salt/utils/templates.py", line 366, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/local/lib/python2.7/site-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/local/lib/python2.7/site-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 4, in top-level template code
+TypeError: unsupported operand type(s) for -: 'str' and 'int'
+
+2016-06-30 00:03:20,803 [salt.utils.templates][DEBUG   ][11859] TraceStr: Traceback (most recent call last):
+  File "/usr/local/lib/python2.7/site-packages/salt/utils/templates.py", line 366, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/local/lib/python2.7/site-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/local/lib/python2.7/site-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 4, in top-level template code
+TypeError: unsupported operand type(s) for -: 'str' and 'int'
+
+2016-06-30 00:03:20,803 [salt.utils.templates][ERROR   ][11859] Rendering exception occurred: Jinja error: unsupported operand type(s) for -: 'str' and 'int'
+Traceback (most recent call last):
+  File "/usr/local/lib/python2.7/site-packages/salt/utils/templates.py", line 366, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/local/lib/python2.7/site-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/local/lib/python2.7/site-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 4, in top-level template code
+TypeError: unsupported operand type(s) for -: 'str' and 'int'
+
+; line 4
+
+---
+{% set num_cpus = salt['grains.get']('num_cpus', '1') %}
+
+user www;
+worker_processes {{ num_cpus - 2 }};    <======================
+worker_rlimit_nofile 100000;
+
+# [ debug | info | notice | warn | error | crit ]
+error_log  /var/log/nginx/error.log notice;
+pid        /var/run/nginx.pid;
+[...]
+
+---
+2016-06-30 00:03:20,806 [salt.state       ][ERROR   ][11859] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/local/lib/python2.7/site-packages/salt/state.py", line 1723, in call
+    **cdata['kwargs'])
+  File "/usr/local/lib/python2.7/site-packages/salt/loader.py", line 1650, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/local/lib/python2.7/site-packages/salt/states/file.py", line 2568, in recurse
+    manage_file(dest, src)
+  File "/usr/local/lib/python2.7/site-packages/salt/states/file.py", line 2445, in manage_file
+    **pass_kwargs)
+  File "/usr/local/lib/python2.7/site-packages/salt/states/file.py", line 1635, in managed
+    **kwargs
+  File "/usr/local/lib/python2.7/site-packages/salt/modules/file.py", line 3940, in check_managed_changes
+    **kwargs)
+  File "/usr/local/lib/python2.7/site-packages/salt/modules/file.py", line 3610, in get_managed
+    **kwargs)
+  File "/usr/local/lib/python2.7/site-packages/salt/utils/templates.py", line 178, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/usr/local/lib/python2.7/site-packages/salt/utils/templates.py", line 413, in render_jinja_tmpl
+    trace=tracestr)
+SaltRenderError: Jinja error: unsupported operand type(s) for -: 'str' and 'int'
+Traceback (most recent call last):
+  File "/usr/local/lib/python2.7/site-packages/salt/utils/templates.py", line 366, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/local/lib/python2.7/site-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/local/lib/python2.7/site-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 4, in top-level template code
+TypeError: unsupported operand type(s) for -: 'str' and 'int'
+
+; line 4
+
+---
+{% set num_cpus = salt['grains.get']('num_cpus', '1') %}
+
+user www;
+worker_processes {{ num_cpus - 2 }};    <======================
+worker_rlimit_nofile 100000;
+
+# [ debug | info | notice | warn | error | crit ]
+error_log  /var/log/nginx/error.log notice;
+pid        /var/run/nginx.pid;
+[...]
+
+---
+
+2016-06-30 00:03:20,806 [salt.state       ][INFO    ][11859] Completed state [/usr/local/etc/nginx] at time 00:03:20.806156 duration_in_ms=335.62
+```
+### Versions Report
+
+``` bash
+Salt Version:
+Salt: 2016.3.1
+Dependency Versions:
+cffi: Not Installed
+cherrypy: Not Installed
+dateutil: 2.5.0
+gitdb: Not Installed
+gitpython: Not Installed
+ioflo: Not Installed
+Jinja2: 2.8
+libgit2: Not Installed
+libnacl: Not Installed
+M2Crypto: Not Installed
+Mako: Not Installed
+msgpack-pure: Not Installed
+msgpack-python: 0.4.7
+mysql-python: Not Installed
+pycparser: Not Installed
+pycrypto: 2.6.1
+pygit2: Not Installed
+Python: 2.7.11 (default, Jun 18 2016, 01:18:18)
+python-gnupg: Not Installed
+PyYAML: 3.11
+PyZMQ: 15.2.0
+RAET: Not Installed
+smmap: Not Installed
+timelib: Not Installed
+Tornado: 4.3
+ZMQ: 4.1.4
+System Versions:
+dist:
+machine: amd64
+release: 10.1-RELEASE-p35
+system: FreeBSD
+version: Not Installed
+```

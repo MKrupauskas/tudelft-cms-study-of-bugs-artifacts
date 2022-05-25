@@ -1,0 +1,118 @@
+### Description of Issue/Question
+When I try to set coalesce option `adaptive_rx` using the ethtool state module, it raises an exception.
+
+### Setup
+```
+# cat /srv/salt/test.sls 
+eth0:
+  ethtool.coalesce:
+    - name: eth0
+    - adaptive_rx: on
+```
+
+### Steps to Reproduce Issue
+Applying the above state.
+```
+# salt node state.apply test
+node:
+----------
+          ID: eth0
+    Function: ethtool.coalesce
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1878, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1823, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/ethtool.py", line 140, in coalesce
+                  __salt__['ethtool.set_coalesce'](name, **new)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/ethtool.py", line 232, in set_coalesce
+                  return show_coalesce(devname)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/ethtool.py", line 127, in show_coalesce
+                  for key, value in coalesce.items():
+              TypeError: an integer is required
+     Started: 22:27:01.586512
+    Duration: 2.23 ms
+     Changes:   
+
+Summary for node
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:   2.230 ms
+ERROR: Minions returned with non-zero exit code
+```
+
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.0
+ 
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+      docker-py: 1.10.6
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 8.10 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-0.bpo.5-amd64
+         system: Linux
+        version: debian 8.10 
+```
+
+### Workaround / Patch
+I get it to work by modifying `salt/states/ethtool.py` at line 110 from 
+
+```
+        # Retreive changes to made
+        for key, value in kwargs.items():
+            if key in ['adaptive_rx', 'adaptive_tx']:
+                value = value and "on" or "off"
+            if key in old and value != old[key]:
+                new.update({key: value})
+                diff.append('{0}: {1}'.format(key, value))
+```
+to
+```
+        # Retreive changes to made
+        for key, value in kwargs.items():
+            if key in old and value != old[key]:
+                new.update({key: value})
+                diff.append('{0}: {1}'.format(key, value))
+            if key in ['adaptive_rx', 'adaptive_tx']:
+                value = value and "on" or "off"
+```
+
+However I don't know if there is any side effects..
+It can make a PR if this solution is OK.
+

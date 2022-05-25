@@ -1,0 +1,453 @@
+### Description of Issue/Question
+
+CRL files created through the Salt x509 module store a wrong serial number for the certificates to be revoked, causing revoked certificates to be recognized as valid and removing the effectiveness of the CRL created. 
+
+### Setup
+
+* Master peer configuration:
+
+```yaml
+peer:
+  .*:
+    - x509.sign_remote_certificate
+```
+
+* Minion signing policies:
+
+```yaml
+x509_signing_policies:                                                       
+  # Default policy for server certificates.                                  
+  # Here we allow a certificate to be used both as a server and              
+  # machine-client certificate.                                              
+  server:                                                                    
+    - minions: '*'                                                           
+    - signing_private_key: /srv/pki/intermediateca.key                       
+    - signing_cert: /srv/pki/intermediateca.pem                              
+    - C: DE                                                                  
+    - ST: City                                                            
+    - L: City                                                             
+    - basicConstraints: "critical CA:false"                                  
+    - keyUsage: "critical digitalSignature, keyEncipherment, dataEncipherment, keyAgreement"
+    - extendedKeyUsage: "critical serverAuth"                                
+    - subjectKeyIdentifier: hash                                             
+    - authorityKeyIdentifier: keyid,issuer:always                            
+    - days_valid: 90                                                         
+    - copypath: /srv/pki/issued_certs/                                       
+    - nsCertType: server                                                     
+    - crlDistributionPoints: "URI:http://pki.mysite.org/intermediate.crl"
+```
+
+* State to issue Root CA:
+
+```yaml
+/srv/pki/rootca.key:
+  x509.private_key_managed:
+    - bits: 4096
+    - backup: True
+    - require:
+      - file: /srv/pki    
+    {%- if salt['file.file_exists']('/srv/pki/rootca.key') %}
+    - prereq:
+      - x509: /srv/pki/rootca.pem
+    {%- endif %}
+
+/srv/pki/rootca.pem:
+  x509.certificate_managed:
+    - signing_private_key: /srv/pki/rootca.key
+    - CN: Root CA
+    - C: DE
+    - ST: City
+    - L: City
+    - basicConstraints: "critical CA:true"
+    - keyUsage: "critical digitalSignature, cRLSign, keyCertSign"
+    - subjectKeyIdentifier: hash
+    - authorityKeyIdentifier: keyid,issuer:always
+    - crlDistributionPoints: "URI:http://pki.mysite.org/root.crl"
+    - days_valid: 3650
+    - days_remaining: 30
+    - backup: True
+
+publish updated salt mine with root ca:
+  module.run:
+    - name: mine.send
+    - func: x509.get_pem_entries
+    - kwargs:
+        glob_path: /srv/pki/*.pem
+    - require:
+      - x509: /srv/pki/rootca.pem
+
+```
+
+* State to issue Intermediate CA:
+
+```yaml
+/srv/pki/intermediateca.key:
+  x509.private_key_managed:
+    - bits: 4096
+    - backup: True
+    - new: True
+    {% if salt['file.file_exists']('/srv/pki/intermediateca.key') %}
+    - prereq:
+      - x509: /srv/pki/intermediateca.pem
+    {% endif %}
+
+/srv/pki/intermediateca.pem:
+  x509.certificate_managed:
+    - ca_server: salt1.dev.infra.network
+    - signing_policy: intermediate
+    - public_key: /srv/pki/intermediateca.key
+    - CN: Intermediate CA
+    - days_remaining: 30
+    - backup: True
+    - crlDistributionPoints: "URI:http://pki.mysite.org/intermediate.crl"
+
+publish updated salt mine with intermediate ca:                                          
+  module.run:                                                                    
+    - name: mine.send                                                            
+    - func: x509.get_pem_entries                                                 
+    - kwargs:                                                                    
+        glob_path: /srv/pki/*.pem
+    - require:
+      - x509: /srv/pki/intermediateca.pem  
+
+```
+
+* State to issue test certificate:
+
+```yaml
+/srv/certs/{{ grains['id'] }}.key:
+  x509.private_key_managed:
+    - bits: 4096
+    - backup: True
+    - new: True
+    {% if salt['file.file_exists']('/srv/certs/' + grains['id'] + '.key') %}
+    - prereq:
+      - x509: /srv/certs/{{ grains['id'] }}.pem
+    {% endif %}
+    - require:
+      - pkg: {{ pki.runtime.m2crypto_package }}
+
+/srv/certs/{{ grains['id'] }}.pem:
+  x509.certificate_managed:
+    - ca_server: salt1.dev.infra.network
+    - signing_policy: server
+    - public_key: /srv/certs/{{ grains['id'] }}.key
+    - CN: {{ grains['id'] }}
+    - days_remaining: 30
+    - backup: True
+```
+
+### Steps to Reproduce Issue
+
+1. Create a CRL list revoking the server certificate with the following state:
+
+```
+create root crl:
+  x509.crl_managed:
+    - name: /srv/certs/root.crl
+    - signing_private_key: /srv/pki/rootca.key
+    - signing_cert: /srv/pki/rootca.pem
+    - digest: sha512
+
+create intermediate crl:
+  x509.crl_managed:
+    - name: /srv/certs/intermediate.crl
+    - signing_private_key: /srv/pki/intermediateca.key
+    - signing_cert: /srv/pki/intermediateca.pem
+    - digest: sha512
+    - revoked:
+      - compromised certificate:
+        - certificate: /srv/certs/salt1.dev.infra.network.pem
+        - revocation_date: '2018-05-01 00:00:00'
+        - reason: keyCompromise
+```
+
+2. Execute the relevant state with Salt:
+
+```ShellSession
+root@discordia:~# salt-call state.sls pki.crl
+local:
+----------
+          ID: create root crl
+    Function: x509.crl_managed
+        Name: /srv/certs/root.crl
+      Result: True
+     Comment: File /srv/certs/root.crl updated
+     Started: 23:21:39.556526
+    Duration: 27.696 ms
+     Changes:   
+              ----------
+              New:
+                  ----------
+                  Issuer:
+                      ----------
+                      C:
+                          DE
+                      CN:
+                          Root CA
+                      L:
+                          City
+                      ST:
+                          City
+                  Last Update:
+                      2018-06-05 21:21:39
+                  Next Update:
+                      2018-09-13 21:21:39
+                  Revoked Certificates:
+                  Signature Algorithm:
+                      sha256WithRSAEncryption
+                  Version:
+                      1 (0x0)
+              Old:
+                  /srv/certs/root.crl does not exist.
+----------
+          ID: create intermediate crl
+    Function: x509.crl_managed
+        Name: /srv/certs/intermediate.crl
+      Result: True
+     Comment: File /srv/certs/intermediate.crl updated
+     Started: 23:21:39.584354
+    Duration: 21.963 ms
+     Changes:   
+              ----------
+              New:
+                  ----------
+                  Issuer:
+                      ----------
+                      C:
+                          DE
+                      CN:
+                          Intermediate CA
+                      L:
+                          City
+                      ST:
+                          City
+                  Last Update:
+                      2018-06-05 21:21:39
+                  Next Update:
+                      2018-09-13 21:21:39
+                  Revoked Certificates:
+                      |_
+                        ----------
+                        06327159111743725016:
+                            ----------
+                            CRL entry extensions:
+                                ----------
+                                X509v3 CRL Reason Code:
+                                    Key Compromise
+                            Revocation Date:
+                                2018-05-01 00:00:00
+                  Signature Algorithm:
+                      sha256WithRSAEncryption
+                  Version:
+                      1 (0x0)
+              Old:
+                  /srv/certs/intermediate.crl does not exist.
+
+Summary for local
+------------
+Succeeded: 2 (changed=2)
+Failed:    0
+------------
+Total states run:     2
+Total run time:  49.659 ms
+
+```
+
+3. Check whether the certificate is valid against the CRL and receive the wrong result.
+
+```ShellSession
+root@discordia:~# openssl verify -CAfile /srv/certs/bundleca.pem -CRLfile /srv/certs/intermediate.crl -crl_check /srv/certs/salt1.dev.infra.network.pem 
+/srv/certs/salt1.dev.infra.network.pem: OK
+
+```
+
+4. Compare the serial number of the invalid certificate against the serial number in the CRL list generated by Salt 
+and verify that this is the wrong serial number:
+
+```ShellSession
+root@discordia:~# openssl x509 -serial -in /srv/certs/salt1.dev.infra.network.pem -noout
+serial=57CE95B07CDC5DD8
+```
+
+```ShellSession
+root@discordia:~# openssl crl -in /srv/certs/intermediate.crl -text -noout | grep Serial
+    Serial Number: 06327159111743725016
+```
+
+5. Use a python program to generate the CRL list in memory, validate the input certificate against it, and save the list to disk:
+
+```Python
+#!/usr/bin/env python
+
+from OpenSSL.crypto import (
+    X509Store,
+    X509StoreFlags,
+    X509StoreContext,
+)
+from OpenSSL.crypto import FILETYPE_PEM
+from OpenSSL.crypto import CRL, Revoked, dump_crl
+from OpenSSL.crypto import load_certificate, load_privatekey
+
+
+def load_file(file):
+    with open(file, 'r') as f:
+        return f.read()
+
+
+def save_crl(crl, path):
+    file = '/tmp/%s' % path
+    with open(file, 'w') as f:
+        f.write(dump_crl(FILETYPE_PEM, crl))
+    print('CRL saved as %s' % file)
+
+
+def validate_cert(store, cert):
+    store_ctx = X509StoreContext(store, cert)
+    subject = cert.get_subject()
+    try:
+        store_ctx.verify_certificate()
+        print('certificate %s is valid against CRL' % subject)
+    except Exception as e:
+        print('certificate %s is NOT valid against CRL' % subject)
+        print(e)
+
+
+def make_test_crl(issuer_cert, issuer_key, certs=()):
+    """
+    Create a CRL.
+    :param list[X509] certs: A list of certificates to revoke.
+    :rtype: CRL
+    """
+    crl = CRL()
+    for cert in certs:
+        revoked = Revoked()
+        serial = hex(cert.get_serial_number())[2:].encode('utf-8')
+        revoked.set_serial(serial)
+        revoked.set_reason(b'cessationOfOperation')
+        revoked.set_rev_date(b'20180601000000Z')
+        crl.add_revoked(revoked)
+    crl.set_version(1)
+    crl.set_lastUpdate(b'20180601000000Z')
+    crl.set_nextUpdate(b'20190601000000Z')
+    crl.sign(issuer_cert, issuer_key, digest=b'sha512')
+    return crl
+
+
+# Constants
+ROOT_CA_CERT = '/srv/pki/rootca.pem'
+ROOT_CA_KEY = '/srv/pki/rootca.key'
+INT_CA_CERT = '/srv/pki/intermediateca.pem'
+INT_CA_KEY = '/srv/pki/intermediateca.key'
+CERT1_CERT = '/srv/certs/salt1.dev.infra.network.pem'
+CERT1_KEY = '/srv/certs/salt1.dev.infra.network.key'
+
+# Load certificates from disk
+root_ca_pem = load_file(ROOT_CA_CERT)
+root_ca_key = load_file(ROOT_CA_KEY)
+int_ca_cert_pem = load_file(INT_CA_CERT)
+int_ca_cert_key = load_file(INT_CA_KEY)
+cert1_pem = load_file(CERT1_CERT)
+cert1_key = load_file(CERT1_KEY)
+
+# Loading certificates from data
+root_ca_cert = load_certificate(FILETYPE_PEM, root_ca_pem)
+root_ca_key = load_privatekey(FILETYPE_PEM, root_ca_key)
+int_ca_cert = load_certificate(FILETYPE_PEM, int_ca_cert_pem)
+int_ca_key = load_privatekey(FILETYPE_PEM, int_ca_cert_key)
+cert1 = load_certificate(FILETYPE_PEM, cert1_pem)
+cert1_key = load_privatekey(FILETYPE_PEM, cert1_key)
+
+# Creating certificate store in memory
+store = X509Store()
+store.add_cert(root_ca_cert)
+store.add_cert(int_ca_cert)
+
+# Creating CRL in memory revoking the first certificate, which was
+# issued by the intermediate CA
+crl = make_test_crl(int_ca_cert, int_ca_key, certs=[cert1])
+store.add_crl(crl)
+store.set_flags(X509StoreFlags.CRL_CHECK)
+
+# Exporting CRL to disk for later analysis
+save_crl(crl, 'intermediate.crl')
+
+print('Testing revoked certificate for validation')
+validate_cert(store, cert1)
+```
+
+Executing the python script:
+
+```ShellSession
+root@discordia:~/src/crl-verify$ ./test-crl.py 
+CRL saved as /tmp/intermediate.crl
+Testing revoked certificate for validation
+certificate <X509Name object '/C=DE/CN=salt1.dev.infra.network/L=City/ST=City'> is NOT valid against CRL
+[23, 0, 'certificate revoked']
+
+```
+
+6. Validate the revoked certificate in the command line against the new CRL created by the sample program:
+
+```ShellSession
+root@discordia:~# openssl verify -CAfile /srv/certs/bundleca.pem -CRLfile /tmp/intermediate.crl -crl_check /srv/certs/salt1.dev.infra.network.pem 
+C = DE, CN = salt1.dev.infra.network, L = City, ST = City
+error 23 at 0 depth lookup: certificate revoked
+error /srv/certs/salt1.dev.infra.network.pem: verification failed
+```
+
+7. Check that the serial number in the CRL issued by the Python program actually matches the certificate serial number, unlike what happens inside the CRL issued with the Salt module/state:
+
+```ShellSession
+root@discordia:~# openssl x509 -serial -in /srv/certs/salt1.dev.infra.network.pem -noout
+serial=57CE95B07CDC5DD8
+root@discordia:~# openssl crl -in /tmp/intermediate.crl -text -noout | grep Serial
+    Serial Number: 57CE95B07CDC5DD8
+
+```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2017.7.5
+ 
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 3.5.0
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: 2.0.0
+      gitpython: 2.1.1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: 0.24.5
+        libnacl: Not Installed
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: 1.3.7
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.24.2
+         Python: 2.7.13 (default, Nov 24 2017, 17:33:09)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.1
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.4 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-6-amd64
+         system: Linux
+        version: debian 9.4 
+```
+

@@ -1,0 +1,84 @@
+### Description of Issue/Question
+The module function `boto_vpc.create_subnet()` tries to use the `add_tags()` method for the `boto.vpc.subnet.Subnet` object when it attempts to add user-defined tags to a subnet. 
+
+```python
+def _maybe_set_tags(tags, obj):
+    if tags:
+        obj.add_tags(tags)
+
+        log.debug('The following tags: {0} were added to {1}'.format(', '.join(tags), obj))
+```
+
+Unfortunately, there is no such method `add_tags()`. 
+```
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 1745, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1702, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/states/boto_vpc.py", line 604, in subnet_present
+    profile=profile)
+  File "/usr/lib/python2.7/site-packages/salt/modules/boto_vpc.py", line 869, in create_subnet
+    keyid=keyid, profile=profile)
+  File "/usr/lib/python2.7/site-packages/salt/modules/boto_vpc.py", line 268, in _create_resource
+    _maybe_set_tags(tags, r)
+  File "/usr/lib/python2.7/site-packages/salt/modules/boto_vpc.py", line 2602, in _maybe_set_tags
+    obj.add_tags(tags)
+AttributeError: 'Subnet' object has no attribute 'add_tags'
+```
+
+This causes issues as the subnet creation is successful, but future runs (we use the `boto_vpc` states) think the subnet doesn't exist because the user-defined tags never made it into the subnet, so the subsequent filtered query doesn't return the subnet. This situation causes the function to constantly attempt (and fail) to create the subnet.
+
+There is, however, an `add_tag()` method.
+
+I'm working on a PR right now to address this issue.
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+### Steps to Reproduce Issue
+1) Use `boto_vpc.create_subnet()` to create a subnet with at least one user-defined tag. The state/command will fail with the above stacktrace.
+
+2) Re-run the command/state. The function will attempt to create a subnet that already exists.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug 18 2016, 15:58:25)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.28.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```
+

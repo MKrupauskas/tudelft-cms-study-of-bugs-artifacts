@@ -1,0 +1,35 @@
+I have dig into the code and here is the root cause:
+
+it is in salt/utils/event.py SaltEvent.get_event()
+if mtag is not startswith(tag), it simply return None.
+
+Actually, the socket will recv all the events including other jobs.
+So chances are that it do not get its own event in the concurrent env and return None.
+And the upper function seems to treat the get_event return None only when it is timeout.
+So the salt cmd return without any result while it has got it.
+
+So, I suggest to retry recv until it gets its own data or time is out in get_event.
+like:
+
+```
+        start = int(time.time())
+        while self.sub in socks and socks[self.sub] == zmq.POLLIN:
+          ....
+            if not mtag.startswith(tag):  # tag not match
+                 if int(time.time()) < start + wait:
+                     continue
+                return None
+```
+
+my env:
+
+```
+root@ubuntu:/home/ludong# python --version
+Python 2.7.3
+root@ubuntu:/home/ludong# dpkg -l |grep mq
+ii  python-zmq                           13.0.0-2precise            Python bindings for 0MQ.
+root@ubuntu:/home/ludong# cat /etc/is
+iscsi/     issue      issue.net
+root@ubuntu:/home/ludong# cat /etc/issue
+Ubuntu 12.04 LTS \n \l
+```

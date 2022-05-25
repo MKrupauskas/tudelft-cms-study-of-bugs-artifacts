@@ -1,0 +1,135 @@
+**Description**
+I started going down a rabbit hole with this one. And thought I would put this ticket in with my findings so far.
+
+Currently beacons.save is broken. as it relies on `beacons.list include_pillar=false` to return the beacons that are in memory and not in the pillar.
+
+However, running beacons.list with include_pillar=False is returning just an empty beacons dict. without the in-memory beacons.
+
+This looks like it is because event.fire is returning a blank event when include_pillar is set to False. I have not been able to find what manage_beacons is, however.
+
+This bug also is stopping beacons.present from being able to persist beacons.
+
+**Setup**
+standard minion using 3001, and try to save a beacon, or list the beacons with include_pillar=false. Or use the following state.
+
+```
+status_beacon:
+  beacon.present:
+    - name: status
+    - save: True
+    - interval: 600
+```
+
+
+**Steps to Reproduce the behavior**
+Not a lot of more info in the debug log so I am skipping it here. 
+
+<details><summary>A set of commands showing the issue</summary>
+
+```
+[root@salt00 log]# salt-call beacons.delete status
+local:
+    ----------
+    comment:
+        Deleted beacon: status.
+    result:
+        True
+[root@salt00 log]# salt-call beacons.delete beacons
+local:
+    ----------
+    comment:
+        Deleted beacon: beacons.
+    result:
+        True
+[root@salt00 log]# salt-call beacons.list
+local:
+    ----------
+    beacons:
+        ----------
+[root@salt00 log]# salt-call beacons.add status '[{'interval': 600}]'
+local:
+    ----------
+    comment:
+        Added beacon: status.
+    result:
+        True
+[root@salt00 log]# salt-call beacons.list
+local:
+    beacons:
+      status:
+      - interval: 600
+[root@salt00 log]# salt-call beacons.list include_pillar=False
+local:
+    ----------
+    beacons:
+        ----------
+[root@salt00 log]# salt-call beacons.list
+local:
+    beacons:
+      status:
+      - interval: 600
+[root@salt00 log]# salt-call beacons.save
+local:
+    ----------
+    comment:
+        Beacons saved to /etc/salt/minion.d/beacons.conf.
+    result:
+        True
+[root@salt00 log]# cat /etc/salt/minion.d/beacons.conf
+beacons:
+  beacons: {}
+[root@salt00 log]#
+```
+</details>
+
+
+**Expected behavior**
+beacons.list works with include_pillar=False and beacons.save works, and beacons.present is able to save beacons so that they can persist. 
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+[root@salt00 log]# salt-call --versions-report
+Salt Version:
+           Salt: 3001
+
+Dependency Versions:
+           cffi: 1.14.0
+       cherrypy: 5.6.0
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.1
+        libgit2: 0.26.6
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.20
+       pycrypto: Not Installed
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 3.6.8 (default, Apr  2 2020, 13:34:55)
+   python-gnupg: 2.3.1
+         PyYAML: 3.13
+          PyZMQ: 17.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1127.13.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7 Core
+```
+</details>
+
+**Additional context**
+This is a regression but I haven't been able to find what regressed. I used the above beacons.present states since 2017.7 without issue. 

@@ -1,0 +1,141 @@
+This reproduces on develop branch and with every salt release that can be installed on my target system (Ubuntu 14.04 LTS). Most functions in the cp module, e.g. `cp.get_file_str` or `cp.cache_file` do not work.
+
+Therefore, states that use the cp module, for example ssh_auth.present, fail, sometimes in interesting ways.
+
+**Note that most other stuff works** - e.g. file.managed has no problems getting files to the minion, and obviously, all the stuff needed for salt to work on the minion somehow gets there.
+
+Steps to reproduce:
+
+```
+(salt)erlacher@atrbg13vm2:/srv/saltstack$ salt-ssh -i --user erlacher '*' state.sls rbgusers test=True
+...
+          ID: sshkey-present-atrbg13
+    Function: ssh_auth.present
+      Result: True
+     Comment: All host keys in file salt://rbgusers/sshkeys/erlacher@atrbg13.pub are already present
+     Started: 13:42:37.092354
+    Duration: 19.472 ms
+     Changes:   
+...
+(salt)erlacher@atrbg13vm2:/srv/saltstack$ salt-ssh -i --user erlacher '*' state.sls rbgusers -l trace
+...
+----------
+          ID: sshkey-present-atrbg13
+    Function: ssh_auth.present
+      Result: False
+     Comment: Failed to add the ssh key. Source file salt://rbgusers/sshkeys/erlacher@atrbg13.pub is missing
+     Started: 13:43:52.135412
+    Duration: 3.801 ms
+     Changes:   
+----------
+...
+```
+
+The file is of course not missing, as the test run saw...
+
+Here's the state being executed:
+
+```
+{u'sshkey-present-atrbg13': {'ssh_auth.present': [{'user': 'erlacher'},
+                                                  {'source': u'salt://rbgusers/sshkeys/erlacher@atrbg13.pub'},
+                                                  {'require': [{'user': 'erlacher'}]}]},
+...
+ 'user-present-erlacher': {'user.present': [{'name': 'erlacher'},
+                                            {'fullname': 'Lukas Erlacher'},
+                                            {'uid': 31524},
+                                            {'gid': 20909},
+                                            {'groups': ['root', 'adm']},
+                                            {'password': '$6$----'}]}}
+```
+
+The state file is attached: [init.sls.txt](https://github.com/saltstack/salt/files/132466/init.sls.txt)
+
+Directly calling the cp module also fails in interesting ways:
+
+```
+(salt)erlacher@atrbg13vm2:/srv/saltstack$ salt-ssh -i --user erlacher '*' cp.get_file_str 'salt://test'
+thost:
+    ----------
+    retcode:
+        1
+    stderr:
+        Passed invalid arguments: coercing to Unicode: need string or buffer, bool found.
+
+        Usage:
+    stdout:
+        Return the contents of a file from a URL
+
+            CLI Example:
+
+            .. code-block:: bash
+
+                salt '*' cp.get_file_str salt://my/file
+```
+
+This is why it found a bool:
+
+```
+(salt)erlacher@atrbg13vm2:/srv/saltstack$ salt-ssh -i --user erlacher '*' cp.cache_file 'salt://test'
+thost:
+    False
+```
+
+The minion log doesn't give any indication _why_ the copying failed, just that it did:
+
+```
+2016-02-16 13:49:35,086 [salt.fileclient  ][DEBUG   ][2219] Could not find file from saltenv 'base', 'salt://test'
+2016-02-16 13:49:35,086 [salt.loaded.int.module.cp][ERROR   ][2219] Unable to cache file 'salt://test' from saltenv 'base'.
+```
+
+The file is most certainly there:
+
+```
+(salt)erlacher@atrbg13vm2:/srv/saltstack$ ls -al states/test 
+-rw-rw-r-- 1 erlacher tumuser 4 Feb 16 13:34 states/test
+```
+
+I'm also attaching the Saltfile and master conf:
+[Saltfile.txt](https://github.com/saltstack/salt/files/132475/Saltfile.txt)
+[master.txt](https://github.com/saltstack/salt/files/132478/master.txt)
+
+Version info:
+
+```
+(salt)erlacher@atrbg13vm2:/srv/saltstack$ salt-ssh --versions-report                                                                                                                                                                                                           [3/9243]
+Salt Version:
+           Salt: 2016.3.0-67-g15f5ae7
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.2
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-77-generic
+         system: Ubuntu 14.04 trusty
+```

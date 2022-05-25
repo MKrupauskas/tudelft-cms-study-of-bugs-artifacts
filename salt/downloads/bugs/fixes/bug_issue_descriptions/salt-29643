@@ -1,0 +1,35 @@
+I'm using a command like this below to execute `state.highstate` on one machine at a time, with the intention that it stop on the first failure.  But, it's not stopping even though there is a failure.
+
+```
+sudo salt -b 1 --failhard -G 'roles:foo' state.highstate
+```
+
+The cause of the failure is a `http_test.ping` custom module function I wrote that checks that an HTTP call is succeeding.  I gave it a bogus path to force it to fail.  I'm testing this against two minions.  Looking at the minion logs I can see the calls are failing.  But, the output I get from the salt command above is essentially:
+
+```
+Executing run on ['some-machine-A']
+
+retcode:
+    0
+
+Executing run on ['some-machine-B']
+
+some-machine-B:    <-- highlighted red
+
+(... lots of SLS state output ...)
+
+----------
+ID: Ping the web app    <-- all highlighted red
+    Function: http_test.ping
+      Result: False
+     Comment: Call to http://localhost:80/pingping failed. Error: HTTP 404: NOT FOUND. HTTP status: 404
+     Started: 22:52:49.686395
+    Duration: 57.519 ms
+     Changes: 
+
+(... more SLS state output ...)
+```
+
+So, you can see that the `Ping the web app` call is failing and has `Result: False`.  This happens for both machines.  But, the `retcode` for both machines is apparently 0.  I ran the same command again with `--out=yaml` appended, which showed me that `retcode` is 0 for both machines.
+
+Maybe this isn't a problem with the batch mode but instead a problem with how `retcode` is determined.  Am I missing something?  Shouldn't the `retcode` be non-zero since the state has `Result: False`?

@@ -1,0 +1,120 @@
+### Description of Issue/Question
+
+I'm unable to use the `mysql_grants.absent` module to revoke grants. When doing so, I see errors like this:
+
+```
+          ID: remove-grants
+    Function: mysql_grants.absent
+        Name: my_user
+      Result: False
+     Comment: Unable to revoke grant all privileges on `my_database`.* for my_user@localhost (MySQL Error 1147: There is no such grant defined for user 'my_user' on host 'localhost' on table '*')
+     Started: 17:05:20.916457
+    Duration: 22.995 ms
+     Changes: 
+```
+
+After a bit of digging, I think the issue is caused by a catch-22 from escaping. There are two ways to format the `database` argument: plain or heavily escaped.
+
+The "plain" input (e.g. `my_database.*`) will lead `grants.exist` to believe the grant was not configured in the first place. This is caused by the fact that the output of `SHOW GRANTS` always has backticks on the database names and table names whereas the input does not (and `mysql.grant_exists` does not add those backticks). The debug log shows this:
+
+```
+[DEBUG   ] grants mismatch '{'host': u'localhost', 'database': u'`my_database`.*', 'user': u'my_user', 'grant': [u'ALL PRIVILEGES']}'<>'{'host': u'localhost', 'database': u'my_database.*', 'user': u'my_user', 'grant': [u'ALL PRIVILEGES']}'
+```
+
+When heavily escaping the input (e.g. `"`my_database`.*"`), `mysql.grant_exists` can verify the grant exists at the moment. However, `mysql.grant_revoke` does call `quote_identifier` on the database and table names, which double escapes them. This results in a query like this:
+
+```
+[DEBUG   ] Doing query: REVOKE all privileges ON ```my_database```.`*` FROM %(user)s@%(host)s; args: {u'host': u'localhost', u'user': u'my_user'} 
+```
+
+As there is no table literally named `*`, this query will fail with the error:
+
+```
+MySQL Error 1147: There is no such grant defined for user 'my_user' on host 'localhost' on table '*'
+```
+
+### Setup
+```
+requires-packages:
+  pkg.installed:
+    - pkgs:
+      - python-mysqldb
+      - mysql-server
+      - mysql-client
+    - reload_modules: True
+
+mysql:
+  service.running:
+    - enable: True
+
+my-database:
+  mysql_database.present:
+    - name: my_database
+  mysql_user.present:
+    - name: my_user
+    - password: hunter2
+
+add-grants:
+  mysql_grants.present:
+    - escape: False
+    - name: my_user
+    - grant: all privileges
+    - database: "`my_database`.*"
+    - user: my_user
+
+remove-grants:
+  mysql_grants.absent:
+    - escape: False
+    - name: my_user
+    - grant: all privileges
+    - database: "`my_database`.*"
+    - user: my_user
+```
+### Steps to Reproduce Issue
+Simply run the SLS above on a clean Debian (or Ubuntu?) system. The `remove-grants` state should fail every time.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.0
+ 
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+      docker-py: Not Installed
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 8.10 
+         locale: UTF-8
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.10 
+```
+
+I've also tested this issue in 2017.7 and 2016.11, all suffering from the same issue.

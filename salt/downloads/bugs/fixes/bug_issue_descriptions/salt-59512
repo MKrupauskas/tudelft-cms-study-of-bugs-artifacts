@@ -1,0 +1,112 @@
+### Description of Issue
+
+I just upgraded my Saltstack master OS from Ubuntu 18.04 to Ubuntu 20.04, along with that upgrade came an upgrade of python from some 3.6 version to 3.8.5.
+Salt itself seems to work fine. However not all parts of the saltstack code base seem to support newer "features" of the python language.
+I have some scripts using salt's modules, more precise I do something like this:
+
+``` python
+...
+client = salt.client.get_local_client()
+...
+job = client.run_job(target, command, arg, tgt_type=tgt_type,
+        timeout=timeout, kwarg=kwarg)
+...
+for data in client.get_cli_returns(job["jid"], job["minions"], timeout=timeout):
+    ...
+```
+
+It works on Ubuntu 18.04 (python 3.6) but breaks on Ubuntu 20.04 (python 3.8) with the following error:
+
+```
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/client/__init__.py", line 1046, in get_cli_returns
+    raise StopIteration()
+StopIteration
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/local/bin/run_tests", line 141, in <module>
+    main(args)
+  File "/usr/local/bin/run_tests", line 120, in main
+    salt_master_run(args.target, "state.apply", ["unittests"], 
+  File "/usr/lib/python3/dist-packages/salt_helper.py", line 156, in salt_master_run
+    for data in client.get_cli_returns(job["jid"], job["minions"],
+RuntimeError: generator raised StopIteration
+```
+
+I found https://stackoverflow.com/a/51701040 on a quick search for `RuntimeError: generator raised StopIteration` and can confirm, that the following adjustment to /usr/lib/python3/dist-packages/salt/client/__init__.py fixes the issue:
+
+``` diff
+--- /usr/lib/python3/dist-packages/salt/client/__init__.py	2021-02-16 15:00:06.604630800 +0100
++++ /root/myclient.py	2021-02-16 15:36:34.677016679 +0100
+@@ -1027,7 +1027,7 @@
+ 
+         # if you have all the returns, stop
+         if len(found.intersection(minions)) >= len(minions):
+-            raise StopIteration()
++            return
+ 
+         # otherwise, get them from the event system
+         for event in event_iter:
+@@ -1036,9 +1036,9 @@
+                 yield event
+             if len(found.intersection(minions)) >= len(minions):
+                 self._clean_up_subscriptions(jid)
+-                raise StopIteration()
++                return
+ 
+-    # TODO: tests!!
++    # TODO: tests!! -> jeah you should have done this ;)
+     def get_returns_no_block(self, tag, match_type=None):
+         """
+         Raw function to just return events of jid excluding timeout logic
+```
+
+Of course I guess this would break the code for older python versions, so I don't think this can be the final fix.
+
+### Steps to Reproduce Issue
+
+Use `client.get_cli_returns` on python >= 3.7 (? reguarding to the stackoverflow topic I found, definitely on 3.8.5).
+
+### Versions Report
+
+```
+Salt Version:
+          Salt: 3002.2
+ 
+Dependency Versions:
+          cffi: 1.14.0
+      cherrypy: unknown
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.6
+     gitpython: 3.0.7
+        Jinja2: 2.10.1
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.19
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: Not Installed
+        Python: 3.8.5 (default, Jul 28 2020, 12:59:40)
+  python-gnupg: 0.4.5
+        PyYAML: 5.3.1
+         PyZMQ: 18.1.1
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.2
+ 
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 4.15.0-126-generic
+        system: Linux
+       version: Ubuntu 20.04 focal
+```

@@ -1,0 +1,72 @@
+On Debian 8, when I run `service salt-master stop`, it hangs for a long while, and even when it's done, there's a defunct process still running. Through strace/lsof I figured out that it's trying to talk to an anonymous inode, which it keeps polling every 5 seconds.
+
+```
+vagrant@orch:~$ ps aux | grep salt-master
+root     11740  0.0  5.3 271016 40808 ?        Sl   12:57   0:00 /usr/bin/python /usr/bin/salt-master
+vagrant  12479  0.0  0.2  12728  2268 pts/2    S+   12:59   0:00 grep salt-master
+
+vagrant@orch:~$ sudo strace -p 11740
+Process 11740 attached
+restart_syscall(<... resuming interrupted call ...>) = 0
+poll([{fd=12, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=12, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=12, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=12, events=POLLIN}], 1, 5000) = 0 (Timeout)
+poll([{fd=12, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=12, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=12, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=12, events=POLLIN}], 1, 5000^CProcess 11740 detached
+ <detached ...>
+
+vagrant@orch:~$ sudo lsof -p 11740 | grep 12u
+salt-mast 11740 root   12u  0000                0,9        0    5589 anon_inode
+```
+
+I have an event returner on the master, defined in the master config as such:
+
+```
+event_return: slack_failure_only
+```
+
+Removing this line from my configuration fixes the problem.
+
+What the event returner does, doesn't seem to matter, I tried making it an empty function, the end result is still the same.
+
+```
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: 3.2.3
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: 0.23.4
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: 0.23.1
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.3 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 8.3
+```

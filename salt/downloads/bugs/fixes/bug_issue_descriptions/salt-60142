@@ -1,0 +1,129 @@
+**Description**
+It appears that the win_lgpo state module gets confused if a security setting value contains a comma. For instance, property "Audit Logon Events" fully on should be "Success, Failure". However, under some state files, trying to set that value will result in it being set to "Success" only. 
+
+The win_lgpo command line module works fine; it seems to be an issue with using the *state* module. Also, if I create a state with only 1 security setting, it seems to work. I see the problem when the setting is part of a bigger list, so I am guessing it is a parsing problem on bulk results (my debugging seemed to show that Salt fetches blocks of GPO entries).
+
+**Setup**
+This policy file contains a small set (commented out) which does work, and a big set which produces the bad results.
+```
+# update the group policy right after changing settings
+group-policy-update:
+  cmd.wait:
+    - name: 'gpupdate /force'
+
+# good_policy:
+#   lgpo.set:
+#     - computer_policy:
+#         Audit Logon Events: "Success, Failure"
+#     - watch_in:
+#       - cmd: group-policy-update
+
+bad_policy:
+  lgpo.set:
+    - computer_policy:
+        Audit Credential Validation: Success and Failure
+        Audit Account Management: 'Success, Failure'
+        Audit Other Account Management Events: Success
+        Audit User Account Management: Success and Failure
+        Audit Security Group Management: Success and Failure
+        Audit Account Lockout: Success
+        Audit Logoff: Success
+        Audit Logon Events: 'Success, Failure'
+        Audit Logon: Success and Failure
+        Audit Special Logon: Success
+        Audit Audit Policy Change: Success and Failure
+        Audit Sensitive Privilege Use: Success and Failure
+        Audit Authentication Policy Change: Success and Failure
+    - watch_in:
+      - cmd: group-policy-update
+
+```
+
+**Steps to Reproduce the behavior**
+Output from running "bad policy"
+```
+MyMachine:
+----------
+          ID: bad_policy
+    Function: lgpo.set
+      Result: True
+     Comment: The following policies changed:
+              Audit Logon Events
+     Started: 14:43:37.369994
+    Duration: 3797.638 ms
+     Changes:   
+              ----------
+              new:
+                  ----------
+                  Computer Configuration:
+                      ----------
+                      Audit Account Management:
+                          Success
+                      Audit Logon Events:
+                          Success
+              old:
+                  ----------
+                  Computer Configuration:
+                      ----------
+                      Audit Account Management:
+                          Success, Failure
+                      Audit Logon Events:
+                          Failure
+
+```
+
+**Expected behavior**
+In the above case, it should have set both policies to "Success, Failure", but they ended up as just "Success".
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+MyMachine:
+    Salt Version:
+              Salt: 3002.6
+     
+    Dependency Versions:
+              cffi: 1.12.2
+          cherrypy: 17.4.1
+          dateutil: 2.8.0
+         docker-py: Not Installed
+             gitdb: 2.0.5
+         gitpython: 2.1.10
+            Jinja2: 2.10.1
+           libgit2: Not Installed
+          M2Crypto: Not Installed
+              Mako: 1.0.7
+           msgpack: 1.0.0
+      msgpack-pure: Not Installed
+      mysql-python: Not Installed
+         pycparser: 2.19
+          pycrypto: Not Installed
+      pycryptodome: 3.9.8
+            pygit2: Not Installed
+            Python: 3.7.4 (tags/v3.7.4:e09359112e, Jul  8 2019, 20:34:20) [MSC v.1916 64 bit (AMD64)]
+      python-gnupg: 0.4.4
+            PyYAML: 5.3.1
+             PyZMQ: 18.0.1
+             smmap: 2.0.5
+           timelib: 0.2.4
+           Tornado: 4.5.3
+               ZMQ: 4.3.1
+     
+    System Versions:
+              dist:   
+            locale: cp1252
+           machine: AMD64
+           release: 10
+            system: Windows
+           version: 10 10.0.19041 SP0
+
+```
+</details>
+
+**Additional context**
+Happy to run any tests.

@@ -1,0 +1,66 @@
+I am deploying a Django project that uses nested requirements.txt.  That is, the top-level requirements.txt in the project's repo includes another list. 
+
+```
+-r requirements/production.txt
+```
+
+(This pattern is used by the increasingly-popular https://github.com/twoscoops/django-twoscoops-project)
+
+This won't work when the `runas` parameter is given. With salt v0.14.x it tries to change the permissions of the requirements.txt file itself under an assumption that there will be file permission errors if not.  With v0.15.0 it makes a temporary copy of the requirements and changes permission on that, but that fails because it doesn't copy the other files such as `requirements/production.txt`.  
+
+I'd suggest adding an option to `pip.install` that adds an option, such as `no_chown=False`, and changing the condition from `if runas:` to `if runas and not no_chown` at https://github.com/saltstack/salt/blob/896ac8df97d551394deb18fe8eaf505d9b3211b6/salt/modules/pip.py#L218
+
+Other areas that'll need updating are `salt.modules.virtualenv.create`,  `salt.states.pip.installed`, `salt.states.virtualenv.managed`.
+
+The error reported by salt v0.15.0:
+
+```
+    State: - virtualenv
+    Name:      /home/mysite/venv
+    Function:  managed
+        Result:    False
+        Comment:   virtualenv exists
+Could not open requirements file: [Errno 2] No such file or directory: '/tmp/requirements/production.txt'
+Storing complete log in /home/mysite/.pip/pip.log
+```
+
+Relevant states to trigger the bug:
+
+```
+project-packages:
+    pkg.installed:
+        - names:
+            - git
+            - python-virtualenv
+            - python-dev
+
+mysite:
+    user:
+        - present
+        - shell: /bin/bash
+
+/home/mysite/venv:
+    virtualenv.managed:
+        - requirements: /mysite-project/requirements.txt
+        - runas: mysite
+        - require:
+            - pkg: project-packages
+```
+
+More info:
+
+`/mysite-project` is a shared dir mapped by Vagrant.
+
+```
+$ salt --versions-report
+           Salt: 0.15.0
+         Python: 2.7.3 (default, Aug  1 2012, 05:14:39)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```

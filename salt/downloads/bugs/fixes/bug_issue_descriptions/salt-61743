@@ -1,0 +1,101 @@
+**Description**
+When using the `file.replace` state, the file's modification date is changed even if there are no content changes.
+
+**Setup**
+
+Create this SLS file and run it once to create the contents.
+
+```
+# test.sls
+
+empty_file:
+  file.managed:
+    - name: /tmp/myfile
+    - replace: False
+
+replace_test:
+  file.replace:
+    - name: /tmp/myfile
+    - prepend_if_not_found: True
+    - pattern: "^# salt"
+    - repl: "# salt"
+```
+  
+**Steps to Reproduce the behavior**
+
+Subsequent runs of the state above will always update the modified time of the file.
+
+```
+root@d10-salt-01:~# date
+Tue Mar  1 13:58:13 UTC 2022
+
+root@d10-salt-01:~# ll /tmp/myfile
+-rw-r--r-- 1 root root 7 Mar  1 13:57 /tmp/myfile
+
+root@d10-salt-01:~# salt-call state.apply replace --state-output=terse_id
+local:
+  Name: empty_file - Function: file.managed - Result: Clean Started: - 13:58:39.627202 Duration: 2.488 ms
+  Name: replace_test - Function: file.replace - Result: Clean Started: - 13:58:39.629764 Duration: 2.308 ms
+
+Summary for local
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total states run:     2
+Total run time:   4.796 ms
+
+root@d10-salt-01:~# ll /tmp/myfile
+-rw-r--r-- 1 root root 7 Mar  1 13:58 /tmp/myfile
+```
+
+**Expected behavior**
+If the contents aren't updated, the mtime stamp shouldn't be updated.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```yaml
+Salt Version:
+          Salt: 3004
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.5
+     gitpython: 2.1.11
+        Jinja2: 2.10
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.5.6
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: Not Installed
+        Python: 3.7.3 (default, Jan 22 2021, 20:04:44)
+  python-gnupg: Not Installed
+        PyYAML: 3.13
+         PyZMQ: 17.1.2
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.1
+ 
+System Versions:
+          dist: debian 10 buster
+        locale: UTF-8
+       machine: x86_64
+       release: 4.19.0-18-amd64
+        system: Linux
+       version: Debian GNU/Linux 10 buster
+```
+</details>
+
+**Additional context**
+This was previously surfaced in issue #55297, addressed in PR #56359, and then (inadvertently?) reverted in PR #56621

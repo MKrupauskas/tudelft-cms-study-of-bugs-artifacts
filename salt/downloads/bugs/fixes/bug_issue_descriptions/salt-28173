@@ -1,0 +1,109 @@
+system.computer_name does not change the host name or fqdn in windows
+
+```
+# Set computer name to minion id
+{% set system = salt['grains.get']('id') %}
+
+set_name:
+  system.computer_name:
+    - name: {{ system }}
+```
+
+Results seems correct:
+
+```
+saltweb20081:
+----------
+          ID: set_name
+    Function: system.computer_name
+        Name: saltweb20081
+      Result: True
+     Comment: Computer name successfully set to 'SALTWEB20081' (reboot required for change to take effect)
+     Started: 21:51:40.024000
+    Duration: 62.0 ms
+     Changes:
+              ----------
+              new:
+                  SALTWEB20081
+              old:
+                  WIN-NHA5PVMFPFX
+
+Summary for saltweb20081
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  62.000 ms
+```
+
+Grains after reboot:
+
+```
+[root@sm01 winroles]# salt saltweb20081 grains.items
+saltweb20081:
+    ----------
+    biosversion:
+        Revision: 1.221
+    cpu_model:
+        Intel64 Family 6 Model 62 Stepping 4, GenuineIntel
+    cpuarch:
+        AMD64
+    domain:
+    fqdn:
+        WIN-NHA5PVMFPFX
+    fqdn_ip4:
+        - 10.10.5.26
+    fqdn_ip6:
+        - ::1
+    gpus:
+    host:
+        WIN-NHA5PVMFPFX
+```
+
+Run the state again:
+
+```
+saltweb20081:
+----------
+          ID: set_name
+    Function: system.computer_name
+        Name: saltweb20081
+      Result: True
+     Comment: Computer name already set to 'SALTWEB20081'
+     Started: 21:56:05.724000
+    Duration: 0.0 ms
+     Changes:
+
+Summary for saltweb20081
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:   0.000 ms
+```
+
+It does a half change. System properties name doesn't change, but salt detects a change somewhere, probably the registry.
+
+Information from Rob Hilberding in slack channel, 2015.10.21. His final fix:
+ps script:
+
+```
+# PowerShell 3.0 Rename-Computer parameters
+Rename-Computer -NewName {{ newname }} -Restart
+```
+
+state file:
+
+```
+{% set newname = salt['grains.get']('id') %}
+
+set_new_name:
+  cmd.script:
+    - source: salt://wintools/rename.ps1
+    - name: rename.ps1
+    - shell: powershell
+    - template: jinja
+    - newname: {{ newname }}
+```

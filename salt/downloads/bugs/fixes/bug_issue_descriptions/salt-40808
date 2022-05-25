@@ -1,0 +1,136 @@
+States are presented in one order and executed in another. 
+
+Problem is with dict "matches" that is used to collect states that needs to be executed:
+https://github.com/saltstack/salt/blob/2016.11/salt/state.py
+```
+def top_matches(self, top):
+        '''
+        Search through the top high data for matches and return the states
+        that this minion needs to execute.
+        Returns:
+        {'saltenv': ['state1', 'state2', ...]}
+        '''
+        matches = {}
+```
+
+When using env "base" and "dev" the ordering is by "accident" correct.
+
+### Setup
+
+master
+```
+state_output: mixed
+file_roots:
+  base:
+    - /srv/salt/states/base
+  test:
+    - /srv/salt/states/test
+
+fileserver_backend:
+  - roots
+
+pillar_roots:
+  base:
+    - /srv/salt/pillars/base
+  test:
+    - /srv/salt/pillars/test
+  prod:
+    - /srv/salt/pillars/prod
+  vagrant:
+    - /srv/salt/pillars/vagrant
+
+log_level_logfile: debug
+```
+top.sls
+```
+base:
+  '*':
+    - info
+
+test:
+  'test*':
+    - info2
+```
+
+### Steps to Reproduce Issue
+salt 'test*' state.show_top
+```
+test.vagrant:
+    ----------
+    base:
+        - info
+    test:
+        - info2
+```
+salt 'test*'state.apply
+
+Actual output
+```
+test.vagrant:
+  Name: /etc/salt-info2 - Function: file.managed - Result: Changed Started: - 20:24:24.554283 Duration: 76.348 ms
+  Name: /etc/salt-info - Function: file.managed - Result: Changed Started: - 20:24:24.630809 Duration: 64.266 ms
+
+Summary for test.vagrant
+------------
+Succeeded: 2 (changed=2)
+Failed:    0
+------------
+Total states run:     2
+Total run time: 140.614 ms
+```
+Expected output
+```
+test.vagrant:
+  Name: /etc/salt-info - Function: file.managed - Result: Changed Started: - 20:24:24.630809 Duration: 64.266 ms
+  Name: /etc/salt-info2 - Function: file.managed - Result: Changed Started: - 20:24:24.554283 Duration: 76.348 ms
+
+Summary for test.vagrant
+------------
+Succeeded: 2 (changed=2)
+Failed:    0
+------------
+Total states run:     2
+Total run time: 140.614 ms
+```
+Info from base should be executed first and then Info2 from test.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.3
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-70-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

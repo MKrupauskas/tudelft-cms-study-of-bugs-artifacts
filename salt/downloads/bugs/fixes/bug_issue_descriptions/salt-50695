@@ -1,0 +1,140 @@
+### Description of Issue/Question
+
+I am getting an error when trying to create a napalm proxy
+`Unable to merge mine functions from the pillar in the opts, for proxy`
+
+This seems to be caused by inconsistencies in the code merging the mine_functions key from config and pillar data. The mine.update documentation indicates that the mine_functions key should be a dictionary. But the code in salt.minion.ProxyMinion._post_master_init() treats the key as a list.
+
+```python
+            if 'mine_functions' in self.opts['pillar']:
+                general_proxy_mines = self.opts.get('mine_functions', [])
+                specific_proxy_mines = self.opts['pillar']['mine_functions']
+                try:
+                    self.opts['mine_functions'] = general_proxy_mines + specific_proxy_mines
+```
+
+So if you configure mine_functions in your pillar (or your config) as a list, then you hit a problem in mine.update where it fetches \_\_salt\_\_['config.merge']('mine_functions', {}) which will return a list, and assigned this to m_data which is assumed to be a dict further down the code. 
+
+```python
+    if not mine_functions:
+        m_data = __salt__['config.merge']('mine_functions', {})
+        # If we don't have any mine functions configured, then we should just bail out
+        if not m_data:
+            return
+    elif mine_functions and isinstance(mine_functions, list):
+        m_data = dict((fun, {}) for fun in mine_functions)
+    elif mine_functions and isinstance(mine_functions, dict):
+        m_data = mine_functions
+    else:
+        return
+```
+
+I worked around this by changing the code in mine.update by assigning the mine_functions key from config.merge to mine_functions and unchaining the enclosing if statement (if not mine_functions:) from the next two if statements that check the type of mine_functions. 
+
+But basically someone needs to decide if mine_functions should be a list or a dict or both and support whatever is decided as the right representation. 
+
+### Setup
+```yaml
+/etc/salt/proxy.d/env.conf
+saltenv: proxy
+pillarenv: proxy
+
+/srv/proxy/pillar/napalm/init.sls
+mine_functions:
+  bgp.neighbors: []
+  net.ipaddrs: []
+  net.lldp: []
+  net.mac: []
+  net.arp: []
+  net.interfaces: []
+mine_interval: 60
+```
+
+### Steps to Reproduce Issue
+Create a napalm proxy using the setup above. When you start the proxy, you will get the error failing to merge the mine functions. 
+
+If you change mine_functions into a list
+
+```yaml
+/srv/proxy/pillar/napalm/init.sls
+mine_functions:
+  - bgp.neighbors
+  - net.ipaddrs
+  - net.lldp
+  - net.mac
+  - net.arp
+  - net.interfaces
+mine_interval: 60
+```
+
+This will fix the merge error. But when you run mine.update on the proxy, you then get an error 
+
+```
+[ERROR   ] Function bgp.neighbors in mine_functions failed to execute
+[DEBUG   ] Error: Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/modules/mine.py", line 151, in update
+    if m_data[func] and isinstance(m_data[func], dict):
+TypeError: list indices must be integers or slices, not str
+```
+
+Changing the code in mine.update to look like this:
+```python
+    if not mine_functions:
+        mine_data = __salt__['config.merge']('mine_functions', {})
+        # If we don't have any mine functions configured, then we should just bail out
+        if not mine_data:
+            return
+    if mine_functions and isinstance(mine_functions, list):
+        m_data = dict((fun, {}) for fun in mine_functions)
+    elif mine_functions and isinstance(mine_functions, dict):
+        m_data = mine_functions
+    else:
+        return
+```
+
+Fixes the problem for me
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2018.3.3
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: unknown
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.7 (default, Oct 22 2018, 11:32:17)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-39-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```

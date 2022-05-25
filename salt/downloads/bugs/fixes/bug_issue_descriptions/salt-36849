@@ -1,0 +1,58 @@
+### file.managed and archive.extracted don't properly work for tgz remote files
+### Setup
+
+```
+/var/cache/salt/minion/files/base/_tmp_tar_.tgz:
+  file.managed:
+    - source: http://downloads.ghostscript.com/public/binaries/ghostscript-9.18-linux-x86_64.tgz
+    - source_hash: md5=e09812828784c102cd523cfaef42f250
+    - makedirs: True
+```
+
+The code above always fails complaining about md5 hash though it actually appears to be correct. This is because the Tornado framework used by default as a backend has `decompress_response=True` turned on, so in the end you'll have a decompressed tar archive instead of tar gzip once a file is downloaded and passed further to validate its hash.
+My vile hack was to hardcode `decompress_response=False` as an extra argument in `/usr/lib/python2.6/site-packages/salt/utils/http.py:470` on my system.
+It would be nice to be able to customize things such as backend and/or its options but using decompress_response=False by default is probably ok too in this case.
+### Steps to Reproduce Issue
+
+Create a state file with the content mentioned in the Setup section and run it.
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Aug 18 2016, 15:13:37)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 6.8 Final
+        machine: x86_64
+        release: 2.6.32-642.4.2.el6.x86_64
+         system: Linux
+        version: CentOS 6.8 Final
+```

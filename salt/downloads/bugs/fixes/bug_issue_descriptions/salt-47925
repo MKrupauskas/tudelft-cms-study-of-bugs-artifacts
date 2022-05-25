@@ -1,0 +1,110 @@
+### Description of Issue/Question
+I've got a fairly simple gitfs setup that uses a single repo with 3 branches: dev, stg, and master.  I have a state file that runs a scrips that resides in a subfolder called scripts.  The script only exists in the dev branch, and the minion has the saltenv: dev configuration value and runs other sls files from that branch just fine.  When I run the state the references the script, I get the following error:
+
+> [DEBUG   ] Could not find file 'salt://scripts/custom_cultures.ps1' in saltenv 'base'
+> [ERROR   ] Unable to cache file 'salt://scripts/custom_cultures.ps1' from saltenv 'base'.
+
+Despite the minion correctly reporting that it is in the dev environment, when I call a script by using salt://scripts/custom_cultures.ps1, it will only cache it and execute it if it exists in the master branch (base environment).
+
+### Setup
+Relevant master config settings:
+```
+top_file_merging_strategy: same
+gitfs_remotes:
+  - git@bitbucket.org:owner/repo.git
+```
+Relevant minion config settings:
+```
+saltenv: dev
+lock_saltenv: True
+pillarenv_from_saltenv: True
+```
+
+The repo is laid out like this (simplified for brevity):
+
+* top.sls
+* cultures.sls
+* base.sls
+* scripts
+  * custom_cultures.ps1
+  * other_scripts.ps1
+
+Note:  The dev and master branches are exactly the same except only the dev branch contains cultures.sls and the custom_cultures.ps1 script
+
+Contents of cultures.sls:
+```
+configureCustomCultures:
+  cmd.script:
+   - shell: powershell
+   - source: salt://scripts/custom_cultures.ps1
+```
+
+### Steps to Reproduce Issue
+
+Lay out config files and repos as above, and from the Salt master run `salt '*' state.apply cultures`
+
+Reported error should read:
+```
+salt '*' state.apply cultures
+bld-dv02-web01:
+----------
+          ID: configureCustomCultures
+    Function: cmd.script
+      Result: False
+     Comment: Unable to cache script salt://scripts/custom_cultures.ps1 from saltenv 'base'
+     Started: 11:31:41.697000
+    Duration: 78.0 ms
+     Changes:
+              ----------
+              cache_error:
+                  True
+              pid:
+                  0
+              retcode:
+                  1
+              stderr:
+              stdout:
+```
+
+### Versions Report
+
+Salt Version:
+           Salt: 2018.3.0
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.10
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.26.3
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.1
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, Feb 20 2018, 09:19:12)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: redhat 7.5 Maipo
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.3.2.el7.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 7.5 Maipo

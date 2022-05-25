@@ -1,0 +1,58 @@
+Commands cmd.run_stdout, cmd.run_stderr and cmd.run_all are incorrectly rewritten as cmd.run and fail to return proper information:
+
+```
+>$ salt-ssh 'c901.qc' cmd.run_all 'ls -a /tmp'
+c901.qc:
+    .
+    ..
+    .ICE-unix
+    minify_0b068ab22618dc22c50ca3ac4a8d39f3
+    minify_21a9a8ede3eb4051a305e7d0e68fd775
+    minify_4fcb6ada8cd17f114a73a1a556ae5f56
+    minify_d0f9ee9b575130582ae5fa7ba8b98618
+    mysql.sock
+    slipstream
+
+```
+
+This is missing the stderr, retcode, and pid fields (and does not
+label stdout as stdout).  The expected results should be this:
+
+```
+>$ salt-ssh 'c901.qc' cmd.run_all 'ls -a /tmp'
+c901.qc:
+    ----------
+    pid:
+        27314
+    retcode:
+        0
+    stderr:
+
+    stdout:
+        .
+        ..
+        .ICE-unix
+        .salt
+        minify_0b068ab22618dc22c50ca3ac4a8d39f3
+        minify_21a9a8ede3eb4051a305e7d0e68fd775
+        minify_4fcb6ada8cd17f114a73a1a556ae5f56
+        minify_d0f9ee9b575130582ae5fa7ba8b98618
+        mysql.sock
+        slipstream
+```
+
+The failure is observable using '-l trace' which reveals that the
+'cmd.run_all' has been quashed to 'cmd.run' inside of the SSH_SHIM of
+salt thin:
+
+```
+      echo '{id: c901.qc, root_dir: /tmp/.salt/running_data}' > /tmp/.salt/minion
+      echo "_edbc7885e4f9aac9b83b35999b68d015148caf467b78fa39c05f669c0ff89878"
+       $PYTHON $SALT --local --out json -l quiet cmd.run 'ls -a /tmp -c /tmp/.salt
+EOF
+[DEBUG   ] STDOUT c901.qc
+_edbc7885e4f9aac9b83b35999b68d015148caf467b78fa39c05f669c0ff89878
+{
+    "local": ".\n..\n.ICE-unix\n.salt\nminify_0b068ab22618dc22c50ca3ac4a8d39f3\nminify_21a9a8ede3eb4051a305e7d0e68fd775\nminify_4fcb6ada8cd17f114a73a1a556ae5f56\nminify_d0f9ee9b575130582ae5fa7ba8b98618\nmysql.sock\nslipstream"
+}
+```

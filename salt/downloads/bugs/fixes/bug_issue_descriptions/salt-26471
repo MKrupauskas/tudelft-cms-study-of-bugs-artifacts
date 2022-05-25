@@ -1,0 +1,104 @@
+I am using https://github.com/saltstack-formulas/rabbitmq-formula to install a 3 node rabbitmq cluster.  
+
+The first node installs correctly which includes the cluster .erlang.cookie.  On the 2nd node when it attempts to add the users (which should already exist I believe), the user tagged with 'administrator' fails with the following:
+
+``` python-traceback
+An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1560, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/states/rabbitmq_user.py", line 147, in present
+    if _check_tags_changes(name, tags):
+  File "/usr/lib/python2.7/dist-packages/salt/states/rabbitmq_user.py", line 70, in _check_tags_changes
+    return __salt__['rabbitmq.list_users']()[name] - set(newtags)
+KeyError: 'admin_user'
+```
+
+The other users didn't/don't have tags.  
+
+**install_rabbit.sls**
+
+``` saltstack
+include:
+  - rabbitmq.latest
+
+stop_rabbit:
+  service.dead:
+    - name: rabbitmq-server
+    - prereq:
+      - file: rabbit_cookie
+
+rabbit_cookie:
+  file.managed:
+    - name: /var/lib/rabbitmq/.erlang.cookie 
+    - source: salt://dbarmor/erlang.cookie
+    - replace: True
+    - user: rabbitmq
+    - group: rabbitmq
+    - mode: 400
+    - require:
+      - pkg: rabbitmq-server
+    - require_in:
+      - service: rabbitmq-server
+
+{% if 'role' in grains and 'secondary_rabbit' in grains['role'] %}
+{{ pillar.rabbit_cluster.user}}@{{ pillar.rabbit_cluster.node }}:
+  rabbitmq_cluster.join:
+    - user: {{ pillar.rabbit_cluster.user }}
+    - host: {{ pillar.rabbit_cluster.node }}
+    - runas: root
+    - require:
+      - file: rabbit_cookie
+{% endif %}
+```
+
+**rabbitmq_pillar.sls**
+
+``` saltstack
+{% import_yaml "dbarmor/globals.yml" as globals %}
+
+rabbitmq:
+  version: "3.5.4-1"
+  plugin:
+    rabbitmq_management:
+      - enabled
+  policy:
+    rabbitmq_policy:
+      - name: HA
+      - pattern: '.*'
+      - definition: '{"ha-mode": "all"}'
+  vhost:
+    '/': 
+      - owner: webpulse
+      - conf: .*
+      - write: .*
+      - read: .*
+  user:
+    {{ globals.dbarmor_web_user }}:
+      - password: {{ globals.dbarmor_web_pass }}
+      - force: True
+      - perms:
+        - '/':
+          - '.*'
+          - '.*'
+          - '.*'
+      - runas: root
+    {{ globals.dbarmor_processor_user }}:
+      - password: {{ globals.dbarmor_processor_pass }}
+      - force: True
+      - perms:
+        - '/':
+          - '.*'
+          - '.*'
+          - '.*'
+      - runas: root
+    admin_user:
+      - password: adminpass
+      - tags: administrator
+      - force: True
+      - perms:
+        - '/':
+          - '.*'
+          - '.*'
+          - '.*'
+      - runas: root
+```

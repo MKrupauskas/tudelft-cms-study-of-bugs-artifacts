@@ -1,0 +1,109 @@
+I'm on the latest develop branch (66e5fbd), and I'm testing state.highstate calls locally on a vagrant box (ubuntu/trusty64). I have a salt-master setup and then I run `sudo salt-call state.highstate` to test out some states I've written.
+
+It seems that when I don't set an `id` in `/etc/salt/minion`, the state.highstate fails with this message:
+
+```
+vagrant@vagrant-ubuntu-trusty-64:~$ sudo salt-call -l debug state.highstate
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', '', 'tcp://127.0.0.1:4506')
+[ERROR   ] Future exception was never retrieved: Traceback (most recent call last):
+  File "/usr/local/lib/python2.7/dist-packages/tornado/gen.py", line 230, in wrapper
+    yielded = next(result)
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 499, in eval_master
+    pub_channel = salt.transport.client.AsyncPubChannel.factory(self.opts, **factory_kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/client.py", line 150, in factory
+    return salt.transport.zeromq.AsyncZeroMQPubChannel(opts, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 264, in __init__
+    self._socket.setsockopt(zmq.IDENTITY, self.opts['id'])
+  File "socket.pyx", line 333, in zmq.backend.cython.socket.Socket.set (zmq/backend/cython/socket.c:3
+268)
+  File "checkrc.pxd", line 21, in zmq.backend.cython.checkrc._check_rc (zmq/backend/cython/socket.c:6
+058)
+ZMQError: Invalid argument
+```
+
+When I do set the `id` to something like `asdf` the call succeeds and works. **I'm guessing that the issue is the default value for `id` being the system hostname isn't being called, so an empty id '' is being used, thus crashing/hanging.**
+
+For what it's worth, here are my master and minion configs:
+
+```
+user: root
+verify_env: True
+ping_on_rotate: True
+open_mode: True
+auto_accept: True
+
+extension_modules: /srv/modules
+ext_pillar:
+  - seconds_since_epoch: []
+
+file_roots:
+  production:
+    - /srv/salt/production
+  dev:
+    - /srv/salt/dev
+    - /srv/salt/production
+  salt_dev:
+    - /srv/salt/salt_dev
+    - /srv/salt/production
+
+pillar_roots:
+  production:
+    - /srv/pillar/production
+    - /srv/pillar/common
+  dev:
+    - /srv/pillar/dev
+    - /srv/pillar/common
+  salt_dev:
+    - /srv/pillar/salt_dev
+    - /srv/pillar/common
+```
+
+```
+master: localhost
+```
+
+And salt versions:
+
+```
+vagrant@vagrant-ubuntu-trusty-64:~$ salt-master --versions-report
+Salt Version:
+           Salt: 2015.8.0-632-g66e5fbd
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-66-generic
+         system: Ubuntu 14.04 trusty
+```

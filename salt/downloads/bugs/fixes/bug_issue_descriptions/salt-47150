@@ -1,0 +1,79 @@
+Hey folks, we got an interesting problem. We fixed it by temporarily updating our DNS entries but this won't last long.
+
+So, this problem occurred after upgrading to 2018.3.0.
+
+
+
+This is what we saw at the first glance
+
+```
+salt:/srv # salt-ssh minionname state.sls deploy.system+root......
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+AssertionError: 
+Traceback (most recent call last):
+  File "/usr/bin/salt-ssh", line 11, in <module>
+    sys.exit(salt_ssh())
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 425, in salt_ssh
+    client.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/ssh.py", line 23, in run
+    ssh = salt.client.ssh.SSH(self.config)
+  File "/usr/lib/python2.7/site-packages/salt/client/ssh/__init__.py", line 235, in __init__
+    self.tgt_type)
+  File "/usr/lib/python2.7/site-packages/salt/roster/__init__.py", line 105, in targets
+    targets.update(self.rosters[f_str](tgt, tgt_type))
+  File "/usr/lib/python2.7/site-packages/salt/roster/flat.py", line 49, in targets
+    rmatcher = RosterMatcher(conditioned_raw, tgt, tgt_type, 'ipv4')
+  File "/usr/lib/python2.7/site-packages/salt/roster/flat.py", line 58, in __init__
+    assert tgt
+AssertionError
+Traceback (most recent call last):
+  File "/usr/bin/salt-ssh", line 11, in <module>
+    sys.exit(salt_ssh())
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 425, in salt_ssh
+    client.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/ssh.py", line 23, in run
+    ssh = salt.client.ssh.SSH(self.config)
+  File "/usr/lib/python2.7/site-packages/salt/client/ssh/__init__.py", line 235, in __init__
+    self.tgt_type)
+  File "/usr/lib/python2.7/site-packages/salt/roster/__init__.py", line 105, in targets
+    targets.update(self.rosters[f_str](tgt, tgt_type))
+  File "/usr/lib/python2.7/site-packages/salt/roster/flat.py", line 49, in targets
+    rmatcher = RosterMatcher(conditioned_raw, tgt, tgt_type, 'ipv4')
+  File "/usr/lib/python2.7/site-packages/salt/roster/flat.py", line 58, in __init__
+    assert tgt
+AssertionError
+```
+
+We assert-debugged salt and found that the issue at hand is caused by the two following functions:
+
+https://github.com/saltstack/salt/blob/68aeb62a950666/salt/client/ssh/__init__.py#L339 SSH._expand_target
+```python
+...
+            hostname = salt.utils.network.ip_to_host(hostname)  # which returns None
+...
+                            if hostname != self.opts['tgt']:  # None != minionname
+                                self.opts['tgt'] = hostname  # overrides valid target name
+...
+```
+
+https://github.com/saltstack/salt/blob/68aeb62a/salt/utils/network.py#L214 ip_to_host
+```python
+    try:
+        hostname, aliaslist, ipaddrlist = socket.gethostbyaddr(ip)
+    except Exception:
+        hostname = None
+    return hostname
+```
+
+### Why does gethostbyaddr fail?
+Because the minion "minionname" hadn't a reverse DNS lookup (IP to Name). Temporary adding it fixed it for now but it won't work for long as those are dynamic IP addresses.
+
+### Can you ping the host?
+Yep, we can even ssh to minionname perfectly fine.
+
+### Why does the reverse-lookup matter for salt?
+That is this issue about. We cannot even use blank IP addresses. They fail as well.
+
+### Last question: can we have `ip_to_host` reraising it's original exception?
+That would be great for debugging next time.
+Because as you can see the catching assert is far away from the original place where None was introduced into the variables. And backtracing took a while to figure out.

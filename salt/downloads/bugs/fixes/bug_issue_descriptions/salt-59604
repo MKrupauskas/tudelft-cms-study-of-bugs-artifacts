@@ -1,0 +1,112 @@
+**Description**
+The virtualenv_mod.py script attempts to call https://bitbucket.org/pypa/setuptools/raw/default/ez_setup.py which 404s.
+
+**Setup**
+We are calling virtualenv like this:
+
+```
+  virtualenv.managed:
+    - system_site_packages: False
+    - distribute: True
+    - requirements: {{ pillar['website_requirements_path'] }}
+    - user: ubuntu
+    - cwd: {{ pillar['website_main_dir'] }}
+{% if pillar['website_venv_python'] is defined %}
+    - python: {{ pillar['website_venv_python'] }}
+{% endif %}
+    - require:
+      - file: {{ pillar['website_venv_dir'] }}
+      - file: {{ pillar['website_requirements_path'] }}
+```
+
+**Steps to Reproduce the behavior**
+Use Salt to create a virtualenv.
+
+**Expected behavior**
+The state should be applied without errors.
+
+**Screenshots**
+Salt fails with an error:
+
+```
+==> vagrant.base: [INFO    ] Executing command [u'/usr/local/bin/virtualenv', u'--python=/usr/bin/python3', u'/home/ubuntu/py34env'] as user 'ubuntu' in directory '/home/ubuntu'
+==> vagrant.base: [ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+==> vagrant.base:   File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1981, in call
+==> vagrant.base:     **cdata['kwargs'])
+==> vagrant.base:   File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1977, in wrapper
+==> vagrant.base:     return f(*args, **kwargs)
+==> vagrant.base:   File "/usr/lib/python2.7/dist-packages/salt/states/virtualenv_mod.py", line 209, in managed
+==> vagrant.base:     **kwargs
+==> vagrant.base:   File "/usr/lib/python2.7/dist-packages/salt/modules/virtualenv_mod.py", line 297, in create
+==> vagrant.base:     path, venv_python, user, saltenv=saltenv, use_vt=use_vt
+==> vagrant.base:   File "/usr/lib/python2.7/dist-packages/salt/modules/virtualenv_mod.py", line 484, in _install_script
+==> vagrant.base:     fn_ = __salt__['cp.cache_file'](source, saltenv)
+==> vagrant.base:   File "/usr/lib/python2.7/dist-packages/salt/modules/cp.py", line 517, in cache_file
+==> vagrant.base:     result = _client().cache_file(path, saltenv, source_hash=source_hash)
+==> vagrant.base:   File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 193, in cache_file
+==> vagrant.base:     path, '', True, saltenv, cachedir=cachedir, source_hash=source_hash)
+==> vagrant.base:   File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 700, in get_url
+==> vagrant.base:     raise MinionError('Error: {0} reading {1}'.format(query['error'], url))
+==> vagrant.base: MinionError: Error: HTTP 404: Not Found reading https://bitbucket.org/pypa/setuptools/raw/default/ez_setup.py
+```
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 3000.6
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.17 (default, Sep 30 2020, 13:38:04)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 5.4.0-1037-aws
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```
+</details>
+
+**Additional context**
+This appears to be the problematic code:
+
+```
+    # Install setuptools
+    if (pip or distribute) and not os.path.exists(venv_setuptools):
+        _install_script(
+            "https://bitbucket.org/pypa/setuptools/raw/default/ez_setup.py",
+            path,
+            venv_python,
+            user,
+            saltenv=saltenv,
+            use_vt=use_vt,
+        )
+```

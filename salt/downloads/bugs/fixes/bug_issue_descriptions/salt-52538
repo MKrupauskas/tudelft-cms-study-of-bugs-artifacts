@@ -1,0 +1,146 @@
+### Description of Issue/Question
+
+When attempting to use the csv external pillar module, rendering of csv-based pillar fails with this error in master.log:
+
+```
+[ERROR   ] Exception caught loading ext_pillar 'csv':,
+  File "/usr/lib/python3/dist-packages/salt/pillar/__init__.py", line 974, in ext_pillar,
+    key),
+  File "/usr/lib/python3/dist-packages/salt/pillar/__init__.py", line 893, in _external_pillar_data,
+    ext = self.ext_pillars[key](self.minion_id, pillar, **val),
+  File "/usr/lib/python3/dist-packages/salt/pillar/csvpillar.py", line 83, in ext_pillar,
+    for row in sheet:,
+  File "/usr/lib/python3.5/csv.py", line 109, in __next__,
+    self.fieldnames,
+  File "/usr/lib/python3.5/csv.py", line 96, in fieldnames,
+    self._fieldnames = next(self.reader),
+,
+[CRITICAL] Pillar render error: Failed to load ext_pillar csv: iterator should return strings, not bytes (did you open the file in text mode?),
+```
+
+Research indicates the error may be caused by the way csvpillar.py reads the csv file from disk. It appears the read mode is set to 'rb' which causes the file to be read as bytes which the builtin python csv DictReader module does not expect. See also **Workaround** section below for further evidence that this is the case.
+
+### Setup
+pillar.conf
+```yaml
+ext_pillar:
+    - csv: 
+        path: /srv/salt/pillar/prd/network/hostips.csv
+        namespace: 'network.hostips'
+```
+
+hostips.csv
+```csv
+id,ip
+wkstn-10-1,192.168.57.11
+wkstn-10-3,192.168.57.13
+wkstn-10-4,192.168.57.14
+wkstn-10-2,192.168.57.12
+wkstn-10-5,192.168.57.15
+wkstn-10-6,192.168.57.16
+wkstn-10-7,192.168.57.17
+wkstn-10-8,192.168.57.18
+wkstn-10-9,192.168.57.19
+wkstn-10-10,192.168.57.110
+svr-2016-1,192.168.57.121
+svr-2016-2,192.168.57.122
+svr-2016-3,192.168.57.123
+```
+
+This is a csv file created by VSCode, so it is UTF-8 encoded
+
+network.sls
+```yaml
+Ethernet0:
+    network.managed:
+        - ip_proto: static
+        - ip_addrs: 
+            - {{ salt['pillar.get']('network.hostips:ip') }}/24
+        - dns_proto: static
+        #set from pillar network.dns
+        - dns_servers: {{ salt['pillar.get']('dns') }}
+```
+
+top.sls
+```yaml
+base:
+    '*':
+        - network
+```
+
+### Steps to Reproduce Issue
+
+Refresh pillar
+```bash
+salt '*' saltutil.refresh_pillar
+```
+
+Attempt to show the resulting sls:
+```bash
+salt '*' state.show_sls network
+```
+
+Resulting output:
+```
+ ERROR: Pillar failed to render. Additional info follows:
+    - Failed to load ext_pillar csv: iterator should return strings, not bytes (did you open the file in text mode?)
+```
+
+### Workaround
+
+Manually edit salt/pillar/csvpillar.py to not read in csv file in binary format.
+
+**OLD** csvpillar.py line 79:
+
+```python
+with salt.utils.files.fopen(path, 'rb') as f:
+```
+
+**NEW** csvpillar.py line 79
+```python
+with salt.utils.files.fopen(path, 'r') as f:
+```
+
+This renders everything correctly and results in a successful run of `state.highstate`. Not sure if this breaks other environment setups (This was only tested on a salt-master in a debian 9 container running on boot2docker host)
+
+### Versions Report
+Salt Version:
+           Salt: 2019.2.0
+
+Dependency Versions:
+           cffi: 1.12.2
+       cherrypy: 3.5.0
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: 2.0.0
+      gitpython: 2.1.1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.3 (default, Sep 27 2018, 17:25:39)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.1
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+
+System Versions:
+           dist: debian 9.8
+         locale: UTF-8
+        machine: x86_64
+        release: 4.14.104-boot2docker
+         system: Linux
+        version: debian 9.8

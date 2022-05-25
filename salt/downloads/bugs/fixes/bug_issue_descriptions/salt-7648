@@ -1,0 +1,88 @@
+Issue:-
+
+I am trying to develop to a solution to my deployment problem using Salt-client python API. When ever I make call to highstate without Timeout, it just return back with no response immediately. It is happening in CLI too.
+
+I tried to resolve this issue through googlegroup
+
+but according to Ollie
+
+It's likely that the jobs ran correctly but the windows minions can only run one job at a time (issue #5395). The salt client runs a second job after the timeout to check that the original job is still running. If this doesn't return the client assumes the minions are dead and returns.
+
+Running with a very high timeout (longer the highstate would take to run) should workaround the issue for now.
+
+So I gave timeout with higher value, but it is not a solution to my problem, I have to wait for no means as I do not know how much time states would take.
+
+I am using Salt_master on Cent-OS 6.4 and Minions are installed on Windows 7 Enterprise edition.
+
+Salt version used on both the system : 0.16.3
+
+States:
+
+```
+top.sls
+-------------------------------------------------------
+{% set minion = pillar.get('minion','pranagga') %}
+{% if minion != None %}
+base:
+  '{{ minion }}':
+    - TestM
+
+    - TestM.copyConf
+    - TestM.copyLibs
+    - TestM.synctestsuite
+    - TestM.webtests
+    - TestM.tomcatStart
+    - TestM.tdmWarDeploy
+{% endif %}
+```
+
+```
+TestM.copyConf.sls
+-------------------------------------------------------
+sync-conf:
+  file:
+    - name: {{ pillar['tdmhome'] }}
+    - recurse
+    - source:  salt://{{  pillar['distroot'] }}conf
+    - makedirs: True
+    - exclude_pat: TdmConfig.groovy
+```
+
+```
+TestM.tdmWarDeploy.sls
+-------------------------------------------------------------
+tdm-war:
+ tomcat.war_deployed:
+  - name: /tdm
+#  - war: {{ pillar['badahome'] }}tdm.war
+  - war: salt://{{ pillar['distroot'] }}tdm.war
+  - require:
+    - file: set-config
+    - service: tomcat-start
+    - file: sync-conf
+    - cmd: app-db
+```
+
+etc.
+
+In calsls.py
+
+```
+ret = client.cmd('*','state.highstate',[pillars],timeout=6000)
+```
+
+if I do not give timeout it return back with no response.
+
+References
+
+salt master and minion connection brakes after some time -
+
+https://groups.google.com/forum/#!searchin/salt-users/pranav/salt-users/EghJuiFTVIw/TDt6bb69jsAJ
+
+What exactly the timeout do in case of single minion - 
+
+https://groups.google.com/forum/#!searchin/salt-users/pranav/salt-users/5UfgLp8n73k/oSjrFiVE2BcJ
+
+salt master is not responding - 
+
+https://groups.google.com/forum/#!searchin/salt-users/pranav/salt-users/2FCj_U47EKo/vH9dFlDUOc8J

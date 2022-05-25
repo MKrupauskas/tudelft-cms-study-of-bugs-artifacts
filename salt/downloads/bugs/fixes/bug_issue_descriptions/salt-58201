@@ -1,0 +1,96 @@
+**Description**
+Adding users or groups to external_auth does not allow custom python scripts to use salt-key commands without sudo. Instead a key error is thrown:
+```
+'Exception occurred in wheel key.list: Traceback (most recent call last):\n  File "/usr/lib/python3.6/site-packages/salt/client/mixins.py", line 374, in low\n    data[\'return\'] = func(*args, **kwargs)\n  File "/usr/lib/python3.6/site-packages/salt/wheel/key.py", line 69, in list_\n    return skey.list_status(match)\n  File "/usr/lib/python3.6/site-packages/salt/key.py", line 564, in list_status\n    for fn_ in salt.utils.data.sorted_ignorecase(os.listdir(pre)):\nPermissionError: [Errno 13] Permission denied: \'/etc/salt/pki/master/minions_pre\'\n'
+```
+It is possible I am wrong but my understanding of the [docs](https://docs.saltstack.com/en/latest/topics/eauth/access_control.html) is that according to the line:  
+
+> external_auth is useful for salt-api or for making your own scripts that use Salt's Python API
+
+I should be able to run the salt-key command via the salt python api without sudo or root if my name (or group) is configured to do so. See setup below where I added my name AND my group. I have also tried only my group, and only my user with salt-master restarts in between.
+
+**Setup**
+Add external auth to your salt master config file (or master.d directory). 
+``` YAML
+external_auth:
+  pam:
+    jhanafin:
+      - .*
+      - '@runner'
+      - '@wheel'
+      - '@jobs'
+    saltadmins%:
+      - .*
+      - '@runner'
+      - '@wheel'
+      - '@jobs'
+```
+SELinux is also disabled
+
+**Steps to Reproduce the behavior**
+Pull up a python3 shell on the master and run:
+``` python3
+import salt.client
+import salt.wheel
+# Load caller (think cmd)
+local = salt.client.LocalClient()
+# Load Wheel (think key)
+opts = salt.config.master_config('/etc/salt/master')
+wheel = salt.wheel.WheelClient(opts)
+# Attempt to get unaccepted keys
+wheel.cmd('key.list', ['pre'])
+``` 
+
+**Expected behavior**
+wheel.cmd('key.list', ['pre']) should return a dictionary. 
+
+**Screenshots**
+No applicable screenshots
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+Salt Version:
+           Salt: 3000.2
+ 
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10.1
+        libgit2: 0.99.0
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: Not Installed
+   pycryptodome: Not Installed
+         pygit2: 1.1.1
+         Python: 3.6.8 (default, Nov 21 2019, 19:31:34)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 17.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+ 
+System Versions:
+           dist: centos 8.1.1911 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 4.18.0-147.8.1.el8_1.x86_64
+         system: Linux
+        version: CentOS Linux 8.1.1911 Core
+
+```
+</details>
+
+**Additional context**
+No additional context needed.

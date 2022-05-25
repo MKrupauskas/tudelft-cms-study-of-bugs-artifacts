@@ -1,0 +1,64 @@
+I'm unsure if it's an error in `salt.utils.vt` or something else, but I'm getting a `list indices must be integers, not str` that is triggered (at least in my test case) by `git.latest` since commit 1b07be8c264c352ee3287184d008d1355c6a0e56.
+
+```
+[INFO    ] Running state [https://github.com/robbyrussell/oh-my-zsh] at time 18:59:27.648482
+[INFO    ] Executing state git.latest for https://github.com/robbyrussell/oh-my-zsh
+[DEBUG   ] target /Users/jason/.oh-my-zsh is not found, "git clone" is required
+[INFO    ] Executing command "git clone https://github.com/robbyrussell/oh-my-zsh '/Users/jason/.oh-my-zsh' " as user 'jason' in directory '/Users/jason'
+[ERROR   ] list indices must be integers, not str
+[INFO    ] Completed state [https://github.com/robbyrussell/oh-my-zsh] at time 18:59:27.710941
+```
+
+If I comment out lines 448-450 of `salt.utils.vt`, then it runs as expected. I suspect something related to umask.
+
+```
+[INFO    ] Running state [https://github.com/robbyrussell/oh-my-zsh] at time 18:56:32.504910
+[INFO    ] Executing state git.latest for https://github.com/robbyrussell/oh-my-zsh
+[DEBUG   ] target /Users/jason/.oh-my-zsh is not found, "git clone" is required
+sudo: unable to execute /bin/bash: Bad address
+[INFO    ] Executing command "git clone https://github.com/robbyrussell/oh-my-zsh '/Users/jason/.oh-my-zsh' " as user 'jason' in directory '/Users/jason'
+[DEBUG   ] stderr: Cloning into '/Users/jason/.oh-my-zsh'...
+[INFO    ] Executing command 'git checkout  master ' as user 'jason' in directory '/Users/jason/.oh-my-zsh'
+[DEBUG   ] stdout: Your branch is up-to-date with 'origin/master'.
+[DEBUG   ] stderr: Already on 'master'
+[INFO    ] Executing command 'git rev-parse HEAD' as user 'jason' in directory '/Users/jason/.oh-my-zsh'
+[DEBUG   ] stdout: 5728a5608d7e802999266ff2387747e4957be938
+[INFO    ] Repository https://github.com/robbyrussell/oh-my-zsh cloned to /Users/jason/.oh-my-zsh
+[INFO    ] {'new': 'https://github.com/robbyrussell/oh-my-zsh', 'revision': '5728a5608d7e802999266ff2387747e4957be938'}
+[INFO    ] Completed state [https://github.com/robbyrussell/oh-my-zsh] at time 18:56:39.063575
+```
+
+Note: I haven't looked into the `sudo: unable to execute /bin/bash: Bad address` output, but it doesn't seem to have any negative effects.
+
+``` bash
+$ salt --versions-report
+           Salt: 2014.1.0-9091-g03b3f9c
+         Python: 2.7.8 (default, Jul  6 2014, 13:59:18)
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 4.0.4
+$ uname -a
+Darwin mac 13.3.0 Darwin Kernel Version 13.3.0: Tue Jun  3 21:27:35 PDT 2014; root:xnu-2422.110.17~1/RELEASE_X86_64 x86_64
+```
+
+The `pyobjects` state I'm using.
+
+``` python
+Git.latest(
+        os.path.join(user_home_dir, '.oh-my-zsh'),
+        name='https://github.com/robbyrussell/oh-my-zsh',
+        target=os.path.join(user_home_dir, '.oh-my-zsh'),
+        user=user,
+        rev='master',
+        always_fetch=True,
+        force_checkout=True
+    )
+```

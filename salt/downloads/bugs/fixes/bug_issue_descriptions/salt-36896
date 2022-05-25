@@ -1,0 +1,123 @@
+### Description of Issue/Question
+
+I've been struggling for tens of hours now trying to create a super simple state that just installs mysql-server, python-mysqldb, mysql-client and creates a DB. I'm completely new to salt, so I might be doing something very wrong, but after chatting with multiple others at #salt on IRC nobody seems to know what the problem is. Others can reproduce the problem too.
+
+I've been told by multiple people that I need reload_modules to make it work, but it doesn't help, it still looks as if python-mysqldb is undetected/not available at runtime(?).
+
+What am I doing wrong? It seems like such a simple task, but I'm stuck and nobody knows.
+### Setup
+
+Using 2016.3.3 on Ubuntu 16.04, clean minimal install.
+
+SLS file:
+
+```
+database-packages:
+  pkg.installed:
+    - pkgs:
+      - python-mysqldb
+      - mysql-server
+      - mysql-client
+    - reload_modules: true
+
+mysql-is-running:
+  service.running:
+    - name: mysql
+    - enable: True
+
+has-db:
+  mysql_database.present:
+    - name: example
+    - order: last
+```
+
+Error:
+
+```
+ID: has-db
+    Function: mysql_database.present
+        Name: example
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1733, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1652, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/mysql_database.py", line 55, in present
+                  existing = __salt__['mysql.db_get'](name, **connection_args)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/mysql.py", line 897, in db_get
+                  dbc = _connect(**connection_args)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/mysql.py", line 330, in _connect
+                  dbc = MySQLdb.connect(**connargs)
+                File "/usr/lib/python2.7/dist-packages/pymysql/__init__.py", line 88, in Connect
+                  return Connection(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/pymysql/connections.py", line 679, in __init__
+                  self.connect()
+                File "/usr/lib/python2.7/dist-packages/pymysql/connections.py", line 891, in connect
+                  self._request_authentication()
+                File "/usr/lib/python2.7/dist-packages/pymysql/connections.py", line 1097, in _request_authentication
+                  auth_packet = self._read_packet()
+                File "/usr/lib/python2.7/dist-packages/pymysql/connections.py", line 966, in _read_packet
+                  packet.check_error()
+                File "/usr/lib/python2.7/dist-packages/pymysql/connections.py", line 394, in check_error
+                  err.raise_mysql_exception(self._data)
+                File "/usr/lib/python2.7/dist-packages/pymysql/err.py", line 120, in raise_mysql_exception
+                  _check_mysql_exception(errinfo)
+                File "/usr/lib/python2.7/dist-packages/pymysql/err.py", line 115, in _check_mysql_exception
+                  raise InternalError(errno, errorvalue)
+              InternalError: (1698, u"Access denied for user 'root'@'localhost'")
+     Started: 18:58:35.701315
+    Duration: 2.347 ms
+     Changes:
+```
+
+If I run state.apply again then everything is working, it just won't work if python-mysqldb gets installed on the same run. I can install python-mysqldb first manually, then it works. I have also tried to install mysql-\* first, but it makes no difference.
+
+The error above is the same even if the python-mysqldb package is missing, so that makes me think that it's not available at runtime.
+### Steps to Reproduce Issue
+
+Set up a clean 16.04 install, install salt-minion using the saltstack repos(or from the Ubuntu repos, doesn't make any difference) and assign the state to the minion.
+
+First state.apply = The error from above.(fails to create DB, but the packages gets installed)
+Second state.apply = The database is created.(works)
+Third state.apply = No changes.(works)
+### Versions Report
+
+(from master)
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Jul  1 2016, 15:12:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-38-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial

@@ -1,0 +1,29 @@
+When processing this state:
+
+```
+install-eliza:
+    module.run:
+        - name: cpan.install
+        - module: Chatbot::Eliza
+```
+
+This error occurs:
+
+```
+[INFO    ] Running state [cpan.install] at time 12:13:44.887701
+[INFO    ] Executing state module.run for cpan.install
+[INFO    ] Executing command 'cpan -D Chatbot::Eliza' in directory '/root'
+[INFO    ] Executing command 'cpan -J' in directory '/root'
+[ERROR   ] Module function cpan.install threw an exception. Exception: [Errno 2] No such file or directory: '/root/.cpan/build'
+[INFO    ] Completed state [cpan.install] at time 12:13:47.682451
+```
+
+Here's what's happening, from what I can gather:
+1. Salt's `cpan.py` `install()` method calls `show()`.
+2. `show()` calls `show_config()` (ie. `cpan -J`) to "see if there are cpan build directories".
+3. `cpan -J` reports `'build_dir' => '/root/.cpan/build'` despite the fact that that directory has not been created yet. (`cpan` has yet to install a perl module on the system.)
+4. Back in `cpan.py` `show()` it calls `os.listdir` on that `build_dir` value, resulting in the exception.
+
+I don't know why `cpan.py` `show()` assumes the `build_dir` will always exist.
+
+This is happening while trying to use Packer's `salt-masterless` provisioner to create a customized Ubuntu 15.10 image on DigitalOcean. Ubuntu 15.10 is getting Salt from the `salt-ssh` Ubuntu package, version 2015.5.3+ds-1. Perl is v5.20.2 which is using `CPAN.pm` version 2.05.

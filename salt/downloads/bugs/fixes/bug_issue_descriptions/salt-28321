@@ -1,0 +1,48 @@
+Using this state:
+
+```
+{%- for city in cities %}
+{{ dbdir }}/{{city.iata}}/router.db:
+  file.managed:
+    - source: salt://rancid/templates/router.db.jinja
+    - template: jinja
+    - user: rancid
+    - group: rancid
+    - mode: 644
+    - context:
+        devices: {{ city.devices }}
+    - defaults:
+        matching:
+          junos: juniper
+          iosxr: cisco-xr
+          nxos: cisco-nx
+    - require:
+      - cmd: run-rancid-cvs
+{% endfor -%}
+```
+
+/srv/salt/rancid/templates/router.db.jinja:
+
+```
+# {{ pillar.get('managed_by_salt_message', '') }}
+{{ devices }}
+```
+
+While this is working perfectly on 2015.8.1 (and previous):
+
+```
+# MANAGED BY SALT -- DO NOT MODIFY
+[{'name': 'edge01.ord02', 'type': 'router', 'ip': '141.101.73.1', 'region': 'NA', 'os': 'junos'}, {'status': 'up', 'ip': '141.101.73.18', 'os': 'junos', 'name': 'core01.ord02', 'type': 'switch'}, {'status': 'up', 'ip': '141.101.73.21', 'os': 'pluribus', 'name': 'core02.ord02', 'type': 'switch'}, {'status': 'up', 'ip': '141.101.73.22', 'os': 'junos', 'name': 'core03.ord02', 'type': 'switch'}, {'status': 'down', 'ip': '141.101.73.34', 'os': 'nxos', 'name': 'core04.ord02', 'type': 'switch'}, {'status': 'up', 'ip': '141.101.73.36', 'os': 'nxos', 'name': 'core05.ord02', 'type': 'switch'}, {'status': 'down', 'ip': '141.101.73.20', 'os': 'junos', 'name': 'ms02.ord02', 'type': 'switch'}, {'status': 'up', 'ip': '141.101.73.35', 'os': 'junos', 'name': 'ms04.ord02', 'type': 'switch'}, {'status': 'up', 'ip': '141.101.73.37', 'os': 'junos', 'name': 'ms05.ord02', 'type': 'switch'}]
+```
+
+after fetching latest 2015.8, this renders as:
+
+```
+# MANAGED BY SALT -- DO NOT MODIFY
+[{u"u'os'": u"u'junos'", u"u'type'": u"u'router'", u"u'region'": u"u'NA'", u"u'ip'": u"u'141.101.73.1'", u"u'name'": u"u'edge01.ord02'"}, {u"u'os'": u"u'junos'", u"u'type'": u"u'switch'", u"u'ip'": u"u'141.101.73.18'", u"u'status'": u"u'up'", u"u'name'": u"u'core01.ord02'"}, {u"u'os'": u"u'pluribus'", u"u'type'": u"u'switch'", u"u'ip'": u"u'141.101.73.21'", u"u'status'": u"u'up'", u"u'name'": u"u'core02.ord02'"}, {u"u'os'": u"u'junos'", u"u'type'": u"u'switch'", u"u'ip'": u"u'141.101.73.22'", u"u'status'": u"u'up'", u"u'name'": u"u'core03.ord02'"}, {u"u'os'": u"u'nxos'", u"u'type'": u"u'switch'", u"u'ip'": u"u'141.101.73.34'", u"u'status'": u"u'down'", u"u'name'": u"u'core04.ord02'"}, {u"u'os'": u"u'nxos'", u"u'type'": u"u'switch'", u"u'ip'": u"u'141.101.73.36'", u"u'status'": u"u'up'", u"u'name'": u"u'core05.ord02'"}, {u"u'os'": u"u'junos'", u"u'type'": u"u'switch'", u"u'ip'": u"u'141.101.73.20'", u"u'status'": u"u'down'", u"u'name'": u"u'ms02.ord02'"}, {u"u'os'": u"u'junos'", u"u'type'": u"u'switch'", u"u'ip'": u"u'141.101.73.35'", u"u'status'": u"u'up'", u"u'name'": u"u'ms04.ord02'"}, {u"u'os'": u"u'junos'", u"u'type'": u"u'switch'", u"u'ip'": u"u'141.101.73.37'", u"u'status'": u"u'up'", u"u'name'": u"u'ms05.ord02'"}]
+```
+
+note the double unicode quoting, this is breaking everything.
+
+I identified the culprit commit to be https://github.com/saltstack/salt/commit/fadb954676f2627d7211e8fa723de65b539c9a7d 
+cc @basepi 

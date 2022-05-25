@@ -1,0 +1,111 @@
+Hi,
+
+I hit a bug when using `extends` in top.sls.
+
+Here is the settings :
+
+``` console
+# salt-call --versions
+           Salt: 2014.7.4-199-g3c91459
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+         Jinja2: 2.7.4-dev
+       M2Crypto: Not Installed
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: Not Installed
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: 0.7.0
+# cat /etc/salt/minion.d/00-masterless.conf
+environment: base
+file_client: local
+fileserver_backend:
+  - roots
+
+file_roots:
+  base:
+    - /srv/salt/
+
+log_level: debug
+
+pillar_roots:
+  base:
+    - /srv/pillar/
+$ tree /srv
+.
+ pillar
+    lib.sls
+    top.sls
+ salt
+     lib.sls
+     top.sls
+$ cat pillar/lib.sls 
+# PILLAR
+{{ env }}:
+
+{%- block all %}
+# pillar/lib.sls
+  '*':
+    - pillar-lib
+{%- endblock %}
+$ cat pillar/top.sls 
+{% extends 'lib.sls' %}
+
+{% block all -%}
+{{ super() }}
+    - pillar-top
+{% endblock -%}
+$ cat salt/lib.sls 
+# SALT
+{{ env }}:
+
+{%- block all %}
+# salt/lib.sls
+  '*':
+    - salt-lib
+{%- endblock %}
+$ cat salt/top.sls 
+{% extends 'lib.sls' %}
+
+{% block all -%}
+{{ super() }}
+    - salt-top
+{% endblock -%}
+```
+
+Here is the result of `show_top`:
+
+``` console
+# salt-call state.show_top
+local:
+    ----------
+    base:
+        - salt-lib
+        - pillar-top
+```
+
+I expect :
+
+``` console
+
+local:
+    ----------
+    base:
+        - salt-lib
+        - salt-top
+```
+
+It looks like jinja block `all` of `pillar/top.sls` is used instead of `salt/top.sls` :(
+
+I investigate a bit and found that local client seems guilty. `get_file('salt://top.sls)`  returns `/srv/pillar/top.sls` when searching instead of `/srv/salt/top.sls` :(
+
+I keep debugging this and try do propose a fix. Do you have a clue ?
+
+This is also broken in `develop`.
+
+Regards,
+Étienne

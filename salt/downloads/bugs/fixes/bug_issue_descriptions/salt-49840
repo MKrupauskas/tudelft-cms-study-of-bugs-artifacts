@@ -1,0 +1,99 @@
+### Description of Issue/Question
+
+Can't connect to a minion via `salt-ssh`, although plain `ssh` works just fine.  It looks like salt does reverse IP lookup and then uses this new address to connect via ssh. The machine is located behind a NAT and the connection is established via port-forwarding.
+
+Related issues:
+
+* #48676
+* #47150 (PR #47191)
+* #47529
+* #49665 
+* #49968
+
+### Steps to Reproduce Issue
+
+```
+% salt-ssh --user pi --sudo -i minion.example.com test.ping
+
+11-22-33-44.provider.com:
+    ssh: Could not resolve hostname 11-22-33-44.provider.com: nodename nor servname provided, or not known
+```
+
+The same with IP address:
+
+```
+% salt-ssh --user pi --sudo -i 11.22.33.44 test.ping
+
+11-22-33-44.provider.com:
+    ssh: Could not resolve hostname 11-22-33-44.provider.com: nodename nor servname provided, or not known
+```
+
+DNS info:
+
+```
+dig +short minion.example.com
+11.22.33.44
+
+dig +short -x 11.22.33.44
+11.22.33.44.provider.com.
+
+dig +short 11.22.33.44.provider.com.
+```
+
+Note the last command. It doesn't return anything, and that is the reason why it fails.
+
+And also the second command `dig +short -x 11.22.33.44` could return any garbage (it is set up by the hosting provider, not by the owner of example.com). Salt shouldn't trust that data to connect to hosts.
+
+The log below shows that salt-ssh uses reverse hostname to connect and not the one I specified on the command line. I feel this could be potentially bad security-wise.
+
+```
+[TRACE   ] Terminal Command: /bin/sh -c 11-22-33-44.provider.com -o KbdInteractiveAuthentication=no -o PasswordAuthentication=no -o GSSAPIAuthentication=no -o ConnectTimeout=65 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o Port=22 -o IdentityFile=agent-forwarding -o User=pi  /bin/sh << 'EOF'
+```
+
+### Versions Report
+
+<details><summary>salt --versions-report</summary>
+
+```
+Salt Version:
+           Salt: 2018.3.2
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.6 (default, Jun 28 2018, 05:43:53)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 17.7.0
+         system: Darwin
+        version: 10.13.6 x86_64
+```
+</details>

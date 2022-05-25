@@ -1,0 +1,109 @@
+Hi, 
+I have been able to generated pillar data successfully using py renderer. However it is not working fully in following scenario. And it takes ages to return.
+Following is the pillar sls file  
+**random_tests/init.sls**
+
+``` python
+#!py
+import os, sys, salt.client, yaml, os.path
+local = salt.client.LocalClient()
+topology_config={'currentcluster' : []}
+gdp_list = ['machine01', 'machine02', 'machine03']
+def run():
+  for gdp in gdp_list:
+    cpu = local.cmd(gdp, 'grains.item', ['num_cpus'], expr_form='pcre', timeout=50)
+    #cpu = local.cmd(gdp, 'cmd.run', ['cat /proc/cpuinfo | egrep -i processor | wc -l'], expr_form='pcre', timeout=50)
+    topology_config['currentcluster'].append(cpu)
+  return topology_config
+if __name__ == '__main__':
+  print(run())
+```
+
+**top.sls** inside **pillar_root**
+
+``` yaml
+somedc:
+  '*':
+    - common
+  '^.+clusterCentralBox.+$':
+    - match: pcre
+    - random_tests
+```
+
+Please note that **common/init.sls** is empty.
+
+Following command was run to generate/view/refresh pillar data.
+
+``` bash
+time salt -E 'clusterCentralBox' pillar.items -t 5000
+```
+
+Following is the output from above command.
+
+``` yaml
+clusterCentralBox:
+    ----------
+    currentcluster:
+        |_
+          ----------
+          machine01:
+              ----------
+              num_cpus:
+                  24
+        |_
+          ----------
+        |_
+          ----------
+    master:
+        ----------
+        __role:
+            master
+        auth_mode:
+            1
+        auto_accept:
+            False
+        cachedir:
+            /var/cache/salt/master
+        cli_summary:
+```
+
+Time taken to complete above command.
+
+``` bash
+real    1m52.659s
+user    0m1.496s
+sys 0m0.202s
+```
+
+However when I run above pillar sls simply as python executable, it is very fast and generate proper data.
+
+``` bash
+time python random_tests/init.sls
+{'currentcluster': [{'machine01': {'num_cpus': 24}}, {'machine02': {'num_cpus': 24}}, {'machine03': {'num_cpus': 24}}]}
+
+real    0m2.465s
+user    0m0.343s
+sys 0m0.053s
+```
+
+Info about salt versions:
+
+``` bash
+salt --versions-report
+           Salt: 2014.7.0
+         Python: 2.6.6 (r266:84292, Jul 10 2013, 22:48:45)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.4
+           Mako: Not Installed
+```
+
+**Note:** Real hostnames have been substituted with dummy hostnames in above outputs/commands

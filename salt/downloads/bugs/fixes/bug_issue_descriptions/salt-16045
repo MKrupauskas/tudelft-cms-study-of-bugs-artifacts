@@ -1,0 +1,123 @@
+The docs imply that a list can be given to `onlyif` by stating:
+
+```
+If all of the commands in onlyif return True, then the state is run.
+```
+
+However, it appears that `onlyif` only evaluates the first command given. Here's the test state, where `asdf/asdf/` does not exist on the test system.
+
+```
+patch:
+  pkg.installed:
+    - onlyif:
+      - echo $?
+      - cd /asdf/asdf/
+```
+
+And here is the output:
+
+```
+root@nt-testing:/srv/salt# salt-call --local state.sls onlyif -ldebug
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] Jinja search path: ['/srv/salt']
+[DEBUG   ] Rendered data from file: /srv/salt/onlyif.sls:
+patch:
+  pkg.installed:
+    - onlyif:
+      - echo $?
+      - cd /asdf/asdf/
+
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('patch', OrderedDict([('pkg.installed', [OrderedDict([('onlyif', ['echo $?', 'cd /asdf/asdf/'])])])]))])
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Running state [patch] at time 22:32:20.206632
+[INFO    ] Executing state pkg.installed for patch
+[INFO    ] Executing command 'echo $?' in directory '/root'
+[DEBUG   ] output: 0
+[DEBUG   ] Last command return code: 0
+[INFO    ] Executing command "dpkg-query --showformat='${Status} ${Package} ${Version} ${Architecture}\n' -W" in directory '/root'
+[INFO    ] Package patch is already installed.
+[INFO    ] Completed state [patch] at time 22:32:20.924121
+[DEBUG   ] LazyLoaded .returner
+local:
+----------
+          ID: patch
+    Function: pkg.installed
+      Result: True
+     Comment: Package patch is already installed.
+     Started: 22:32:20.206632
+    Duration: 717.489 ms
+     Changes:
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+```
+
+The state is executed, even though the second command should have given a `1` ret code:
+
+```
+root@nt-testing:/srv/salt# cd /asdf/asdf/
+-bash: cd: /asdf/asdf/: No such file or directory
+root@nt-testing:/srv/salt# echo $?
+1
+```
+
+For sanity's sake, I have executed the same file but replaced `onlyif` with `unless`, and the `cd /asdf/asdf/` command returns False, and the sate executes as it should using `unless`:
+
+```
+root@nt-testing:/srv/salt# salt-call --local state.sls onlyif -ldebug
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] Jinja search path: ['/srv/salt']
+[DEBUG   ] Rendered data from file: /srv/salt/onlyif.sls:
+patch:
+  pkg.installed:
+    - unless:
+      - echo $?
+      - cd /asdf/asdf/
+
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('patch', OrderedDict([('pkg.installed', [OrderedDict([('unless', ['echo $?', 'cd /asdf/asdf/'])])])]))])
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Running state [patch] at time 22:51:02.127400
+[INFO    ] Executing state pkg.installed for patch
+[INFO    ] Executing command 'echo $?' in directory '/root'
+[DEBUG   ] output: 0
+[DEBUG   ] Last command return code: 0
+[INFO    ] Executing command 'cd /asdf/asdf/' in directory '/root'
+[DEBUG   ] output: /bin/bash: line 0: cd: /asdf/asdf/: No such file or directory
+[DEBUG   ] Last command return code: 1
+[INFO    ] Executing command "dpkg-query --showformat='${Status} ${Package} ${Version} ${Architecture}\n' -W" in directory '/root'
+[INFO    ] Package patch is already installed.
+[INFO    ] Completed state [patch] at time 22:51:02.841889
+[DEBUG   ] LazyLoaded .returner
+local:
+----------
+          ID: patch
+    Function: pkg.installed
+      Result: True
+     Comment: Package patch is already installed.
+     Started: 22:51:02.127400
+    Duration: 714.489 ms
+     Changes:
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+```

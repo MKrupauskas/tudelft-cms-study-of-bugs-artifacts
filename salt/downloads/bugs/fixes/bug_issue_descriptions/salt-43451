@@ -1,0 +1,124 @@
+### Description of Issue/Question
+Alternative configuration values are not working as they should for mysql returner. Master node still picks up the default mysql values (even if --return_config alternative is passed with the command) and the `jids `table is empty.
+
+### Setup
+Salt-2017.7.1 single master setup with 1 Windows minion and log server with hostname '`ubuntu`'
+
+### Steps to Reproduce Issue
+
+- Create a log server with any hostname other than `salt `in my case it it `ubuntu `and install mysql
+- Created mysql schema as mentioned here:
+   https://docs.saltstack.com/en/latest/ref/returners/all/salt.returners.mysql.html#module-salt.returners.mysql
+- Install mysqldb module on both minion and log server
+- **Minion configuration file:**
+```
+alternative.mysql.host: 'ubuntu'
+alternative.mysql.user: 'salt'
+alternative.mysql.pass: 'salt'
+alternative.mysql.db: 'salt'
+alternative.mysql.port: 3306
+alternative.mysql.charset: 'utf8'
+```
+
+- **Master configuration file:**
+`ext_job_cache: mysql`
+
+- Restart master and minion services and execute the below command:
+```
+salt -t 60 '192.168.133.188' test.ping  --return_config alternative
+jid: 20170912103636264412
+192.168.133.188:
+    True
+```
+
+Below trace is logged in master's log file:
+```
+2017-09-12 10:36:36,276 [salt.utils.event ][DEBUG   ][15204] Sending event: tag = 20170912103636264412; data = {'_stamp': '2017-09-12T08:36:36.276479', 'minions': ['192.168.133.188']}
+2017-09-12 10:36:36,281 [salt.utils.event ][DEBUG   ][15204] Sending event: tag = salt/job/20170912103636264412/new; data = {'tgt_type': 'glob', 'jid': '20170912103636264412', 'tgt': '192.168.133.188', '_stamp': '2017-09-12T08:36:36.280903', 'user': 'sudo_varun', 'arg': [], 'fun': 'test.ping', 'minions': ['192.168.133.188']}
+2017-09-12 10:36:36,285 [salt.utils.lazy  ][DEBUG   ][15204] LazyLoaded mysql.save_load
+2017-09-12 10:36:36,294 [salt.utils.lazy  ][DEBUG   ][15204] LazyLoaded config.option
+2017-09-12 10:36:36,295 [salt.returners   ][INFO    ][15204] Using default for mysql ssl_key
+2017-09-12 10:36:36,295 [salt.returners   ][INFO    ][15204] Using default for mysql host
+2017-09-12 10:36:36,297 [salt.returners   ][INFO    ][15204] Using default for mysql ssl_cert
+2017-09-12 10:36:36,297 [salt.returners   ][INFO    ][15204] Using default for mysql user
+2017-09-12 10:36:36,298 [salt.returners   ][INFO    ][15204] Using default for mysql pass
+2017-09-12 10:36:36,298 [salt.returners   ][INFO    ][15204] Using default for mysql db
+2017-09-12 10:36:36,298 [salt.returners   ][INFO    ][15204] Using default for mysql port
+2017-09-12 10:36:36,298 [salt.returners   ][INFO    ][15204] Using default for mysql ssl_ca
+2017-09-12 10:36:36,298 [salt.loaded.int.returner.mysql][DEBUG   ][15204] Generating new MySQL connection pool
+2017-09-12 10:36:36,781 [salt.master      ][CRITICAL][15204] The specified returner threw a stack trace:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 2102, in _prep_pub
+    self.mminion.returners[fstr](clear_load['jid'], clear_load, minions=minions)
+  File "/usr/lib/python2.7/dist-packages/salt/returners/mysql.py", line 321, in save_load
+    with _get_serv(commit=True) as cur:
+  File "/usr/lib/python2.7/contextlib.py", line 17, in __enter__
+    return self.gen.next()
+  File "/usr/lib/python2.7/dist-packages/salt/returners/mysql.py", line 258, in _get_serv
+    raise salt.exceptions.SaltMasterError('MySQL returner could not connect to database: {exc}'.format(exc=exc))
+SaltMasterError: MySQL returner could not connect to database: (2003, "Can't connect to MySQL server on 'salt' (113)")
+2017-09-12 10:36:36,781 [salt.loaded.int.returner.local_cache][DEBUG   ][15204] Adding minions for job 20170912103636264412: ['192.168.133.188']
+2017-09-12 10:36:36,781 [salt.master      ][INFO    ][15204] User sudo_varun Published command test.ping with jid 20170912103636264412
+2017-09-12 10:36:36,782 [salt.master      ][DEBUG   ][15204] Published command details {'tgt_type': 'glob', 'jid': '20170912103636264412', 'tgt': '192.168.133.188', 'ret_config': 'alternative', 'ret': 'mysql,mysql', 'user': 'sudo_varun', 'arg': [], 'fun': 'test.ping'}
+```
+And `jids `table is empty:
+```
+mysql> select * from jids where jid=20170912103636264412;
+Empty set (0.00 sec)
+```
+where as minions do return the data:
+```
+mysql> select * from salt_returns where jid=20170912103636264412;
++-----------+----------------------+--------+-----------------+---------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------+
+| fun       | jid                  | return | id              | success | full_ret                                                                                                                                                                 | alter_time          |
++-----------+----------------------+--------+-----------------+---------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------+
+| test.ping | 20170912103636264412 | true   | 192.168.133.188 | 1       | {"fun_args": [], "jid": "20170912103636264412", "return": true, "retcode": 0, "success": true, "ret_config": "alternative", "fun": "test.ping", "id": "192.168.133.188"} | 2017-09-12 10:36:44 |
++-----------+----------------------+--------+-----------------+---------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------+
+1 row in set (0.00 sec)
+```
+
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.1
+ 
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 3.5.0
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.5
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.10.0-33-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```
+

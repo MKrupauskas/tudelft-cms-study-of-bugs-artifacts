@@ -1,0 +1,106 @@
+**Description**
+Using the [Hetzner Cloud module](https://docs.saltproject.io/en/master/ref/clouds/all/salt.cloud.clouds.hetzner.html) in a state ignores the configured values in `/etc/salt/cloud.providers.d/` or `/etc/salt/cloud.profiles.d/` and only takes state attributes, as mentioned in #61392.
+
+
+**Setup**
+
+I installed `salt-minion`, `salt-master` and `salt-cloud` on a Hetzner Cloud Debian 11 machine, generated said ssh key, added it to the hetzner cloud, generated an API key there and added some configs to my machine:
+
+`/etc/salt/cloud.providers.d/hetzner.conf`:
+
+```yaml
+hetzner:
+  key: <my API key>
+  private_key: /root/.ssh/id_ed25519
+  ssh_keys:
+    - id_ed25519
+  location: fsn1
+  driver: hetzner
+  minion:
+    <additional minion conf>
+```
+
+`/etc/salt/cloud.profiles.d/hetzner.conf`:
+
+```yaml
+cx21_hetzner:
+  provider: hetzner
+  image: debian-11
+  size: cx21
+  location: nbg1
+```
+
+My `cloud-hetzner.sls`:
+
+```yaml
+my-instance-name:
+  cloud.present:
+    - name: <machine name>
+    - cloud_provider: hetzner
+    - image: debian-11
+    - size: cx21
+ ```
+
+**Steps to Reproduce the behavior**
+
+1. Apply the mentioned state, the new VM will ignore `location` and `ssh_keys`, if not configured in the state.
+
+**Expected behavior**
+
+Search and return a setting in a known order:
+
+1. In the virtual machine's configuration
+2. In the virtual machine's profile configuration
+3. In the virtual machine's provider configuration
+4. In the salt cloud configuration if global searching is enabled
+5. Return the provided default
+
+**Versions Report**
+
+<details><summary>salt --versions-report</summary>
+
+```yaml
+Salt Version:
+          Salt: 3004
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.8.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.3
+       libgit2: Not Installed
+      M2Crypto: 0.37.1
+          Mako: Not Installed
+       msgpack: 1.0.0
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.9.7
+        pygit2: Not Installed
+        Python: 3.9.2 (default, Feb 28 2021, 17:03:44)
+  python-gnupg: Not Installed
+        PyYAML: 5.3.1
+         PyZMQ: 20.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+ 
+System Versions:
+          dist: debian 11 bullseye
+        locale: utf-8
+       machine: x86_64
+       release: 5.10.0-9-amd64
+        system: Linux
+       version: Debian GNU/Linux 11 bullseye
+```
+
+</details>
+
+**Additional context**
+
+Using `config.get_cloud_config_value()` instead of `vm_.get()` provides the expected behaviour. PR incoming.

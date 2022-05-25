@@ -1,0 +1,136 @@
+Unable to access salt dunders from global scope within py pillar templates.
+
+```
+(salt-dev)root@salt:/srv/pillar/base# cat top.sls 
+base:
+  '*':
+    - pytest
+
+
+(salt-dev)root@salt:/srv/pillar/base# cat pytest.sls
+#!py
+
+file_roots = __opts__['file_roots']
+
+def run():
+    return {__name__: file_roots}
+
+
+(salt-dev)root@web1:~# salt-call pillar.data
+local:
+    ----------
+    _errors:
+        - Rendering SLS 'pytest' failed, render error:
+        - name '__opts__' is not defined
+```
+
+Changing the pytest.sls file so that it runs just once without render errors:
+
+```
+(salt-dev)root@salt:/srv/pillar/base# cat pytest.sls
+#!py
+
+file_roots = "blah"
+
+def run():
+    return {__name__: file_roots}
+
+
+(salt-dev)root@web1:~# salt-call pillar.data
+local:
+    ----------
+    pytest:
+        blah
+```
+
+Now change pytest.sls back to using opts dunder:
+
+```
+(salt-dev)root@salt:/srv/pillar/base# cat pytest.sls
+#!py
+
+file_roots = __opts__['file_roots']
+
+def run():
+    return {__name__: file_roots}
+
+
+(salt-dev)root@web1:~# salt-call pillar.data
+local:
+    ----------
+    pytest:
+        ----------
+        base:
+            - /srv/pillar/base
+```
+
+It will stop working again when the master is restarted. Also, if you get it to render once without errors it will only work with that one master thread:
+
+```
+(salt-dev)root@web1:~# for i in `seq 1 10`; do salt-call pillar.data; done
+local:
+    ----------
+    _errors:
+        - Rendering SLS 'pytest' failed, render error:
+        - name '__opts__' is not defined
+local:
+    ----------
+    pytest:
+        ----------
+        base:
+            - /srv/pillar/base
+local:
+    ----------
+    _errors:
+        - Rendering SLS 'pytest' failed, render error:
+        - name '__opts__' is not defined
+local:
+    ----------
+    _errors:
+        - Rendering SLS 'pytest' failed, render error:
+        - name '__opts__' is not defined
+local:
+    ----------
+    pytest:
+        ----------
+        base:
+            - /srv/pillar/base
+local:
+    ----------
+    _errors:
+        - Rendering SLS 'pytest' failed, render error:
+        - name '__opts__' is not defined
+local:
+    ----------
+    pytest:
+        ----------
+        base:
+            - /srv/pillar/base
+local:
+    ----------
+    _errors:
+        - Rendering SLS 'pytest' failed, render error:
+        - name '__opts__' is not defined
+local:
+    ----------
+    _errors:
+        - Rendering SLS 'pytest' failed, render error:
+        - name '__opts__' is not defined
+local:
+    ----------
+    pytest:
+        ----------
+        base:
+            - /srv/pillar/base
+```
+
+The dunders work as expected if accessed within the run() function:
+
+```
+(salt-dev)root@salt:/srv/pillar/base# cat pytest.sls
+#!py
+
+def run():
+    file_roots = __opts__['file_roots']
+    return {__name__: file_roots}
+```

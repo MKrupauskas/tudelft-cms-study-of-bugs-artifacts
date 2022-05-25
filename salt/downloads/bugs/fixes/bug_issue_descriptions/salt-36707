@@ -1,0 +1,34 @@
+### Description of Issue
+
+The sysctl FreeBSD module is not very effective in handling sysctl values for test=true executions. In particular we see the states running for approximately 4-6 seconds. Given this fact managing sysctl values with salt leads to long running jobs and sometimes even minion timeouts.
+
+The root cause of the problem seems to be that the states module [sysctl.py](https://github.com/saltstack/salt/blob/develop/salt/states/sysctl.py#L60-L61) on Line 60 and 61 calls the freebsd sysctl execution module function show which in fact does a `sysctl -ae` (see [freebsd_sysctl.py](https://github.com/saltstack/salt/blob/develop/salt/modules/freebsd_sysctl.py#L57)). This is very in-effective as we know the sysctl value exactly and we dont want to get a list of all sysctl values each time a different sysctl state is executed.
+### Setup
+
+lets have the following sysctl state for example:
+
+```
+sysctl_cam_ada_timeout:
+  sysctl.present:
+    - name: kern.cam.ada.default_timeout
+    - value: 10
+```
+### Steps to Reproduce Issue
+
+now to see the difference just run the above state against a FreeBSD minion with `test=true` 
+
+```
+  Name: kern.cam.ada.default_timeout - Function: sysctl.present - Result: Clean Started: - 11:53:29.961632 Duration: 5692.753 ms
+```
+
+and with `test=false`:
+
+```
+ Name: kern.cam.ada.default_timeout - Function: sysctl.present - Result: Clean Started: - 12:03:35.199115 Duration: 9.934 ms
+```
+
+The difference is pretty immense: 9.934 ms vs 5692.753 ms
+### Versions Report
+
+salt minion: `2016.3.3`
+salt master: `2016.3.3`

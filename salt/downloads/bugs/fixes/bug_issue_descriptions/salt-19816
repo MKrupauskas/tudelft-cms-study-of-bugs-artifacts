@@ -1,0 +1,109 @@
+- working: salt-call --local 
+  - salt-call 2014.1.13-401-gaeda351
+  - salt-call 2014.7.0 (Helium)
+  - salt-call 2014.7.1-38-g4158b17 (Helium)
+- **not** working: salt-call (with master)
+  - same versions as tested with --local
+- use case:
+  - as a devop i want to make some ip address related calculations in pillar, to do so i include a custom python module for this calculations and want to use it from pillar
+- reproduction:
+  - paste setup_issue.sh into empty directory
+  - look at setup_issue.sh and if ok, chmod +x setup_issue.sh and run it (./setup_issue.sh)
+  - masterless check (should work)
+    - ./sc-local.sh saltutil.sync_all
+    - ./sc-local.sh pillar.item test
+  - check with master:
+    - ./sc-master.sh saltutil.sync_all
+    - # do this once again, because i didnt came up with a working solution for accepting the minion key on the first run
+    - ./sc-master.sh pillar.item test
+    - check output in master/
+      - function is not found
+
+---
+
+```
+#!/bin/sh
+prog=`readlink -f $0`
+dir=`dirname $prog`
+for f in local local_root master master_root minion minion_root; do mkdir -p $dir/$f; done
+mkdir -p $dir/./salt
+mkdir -p $dir/./salt/_modules
+mkdir -p $dir/./pillar
+for a in local/minion master/master minion/minion; do 
+  stype=${a%%/*}
+  cat > $dir/$a <<EOF
+root_dir: $dir/${stype}_root
+pidfile: salt-${stype}.pid
+pki_dir: pki
+cachedir: cache
+sock_dir: run
+log_file: ${stype}-salt.log
+key_logfile: ${stype}-key.log
+master_port: 45060
+publish_port: 45050
+ret_port: 45060
+fileserver_backend:
+  - roots
+pillar_roots:
+  base:
+    - $dir/pillar
+file_roots:
+  base:
+    - $dir/salt
+EOF
+done
+echo "id: pillar_test" >> $dir/local/minion
+echo "file_client: local" >> $dir/local/minion
+echo "id: pillar_test" >> $dir/minion/minion
+echo "master: localhost" >> $dir/minion/minion
+cat > $dir/sc-local.sh <<"EOF"
+#!/bin/sh
+prog=`readlink -f $0`
+dir=`dirname $prog`
+sudo salt-call --local --config-dir=$dir/local $@
+EOF
+chmod +x $dir/sc-local.sh
+cat > $dir/sc-master.sh <<"EOF"
+#!/bin/sh
+prog=`readlink -f $0`
+dir=`dirname $prog`
+sudo salt-master --config-dir=$dir/master -d
+sudo salt-minion --config-dir=$dir/minion -d
+sleep 3
+sudo salt-key --config-dir=$dir/master -A -y
+sudo salt-call --config-dir=$dir/minion $@
+sleep 1
+sudo kill `cat $dir/master_root/salt-master.pid`
+sudo kill `cat $dir/minion_root/salt-minion.pid`
+EOF
+chmod +x $dir/sc-master.sh
+cat > $dir/./salt/top.sls<<"EOF"
+base:
+  '*':
+    - test_state
+EOF
+cat > $dir/./salt/_modules/extf.py<<"EOF"
+# -*- coding: utf-8 -*-
+
+def test_equal(first, second):
+
+    if first == second:
+        return True
+    else:
+        return False
+EOF
+cat > $dir/./salt/test_state.sls<<"EOF"
+curl:
+  pkg:
+    - installed
+EOF
+cat > $dir/./pillar/top.sls<<"EOF"
+base:
+  '*':
+    - included_pillar
+EOF
+cat > $dir/./pillar/included_pillar.sls<<"EOF"
+test:
+  data: {{ salt['extf.test_equal']('1','1') }}
+EOF
+```

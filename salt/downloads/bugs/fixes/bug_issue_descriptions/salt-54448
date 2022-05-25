@@ -1,0 +1,111 @@
+### Description of Issue
+Using the state zfs.filesystem_present with properties under PY3 causes the execution module function zfs.set to pass dict_values and dict_keys types through to zfs.utils.zfs_command which causes any non-list type to be wrapped in a list. Casting the dict_values and dict_keys to a list fixes this issue in PY3
+
+### Setup
+Here is a salt state salt/observium/fs.sls that I created. It tries to create a filesystem (root) from a pre-existing zpool called observium, and set a specific mount point for the filesystem. 
+
+```
+obs_zfs:
+  file.directory:
+    - name: /opt/observium
+  zfs.filesystem_present:
+    - name: observium/root
+    - create_parent: True
+    - properties:
+        mountpoint: /opt/observium
+```
+
+By applying this patch, I was able to successfully apply the state above
+
+```
+diff --git a/salt/modules/zfs.py b/salt/modules/zfs.py
+index 151e5e1aef..98fce2f2ce 100644
+--- a/salt/modules/zfs.py
++++ b/salt/modules/zfs.py
+@@ -1145,8 +1145,8 @@ def set(*dataset, **kwargs):
+     res = __salt__['cmd.run_all'](
+         __utils__['zfs.zfs_command'](
+             command='set',
+-            property_name=filesystem_properties.keys(),
+-            property_value=filesystem_properties.values(),
++            property_name=list(filesystem_properties.keys()),
++            property_value=list(filesystem_properties.values()),
+             target=list(dataset),
+         ),
+         python_shell=False,
+```
+
+### Steps to Reproduce Issue
+Apply the state above results in the error below
+
+```
+2019-09-09 20:01:36,195 [salt.state       :1852][INFO    ][23094] Executing state zfs.filesystem_present for [observium/root]
+2019-09-09 20:01:36,200 [salt.loaded.int.module.cmdmod:397 ][INFO    ][23094] Executing command '/sbin/zfs list -t filesystem observium/root' in directory '/home/milton'
+2019-09-09 20:01:36,211 [salt.loaded.int.module.cmdmod:397 ][INFO    ][23094] Executing command '/sbin/zfs get -H -o name,property,value -t filesystem all observium/root' in directory '/home/milton'
+2019-09-09 20:01:36,231 [salt.state       :322 ][ERROR   ][23094] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/state.py", line 1933, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 1939, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/states/zfs.py", line 582, in filesystem_present
+    cloned_from=cloned_from,
+  File "/usr/lib/python3/dist-packages/salt/states/zfs.py", line 483, in _dataset_present
+    mod_res = __salt__['zfs.set'](name, **{prop: properties[prop]})
+  File "/usr/lib/python3/dist-packages/salt/modules/zfs.py", line 1150, in set
+    target=list(dataset),
+  File "/usr/lib/python3/dist-packages/salt/utils/zfs.py", line 644, in zfs_command
+    target=target,
+  File "/usr/lib/python3/dist-packages/salt/utils/zfs.py", line 263, in _command
+    val=to_auto(key, val, source=source, convert_to_human=False),
+  File "/usr/lib/python3/dist-packages/salt/utils/zfs.py", line 572, in to_auto
+    return _auto('to', name, value, source, convert_to_human)
+  File "/usr/lib/python3/dist-packages/salt/utils/zfs.py", line 169, in _auto
+    value_type = props[name]['type'] if name in props else 'str'
+TypeError: unhashable type: 'dict_keys'
+```
+
+### Versions Report
+Master and minion are running the same version of salt. 
+
+```
+Salt Version:
+           Salt: 2019.2.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.15+ (default, Jul  9 2019, 16:51:35)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-60-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```

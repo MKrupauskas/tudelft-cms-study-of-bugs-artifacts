@@ -1,0 +1,145 @@
+We have written our own provider for states.service and use it like this:
+
+```
+testservice:
+  service:
+    - provider: testprovider
+    - running
+    - reload: True
+    - watch:
+      - file: /tmp/testfile
+
+
+/tmp/testfile:
+  file.managed:
+    - source: salt://testfile
+```
+
+This fails to reload the service when the watch is invoked, but works otherwise. It seems as if the reload from the standard service.py module is used instead. If the `watch` is replaced with `require` then there are no issues with the service being started.
+
+The testprovider is in the _modules directory:
+
+```
+def start(name,enable=None,sig=None):
+    return True
+
+def stop(name,enable=None,sig=None):
+    return True
+
+def install(name):
+    return True
+
+def check(name):
+    return True
+
+def available(name):
+    return True
+
+def enable(name, **kwargs):
+    return True
+
+def disable(name, **kwargs):
+    return True
+
+def enabled(name):
+    return True
+
+def disabled(name):
+    return True
+
+def reload(name):
+    return True
+
+def restart(name):
+    return True
+
+def full_restart(name):     
+    return True
+
+def status(name, sig=None):
+    return True
+```
+
+example of the problem at work:
+
+```
+root@dora:~# rm /tmp/testfile    # remove the test file to make sure the mod_watch is used
+root@dora:~# salt '*' state.sls testservice -l debug
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dora
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] Configuration file path: /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dora
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'_stamp': '2015-07-02T12:43:30.576893'}
+[DEBUG   ] LazyLoaded local_cache.get_load
+[DEBUG   ] get_iter_returns for jid 20150702144330584002 sent to set(['dora']) will timeout at 14:43:35.589010
+[DEBUG   ] jid 20150702144330584002 return from dora
+[DEBUG   ] LazyLoaded highstate.output
+[DEBUG   ] LazyLoaded nested.output
+[DEBUG   ] LazyLoaded nested.output
+dora:
+----------
+          ID: /tmp/testfile
+    Function: file.managed
+      Result: True
+     Comment: File /tmp/testfile updated
+     Started: 14:43:31.652922
+    Duration: 4.519 ms
+     Changes:   
+              ----------
+              diff:
+                  New file
+              mode:
+                  0644
+----------
+          ID: testservice
+    Function: service.running
+      Result: False
+     Comment: Failed to reload the service
+     Started: 14:43:31.680974
+    Duration: 141.989 ms
+     Changes:   
+              ----------
+              testservice:
+                  False
+
+Summary
+------------
+Succeeded: 1 (changed=2)
+Failed:    1
+------------
+Total states run:     2
+[DEBUG   ] jid 20150702144330584002 found all minions set(['dora'])
+```
+
+Running the testprovider directly works with no issues:
+
+```
+root@dora:~# salt '*' testprovider.reload testservice
+dora:
+    True
+```
+
+Everything is done on one host acting as master and minion
+
+```
+root@dora:~# salt --versions-report
+           Salt: 2015.5.0
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.3.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+            ZMQ: 4.0.4
+           Mako: 1.0.1
+```

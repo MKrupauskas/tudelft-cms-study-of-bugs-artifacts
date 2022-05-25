@@ -1,0 +1,50 @@
+The following compound matcher rules no longer work in 0.13.1. They worked fine on 0.11.x.
+
+```
+'not mail.smidsrod.no'
+'E@(server|core|ubuntuvm|hp)\.smidsrod\.lan or apache.smidsrod.no'
+'E@(server|pf)\.smidsrod\.lan'
+```
+
+I found the regexp `[^\s()]+|[()]` on line 1115 of salt/minion.py to split the tokens. That seems a bit naive considering you've got PCRE as one of your tokens, which can be wildly complex.
+
+I don't know python, but I ran the second string through that regexp (using perl) and it does seem to split it up a bit strangely.
+
+```
+$ perl -E '$v="E@(server|core|ubuntuvm|hp)\.smidsrod\.lan or apache.smidsrod.no"; say join(";", $v =~ /[^\s()]+|[()]/g);'
+E@;(;server|core|ubuntuvm|hp;);.smidsrod.lan;or;apache.smidsrod.no
+```
+
+I would've expected this to split into `E@(server|core|ubuntuvm|hp).smidsrod.lan;or;apache.smidsrod.no`.
+
+This is the traceback I get when running state.highstate with this compound matcher in my top.sls file:
+
+```
+[INFO    ] Fetching file 'salt://top.sls'
+[DEBUG   ] Jinja search path: '['/var/cache/salt/minion/files/base']'
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/pymodules/python2.7/salt/scripts.py", line 76, in salt_call
+    client.run()
+  File "/usr/lib/pymodules/python2.7/salt/cli/__init__.py", line 251, in run
+    caller.run()
+  File "/usr/lib/pymodules/python2.7/salt/cli/caller.py", line 128, in run
+    ret = self.call()
+  File "/usr/lib/pymodules/python2.7/salt/cli/caller.py", line 70, in call
+    ret['return'] = self.minion.functions[fun](*args, **kwargs)
+  File "/usr/lib/pymodules/python2.7/salt/modules/state.py", line 155, in highstate
+    ret = st_.call_highstate(exclude=kwargs.get('exclude', []))
+  File "/usr/lib/pymodules/python2.7/salt/state.py", line 2019, in call_highstate
+    matches = self.top_matches(top)
+  File "/usr/lib/pymodules/python2.7/salt/state.py", line 1728, in top_matches
+    self.opts['nodegroups']
+  File "/usr/lib/pymodules/python2.7/salt/minion.py", line 941, in confirm_top
+    return getattr(self, funcname)(match)
+  File "/usr/lib/pymodules/python2.7/salt/minion.py", line 1151, in compound_match
+    return eval(' '.join(results))
+  File "<string>", line 1
+    True ( False ) False or False
+                       ^
+SyntaxError: invalid syntax
+```

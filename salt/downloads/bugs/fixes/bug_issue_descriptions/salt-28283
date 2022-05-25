@@ -1,0 +1,533 @@
+When trying to upgrade from 2015.5.5 to 2015.8.1 we found a strange issue that runner threads seemed to be mysteriously exiting (finally failed to reap resources). We discovered that the threads in question were ones that created more than one client (LocalClient/Caller). Trying to create a minimal reproducer we came up with this:
+
+```
+# file test_runner.py loaded into salt-master
+def clients():
+    log.info("BEFORE salt.client.Caller 1")
+    salt.client.Caller()
+    log.info("AFTER salt.client.Caller 1")
+
+    log.info("BEFORE salt.client.Caller 2")
+    salt.client.Caller()
+    log.info("AFTER salt.client.Caller 2")
+
+    return {"done":"Local & Caller"}
+```
+
+When invoked like so:
+
+```
+salt-run test_runner.clients
+```
+
+The command hangs. Looking at the log, `BEFORE salt.client.Caller 2` is there but not the corresponding `AFTER`. Interrupting the hung process yields:
+
+```
+[root@c161fa5a452d /]# salt-run test_runner.clients 
+^CException KeyboardInterrupt in <bound method AsyncZeroMQPubChannel.__del__ of <salt.transport.zeromq.AsyncZeroMQPubChannel object at 0x1b3de10>> ignored
+done:
+    Local & Caller
+[root@c161fa5a452d /]# cat /var/log/salt/master 
+2015-10-24 14:30:21,864 [salt.utils.verify][WARNING ][21] Insecure logging configuration detected! Sensitive data may be logged.
+2015-10-24 14:30:21,864 [salt.cli.daemons ][INFO    ][21] Setting up the Salt Master
+2015-10-24 14:30:21,965 [salt.crypt                               ][INFO    ][21] Generating master keys: /etc/salt/pki/master
+2015-10-24 14:30:31,048 [salt.daemons.masterapi                   ][INFO    ][21] Preparing the root key for local communication
+2015-10-24 14:30:31,052 [salt.utils.process                       ][DEBUG   ][33] Created pidfile: /var/run/salt-master.pid
+2015-10-24 14:30:31,053 [salt.cli.daemons                         ][INFO    ][33] The salt master is starting up
+2015-10-24 14:30:31,056 [salt.utils.lazy                          ][DEBUG   ][33] LazyLoaded roots.envs
+2015-10-24 14:30:31,061 [salt.utils.lazy                          ][DEBUG   ][33] Could not LazyLoad roots.init
+2015-10-24 14:30:31,061 [salt.master                              ][INFO    ][33] salt-master is starting as user 'root'
+2015-10-24 14:30:31,061 [salt.master                              ][INFO    ][33] Current values for max open files soft/hard setting: 1048576/1048576
+2015-10-24 14:30:31,061 [salt.master                              ][INFO    ][33] Creating master process manager
+2015-10-24 14:30:31,061 [salt.master                              ][INFO    ][33] Creating master maintenance process
+2015-10-24 14:30:31,065 [salt.utils.process                       ][DEBUG   ][33] Started 'salt.transport.zeromq.<type 'instancemethod'>._publish_daemon' with pid 34
+2015-10-24 14:30:31,065 [salt.master                              ][INFO    ][33] Creating master event publisher process
+2015-10-24 14:30:31,066 [salt.transport.zeromq                    ][INFO    ][34] Starting the Salt Publisher on tcp://0.0.0.0:4505
+2015-10-24 14:30:31,067 [salt.transport.zeromq                    ][INFO    ][34] Starting the Salt Puller on ipc:///var/run/salt/master/publish_pull.ipc
+2015-10-24 14:30:31,067 [salt.utils.process                       ][DEBUG   ][33] Started 'salt.utils.event.<type 'type'>.EventPublisher' with pid 37
+2015-10-24 14:30:31,083 [salt.utils.process                       ][DEBUG   ][33] Started 'salt.master.<type 'type'>.Maintenance' with pid 40
+2015-10-24 14:30:31,084 [salt.master                              ][INFO    ][33] Creating master publisher process
+2015-10-24 14:30:31,084 [salt.master                              ][INFO    ][33] Creating master request server process
+2015-10-24 14:30:31,086 [salt.utils.process                       ][DEBUG   ][33] Started 'salt.master.<type 'instancemethod'>.run_reqserver' with pid 42
+2015-10-24 14:30:31,093 [salt.utils.process                       ][DEBUG   ][42] Started 'salt.transport.zeromq.<type 'instancemethod'>.zmq_device' with pid 47
+2015-10-24 14:30:31,094 [salt.transport.zeromq                    ][INFO    ][47] Setting up the master communication server
+2015-10-24 14:30:31,094 [salt.loader                              ][DEBUG   ][40] Error loading runners.nacl: libnacl import error, perhaps missing python libnacl package
+2015-10-24 14:30:31,095 [salt.utils.process                       ][DEBUG   ][42] Started 'salt.master.<type 'type'>.MWorker' with pid 55
+2015-10-24 14:30:31,096 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:31,096 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:31,098 [salt.utils.process                       ][DEBUG   ][42] Started 'salt.master.<type 'type'>.MWorker' with pid 59
+2015-10-24 14:30:31,099 [salt.config                              ][DEBUG   ][55] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,099 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:31,099 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:31,100 [salt.utils.process                       ][DEBUG   ][42] Started 'salt.master.<type 'type'>.MWorker' with pid 62
+2015-10-24 14:30:31,101 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:31,101 [salt.config                              ][DEBUG   ][59] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,101 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:31,102 [salt.utils.process                       ][DEBUG   ][42] Started 'salt.master.<type 'type'>.MWorker' with pid 65
+2015-10-24 14:30:31,103 [salt.config                              ][DEBUG   ][62] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,103 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:31,103 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:31,105 [salt.config                              ][DEBUG   ][65] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,105 [salt.utils.process                       ][DEBUG   ][42] Started 'salt.master.<type 'type'>.MWorker' with pid 72
+2015-10-24 14:30:31,105 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:31,106 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:31,108 [salt.config                              ][DEBUG   ][72] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,133 [salt.utils.lazy                          ][DEBUG   ][40] Could not LazyLoad timezone.get_offset
+2015-10-24 14:30:31,138 [salt.utils.lazy                          ][DEBUG   ][40] Could not LazyLoad config.merge
+2015-10-24 14:30:31,139 [salt.utils.event                         ][DEBUG   ][40] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:31,139 [salt.utils.event                         ][DEBUG   ][40] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:31,143 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,144 [salt.config                              ][DEBUG   ][40] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:30:31,324 [salt.config                              ][DEBUG   ][65] Missing configuration file: /root/.saltrc
+2015-10-24 14:30:31,326 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:31,327 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:31,327 [salt.config                              ][DEBUG   ][59] Missing configuration file: /root/.saltrc
+2015-10-24 14:30:31,328 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:31,329 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:31,335 [salt.config                              ][DEBUG   ][62] Missing configuration file: /root/.saltrc
+2015-10-24 14:30:31,336 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:31,336 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:31,345 [salt.config                              ][DEBUG   ][65] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,347 [salt.config                              ][DEBUG   ][65] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:30:31,354 [salt.config                              ][DEBUG   ][55] Missing configuration file: /root/.saltrc
+2015-10-24 14:30:31,355 [salt.config                              ][DEBUG   ][62] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,355 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:31,356 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:31,356 [salt.config                              ][DEBUG   ][59] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,358 [salt.config                              ][DEBUG   ][62] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:30:31,359 [salt.config                              ][DEBUG   ][59] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:30:31,375 [salt.config                              ][DEBUG   ][72] Missing configuration file: /root/.saltrc
+2015-10-24 14:30:31,376 [salt.config                              ][DEBUG   ][55] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,376 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:31,377 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:31,379 [salt.config                              ][DEBUG   ][55] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:30:31,388 [salt.config                              ][INFO    ][40] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:30:31,389 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,399 [salt.config                              ][DEBUG   ][72] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,411 [salt.config                              ][DEBUG   ][72] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:30:31,557 [salt.config                              ][INFO    ][65] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:30:31,559 [salt.config                              ][DEBUG   ][65] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,570 [salt.config                              ][INFO    ][59] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:30:31,571 [salt.config                              ][DEBUG   ][59] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,580 [salt.config                              ][INFO    ][62] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:30:31,581 [salt.config                              ][DEBUG   ][62] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,619 [salt.config                              ][INFO    ][72] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:30:31,621 [salt.config                              ][DEBUG   ][72] Reading configuration from /etc/salt/master
+2015-10-24 14:30:31,644 [salt.config                              ][INFO    ][55] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:30:31,646 [salt.config                              ][DEBUG   ][55] Reading configuration from /etc/salt/master
+2015-10-24 14:30:52,544 [salt.loaded.int.grains.core              ][DEBUG   ][40] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:30:52,657 [salt.loaded.int.grains.core              ][DEBUG   ][65] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:30:52,669 [salt.loaded.int.grains.core              ][DEBUG   ][59] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:30:52,685 [salt.loaded.int.grains.core              ][DEBUG   ][62] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:30:52,737 [salt.loaded.int.grains.core              ][DEBUG   ][72] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:30:52,749 [salt.loaded.int.grains.core              ][DEBUG   ][55] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:30:52,773 [salt.utils.lazy                          ][DEBUG   ][40] Could not LazyLoad config.merge
+2015-10-24 14:30:52,774 [salt.utils.lazy                          ][DEBUG   ][40] LazyLoaded roots.envs
+2015-10-24 14:30:52,774 [salt.fileserver                          ][DEBUG   ][40] Updating roots fileserver cache
+2015-10-24 14:30:52,792 [salt.utils.verify                        ][DEBUG   ][40] This salt-master instance has accepted 0 minion keys.
+2015-10-24 14:30:52,877 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:52,877 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:52,879 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:52,879 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:52,891 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:52,892 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:52,893 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:52,893 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:52,896 [salt.config                              ][DEBUG   ][65] Reading configuration from /etc/salt/master
+2015-10-24 14:30:52,899 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:52,899 [salt.config                              ][DEBUG   ][65] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:30:52,899 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:52,901 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:52,901 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:52,915 [salt.config                              ][DEBUG   ][59] Reading configuration from /etc/salt/master
+2015-10-24 14:30:52,917 [salt.config                              ][DEBUG   ][59] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:30:52,918 [salt.config                              ][DEBUG   ][62] Reading configuration from /etc/salt/master
+2015-10-24 14:30:52,920 [salt.config                              ][DEBUG   ][62] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:30:52,954 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:52,954 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:52,955 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:52,956 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:52,966 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:52,967 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:52,968 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:30:52,968 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:30:52,974 [salt.config                              ][DEBUG   ][72] Reading configuration from /etc/salt/master
+2015-10-24 14:30:52,976 [salt.config                              ][DEBUG   ][72] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:30:52,987 [salt.config                              ][DEBUG   ][55] Reading configuration from /etc/salt/master
+2015-10-24 14:30:52,989 [salt.config                              ][DEBUG   ][55] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:30:53,089 [salt.config                              ][INFO    ][65] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:30:53,090 [salt.config                              ][DEBUG   ][65] Reading configuration from /etc/salt/master
+2015-10-24 14:30:53,105 [salt.config                              ][INFO    ][62] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:30:53,107 [salt.config                              ][DEBUG   ][62] Reading configuration from /etc/salt/master
+2015-10-24 14:30:53,110 [salt.config                              ][INFO    ][59] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:30:53,111 [salt.config                              ][DEBUG   ][59] Reading configuration from /etc/salt/master
+2015-10-24 14:30:53,167 [salt.config                              ][INFO    ][72] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:30:53,168 [salt.config                              ][DEBUG   ][72] Reading configuration from /etc/salt/master
+2015-10-24 14:30:53,175 [salt.config                              ][INFO    ][55] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:30:53,176 [salt.config                              ][DEBUG   ][55] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,134 [salt.loaded.int.grains.core              ][DEBUG   ][65] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:14,155 [salt.loaded.int.grains.core              ][DEBUG   ][59] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:14,156 [salt.loaded.int.grains.core              ][DEBUG   ][62] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:14,231 [salt.loaded.int.grains.core              ][DEBUG   ][72] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:14,232 [salt.loaded.int.grains.core              ][DEBUG   ][55] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:14,321 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:14,321 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:14,322 [salt.config                              ][DEBUG   ][65] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,345 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:14,345 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:14,346 [salt.config                              ][DEBUG   ][59] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,352 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:14,352 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:14,353 [salt.config                              ][DEBUG   ][62] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,427 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:14,427 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:14,428 [salt.config                              ][DEBUG   ][55] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,434 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:14,435 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:14,436 [salt.config                              ][DEBUG   ][72] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,505 [salt.config                              ][DEBUG   ][65] Missing configuration file: /root/.saltrc
+2015-10-24 14:31:14,506 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:14,507 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:14,517 [salt.config                              ][DEBUG   ][65] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,518 [salt.config                              ][DEBUG   ][65] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:31:14,530 [salt.config                              ][DEBUG   ][62] Missing configuration file: /root/.saltrc
+2015-10-24 14:31:14,531 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:14,531 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:14,535 [salt.config                              ][DEBUG   ][59] Missing configuration file: /root/.saltrc
+2015-10-24 14:31:14,536 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:14,536 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:14,542 [salt.config                              ][DEBUG   ][62] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,543 [salt.config                              ][DEBUG   ][62] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:31:14,548 [salt.config                              ][DEBUG   ][59] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,550 [salt.config                              ][DEBUG   ][59] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:31:14,605 [salt.config                              ][DEBUG   ][55] Missing configuration file: /root/.saltrc
+2015-10-24 14:31:14,606 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:14,606 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:14,613 [salt.config                              ][DEBUG   ][72] Missing configuration file: /root/.saltrc
+2015-10-24 14:31:14,614 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:14,615 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:14,615 [salt.config                              ][DEBUG   ][55] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,617 [salt.config                              ][DEBUG   ][55] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:31:14,624 [salt.config                              ][DEBUG   ][72] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,625 [salt.config                              ][DEBUG   ][72] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:31:14,703 [salt.config                              ][INFO    ][65] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:31:14,704 [salt.config                              ][DEBUG   ][65] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,725 [salt.config                              ][INFO    ][62] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:31:14,726 [salt.config                              ][DEBUG   ][62] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,732 [salt.config                              ][INFO    ][59] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:31:14,733 [salt.config                              ][DEBUG   ][59] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,799 [salt.config                              ][INFO    ][55] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:31:14,799 [salt.config                              ][DEBUG   ][55] Reading configuration from /etc/salt/master
+2015-10-24 14:31:14,811 [salt.config                              ][INFO    ][72] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:31:14,812 [salt.config                              ][DEBUG   ][72] Reading configuration from /etc/salt/master
+2015-10-24 14:31:35,726 [salt.loaded.int.grains.core              ][DEBUG   ][62] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:35,729 [salt.loaded.int.grains.core              ][DEBUG   ][65] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:35,734 [salt.loaded.int.grains.core              ][DEBUG   ][59] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:35,795 [salt.loaded.int.grains.core              ][DEBUG   ][55] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:35,820 [salt.loaded.int.grains.core              ][DEBUG   ][72] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:35,925 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:35,925 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:35,927 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:35,927 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:35,931 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:35,931 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:35,931 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:35,931 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:35,932 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:35,932 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:35,933 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:35,933 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:35,937 [salt.config                              ][DEBUG   ][62] Reading configuration from /etc/salt/master
+2015-10-24 14:31:35,937 [salt.config                              ][DEBUG   ][62] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:31:35,939 [salt.config                              ][DEBUG   ][59] Reading configuration from /etc/salt/master
+2015-10-24 14:31:35,942 [salt.config                              ][DEBUG   ][59] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:31:35,944 [salt.config                              ][DEBUG   ][65] Reading configuration from /etc/salt/master
+2015-10-24 14:31:35,946 [salt.config                              ][DEBUG   ][65] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:31:35,993 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:35,994 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:35,995 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:35,996 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:36,004 [salt.config                              ][DEBUG   ][55] Reading configuration from /etc/salt/master
+2015-10-24 14:31:36,006 [salt.config                              ][DEBUG   ][55] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:31:36,011 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:36,011 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:36,013 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:36,013 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:36,021 [salt.config                              ][DEBUG   ][72] Reading configuration from /etc/salt/master
+2015-10-24 14:31:36,023 [salt.config                              ][DEBUG   ][72] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:31:36,119 [salt.config                              ][INFO    ][59] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:31:36,121 [salt.config                              ][DEBUG   ][59] Reading configuration from /etc/salt/master
+2015-10-24 14:31:36,123 [salt.config                              ][INFO    ][62] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:31:36,124 [salt.config                              ][DEBUG   ][62] Reading configuration from /etc/salt/master
+2015-10-24 14:31:36,127 [salt.config                              ][INFO    ][65] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:31:36,128 [salt.config                              ][DEBUG   ][65] Reading configuration from /etc/salt/master
+2015-10-24 14:31:36,186 [salt.config                              ][INFO    ][55] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:31:36,187 [salt.config                              ][DEBUG   ][55] Reading configuration from /etc/salt/master
+2015-10-24 14:31:36,202 [salt.config                              ][INFO    ][72] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:31:36,203 [salt.config                              ][DEBUG   ][72] Reading configuration from /etc/salt/master
+2015-10-24 14:31:52,843 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:31:52,845 [salt.config                              ][DEBUG   ][40] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:31:53,014 [salt.config                              ][INFO    ][40] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:31:53,014 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:31:57,126 [salt.loaded.int.grains.core              ][DEBUG   ][65] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:57,126 [salt.loaded.int.grains.core              ][DEBUG   ][62] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:57,149 [salt.loaded.int.grains.core              ][DEBUG   ][59] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:57,181 [salt.loaded.int.grains.core              ][DEBUG   ][55] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:57,223 [salt.loaded.int.grains.core              ][DEBUG   ][72] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:31:57,326 [salt.transport.zeromq                    ][INFO    ][65] Worker binding to socket ipc:///var/run/salt/master/workers.ipc
+2015-10-24 14:31:57,327 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:57,327 [salt.utils.event                         ][DEBUG   ][65] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:57,330 [salt.transport.zeromq                    ][INFO    ][62] Worker binding to socket ipc:///var/run/salt/master/workers.ipc
+2015-10-24 14:31:57,331 [salt.crypt                               ][DEBUG   ][65] Loaded master key: /etc/salt/pki/master/master.pem
+2015-10-24 14:31:57,331 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:57,331 [salt.utils.event                         ][DEBUG   ][62] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:57,332 [salt.transport.mixins.auth               ][INFO    ][65] Authentication request from my-minion
+2015-10-24 14:31:57,332 [salt.transport.mixins.auth               ][INFO    ][65] Authentication accepted from my-minion
+2015-10-24 14:31:57,333 [salt.crypt                               ][DEBUG   ][62] Loaded master key: /etc/salt/pki/master/master.pem
+2015-10-24 14:31:57,339 [salt.utils.event                         ][DEBUG   ][65] Sending event - data = {'id': 'my-minion', '_stamp': '2015-10-24T14:31:57.338552', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmyndOaxrKdwqpdCftkk6\nRrSG/wOmKmioOMSzEKWZPb/rBKbx0ZkfVUb1RvKlDZrnV5IrmiF0xwo6OVdcgVhJ\nT7W7pYyxFgMUmoChZ4sTEGbSFJVS/s2fexW3Eyrn6Aev5l0sKmHsdFN1WGKcJixL\nkZj6d4sSpAXjaoNuC+Gu8BWSxY+WmPB2Q1JBYL8VUtCJTENHZUtQGZQKUuenEGWy\nsnKSHXR1W7pk/JRAvYo8E2fonockoCZyGmOi4RXpq94CH/HsbzGYjaT6PvLzkxG7\nV5Ph7v+EAEpfYaNlXfPn8PN0ueqpw72JPzBLTfoNGykUc2whaDrZM9CsvXGXlHM1\npwIDAQAB\n-----END PUBLIC KEY-----', 'act': 'accept'}
+2015-10-24 14:31:57,349 [salt.transport.zeromq                    ][INFO    ][59] Worker binding to socket ipc:///var/run/salt/master/workers.ipc
+2015-10-24 14:31:57,350 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:57,350 [salt.utils.event                         ][DEBUG   ][59] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:57,352 [salt.crypt                               ][DEBUG   ][59] Loaded master key: /etc/salt/pki/master/master.pem
+2015-10-24 14:31:57,382 [salt.transport.zeromq                    ][INFO    ][55] Worker binding to socket ipc:///var/run/salt/master/workers.ipc
+2015-10-24 14:31:57,383 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:57,383 [salt.utils.event                         ][DEBUG   ][55] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:57,385 [salt.crypt                               ][DEBUG   ][55] Loaded master key: /etc/salt/pki/master/master.pem
+2015-10-24 14:31:57,415 [salt.utils.lazy                          ][DEBUG   ][65] LazyLoaded jinja.render
+2015-10-24 14:31:57,416 [salt.utils.lazy                          ][DEBUG   ][65] LazyLoaded yaml.render
+2015-10-24 14:31:57,417 [salt.transport.zeromq                    ][INFO    ][72] Worker binding to socket ipc:///var/run/salt/master/workers.ipc
+2015-10-24 14:31:57,418 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:31:57,418 [salt.utils.event                         ][DEBUG   ][72] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:31:57,421 [salt.crypt                               ][DEBUG   ][72] Loaded master key: /etc/salt/pki/master/master.pem
+2015-10-24 14:32:13,944 [salt.loaded.int.grains.core              ][DEBUG   ][40] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:32:14,127 [salt.utils.lazy                          ][DEBUG   ][40] LazyLoaded local_cache.clean_old_jobs
+2015-10-24 14:32:14,128 [salt.utils.lazy                          ][DEBUG   ][40] Could not LazyLoad config.merge
+2015-10-24 14:32:14,129 [salt.fileserver                          ][DEBUG   ][40] Updating roots fileserver cache
+2015-10-24 14:32:14,138 [salt.utils.verify                        ][DEBUG   ][40] This salt-master instance has accepted 1 minion keys.
+2015-10-24 14:32:18,721 [salt.utils.event                         ][DEBUG   ][62] Sending event - data = {'_stamp': '2015-10-24T14:32:18.720582', 'pretag': None, 'cmd': '_minion_event', 'tag': 'minion_start', 'data': 'Minion my-minion started at Sat Oct 24 14:32:18 2015', 'id': 'my-minion'}
+2015-10-24 14:32:18,729 [salt.utils.event                         ][DEBUG   ][59] Sending event - data = {'_stamp': '2015-10-24T14:32:18.728495', 'pretag': None, 'cmd': '_minion_event', 'tag': 'salt/minion/my-minion/start', 'data': 'Minion my-minion started at Sat Oct 24 14:32:18 2015', 'id': 'my-minion'}
+2015-10-24 14:32:20,278 [salt.utils.lazy                          ][DEBUG   ][72] LazyLoaded local_cache.prep_jid
+2015-10-24 14:32:20,279 [salt.utils.job                           ][INFO    ][72] Got return from my-minion for job 20151024143220278229
+2015-10-24 14:32:20,280 [salt.utils.event                         ][DEBUG   ][72] Sending event - data = {'tgt_type': 'glob', 'jid': '20151024143220278229', 'return': True, 'tgt': 'my-minion', 'schedule': '__mine_interval', 'cmd': '_return', 'pid': 591, '_stamp': '2015-10-24T14:32:20.279655', 'arg': [], 'fun': 'mine.update', 'id': 'my-minion'}
+2015-10-24 14:33:14,184 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:33:14,186 [salt.config                              ][DEBUG   ][40] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+2015-10-24 14:33:14,187 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/minion.d/_schedule.conf
+2015-10-24 14:33:14,188 [salt.config                              ][DEBUG   ][40] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:33:14,352 [salt.config                              ][INFO    ][40] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:33:14,353 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:33:35,286 [salt.loaded.int.grains.core              ][DEBUG   ][40] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:33:35,464 [salt.utils.lazy                          ][DEBUG   ][40] LazyLoaded local_cache.clean_old_jobs
+2015-10-24 14:33:35,466 [salt.utils.lazy                          ][DEBUG   ][40] Could not LazyLoad config.merge
+2015-10-24 14:33:35,466 [salt.fileserver                          ][DEBUG   ][40] Updating roots fileserver cache
+2015-10-24 14:33:35,476 [salt.utils.verify                        ][DEBUG   ][40] This salt-master instance has accepted 1 minion keys.
+2015-10-24 14:34:35,535 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:34:35,536 [salt.config                              ][DEBUG   ][40] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+2015-10-24 14:34:35,537 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/minion.d/_schedule.conf
+2015-10-24 14:34:35,539 [salt.config                              ][DEBUG   ][40] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:34:35,708 [salt.config                              ][INFO    ][40] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:34:35,708 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:34:37,352 [salt.config      ][DEBUG   ][621] Reading configuration from /etc/salt/master
+2015-10-24 14:34:37,487 [salt.config      ][DEBUG   ][621] Missing configuration file: /root/.saltrc
+2015-10-24 14:34:37,488 [salt.utils.event ][DEBUG   ][621] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:34:37,488 [salt.utils.event ][DEBUG   ][621] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:34:37,504 [salt.transport.zeromq][DEBUG   ][621] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/master', 'c161fa5a452d_master', 'tcp://127.0.0.1:4506', 'clear')
+2015-10-24 14:34:37,508 [salt.utils.lazy                          ][DEBUG   ][65] LazyLoaded local_cache.prep_jid
+2015-10-24 14:34:37,513 [salt.utils.event                         ][DEBUG   ][65] Sending event - data = {'_stamp': '2015-10-24T14:34:37.512302', 'minions': ['my-minion']}
+2015-10-24 14:34:37,513 [salt.utils.event                         ][DEBUG   ][65] Sending event - data = {'tgt_type': 'glob', 'jid': '20151024143437508420', 'tgt': '*', '_stamp': '2015-10-24T14:34:37.512754', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'minions': ['my-minion']}
+2015-10-24 14:34:37,514 [salt.master                              ][INFO    ][65] User root Published command test.ping with jid 20151024143437508420
+2015-10-24 14:34:37,514 [salt.master                              ][DEBUG   ][65] Published command details {'tgt_type': 'glob', 'jid': '20151024143437508420', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+2015-10-24 14:34:37,519 [salt.utils.lazy  ][DEBUG   ][621] LazyLoaded local_cache.get_load
+2015-10-24 14:34:37,519 [salt.client      ][DEBUG   ][621] get_iter_returns for jid 20151024143437508420 sent to set(['my-minion']) will timeout at 14:34:42.519041
+2015-10-24 14:34:37,574 [salt.utils.lazy                          ][DEBUG   ][62] LazyLoaded local_cache.prep_jid
+2015-10-24 14:34:37,676 [salt.utils.job                           ][INFO    ][62] Got return from my-minion for job 20151024143437508420
+2015-10-24 14:34:37,677 [salt.utils.event                         ][DEBUG   ][62] Sending event - data = {'fun_args': [], 'jid': '20151024143437508420', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-10-24T14:34:37.676390', 'fun': 'test.ping', 'id': 'my-minion'}
+2015-10-24 14:34:37,687 [salt.client      ][DEBUG   ][621] jid 20151024143437508420 return from my-minion
+2015-10-24 14:34:37,689 [salt.utils.lazy  ][DEBUG   ][621] LazyLoaded nested.output
+2015-10-24 14:34:37,691 [salt.client      ][DEBUG   ][621] jid 20151024143437508420 found all minions set(['my-minion'])
+2015-10-24 14:34:48,215 [salt.utils.lazy  ][DEBUG   ][647] LazyLoaded test_runner.clients
+2015-10-24 14:34:48,215 [salt.config      ][DEBUG   ][647] Reading configuration from /etc/salt/master
+2015-10-24 14:34:48,217 [salt.config      ][DEBUG   ][647] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+2015-10-24 14:34:48,217 [salt.config      ][DEBUG   ][647] Reading configuration from /etc/salt/minion.d/_schedule.conf
+2015-10-24 14:34:48,218 [salt.config      ][DEBUG   ][647] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:34:48,352 [salt.config      ][INFO    ][647] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:34:48,353 [salt.config      ][DEBUG   ][647] Reading configuration from /etc/salt/master
+2015-10-24 14:34:56,660 [salt.loaded.int.grains.core              ][DEBUG   ][40] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:34:56,837 [salt.utils.lazy                          ][DEBUG   ][40] LazyLoaded local_cache.clean_old_jobs
+2015-10-24 14:34:56,840 [salt.utils.lazy                          ][DEBUG   ][40] Could not LazyLoad config.merge
+2015-10-24 14:34:56,840 [salt.fileserver                          ][DEBUG   ][40] Updating roots fileserver cache
+2015-10-24 14:34:56,849 [salt.utils.verify                        ][DEBUG   ][40] This salt-master instance has accepted 1 minion keys.
+2015-10-24 14:35:09,124 [salt.loaded.int.grains.core][DEBUG   ][647] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:35:09,272 [salt.utils.event ][DEBUG   ][647] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-24 14:35:09,272 [salt.utils.event ][DEBUG   ][647] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-24 14:35:09,273 [salt.utils.event ][DEBUG   ][647] Sending event - data = {'fun': 'runner.test_runner.clients', 'jid': '20151024143448215254', 'user': 'root', '_stamp': '2015-10-24T14:35:09.272409'}
+2015-10-24 14:35:09,281 [salt.loader      ][DEBUG   ][647] Error loading runners.nacl: libnacl import error, perhaps missing python libnacl package
+2015-10-24 14:35:09,299 [salt.loaded.ext.runners.test_runner][INFO    ][647] BEFORE salt.client.Caller 1
+2015-10-24 14:35:09,299 [salt.config      ][DEBUG   ][647] Reading configuration from /etc/salt/minion
+2015-10-24 14:35:09,301 [salt.config      ][DEBUG   ][647] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+2015-10-24 14:35:09,301 [salt.config      ][DEBUG   ][647] Reading configuration from /etc/salt/minion.d/_schedule.conf
+2015-10-24 14:35:09,302 [salt.config      ][DEBUG   ][647] Reading configuration from /etc/salt/minion
+2015-10-24 14:35:09,303 [salt.config      ][DEBUG   ][647] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+2015-10-24 14:35:09,303 [salt.config      ][DEBUG   ][647] Reading configuration from /etc/salt/minion.d/_schedule.conf
+2015-10-24 14:35:30,247 [salt.loaded.int.grains.core][DEBUG   ][647] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:35:30,420 [salt.crypt       ][DEBUG   ][647] Initializing new SAuth for ('/etc/salt/pki/minion', 'my-minion', 'tcp://127.0.0.1:4506')
+2015-10-24 14:35:30,423 [salt.transport.zeromq][DEBUG   ][647] Generated random reconnect delay between '1000ms' and '11000ms' (4971)
+2015-10-24 14:35:30,424 [salt.transport.zeromq][DEBUG   ][647] Setting zmq_reconnect_ivl to '4971ms'
+2015-10-24 14:35:30,424 [salt.transport.zeromq][DEBUG   ][647] Setting zmq_reconnect_ivl_max to '11000ms'
+2015-10-24 14:35:30,424 [salt.transport.zeromq][DEBUG   ][647] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'my-minion', 'tcp://127.0.0.1:4506', 'aes')
+2015-10-24 14:35:30,425 [salt.crypt       ][DEBUG   ][647] Initializing new SAuth for ('/etc/salt/pki/minion', 'my-minion', 'tcp://127.0.0.1:4506')
+2015-10-24 14:35:30,426 [salt.transport.zeromq][DEBUG   ][647] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'my-minion', 'tcp://127.0.0.1:4506', 'clear')
+2015-10-24 14:35:30,430 [salt.transport.mixins.auth               ][INFO    ][59] Authentication request from my-minion
+2015-10-24 14:35:30,431 [salt.transport.mixins.auth               ][INFO    ][59] Authentication accepted from my-minion
+2015-10-24 14:35:30,491 [salt.utils.event                         ][DEBUG   ][59] Sending event - data = {'id': 'my-minion', '_stamp': '2015-10-24T14:35:30.490538', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmyndOaxrKdwqpdCftkk6\nRrSG/wOmKmioOMSzEKWZPb/rBKbx0ZkfVUb1RvKlDZrnV5IrmiF0xwo6OVdcgVhJ\nT7W7pYyxFgMUmoChZ4sTEGbSFJVS/s2fexW3Eyrn6Aev5l0sKmHsdFN1WGKcJixL\nkZj6d4sSpAXjaoNuC+Gu8BWSxY+WmPB2Q1JBYL8VUtCJTENHZUtQGZQKUuenEGWy\nsnKSHXR1W7pk/JRAvYo8E2fonockoCZyGmOi4RXpq94CH/HsbzGYjaT6PvLzkxG7\nV5Ph7v+EAEpfYaNlXfPn8PN0ueqpw72JPzBLTfoNGykUc2whaDrZM9CsvXGXlHM1\npwIDAQAB\n-----END PUBLIC KEY-----', 'act': 'accept'}
+2015-10-24 14:35:30,492 [salt.crypt       ][DEBUG   ][647] Decrypting the current master AES key
+2015-10-24 14:35:30,494 [salt.crypt       ][DEBUG   ][647] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-10-24 14:35:30,611 [salt.utils.lazy                          ][DEBUG   ][55] LazyLoaded jinja.render
+2015-10-24 14:35:30,612 [salt.utils.lazy                          ][DEBUG   ][55] LazyLoaded yaml.render
+2015-10-24 14:35:30,621 [salt.crypt       ][DEBUG   ][647] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-10-24 14:35:30,691 [salt.utils.lazy  ][DEBUG   ][647] LazyLoaded jinja.render
+2015-10-24 14:35:30,691 [salt.utils.lazy  ][DEBUG   ][647] LazyLoaded yaml.render
+2015-10-24 14:35:30,692 [salt.loaded.ext.runners.test_runner][INFO    ][647] AFTER salt.client.Caller 1
+2015-10-24 14:35:30,692 [salt.loaded.ext.runners.test_runner][INFO    ][647] BEFORE salt.client.Caller 2
+2015-10-24 14:35:30,692 [salt.config      ][DEBUG   ][647] Reading configuration from /etc/salt/minion
+2015-10-24 14:35:30,693 [salt.config      ][DEBUG   ][647] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+2015-10-24 14:35:30,693 [salt.config      ][DEBUG   ][647] Reading configuration from /etc/salt/minion.d/_schedule.conf
+2015-10-24 14:35:30,694 [salt.config      ][DEBUG   ][647] Reading configuration from /etc/salt/minion
+2015-10-24 14:35:30,695 [salt.config      ][DEBUG   ][647] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+2015-10-24 14:35:30,695 [salt.config      ][DEBUG   ][647] Reading configuration from /etc/salt/minion.d/_schedule.conf
+2015-10-24 14:35:51,621 [salt.loaded.int.grains.core][DEBUG   ][647] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:35:51,795 [salt.crypt       ][DEBUG   ][647] Initializing new SAuth for ('/etc/salt/pki/minion', 'my-minion', 'tcp://127.0.0.1:4506')
+2015-10-24 14:35:51,796 [salt.transport.zeromq][DEBUG   ][647] Generated random reconnect delay between '1000ms' and '11000ms' (10125)
+2015-10-24 14:35:51,796 [salt.transport.zeromq][DEBUG   ][647] Setting zmq_reconnect_ivl to '10125ms'
+2015-10-24 14:35:51,796 [salt.transport.zeromq][DEBUG   ][647] Setting zmq_reconnect_ivl_max to '11000ms'
+2015-10-24 14:35:51,799 [salt.crypt       ][DEBUG   ][647] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-10-24 14:35:56,910 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:35:56,912 [salt.config                              ][DEBUG   ][40] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+2015-10-24 14:35:56,912 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/minion.d/_schedule.conf
+2015-10-24 14:35:56,914 [salt.config                              ][DEBUG   ][40] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:35:57,089 [salt.config                              ][INFO    ][40] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:35:57,090 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:36:18,024 [salt.loaded.int.grains.core              ][DEBUG   ][40] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:36:18,198 [salt.utils.lazy                          ][DEBUG   ][40] LazyLoaded local_cache.clean_old_jobs
+2015-10-24 14:36:18,200 [salt.utils.lazy                          ][DEBUG   ][40] Could not LazyLoad config.merge
+2015-10-24 14:36:18,201 [salt.fileserver                          ][DEBUG   ][40] Updating roots fileserver cache
+2015-10-24 14:36:18,211 [salt.utils.verify                        ][DEBUG   ][40] This salt-master instance has accepted 1 minion keys.
+2015-10-24 14:37:18,260 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:37:18,262 [salt.config                              ][DEBUG   ][40] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+2015-10-24 14:37:18,262 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/minion.d/_schedule.conf
+2015-10-24 14:37:18,264 [salt.config                              ][DEBUG   ][40] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:37:18,431 [salt.config                              ][INFO    ][40] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:37:18,431 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:37:39,377 [salt.loaded.int.grains.core              ][DEBUG   ][40] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:37:39,559 [salt.utils.lazy                          ][DEBUG   ][40] LazyLoaded local_cache.clean_old_jobs
+2015-10-24 14:37:39,565 [salt.utils.lazy                          ][DEBUG   ][40] Could not LazyLoad config.merge
+2015-10-24 14:37:39,565 [salt.fileserver                          ][DEBUG   ][40] Updating roots fileserver cache
+2015-10-24 14:37:39,576 [salt.utils.verify                        ][DEBUG   ][40] This salt-master instance has accepted 1 minion keys.
+2015-10-24 14:38:39,630 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:38:39,632 [salt.config                              ][DEBUG   ][40] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+2015-10-24 14:38:39,633 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/minion.d/_schedule.conf
+2015-10-24 14:38:39,635 [salt.config                              ][DEBUG   ][40] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:38:39,803 [salt.config                              ][INFO    ][40] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:38:39,805 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:39:00,766 [salt.loaded.int.grains.core              ][DEBUG   ][40] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:39:00,946 [salt.utils.lazy                          ][DEBUG   ][40] LazyLoaded local_cache.clean_old_jobs
+2015-10-24 14:39:00,947 [salt.utils.lazy                          ][DEBUG   ][40] Could not LazyLoad config.merge
+2015-10-24 14:39:00,948 [salt.fileserver                          ][DEBUG   ][40] Updating roots fileserver cache
+2015-10-24 14:39:00,954 [salt.utils.verify                        ][DEBUG   ][40] This salt-master instance has accepted 1 minion keys.
+2015-10-24 14:40:00,996 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:40:00,998 [salt.config                              ][DEBUG   ][40] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+2015-10-24 14:40:00,998 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/minion.d/_schedule.conf
+2015-10-24 14:40:01,000 [salt.config                              ][DEBUG   ][40] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:40:01,174 [salt.config                              ][INFO    ][40] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:40:01,175 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:40:22,161 [salt.loaded.int.grains.core              ][DEBUG   ][40] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:40:22,341 [salt.utils.lazy                          ][DEBUG   ][40] LazyLoaded local_cache.clean_old_jobs
+2015-10-24 14:40:22,342 [salt.utils.lazy                          ][DEBUG   ][40] Could not LazyLoad config.merge
+2015-10-24 14:40:22,343 [salt.fileserver                          ][DEBUG   ][40] Updating roots fileserver cache
+2015-10-24 14:40:22,353 [salt.utils.verify                        ][DEBUG   ][40] This salt-master instance has accepted 1 minion keys.
+2015-10-24 14:41:22,414 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:41:22,416 [salt.config                              ][DEBUG   ][40] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+2015-10-24 14:41:22,416 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/minion.d/_schedule.conf
+2015-10-24 14:41:22,417 [salt.config                              ][DEBUG   ][40] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:41:22,584 [salt.config                              ][INFO    ][40] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:41:22,585 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:41:43,526 [salt.loaded.int.grains.core              ][DEBUG   ][40] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:41:43,704 [salt.utils.lazy                          ][DEBUG   ][40] LazyLoaded local_cache.clean_old_jobs
+2015-10-24 14:41:43,706 [salt.utils.lazy                          ][DEBUG   ][40] Could not LazyLoad config.merge
+2015-10-24 14:41:43,706 [salt.fileserver                          ][DEBUG   ][40] Updating roots fileserver cache
+2015-10-24 14:41:43,716 [salt.utils.verify                        ][DEBUG   ][40] This salt-master instance has accepted 1 minion keys.
+2015-10-24 14:42:43,771 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:42:43,773 [salt.config                              ][DEBUG   ][40] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+2015-10-24 14:42:43,773 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/minion.d/_schedule.conf
+2015-10-24 14:42:43,774 [salt.config                              ][DEBUG   ][40] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2015-10-24 14:42:43,945 [salt.config                              ][INFO    ][40] Found minion id from generate_minion_id(): c161fa5a452d
+2015-10-24 14:42:43,945 [salt.config                              ][DEBUG   ][40] Reading configuration from /etc/salt/master
+2015-10-24 14:43:03,293 [salt.transport.zeromq][DEBUG   ][647] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'my-minion', 'tcp://127.0.0.1:4506', 'aes')
+2015-10-24 14:43:03,294 [salt.crypt       ][DEBUG   ][647] Initializing new SAuth for ('/etc/salt/pki/minion', 'my-minion', 'tcp://127.0.0.1:4506')
+2015-10-24 14:43:03,305 [salt.utils.lazy                          ][DEBUG   ][72] LazyLoaded jinja.render
+2015-10-24 14:43:03,306 [salt.utils.lazy                          ][DEBUG   ][72] LazyLoaded yaml.render
+2015-10-24 14:43:03,317 [salt.crypt       ][DEBUG   ][647] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-10-24 14:43:03,396 [salt.utils.lazy  ][DEBUG   ][647] LazyLoaded jinja.render
+2015-10-24 14:43:03,397 [salt.utils.lazy  ][DEBUG   ][647] LazyLoaded yaml.render
+2015-10-24 14:43:03,397 [salt.loaded.ext.runners.test_runner][INFO    ][647] AFTER salt.client.Caller 2
+2015-10-24 14:43:03,398 [salt.utils.lazy  ][DEBUG   ][647] LazyLoaded nested.output
+2015-10-24 14:43:03,399 [salt.utils.event ][DEBUG   ][647] Sending event - data = {'jid': '20151024143448215254', 'return': {'done': 'Local & Caller'}, 'success': True, '_stamp': '2015-10-24T14:43:03.398557', 'user': 'root', 'fun': 'runner.test_runner.clients'}
+2015-10-24 14:43:03,400 [salt.utils.lazy  ][DEBUG   ][647] LazyLoaded local_cache.prep_jid
+2015-10-24 14:43:03,401 [salt.client.mixins][INFO    ][647] Runner completed: 20151024143448215254
+2015-10-24 14:43:03,428 [salt.runner      ][DEBUG   ][647] Runner return: {'done': 'Local & Caller'}
+2015-10-24 14:43:04,885 [salt.loaded.int.grains.core              ][DEBUG   ][40] Please install 'virt-what' to improve results of the 'virtual' grain.
+2015-10-24 14:43:05,062 [salt.utils.lazy                          ][DEBUG   ][40] LazyLoaded local_cache.clean_old_jobs
+2015-10-24 14:43:05,064 [salt.utils.lazy                          ][DEBUG   ][40] Could not LazyLoad config.merge
+2015-10-24 14:43:05,065 [salt.fileserver                          ][DEBUG   ][40] Updating roots fileserver cache
+2015-10-24 14:43:05,075 [salt.utils.verify                        ][DEBUG   ][40] This salt-master instance has accepted 1 minion keys.
+[root@c161fa5a452d /]# 
+```
+
+This is a critical bug for us in that it prevents uptake of 2015.8.X.
+
+I have a simple reproducer using a docker image pre-loaded with salt 2015.8.1:
+
+```
+scratch=$PWD/build/scratch/salt
+mkdir -p $scratch/_runners $scratch/_modules $scratch/scripts
+cp src/salt/_runners/test_runner.py $scratch/_runners
+
+docker run -v $scratch:/srv/salt -it mytest/oel_salt:5.v2015.8.1 bash
+
+#on docker image:
+
+########################
+# Set up master config #
+########################
+cat << EOF  > /etc/salt/master
+auto_accept: True
+
+log_level: debug
+log_level_logfile: debug
+
+runner_dirs:
+  - /srv/salt/_runners
+EOF
+
+########################
+# Set up minion config #
+########################
+cat << EOF  > /etc/salt/minion
+master: localhost
+id: my-minion
+
+log_level: debug
+log_level_logfile: debug
+EOF
+
+#######################
+# set up salt daemons #
+#######################
+chkconfig salt-master on
+service salt-master start
+
+service salt-minion start
+chkconfig salt-minion on
+
+#wait some time
+salt-run test_runner.clients 
+```

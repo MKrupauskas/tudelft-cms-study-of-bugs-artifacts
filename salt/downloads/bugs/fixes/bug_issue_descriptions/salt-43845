@@ -1,0 +1,1079 @@
+Using Salt version 2017.7.1 on Ubuntu 16.04
+
+After submitting an async state.orchestrate call, I use the 'salt-run jobs.lookup_jid <jid>' call to retrieve the raw return from the orchestrate call.  I believe up until salt 2017.7.0 (maybe an earlier version), the call to lookup_jid used to contain the full output from state.orchestrate.  The output of the 'lookup_jid' call currently shows:
+
+**ACTUAL RETURN:**
+```
+root@salt:/etc/salt/master.d# salt-run jobs.lookup_jid 20170929151949372469
+salt.wp.bluecoat.com_master:
+    ----------
+    _stamp:
+        2017-09-29T21:22:43.577435
+    fun:
+        runner.state.orchestrate
+    fun_args:
+        - orchestration.ratingtool
+        |_
+          ----------
+          orchestration_jid:
+              20170929151949372469
+          pillar:
+              ----------
+              haproxy:
+                  ----------
+                  backends:
+                      - hrtbeta_cluster
+                  target:
+                      hrt01.wp.bluecoat.com
+              healthCheckPath:
+                  /v2/health/check
+              nodes:
+                  |_
+                    ----------
+                    name:
+                        hrt04
+                    port:
+                        8443
+                    protocol:
+                        https
+                    target:
+                        hrt04.wp.bluecoat.com
+    jid:
+        20170929151949372469
+    return:
+        ----------
+        outputter:
+            highstate
+        retcode:
+            0
+    success:
+        True
+    user:
+        sudo_jeff.vincent
+
+```
+**EXPECTED RETURN:**  
+I don't have the exact output from previous versions of salt, but the equivalent information I'm trying to retrieve is shown below from the same state.orchestrate call (non-async).  Is there a different mechanism for retrieving the orchestration output data from the job cache?
+```
+root@salt:/var/log/salt# salt-run state.orchestrate orchestration.ratingtool pillar='{"haproxy": {  "target": "hrt01.wp.bluecoat.com","backends": [ "hrtbeta_cluster" ]},"healthCheckPath": "/v2/health/check","nodes": [{ "target": "hrt04.wp.bluecoat.com", "name": "hrt04", "port": 8443, "protocol": "https" }]}'
+salt.wp.bluecoat.com_master:
+----------
+          ID: ping_haproxy
+    Function: salt.function
+        Name: test.ping
+      Result: True
+     Comment: Function ran successfully. Function test.ping ran on hrt01.wp.bluecoat.com.
+     Started: 16:51:17.129957
+    Duration: 574.962 ms
+     Changes:
+              hrt01.wp.bluecoat.com:
+                  True
+----------
+          ID: ping_minion_hrt04.wp.bluecoat.com
+    Function: salt.function
+        Name: test.ping
+      Result: True
+     Comment: Function ran successfully. Function test.ping ran on hrt04.wp.bluecoat.com.
+     Started: 16:51:17.705078
+    Duration: 567.14 ms
+     Changes:
+              hrt04.wp.bluecoat.com:
+                  True
+----------
+          ID: disable_node_hrt04.wp.bluecoat.com
+    Function: salt.state
+      Result: True
+     Comment: States ran successfully. Updating hrt01.wp.bluecoat.com.
+     Started: 16:51:18.273179
+    Duration: 15238.72 ms
+     Changes:
+              hrt01.wp.bluecoat.com:
+              ----------
+                        ID: install_socat
+                  Function: pkg.latest
+                      Name: socat
+                    Result: True
+                   Comment: Package socat is already up-to-date
+                   Started: 22:51:24.374483
+                  Duration: 8730.223 ms
+                   Changes:
+              ----------
+                        ID: disable_node_from_haproxy_hrt04.wp.bluecoat.com_hrtbeta_cluster
+                  Function: cmd.run
+                      Name: echo "disable server hrtbeta_cluster/hrt04" | socat stdio /run/haproxy/admin.sock
+                    Result: True
+                   Comment: Command "echo "disable server hrtbeta_cluster/hrt04" | socat stdio /run/haproxy/admin.sock" run
+                   Started: 22:51:33.107919
+                  Duration: 16.714 ms
+                   Changes:
+                            ----------
+                            pid:
+                                31805
+                            retcode:
+                                0
+                            stderr:
+                            stdout:
+
+              Summary for hrt01.wp.bluecoat.com
+              ------------
+              Succeeded: 2 (changed=1)
+              Failed:    0
+              ------------
+              Total states run:     2
+              Total run time:   8.747 s
+----------
+          ID: deploy_to_hrt04.wp.bluecoat.com
+    Function: salt.function
+        Name: state.highstate
+      Result: True
+     Comment: Function ran successfully. Function state.highstate ran on hrt04.wp.bluecoat.com.
+     Started: 16:51:33.512409
+    Duration: 87461.4 ms
+     Changes:
+              hrt04.wp.bluecoat.com:
+              ----------
+                        ID: java_deps
+                  Function: pkg.latest
+                      Name: python-software-properties
+                    Result: True
+                   Comment: Package python-software-properties is already up-to-date
+                   Started: 22:52:05.923231
+                  Duration: 9750.376 ms
+                   Changes:
+              ----------
+                        ID: java_deps
+                  Function: pkg.latest
+                      Name: debconf-utils
+                    Result: True
+                   Comment: Package debconf-utils is already up-to-date
+                   Started: 22:52:15.673886
+                  Duration: 37.712 ms
+                   Changes:
+              ----------
+                        ID: java_deps
+                  Function: pkg.latest
+                      Name: python-apt
+                    Result: True
+                   Comment: Package python-apt is already up-to-date
+                   Started: 22:52:15.711895
+                  Duration: 37.715 ms
+                   Changes:
+              ----------
+                        ID: oracle-java8-installer
+                  Function: pkgrepo.managed
+                    Result: True
+                   Comment: Package repo 'oracle-java8-installer' already configured
+                   Started: 22:52:15.752325
+                  Duration: 1481.819 ms
+                   Changes:
+              ----------
+                        ID: non-oracle_purge_all
+                  Function: pkg.purged
+                      Name: gcj-4.6-jdk
+                    Result: True
+                   Comment: All specified packages are already absent
+                   Started: 22:52:17.240272
+                  Duration: 21.092 ms
+                   Changes:
+              ----------
+                        ID: non-oracle_purge_all
+                  Function: pkg.purged
+                      Name: oracle-java7-installer
+                    Result: True
+                   Comment: All specified packages are already absent
+                   Started: 22:52:17.261545
+                  Duration: 19.85 ms
+                   Changes:
+              ----------
+                        ID: non-oracle_purge_all
+                  Function: pkg.purged
+                      Name: gcj-4.8-jre-headless
+                    Result: True
+                   Comment: All specified packages are already absent
+                   Started: 22:52:17.281573
+                  Duration: 19.465 ms
+                   Changes:
+              ----------
+                        ID: non-oracle_purge_all
+                  Function: pkg.purged
+                      Name: gcj-4.6-jre-headless
+                    Result: True
+                   Comment: All specified packages are already absent
+                   Started: 22:52:17.301217
+                  Duration: 21.375 ms
+                   Changes:
+              ----------
+                        ID: oracle-java8-installer
+                  Function: debconf.set
+                    Result: True
+                   Comment: All specified answers are already set
+                   Started: 22:52:17.323525
+                  Duration: 457.928 ms
+                   Changes:
+              ----------
+                        ID: oracle-java8-installer
+                  Function: pkg.latest
+                    Result: True
+                   Comment: Package oracle-java8-installer is already up-to-date
+                   Started: 22:52:17.784823
+                  Duration: 10744.852 ms
+                   Changes:
+              ----------
+                        ID: oracle-java8-installer
+                  Function: file.symlink
+                      Name: /usr/lib/jvm/default-java
+                    Result: True
+                   Comment: Symlink /usr/lib/jvm/default-java is present and owned by root:root
+                   Started: 22:52:28.532738
+                  Duration: 5.329 ms
+                   Changes:
+              ----------
+                        ID: /usr/lib/jvm/java-8-oracle/jre/lib/security/local_policy.jar
+                  Function: file.managed
+                    Result: True
+                   Comment: File /usr/lib/jvm/java-8-oracle/jre/lib/security/local_policy.jar is in the correct state
+                   Started: 22:52:28.538250
+                  Duration: 2163.239 ms
+                   Changes:
+              ----------
+                        ID: /usr/lib/jvm/java-8-oracle/jre/lib/security/US_export_policy.jar
+                  Function: file.managed
+                    Result: True
+                   Comment: File /usr/lib/jvm/java-8-oracle/jre/lib/security/US_export_policy.jar is in the correct state
+                   Started: 22:52:30.701706
+                  Duration: 1945.126 ms
+                   Changes:
+              ----------
+                        ID: tomcat6_purge_all
+                  Function: pkg.purged
+                      Name: libtomcat6-java
+                    Result: True
+                   Comment: All specified packages are already absent
+                   Started: 22:52:32.653085
+                  Duration: 19.805 ms
+                   Changes:
+              ----------
+                        ID: tomcat6_purge_all
+                  Function: pkg.purged
+                      Name: oracle-java7-installer
+                    Result: True
+                   Comment: All specified packages are already absent
+                   Started: 22:52:32.673069
+                  Duration: 19.466 ms
+                   Changes:
+              ----------
+                        ID: tomcat6_purge_all
+                  Function: pkg.purged
+                      Name: tomcat6-admin
+                    Result: True
+                   Comment: All specified packages are already absent
+                   Started: 22:52:32.692749
+                  Duration: 18.952 ms
+                   Changes:
+              ----------
+                        ID: tomcat6_purge_all
+                  Function: pkg.purged
+                      Name: tomcat6-common
+                    Result: True
+                   Comment: All specified packages are already absent
+                   Started: 22:52:32.711878
+                  Duration: 20.066 ms
+                   Changes:
+              ----------
+                        ID: tomcat6_purge_all
+                  Function: pkg.purged
+                      Name: tomcat6
+                    Result: True
+                   Comment: All specified packages are already absent
+                   Started: 22:52:32.732121
+                  Duration: 19.165 ms
+                   Changes:
+              ----------
+                        ID: tomcat6_purge_all
+                  Function: pkg.purged
+                      Name: tomcat7-admin
+                    Result: True
+                   Comment: All specified packages are already absent
+                   Started: 22:52:32.751469
+                  Duration: 19.036 ms
+                   Changes:
+              ----------
+                        ID: tomcat7-common_installer
+                  Function: pkg.installed
+                      Name: tomcat7-common
+                    Result: True
+                   Comment: Package tomcat7-common is already installed
+                   Started: 22:52:32.772098
+                  Duration: 10.21 ms
+                   Changes:
+              ----------
+                        ID: tomcat7_installer
+                  Function: pkg.installed
+                      Name: tomcat7
+                    Result: True
+                   Comment: Package tomcat7 is already installed
+                   Started: 22:52:32.783328
+                  Duration: 10.021 ms
+                   Changes:
+              ----------
+                        ID: tomcat7_installer
+                  Function: user.present
+                      Name: tomcat7
+                    Result: True
+                   Comment: User tomcat7 is present and up to date
+                   Started: 22:52:32.798743
+                  Duration: 4.045 ms
+                   Changes:
+              ----------
+                        ID: tomcat7_installer
+                  Function: group.present
+                      Name: tomcat7
+                    Result: True
+                   Comment: Group tomcat7 is present and up to date
+                   Started: 22:52:32.803407
+                  Duration: 0.661 ms
+                   Changes:
+              ----------
+                        ID: tomcat7_installer
+                  Function: file.managed
+                      Name: /var/lib/tomcat7/conf/tomcat-users.xml
+                    Result: True
+                   Comment: File /var/lib/tomcat7/conf/tomcat-users.xml updated
+                   Started: 22:52:32.806605
+                  Duration: 1912.271 ms
+                   Changes:
+                            ----------
+                            diff:
+                                ---
+                                +++
+                                @@ -36,7 +36,5 @@
+                                 <!-- Begin Webpulse User Section -->
+                                 <!-- End Webpulse User Section -->
+                                 <!-- Begin Webpulse Monitoring Section -->
+                                -<role rolename="monitoring"/>
+                                -<user username="webpulse" password="lint1234" roles="monitoring"/>
+                                 <!-- End Webpulse Monitoring Section -->
+                                 </tomcat-users>
+              ----------
+                        ID: tomcat7_installer
+                  Function: service.running
+                      Name: tomcat7
+                    Result: True
+                   Comment: The service tomcat7 is already running
+                   Started: 22:52:34.721348
+                  Duration: 78.63 ms
+                   Changes:
+              ----------
+                        ID: pkg_dependencies-ratingtool
+                  Function: pkg.latest
+                      Name: unzip
+                    Result: True
+                   Comment: Package unzip is already up-to-date
+                   Started: 22:52:34.800311
+                  Duration: 38.206 ms
+                   Changes:
+              ----------
+                        ID: pkg_dependencies-ratingtool
+                  Function: pkg.latest
+                      Name: authbind
+                    Result: True
+                   Comment: Package authbind is already up-to-date
+                   Started: 22:52:34.838796
+                  Duration: 37.683 ms
+                   Changes:
+              ----------
+                        ID: tomcat7_cleanup-ratingtool
+                  Function: service.dead
+                      Name: tomcat7
+                    Result: True
+                   Comment: Service tomcat7 was killed
+                   Started: 22:52:34.876779
+                  Duration: 2502.681 ms
+                   Changes:
+                            ----------
+                            tomcat7:
+                                False
+              ----------
+                        ID: tomcat7_cleanup-ratingtool
+                  Function: file.directory
+                      Name: /var/lib/tomcat7/work
+                    Result: True
+                   Comment: Files cleaned from directory /var/lib/tomcat7/work
+                   Started: 22:52:37.380700
+                  Duration: 2.763 ms
+                   Changes:
+                            ----------
+                            removed:
+                                - /var/lib/tomcat7/work/Catalina
+              ----------
+                        ID: tomcat7_cleanup-ratingtool
+                  Function: file.directory
+                      Name: /var/lib/tomcat7/logs
+                    Result: True
+                   Comment: Files cleaned from directory /var/lib/tomcat7/logs
+                   Started: 22:52:37.384462
+                  Duration: 2.114 ms
+                   Changes:
+                            ----------
+                            removed:
+                                - /var/lib/tomcat7/logs/localhost.2017-09-29.log
+                                - /var/lib/tomcat7/logs/localhost_access_log.2017-09-29.txt
+                                - /var/lib/tomcat7/logs/catalina.2017-09-29.log
+                                - /var/lib/tomcat7/logs/tools.log
+                                - /var/lib/tomcat7/logs/catalina.out
+                                - /var/lib/tomcat7/logs/hrt.log
+              ----------
+                        ID: java_opts-ratingtool
+                  Function: file.line
+                      Name: /etc/default/tomcat7
+                    Result: True
+                   Comment: No changes needed to be made
+                   Started: 22:52:37.386833
+                  Duration: 1.874 ms
+                   Changes:
+              ----------
+                        ID: tomcat7_auth_bind-ratingtool
+                  Function: file.line
+                      Name: /etc/default/tomcat7
+                    Result: True
+                   Comment: No changes needed to be made
+                   Started: 22:52:37.388885
+                  Duration: 1.624 ms
+                   Changes:
+              ----------
+                        ID: tomcat7_auth_bind_https-ratingtool
+                  Function: file.managed
+                      Name: /etc/authbind/byport/8443
+                    Result: True
+                   Comment: File /etc/authbind/byport/8443 exists with proper permissions. No changes made.
+                   Started: 22:52:37.390687
+                  Duration: 1.501 ms
+                   Changes:
+              ----------
+                        ID: tomcat7_ssl_place_jks-ratingtool
+                  Function: file.managed
+                      Name: /var/lib/tomcat7/conf/cert.jks
+                    Result: True
+                   Comment: File /var/lib/tomcat7/conf/cert.jks is in the correct state
+                   Started: 22:52:37.393189
+                  Duration: 2.438 ms
+                   Changes:
+              ----------
+                        ID: tomcat7_folder-ratingtool
+                  Function: file.directory
+                      Name: /usr/share/tomcat7/shared/classes/
+                    Result: True
+                   Comment: Directory /usr/share/tomcat7/shared/classes is in the correct state
+                   Started: 22:52:37.396608
+                  Duration: 1.034 ms
+                   Changes:
+              ----------
+                        ID: tomcat7-monitoring-installer-ratingtool
+                  Function: file.blockreplace
+                      Name: /var/lib/tomcat7/conf/tomcat-users.xml
+                    Result: True
+                   Comment: Changes were made
+                   Started: 22:52:37.398744
+                  Duration: 3.675 ms
+                   Changes:
+                            ----------
+                            diff:
+                                ---
+                                +++
+                                @@ -36,5 +36,7 @@
+                                 <!-- Begin Webpulse User Section -->
+                                 <!-- End Webpulse User Section -->
+                                 <!-- Begin Webpulse Monitoring Section -->
+                                +<role rolename="monitoring"/>
+                                +<user username="webpulse" password="lint1234" roles="monitoring"/>
+                                 <!-- End Webpulse Monitoring Section -->
+                                 </tomcat-users>
+              ----------
+                        ID: remove_files-ratingtool
+                  Function: file.absent
+                      Name: /var/lib/tomcat7/webapps/ROOT
+                    Result: True
+                   Comment: Removed directory /var/lib/tomcat7/webapps/ROOT
+                   Started: 22:52:37.402606
+                  Duration: 137.432 ms
+                   Changes:
+                            ----------
+                            removed:
+                                /var/lib/tomcat7/webapps/ROOT
+              ----------
+                        ID: remove_files-ratingtool
+                  Function: file.absent
+                      Name: /usr/share/tomcat7/shared/classes/ratingtool.properties
+                    Result: True
+                   Comment: Removed file /usr/share/tomcat7/shared/classes/ratingtool.properties
+                   Started: 22:52:37.540257
+                  Duration: 0.677 ms
+                   Changes:
+                            ----------
+                            removed:
+                                /usr/share/tomcat7/shared/classes/ratingtool.properties
+              ----------
+                        ID: remove_files-ratingtool
+                  Function: file.absent
+                      Name: /var/lib/tomcat7/webapps/ROOT.war
+                    Result: True
+                   Comment: Removed file /var/lib/tomcat7/webapps/ROOT.war
+                   Started: 22:52:37.541114
+                  Duration: 29.799 ms
+                   Changes:
+                            ----------
+                            removed:
+                                /var/lib/tomcat7/webapps/ROOT.war
+              ----------
+                        ID: update_war_file-ratingtool
+                  Function: file.managed
+                      Name: /var/lib/tomcat7/webapps/ROOT.war
+                    Result: True
+                   Comment: File /var/lib/tomcat7/webapps/ROOT.war updated
+                   Started: 22:52:37.573047
+                  Duration: 1664.915 ms
+                   Changes:
+                            ----------
+                            diff:
+                                New file
+                            mode:
+                                0644
+              ----------
+                        ID: prep_tmpdir-ratingtool
+                  Function: file.directory
+                      Name: /tmp/ratingtool-web_salt
+                    Result: True
+                   Comment: Directory /tmp/ratingtool-web_salt is in the correct state
+                   Started: 22:52:39.238281
+                  Duration: 2.453 ms
+                   Changes:
+              ----------
+                        ID: prep_extract_tmpdir_properties-ratingtool
+                  Function: file.directory
+                      Name: /tmp/ratingtool-web_salt/properties
+                    Result: True
+                   Comment: Directory /tmp/ratingtool-web_salt/properties updated
+                   Started: 22:52:39.241003
+                  Duration: 2.472 ms
+                   Changes:
+                            ----------
+                            /tmp/ratingtool-web_salt/properties:
+                                New Dir
+              ----------
+                        ID: extract_properties-ratingtool
+                  Function: cmd.run
+                      Name: unzip -j /var/lib/tomcat7/webapps/ROOT.war "**/ratingtool-bta.properties" -d /tmp/ratingtool-web_salt/properties
+              chown -R tomcat7:tomcat7 /tmp/ratingtool-web_salt/properties
+              mv /tmp/ratingtool-web_salt/properties/ratingtool-bta.properties /usr/share/tomcat7/shared/classes/ratingtool.properties
+              rm -rf /tmp/ratingtool-web_salt/properties
+
+                    Result: True
+                   Comment: Command "unzip -j /var/lib/tomcat7/webapps/ROOT.war "**/ratingtool-bta.properties" -d /tmp/ratingtool-web_salt/properties
+                            chown -R tomcat7:tomcat7 /tmp/ratingtool-web_salt/properties
+                            mv /tmp/ratingtool-web_salt/properties/ratingtool-bta.properties /usr/share/tomcat7/shared/classes/ratingtool.properties
+                            rm -rf /tmp/ratingtool-web_salt/properties
+                            " run
+                   Started: 22:52:39.247439
+                  Duration: 33.088 ms
+                   Changes:
+                            ----------
+                            pid:
+                                10708
+                            retcode:
+                                0
+                            stderr:
+                            stdout:
+                                Archive:  /var/lib/tomcat7/webapps/ROOT.war
+                                  inflating: /tmp/ratingtool-web_salt/properties/ratingtool-bta.properties
+              ----------
+                        ID: properties_file-ratingtool
+                  Function: file.prepend
+                      Name: /usr/share/tomcat7/shared/classes/ratingtool.properties
+                    Result: True
+                   Comment: Prepended 7 lines
+                   Started: 22:52:39.280846
+                  Duration: 12.316 ms
+                   Changes:
+                            ----------
+                            diff:
+                                ---
+                                +++
+                                @@ -1,3 +1,10 @@
+                                +###############################################################
+                                +# This file is auto-generated by Salt
+                                +#       WAR_FILE: https://nexus.wp.bluecoat.com/content/groups/bluecoat/com/bluecoat/webpulse/ratingtool/5.8.7-SNAPSHOT/ratingtool-5.8.7-20170928.192953-3.war
+                                +#       WAR_HASH: sha1=d97b9170439fd121589ed400e610c06fa3f29ff5
+                                +# ORIGINAL_PROPS: WEB-INF/classes/wp_properties/generated/ratingtool-bta.properties
+                                +#      DEPLOYED:  Fri Sep 29 22:51:54 UTC 2017
+                                +###############################################################
+                                 AUTO-GENERATED: 2017-09-28T19:29:26.894Z
+                                 ENCRYPTION_KEY_FILE=/etc/symantec/ratingtool/encryption_key
+                                 SKIP_DB_VALIDATION=true
+              ----------
+                        ID: restart_tomcat7-ratingtool
+                  Function: service.running
+                      Name: tomcat7
+                    Result: True
+                   Comment: Started Service tomcat7
+                   Started: 22:52:39.294640
+                  Duration: 5137.833 ms
+                   Changes:
+                            ----------
+                            tomcat7:
+                                True
+              ----------
+                        ID: tomcat_symlink-ratingtool
+                  Function: file.symlink
+                      Name: /t
+                    Result: True
+                   Comment: Symlink /t is present and owned by tomcat7:tomcat7
+                   Started: 22:52:44.432743
+                  Duration: 1.544 ms
+                   Changes:
+              ----------
+                        ID: stats_folder
+                  Function: file.directory
+                      Name: /data
+                    Result: True
+                   Comment: Directory /data is in the correct state
+                   Started: 22:52:44.438528
+                  Duration: 1.199 ms
+                   Changes:
+              ----------
+                        ID: stats_folder
+                  Function: file.directory
+                      Name: /data/execstatsArchive
+                    Result: True
+                   Comment: Directory /data/execstatsArchive is in the correct state
+                   Started: 22:52:44.439901
+                  Duration: 1.197 ms
+                   Changes:
+              ----------
+                        ID: setup_tomcat_server_xml
+                  Function: file.managed
+                      Name: /var/lib/tomcat7/conf/server.xml
+                    Result: True
+                   Comment: File /var/lib/tomcat7/conf/server.xml updated
+                   Started: 22:52:44.443566
+                  Duration: 1943.785 ms
+                   Changes:
+                            ----------
+                            diff:
+                                ---
+                                +++
+                                @@ -18,11 +18,11 @@
+                                   <Service name="Catalina">
+
+                                 <!-- CONNECTOR START -->
+                                -<Connector port="8443" protocol="HTTP/1.1" SSLEnabled="true"
+                                -maxThreads="2000" scheme="https" secure="true"
+                                -keystoreFile="/var/lib/tomcat7/conf/cert.jks" keystorePass="changeit"
+                                -clientAuth="false"
+                                -sslEnabledProtocols="TLSv1, TLSv1.1, TLSv1.2" />
+                                +    <Connector port="443" protocol="HTTP/1.1" SSLEnabled="true"
+                                +               maxThreads="2000" scheme="https" secure="true"
+                                +               keystoreFile="/var/lib/tomcat7/conf/cert.jks" keystorePass="changeit"
+                                +               clientAuth="false"
+                                +               sslEnabledProtocols="TLSv1, TLSv1.1, TLSv1.2" />
+                                 <!-- CONNECTOR END -->
+
+                                     <Engine name="Catalina" defaultHost="localhost">
+              ----------
+                        ID: setup_tomcat_server_xml_connector
+                  Function: file.blockreplace
+                      Name: /var/lib/tomcat7/conf/server.xml
+                    Result: True
+                   Comment: Changes were made
+                   Started: 22:52:46.388670
+                  Duration: 14.249 ms
+                   Changes:
+                            ----------
+                            diff:
+                                ---
+                                +++
+                                @@ -18,11 +18,11 @@
+                                   <Service name="Catalina">
+
+                                 <!-- CONNECTOR START -->
+                                -    <Connector port="443" protocol="HTTP/1.1" SSLEnabled="true"
+                                -               maxThreads="2000" scheme="https" secure="true"
+                                -               keystoreFile="/var/lib/tomcat7/conf/cert.jks" keystorePass="changeit"
+                                -               clientAuth="false"
+                                -               sslEnabledProtocols="TLSv1, TLSv1.1, TLSv1.2" />
+                                +<Connector port="8443" protocol="HTTP/1.1" SSLEnabled="true"
+                                +maxThreads="2000" scheme="https" secure="true"
+                                +keystoreFile="/var/lib/tomcat7/conf/cert.jks" keystorePass="changeit"
+                                +clientAuth="false"
+                                +sslEnabledProtocols="TLSv1, TLSv1.1, TLSv1.2" />
+                                 <!-- CONNECTOR END -->
+
+                                     <Engine name="Catalina" defaultHost="localhost">
+              ----------
+                        ID: pkg_dependencies-tools
+                  Function: pkg.latest
+                      Name: unzip
+                    Result: True
+                   Comment: Package unzip is already up-to-date
+                   Started: 22:52:46.403100
+                  Duration: 37.6 ms
+                   Changes:
+              ----------
+                        ID: pkg_dependencies-tools
+                  Function: pkg.latest
+                      Name: authbind
+                    Result: True
+                   Comment: Package authbind is already up-to-date
+                   Started: 22:52:46.440961
+                  Duration: 38.65 ms
+                   Changes:
+              ----------
+                        ID: tomcat7_cleanup-tools
+                  Function: service.dead
+                      Name: tomcat7
+                    Result: True
+                   Comment: Service tomcat7 was killed
+                   Started: 22:52:46.479867
+                  Duration: 474.534 ms
+                   Changes:
+                            ----------
+                            tomcat7:
+                                False
+              ----------
+                        ID: tomcat7_cleanup-tools
+                  Function: file.directory
+                      Name: /var/lib/tomcat7/work
+                    Result: True
+                   Comment: Files cleaned from directory /var/lib/tomcat7/work
+                   Started: 22:52:46.955638
+                  Duration: 2.324 ms
+                   Changes:
+                            ----------
+                            removed:
+                                - /var/lib/tomcat7/work/Catalina
+              ----------
+                        ID: tomcat7_cleanup-tools
+                  Function: file.directory
+                      Name: /var/lib/tomcat7/logs
+                    Result: True
+                   Comment: Files cleaned from directory /var/lib/tomcat7/logs
+                   Started: 22:52:46.958984
+                  Duration: 1.859 ms
+                   Changes:
+                            ----------
+                            removed:
+                                - /var/lib/tomcat7/logs/localhost.2017-09-29.log
+                                - /var/lib/tomcat7/logs/catalina.out
+                                - /var/lib/tomcat7/logs/localhost_access_log.2017-09-29.txt
+                                - /var/lib/tomcat7/logs/tools.log
+                                - /var/lib/tomcat7/logs/catalina.2017-09-29.log
+              ----------
+                        ID: java_opts-tools
+                  Function: file.line
+                      Name: /etc/default/tomcat7
+                    Result: True
+                   Comment: No changes needed to be made
+                   Started: 22:52:46.961021
+                  Duration: 1.672 ms
+                   Changes:
+              ----------
+                        ID: tomcat7_auth_bind-tools
+                  Function: file.line
+                      Name: /etc/default/tomcat7
+                    Result: True
+                   Comment: No changes needed to be made
+                   Started: 22:52:46.962870
+                  Duration: 1.47 ms
+                   Changes:
+              ----------
+                        ID: tomcat7_auth_bind_https-tools
+                  Function: file.managed
+                      Name: /etc/authbind/byport/8443
+                    Result: True
+                   Comment: File /etc/authbind/byport/8443 exists with proper permissions. No changes made.
+                   Started: 22:52:46.964521
+                  Duration: 1.415 ms
+                   Changes:
+              ----------
+                        ID: tomcat7_ssl_place_jks-tools
+                  Function: file.managed
+                      Name: /var/lib/tomcat7/conf/cert.jks
+                    Result: True
+                   Comment: File /var/lib/tomcat7/conf/cert.jks is in the correct state
+                   Started: 22:52:46.966923
+                  Duration: 1.98 ms
+                   Changes:
+              ----------
+                        ID: tomcat7_folder-tools
+                  Function: file.directory
+                      Name: /usr/share/tomcat7/shared/classes/
+                    Result: True
+                   Comment: Directory /usr/share/tomcat7/shared/classes is in the correct state
+                   Started: 22:52:46.969921
+                  Duration: 1.077 ms
+                   Changes:
+              ----------
+                        ID: tomcat7-monitoring-installer-tools
+                  Function: file.blockreplace
+                      Name: /var/lib/tomcat7/conf/tomcat-users.xml
+                    Result: True
+                   Comment: No changes needed to be made
+                   Started: 22:52:46.971979
+                  Duration: 1.32 ms
+                   Changes:
+              ----------
+                        ID: remove_files-tools
+                  Function: file.absent
+                      Name: /var/lib/tomcat7/webapps/tools.war
+                    Result: True
+                   Comment: Removed file /var/lib/tomcat7/webapps/tools.war
+                   Started: 22:52:46.973506
+                  Duration: 25.687 ms
+                   Changes:
+                            ----------
+                            removed:
+                                /var/lib/tomcat7/webapps/tools.war
+              ----------
+                        ID: remove_files-tools
+                  Function: file.absent
+                      Name: /usr/share/tomcat7/shared/classes/tools.properties
+                    Result: True
+                   Comment: Removed file /usr/share/tomcat7/shared/classes/tools.properties
+                   Started: 22:52:46.999415
+                  Duration: 0.68 ms
+                   Changes:
+                            ----------
+                            removed:
+                                /usr/share/tomcat7/shared/classes/tools.properties
+              ----------
+                        ID: remove_files-tools
+                  Function: file.absent
+                      Name: /var/lib/tomcat7/webapps/tools
+                    Result: True
+                   Comment: Removed directory /var/lib/tomcat7/webapps/tools
+                   Started: 22:52:47.000318
+                  Duration: 122.48 ms
+                   Changes:
+                            ----------
+                            removed:
+                                /var/lib/tomcat7/webapps/tools
+              ----------
+                        ID: update_war_file-tools
+                  Function: file.managed
+                      Name: /var/lib/tomcat7/webapps/tools.war
+                    Result: True
+                   Comment: File /var/lib/tomcat7/webapps/tools.war updated
+                   Started: 22:52:47.124862
+                  Duration: 1021.607 ms
+                   Changes:
+                            ----------
+                            diff:
+                                New file
+                            mode:
+                                0644
+              ----------
+                        ID: prep_tmpdir-tools
+                  Function: file.directory
+                      Name: /tmp/tools-web_salt
+                    Result: True
+                   Comment: Directory /tmp/tools-web_salt is in the correct state
+                   Started: 22:52:48.146689
+                  Duration: 1.653 ms
+                   Changes:
+              ----------
+                        ID: prep_extract_tmpdir_properties-tools
+                  Function: file.directory
+                      Name: /tmp/tools-web_salt/properties
+                    Result: True
+                   Comment: Directory /tmp/tools-web_salt/properties updated
+                   Started: 22:52:48.148522
+                  Duration: 2.302 ms
+                   Changes:
+                            ----------
+                            /tmp/tools-web_salt/properties:
+                                New Dir
+              ----------
+                        ID: extract_properties-tools
+                  Function: cmd.run
+                      Name: unzip -j /var/lib/tomcat7/webapps/tools.war "**/tools-bta.properties" -d /tmp/tools-web_salt/properties
+              chown -R tomcat7:tomcat7 /tmp/tools-web_salt/properties
+              mv /tmp/tools-web_salt/properties/tools-bta.properties /usr/share/tomcat7/shared/classes/tools.properties
+              rm -rf /tmp/tools-web_salt/properties
+
+                    Result: True
+                   Comment: Command "unzip -j /var/lib/tomcat7/webapps/tools.war "**/tools-bta.properties" -d /tmp/tools-web_salt/properties
+                            chown -R tomcat7:tomcat7 /tmp/tools-web_salt/properties
+                            mv /tmp/tools-web_salt/properties/tools-bta.properties /usr/share/tomcat7/shared/classes/tools.properties
+                            rm -rf /tmp/tools-web_salt/properties
+                            " run
+                   Started: 22:52:48.153357
+                  Duration: 30.513 ms
+                   Changes:
+                            ----------
+                            pid:
+                                10833
+                            retcode:
+                                0
+                            stderr:
+                            stdout:
+                                Archive:  /var/lib/tomcat7/webapps/tools.war
+                                  inflating: /tmp/tools-web_salt/properties/tools-bta.properties
+              ----------
+                        ID: properties_file-tools
+                  Function: file.prepend
+                      Name: /usr/share/tomcat7/shared/classes/tools.properties
+                    Result: True
+                   Comment: Prepended 7 lines
+                   Started: 22:52:48.184177
+                  Duration: 11.702 ms
+                   Changes:
+                            ----------
+                            diff:
+                                ---
+                                +++
+                                @@ -1,3 +1,10 @@
+                                +###############################################################
+                                +# This file is auto-generated by Salt
+                                +#       WAR_FILE: https://nexus.wp.bluecoat.com/content/groups/bluecoat/com/bluecoat/webpulse/tools/2.4.1-SNAPSHOT/tools-2.4.1-20170921.192821-121.war
+                                +#       WAR_HASH: sha1=484cad2de94f9d6246b3bd47da599d6154a153b5
+                                +# ORIGINAL_PROPS: WEB-INF/classes/wp_properties/generated/tools-bta.properties
+                                +#      DEPLOYED:  Fri Sep 29 22:51:59 UTC 2017
+                                +###############################################################
+                                 AUTO-GENERATED: 2017-09-21T19:27:58.004Z
+                                 ENCRYPTION_KEY_FILE=/etc/symantec/tools/encryption_key
+                                 SKIP_DB_VALIDATION=true
+              ----------
+                        ID: restart_tomcat7-tools
+                  Function: service.running
+                      Name: tomcat7
+                    Result: True
+                   Comment: Started Service tomcat7
+                   Started: 22:52:48.197314
+                  Duration: 5120.247 ms
+                   Changes:
+                            ----------
+                            tomcat7:
+                                True
+              ----------
+                        ID: tomcat_symlink-tools
+                  Function: file.symlink
+                      Name: /t
+                    Result: True
+                   Comment: Symlink /t is present and owned by tomcat7:tomcat7
+                   Started: 22:52:53.317753
+                  Duration: 1.129 ms
+                   Changes:
+              ----------
+                        ID: influxdata_repo
+                  Function: pkgrepo.managed
+                      Name: deb https://repos.influxdata.com/ubuntu trusty stable
+                    Result: True
+                   Comment: Package repo 'deb https://repos.influxdata.com/ubuntu trusty stable' already configured
+                   Started: 22:52:53.319006
+                  Duration: 63.119 ms
+                   Changes:
+              ----------
+                        ID: telegraf_pkg
+                  Function: pkg.installed
+                      Name: telegraf
+                    Result: True
+                   Comment: Package telegraf is already installed
+                   Started: 22:52:53.382893
+                  Duration: 6.39 ms
+                   Changes:
+              ----------
+                        ID: telegraf_conf
+                  Function: file.managed
+                      Name: /etc/telegraf/telegraf.conf
+                    Result: True
+                   Comment: File /etc/telegraf/telegraf.conf is in the correct state
+                   Started: 22:52:53.389407
+                  Duration: 7012.409 ms
+                   Changes:
+              ----------
+                        ID: telegraf_service
+                  Function: service.running
+                      Name: telegraf
+                    Result: True
+                   Comment: The service telegraf is already running
+                   Started: 22:53:00.403248
+                  Duration: 93.987 ms
+                   Changes:
+
+              Summary for hrt04.wp.bluecoat.com
+              -------------
+              Succeeded: 75 (changed=26)
+              Failed:     0
+              -------------
+              Total states run:     75
+              Total run time:   54.495 s
+----------
+          ID: wait_for_health_hrt04.wp.bluecoat.com
+    Function: salt.function
+        Name: http.wait_for_successful_query
+      Result: True
+     Comment: Function ran successfully. Function http.wait_for_successful_query ran on hrt01.wp.bluecoat.com.
+     Started: 16:53:00.974144
+    Duration: 22335.875 ms
+     Changes:
+              hrt01.wp.bluecoat.com:
+
+              Summary for hrt01.wp.bluecoat.com
+              -----------
+              Succeeded: 0
+              Failed:   0
+              -----------
+              Total states run:    0
+              Total run time:  0.000 ms
+----------
+          ID: enable_node_hrt04.wp.bluecoat.com
+    Function: salt.state
+      Result: True
+     Comment: States ran successfully. Updating hrt01.wp.bluecoat.com.
+     Started: 16:53:23.310594
+    Duration: 16479.353 ms
+     Changes:
+              hrt01.wp.bluecoat.com:
+              ----------
+                        ID: install_socat
+                  Function: pkg.latest
+                      Name: socat
+                    Result: True
+                   Comment: Package socat is already up-to-date
+                   Started: 22:53:29.578662
+                  Duration: 9815.664 ms
+                   Changes:
+              ----------
+                        ID: enable_node_from_haproxy_hrt04.wp.bluecoat.com_hrtbeta_cluster
+                  Function: cmd.run
+                      Name: echo "enable server hrtbeta_cluster/hrt04" | socat stdio /run/haproxy/admin.sock
+                    Result: True
+                   Comment: Command "echo "enable server hrtbeta_cluster/hrt04" | socat stdio /run/haproxy/admin.sock" run
+                   Started: 22:53:39.397518
+                  Duration: 16.439 ms
+                   Changes:
+                            ----------
+                            pid:
+                                31956
+                            retcode:
+                                0
+                            stderr:
+                            stdout:
+
+              Summary for hrt01.wp.bluecoat.com
+              ------------
+              Succeeded: 2 (changed=1)
+              Failed:    0
+              ------------
+              Total states run:     2
+              Total run time:   9.832 s
+
+Summary for salt.wp.bluecoat.com_master
+------------
+Succeeded: 6 (changed=5)
+Failed:    0
+------------
+Total states run:     6
+Total run time: 142.657 s
+```
+
+[VersionsReport.txt](https://github.com/saltstack/salt/files/1346051/VersionsReport.txt)

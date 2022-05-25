@@ -1,0 +1,147 @@
+**Description**
+I have been seeing failures on a few different functions that are using the `chocolatey.installed` module.
+
+The error message regardless of the package is always in the form:
+```
+          ID: firefox
+    Function: chocolatey.installed
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "c:\salt\bin\lib\site-packages\salt-3000-py3.5.egg\salt\state.py", line 1981, in call
+                  **cdata['kwargs'])
+                File "c:\salt\bin\lib\site-packages\salt-3000-py3.5.egg\salt\loader.py", line 1977, in wrapper
+                  return f(*args, **kwargs)
+                File "c:\salt\bin\lib\site-packages\salt-3000-py3.5.egg\salt\states\chocolatey.py", line 112, in installed
+                  source=source)
+                File "c:\salt\bin\lib\site-packages\salt-3000-py3.5.egg\salt\modules\chocolatey.py", line 934, in version
+                  'available': available[pkg]}
+                File "c:\salt\bin\lib\site-packages\requests\structures.py", line 52, in __getitem__
+                  return self._store[key.lower()][1]
+              KeyError: 'firefox'
+     Started: 18:08:06.301569
+    Duration: 3140.651 ms
+     Changes:
+```
+
+So far I have seen this error for the following packages: `sql-server-2019`, `dotnet4.7.2`, `sublimetext3` and `firefox` but it has not been consistent. Yesterday I was seeing all except for firefox throwing this error on every highstate run, and today its only firefox. The only changes that were made in between is that the salt-master was upgraded from 3000.1 to 3000.2 and some changes to entirely unrelated functions in a different sls file.
+
+**Setup**
+Here are my current  function definitions for the mentioned packages:
+```
+#common.sls
+chocolatey:
+  pkg.installed
+
+sublimetext3:
+  chocolatey.installed:
+    - require:
+      - pkg: chocolatey
+
+firefox:
+  chocolatey.installed:
+    - require:
+      - pkg: chocolatey
+
+#webserver.sls
+dotnet4.7.2:
+  chocolatey.installed
+
+#dbserver.sls
+sql-server-2019:
+  chocolatey.installed:
+    - package_args: "/SAPWD:{{pillar['mssql.password']}} /TCPENABLED:1 /NPENABLED:1 /SECURITYMODE:SQL"
+```
+
+**Expected behavior**
+Function should succeed with no changes reported.
+
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Master
+Salt Version:
+           Salt: 3000.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+         Jinja2: 2.10
+        libgit2: 0.26.0
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.2
+         Python: 2.7.17 (default, Apr 15 2020, 17:20:14)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-1065-aws
+         system: Linux
+        version: Ubuntu 18.04 bionic
+
+
+Minion:
+Salt Version:
+           Salt: 3000
+
+Dependency Versions:
+           cffi: 1.12.2
+       cherrypy: 17.4.1
+       dateutil: 2.8.0
+      docker-py: Not Installed
+          gitdb: 2.0.6
+      gitpython: Not Installed
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: Not Installed
+   pycryptodome: 3.8.1
+         pygit2: Not Installed
+         Python: 3.5.4 (v3.5.4:3f56838, Aug  8 2017, 02:17:05) [MSC v.1900 64 bit (AMD64)]
+   python-gnupg: 0.4.4
+         PyYAML: 5.1.2
+          PyZMQ: 18.0.1
+          smmap: 2.0.5
+        timelib: 0.2.4
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+
+System Versions:
+           dist:
+         locale: cp1252
+        machine: AMD64
+        release: 2019Server
+         system: Windows
+        version: 2019Server 10.0.17763 SP0 Multiprocessor Free
+
+```
+</details>
+
+**Additional context**
+I notice that my minion version is behind, I've tried using the command `salt minion pkg.latest_version salt-minion` to upgrade, but it appears that it hasn't worked

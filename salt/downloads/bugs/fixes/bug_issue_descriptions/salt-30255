@@ -1,0 +1,120 @@
+Hello! Good reading of the issue below, I hope that I described the problem well...:)
+## TLDR
+
+When using pkg.installed in one of my states, which install a package found in mysql official apt repository, the package is installed correctly, **but** apt-get turns into a zombie process and the salt-call calling highstate justs hang-on, even when using module.run to execute cmd.retcode. If running exactly the same code that Salt executes manually via ssh, the apt-get does not turn into a zombie process and the package is installed correctly too. The apt-get call just turns into a zombie when Salt manages it.
+## Versions
+
+Below is the result of `salt-minion --versions-report` call. (there is no master because Vagrant is managing it)
+
+```
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-74-generic
+         system: Ubuntu 14.04 trusty
+
+root@vagrant-ubuntu-trusty-64:/var/lib# salt-minion --versions-report
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-74-generic
+         system: Ubuntu 14.04 trusty
+```
+## Full description
+
+I'm trying to create a developer environment in my machine using Vagrant to manage Virtualbox's machines and Saltstack to install and configure all the needed packages in it. For MySQL, i'm using [mysql-formula](http://github.com/saltstack-formulas/mysql-formula) with some modifications to allow the use of [MySQL Official APT Repositories](https://dev.mysql.com/doc/mysql-apt-repo-quick-guide/en/), such as changes in `debconf.set` call present in server.sls and changes in defaults.yaml. Here is the [repository with the changes](https://github.com/fjorgemota/mysql-formula) (note that, because I just want to use that formula in a Ubuntu machine (14.04 LTS version, btw), I'm not very interested in the support to other operating systems now)
+When using that formula with the following top file:
+
+```
+base:
+  '*':
+    - mysql.package
+    - mysql.server
+    - mysql.client
+    - mysql.user
+```
+
+Everything seems to run fine, the MySQL Official APT Repository is correctly defined in the system and an `apt-get -q update` is executed to update the system's sources, but, when Salt try to install mysql-community-server, the daemon just hangs, and the last printed log is that: `[INFO    ] Executing command ['apt-get', '-q', '-y', '-o', 'DPkg::Options::=--force-confold', '-o', 'DPkg::Options::=--force-confdef', 'install', 'mysql-community-server'] in directory '/root'`.
+
+When executing htop on the virtual machine (I manually installed via ssh), all I see is the following:
+![Screenshot of htop showing the zombie apt-get](https://cloud.githubusercontent.com/assets/529864/12219029/9e860d26-b718-11e5-8b97-f1ba7a1c2b71.png)
+
+But, when running `sudo service mysql status`, I have a surprise: 
+
+```
+vagrant@vagrant-ubuntu-trusty-64:~$ sudo service mysql status
+ * MySQL Community Server 5.7.10 is running
+```
+
+So, MySQL is correctly installed, and is correctly running, but...hey, Salt does not detected it, and just hang on awaiting something I cannot imagine of..
+## Alternatives tried
+
+I tried changing [these lines](https://github.com/fjorgemota/mysql-formula/blob/master/mysql/server.sls#L79-L80) to a module.run executing cmd.retcode module with the cmd being the same that Salt try to execute (based on some issues found here), but the apt-get turn into a zombie and Salt just hang-on again. 
+
+And...when configuring debconf the same way Salt configures and executing the same command that Salt executes via SSH, I just...found the install running successfully, no zombies, MySQL installed and correctly running. So...seems (to me) to be some problem with subprocess management of Salt..
+
+Can anyone help me to solve this case, please?
+
+Thanks. (and sorry for my bad english, I'm a bit bored after trying to solve this problem two days in a row..)
+
+PS: Most of the changes made in mysql-formula by me is based on Dockerfile that installs MySQL from the official source in a container based on Debian, and can be [found here](https://github.com/docker-library/mysql/blob/master/5.7/Dockerfile).

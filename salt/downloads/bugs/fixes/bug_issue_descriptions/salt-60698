@@ -1,0 +1,197 @@
+**Description**
+
+Hello Salties , 
+because I can't use saltcheck on proxy minions I spend some time on how I could possible fix it. @dmurphy18 Mentioned maybe it's just replacing Caller() with ProxyCaller() . I thought , must be a low  hanging fruit , go for it :) 
+
+So I just copied this from the documentation and waited for a result. 
+```
+import logging
+logging.basicConfig(
+    format='%(asctime)s %(levelname)s:%(message)s',
+    datefmt='%m/%d/%Y %I:%M:%S %p',
+    level=logging.DEBUG)
+
+import salt.client
+import salt.config
+
+__opts__ = salt.config.proxy_config('/etc/salt/proxy',
+        minion_id='c1000v')
+caller = salt.client.ProxyCaller(mopts=__opts__)
+caller.cmd('net.cli', 'show ip arp')
+```
+
+With logging enabled I could catch the error.
+
+```
+Proxymodule napalm is missing an init() or a shutdown() or both.
+
+```
+
+From the debugs I have collected it seems that the napalm functions are not loaded via the loader. It fails , but I don't see why . Due to lack of knowledge of loader system.
+
+Good Example ( via salt-call ) 
+salt-call
+```
+[DEBUG   ] ['__virtual__']
+> /Users/sharky/.pyenv/versions/3.6.8/envs/salt3003/lib/python3.6/site-packages/salt/loader.py(2197)_process_virtual()
+-> virtual_aliases = getattr(mod, "__virtual_aliases__", tuple())
+(Pdb) n
+> /Users/sharky/.pyenv/versions/3.6.8/envs/salt3003/lib/python3.6/site-packages/salt/loader.py(2198)_process_virtual()
+-> try:
+(Pdb) n
+> /Users/sharky/.pyenv/versions/3.6.8/envs/salt3003/lib/python3.6/site-packages/salt/loader.py(2199)_process_virtual()
+-> error_reason = None
+(Pdb) n
+> /Users/sharky/.pyenv/versions/3.6.8/envs/salt3003/lib/python3.6/site-packages/salt/loader.py(2200)_process_virtual()
+-> if hasattr(mod, "__virtual__") and inspect.isfunction(mod.__virtual__):
+(Pdb) n
+> /Users/sharky/.pyenv/versions/3.6.8/envs/salt3003/lib/python3.6/site-packages/salt/loader.py(2201)_process_virtual()
+-> try:
+(Pdb) n
+> /Users/sharky/.pyenv/versions/3.6.8/envs/salt3003/lib/python3.6/site-packages/salt/loader.py(2202)_process_virtual()
+-> start = time.time()
+(Pdb) n
+> /Users/sharky/.pyenv/versions/3.6.8/envs/salt3003/lib/python3.6/site-packages/salt/loader.py(2203)_process_virtual()
+-> virtual_attr = getattr(mod, virtual_func)
+(Pdb) n
+> /Users/sharky/.pyenv/versions/3.6.8/envs/salt3003/lib/python3.6/site-packages/salt/loader.py(2204)_process_virtual()
+-> virtual = self.run(virtual_attr)
+(Pdb) virutal_attr
+*** NameError: name 'virutal_attr' is not defined
+(Pdb) virtual_attr
+<function __virtual__ at 0x107f60488>
+(Pdb) n
+> /Users/sharky/.pyenv/versions/3.6.8/envs/salt3003/lib/python3.6/site-packages/salt/loader.py(2205)_process_virtual()
+-> if isinstance(virtual, tuple):
+(Pdb) virtual
+'napalm'
+(Pdb) virtual_attr
+<function __virtual__ at 0x107f60488>
+(Pdb) virtual_attr
+<function __virtual__ at 0x107f60488>
+(Pdb) virtual_func
+'__virtual__'
+(Pdb) mod
+<module 'salt.loaded.int.proxy.napalm' from '/Users/sharky/.pyenv/versions/3.6.8/envs/salt3003/lib/python3.6/site-packages/salt/proxy/napalm.py'>
+(Pdb) c
+
+
+> /Users/sharky/.pyenv/versions/3.6.8/envs/salt3003/lib/python3.6/site-packages/salt/loader.py(2298)run()
+-> self._last_context = contextvars.copy_context()
+(Pdb) contextvars.copy_context()
+<contextvars.Context object at 0x1070af588>
+(Pdb) print(contextvars.copy_context())
+<contextvars.Context object at 0x1070af518>
+(Pdb) vars(contextvars.copy_context()
+*** SyntaxError: unexpected EOF while parsing
+(Pdb) vars(contextvars.copy_context())
+{'_data': <immutables.Map({}) at 0x105b61990>, '_prev_context': None}
+
+
+> /Users/sharky/.pyenv/versions/3.6.8/envs/salt3003/lib/python3.6/site-packages/salt/loader.py(2299)run()->'napalm'
+-> return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+```
+Bad Example: ( via ProxyCaller() )
+```
+-Call--
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/contextvars/__init__.py(188)_get_context()
+-> def _get_context():
+(Pdb) n
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/contextvars/__init__.py(189)_get_context()
+-> ctx = getattr(_state, 'context', None)
+(Pdb) _state
+<_thread._local object at 0x107a48db0>
+(Pdb) n
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/contextvars/__init__.py(190)_get_context()
+-> if ctx is None:
+(Pdb) ctx
+<contextvars.Context object at 0x109025780>
+(Pdb) n
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/contextvars/__init__.py(193)_get_context()
+-> return ctx
+(Pdb) n
+--Return--
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/contextvars/__init__.py(193)_get_context()-><contextvars....t 0x109025780>
+-> return ctx
+(Pdb) n
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/contextvars/__init__.py(36)run()
+-> try:
+(Pdb) n
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/contextvars/__init__.py(37)run()
+-> _set_context(self)
+(Pdb) n
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/contextvars/__init__.py(38)run()
+-> return callable(*args, **kwargs)
+(Pdb) args
+self = <contextvars.Context object at 0x10a8f5eb8>
+callable = <bound method LazyLoader._run_as of <salt.loader.LazyLoader object at 0x10a7fe5f8>>
+args = (<function __virtual__ at 0x10a8d4e18>,)
+kwargs = {}
+(Pdb) n
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/contextvars/__init__.py(40)run()
+-> _set_context(self._prev_context)
+(Pdb) n
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/contextvars/__init__.py(41)run()
+-> self._prev_context = None
+(Pdb) n
+--Return--
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/contextvars/__init__.py(41)run()->(False, '"napalm"" (/...tall napalm``')
+-> self._prev_context = None
+(Pdb) n
+--Return--
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/salt/loader.py(2299)run()->(False, '"napalm"" (/...tall napalm``')
+-> return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+(Pdb) n
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/salt/loader.py(2205)_process_virtual()
+-> if isinstance(virtual, tuple):
+(Pdb) n
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/salt/loader.py(2206)_process_virtual()
+-> error_reason = virtual[1]
+(Pdb) n
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/salt/loader.py(2207)_process_virtual()
+-> virtual = virtual[0]
+(Pdb) n
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/salt/loader.py(2208)_process_virtual()
+-> if self.opts.get("virtual_timer", False):
+(Pdb) n
+> /Users/sharky/.pyenv/versions/salt3003/lib/python3.6/site-packages/salt/loader.py(2224)_process_virtual()
+-> virtualname = getattr(mod, "__virtualname__", virtual)
+(Pdb) virtual
+
+```
+
+Summary 
+good example 
+```
+
+contextvars returns napalm 
+```
+in the bad example
+```
+contextvars returns a tuple(napalm , .....)
+````
+seems to be bad :/
+
+
+
+With salt-call the napalm proxy is responding .
+
+Command:
+```
+salt-call --proxyid c1000v net.cli 'show arp'
+```
+
+To be super safe that there is no issue with my config , I did the same setup with a netmiko proxy instead of a napalm proxy. 
+
+Calling a netmiko proxy via ProxyCaller()  and salt-call are working fine ... . 
+
+Commands
+```
+salt-call --proxyid c1000v netmiko.send_command 'show version'
+```
+
+
+
+
+
+Salt Version 3003.1 

@@ -1,0 +1,126 @@
+Given pillar data like this:
+
+```yaml
+flanneld:
+  json_conf_blob: |
+      {
+          "SubnetLen": 24,
+          "Backend": {
+              "Type": "host-gw"
+          },
+          "Network": "10.75.0.0/24",
+          "SubnetMin": "10.75.33.1",
+          "SubnetMax": "10.75.33.254"
+      }
+```
+
+And a state like this:
+
+```yaml
+{% set data = pillar.get('flanneld', {}) %}
+
+python-etcd:
+    pkg.installed
+
+/coreos.com/network/config:
+    etcd.set:
+      - value: {{ data['json_conf_blob'] }}
+      # pillar name of config to connect to etcd
+      - profile: etcd_config
+     - require:
+       # Salt can't communicate with etcd without this python library
+       # being installed on the minion
+       - pkg: python-etcd
+```
+
+When doing `etcdctl get /coreos.com/network/config` it returns something odd like this:
+
+```bash
+# etcdctl get /coreos.com/network/config
+OrderedDict([('SubnetLen', 28), ('Backend', OrderedDict([('Type', 'host-gw')])), ('Network', '10.75.33.0/24'), ('SubnetMin', '10.75.33.1'), ('SubnetMax', '10.75.33.254')])
+```
+
+This causes flanneld to die with journalctl showing errors such as:
+
+```
+Mar 06 14:05:20 omniscience flanneld-start[75522]: E0306 14:05:20.889645 75522 network.go:53] Failed to retrieve network config: invalid character 'O' looking for beginning of value
+```
+
+Knowing that salt internally uses an `OrderedDict` for everything, I tried to set this key manually:
+
+```bash
+# etcdctl set /coreos.com/network/config '{
+>     "Backend": {
+>         "Type": "host-gw"
+>     },
+>     "Network": "10.75.33.0/24",
+>     "SubnetLen": 24,
+>     "SubnetMax": "10.75.33.254",
+>     "SubnetMin": "10.75.33.1"
+> }'
+{
+    "Backend": {
+        "Type": "host-gw"
+    },
+    "Network": "10.75.33.0/24",
+    "SubnetLen": 24,
+    "SubnetMax": "10.75.33.254",
+    "SubnetMin": "10.75.33.1"
+}
+
+# etcdctl get /coreos.com/network/config
+{
+    "Backend": {
+        "Type": "host-gw"
+    },
+    "Network": "10.75.33.0/24",
+    "SubnetLen": 24,
+    "SubnetMax": "10.75.33.254",
+    "SubnetMin": "10.75.33.1"
+}
+```
+
+So... I've not looked into the etcd module yet, but am about 100% certain it needs to cast the data it sends to etcd via the `value` key in the state to a dict. This makes salt unable to manage etcd configurations, which is sad.
+
+I'll try to spin up a test version and fix this when I get some free time perhaps this weekend:
+
+```bash
+[root@omniscience ~]# salt-call --versions-report
+Salt Version:
+           Salt: 2016.3.3
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Oct 11 2015, 17:47:16)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+           RAET: Not Installed
+          smmap: 0.8.1
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: redhat 7.2 Maipo
+        machine: x86_64
+        release: 3.10.0-327.10.1.el7.jump1.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Workstation 7.2 Maipo
+```

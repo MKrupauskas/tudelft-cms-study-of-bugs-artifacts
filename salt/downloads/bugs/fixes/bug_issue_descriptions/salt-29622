@@ -1,0 +1,87 @@
+Hello!
+
+I'm testing Salt with Foreman and everything works great except one problem.
+State.hightstate executing every 5 minutes with cron:
+
+```
+*/5 * * * * root (salt '*' -b 1000 state.highstate -v -l debug && sleep 60 && /usr/sbin/upload-salt-reports) >> /var/log/foreman-proxy/salt-cron.log
+```
+
+And sometimes (somwhere about once in hour) on some minions (not on every minions at the same time) the error occuring:
+
+```
+[salt.minion      ][WARNING ][19805] TypeError encountered executing state.highstate: expected string or buffer. See debug log for more info.                                        
+Traceback (most recent call last):                                                                                                                                                                           
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 1173, in _thread_return                                                                                                                       
+    return_data = func(*args, **kwargs)                                                                                                                                                                      
+  File "/usr/lib/python2.7/site-packages/salt/modules/state.py", line 538, in highstate                                                                                                                      
+    whitelist=kwargs.get('whitelist')                                                                                                                                                                        
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2986, in call_highstate                                                                                                                        
+    return self.state.call_high(high)                                                                                                                                                                        
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2068, in call_high                                                                                                                             
+    ret = dict(list(disabled.items()) + list(self.call_chunks(chunks).items()))                                                                                                                              
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 1624, in call_chunks                                                                                                                           
+    running = self.call_chunk(low, running, chunks)                                                                                                                                                          
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 1803, in call_chunk                                                                                                                            
+    if (fnmatch.fnmatch(chunk['name'], req_val) or                                                                                                                                                           
+  File "/usr/lib64/python2.7/fnmatch.py", line 43, in fnmatch                                                                                                                                                
+    return fnmatchcase(name, pat)                                                                                                                                                                            
+  File "/usr/lib64/python2.7/fnmatch.py", line 79, in fnmatchcase                                                                                                                                            
+    return _cache[pat].match(name) is not None                                                                                                                                                               
+TypeError: expected string or buffer                   
+```
+
+Sls file:
+
+``` sls
+install_pubkey_epel:                                                                                                                                                                                         
+  file.managed:                                                                                                                                                                                              
+    - name: {{ salt['pillar.get']('epel:lookup:pk_name') }}                                                                                                                                                  
+    - source: {{ salt['pillar.get']('epel:lookup:pk_source') }}                                                                                                                                              
+    - source_hash:  {{ salt['pillar.get']('epel:lookup:pk_hash') }}                                                                                                                                          
+
+
+epel_release:                                                                                                                                                                                                
+  pkg.installed:                                                                                                                                                                                             
+    - name: epel-release                                                                                                                                                                                     
+    - require:                                                                                                                                                                                               
+      - file: install_pubkey_epel                                                                                                                                                                            
+
+```
+
+Pillar:
+
+```
+epel:                                                                                                                                                                                                        
+  lookup:                                                                                                                                                                                                    
+    pk_name: /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7                                                                                                                                                             
+    pk_source: http://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-7                                                                                                                                       
+    pk_hash: md5=58fa8ae27c89f37b08429f04fd4a88cc                                                                                                                                                            
+```
+
+Unfortunately, if we completely turn off this sls file, the same error will occur on another sls file.
+Two log files are attached. The first shows that it is temporary error and the second shows that if we'll turn off epel.sls the same error will occur.
+
+[minion.log.1.txt](https://github.com/saltstack/salt/files/59281/minion.log.1.txt)
+[minion.log.epel-removed.txt](https://github.com/saltstack/salt/files/59280/minion.log.epel-removed.txt)
+
+```
+salt --versions-report
+           Salt: 2015.5.5
+         Python: 2.7.5 (default, Jun 24 2015, 00:41:19)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+        Tornado: Not Installed
+        timelib: Not Installed
+       dateutil: Not Installed
+```

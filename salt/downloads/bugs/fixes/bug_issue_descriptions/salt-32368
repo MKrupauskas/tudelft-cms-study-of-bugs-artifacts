@@ -1,0 +1,61 @@
+### Description of Issue/Question
+
+We are seeing that all commands when executed via `sudo salt -G key:value foo.bar` end up executing twice. This is reproduced by doing a `cmd.run "date >>/tmp/date.txt"` and observing two lines appended to that file, with dates about 10 seconds apart.
+
+By observing `salt-run state.event` on master, we see that there are two jobs being sent and returned about 10 seconds apart.  Of course, only results of first one are shown on the CLI, so results of 2nd job just get ignored. Of course, it's a pretty dangerous this to happen since you may not be aware that something was executed twice.
+
+We narrowed this down to "timeout" master setting.  We increased it from default 5 to 15 seconds and problems went away.
+### Setup
+
+Master is a dual CPU physical server that does nothing but salt-master, with a couple hundred minions.
+### Steps to Reproduce Issue
+
+From my debugging, I narrowed it down to grain matching taking a long time (longer than timeout) and then something kicking off 2nd identical job.  I did not get around to figure out what does that kick-off, you may be able to do that faster since you know the codebase.
+
+Timeline looks roughly like this:
+
+hh:mm:00 Run salt -G foo:bar test.ping
+hh:mm:08 Event bus is showing job being sent to matched minions
+hh:mm:09 Event bus shows results arriving back, and terminal window prints it, salt command exits
+hh:mm:14 Event bus is showing brand new job (different id, same parameters) sent to same minions
+hh:mm:15 Event bus showing results coming back
+
+Between :00 and :08 I see CPU usage by a single salt-master thread peaked at 100%, and also master's debug logs showing grain-matching activity.
+### Versions Report
+
+Salt Version:
+           Salt: 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.5.0
+         Python: 2.7.10 (default, May 28 2015, 10:59:31)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: 3.6.0
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.4
+      pycparser: Not Installed
+       pycrypto: 2.6
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 6.7 Final
+        machine: x86_64
+        release: 2.6.32-573.7.1.el6.x86_64
+         system: CentOS 6.7 Final

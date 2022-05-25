@@ -1,0 +1,111 @@
+**Description**
+With the version 3002 and the changes for #55265, the current size of the lvm is not correctly calculated. 
+The command `lvdisplay -c ` returns the logical volume size in sectors. 
+That causes a miscalculation of the current logical volume size depending on the sector size.
+
+**Setup**
+```
+vg_data-created:
+  lvm.vg_present:
+    - name: vg_data
+    - devices: /dev/sdb
+
+lv_data-created:
+  lvm.lv_present:
+    - name: lv_data
+    - vgname: vg_data
+    - size: 935G
+    - require:
+        - vg_data-created
+```
+
+**Steps to Reproduce the behavior**
+
+Debug log:
+```
+[INFO    ] Running state [lv_data-created] at time 08:43:16.272746
+[INFO    ] Executing state lvm.lv_present for [lv_data-created]
+[INFO    ] Executing command lvdisplay in directory '/root'
+[DEBUG   ] stdout:   /dev/vg_data/lv_data:vg_data:3:1:-1:1:1992294400:243200:-1:0:-1:253:1
+[ERROR   ] To reduce a Logical Volume option 'force' must be True.
+[INFO    ] Completed state [lv_data-created] at time 08:43:16.294345 (duration_in_ms=21.599)
+```
+
+```
+root@test:~# lvdisplay -c /dev/vg_data/lv_data
+  /dev/vg_data/lv_data:vg_data:3:1:-1:1:1992294400:243200:-1:0:-1:253:1
+
+root@test:~# lvs --units g /dev/vg_data/lv_data
+  LV         VG      Attr       LSize   Pool Origin Data%  Meta%  Move Log Cpy%Sync Convert
+  lv_data vg_data -wi-ao---- 950.00g
+
+root@test:~# lvs --units s /dev/vg_data/lv_data
+  LV         VG      Attr       LSize       Pool Origin Data%  Meta%  Move Log Cpy%Sync Convert
+  lv_data vg_data -wi-ao---- 1992294400S
+
+root@test:~# df -ha /data/
+Filesystem                      Size  Used Avail Use% Mounted on
+/dev/mapper/vg_data-lv_data  935G  246G  642G  28% /data
+```
+
+**Expected behavior**
+
+The linux_lvm module detects the correct size of the logical volume. 
+Furthermore it would be nice to migrate to the commands `lvs` and `vgs` as they support json output and passing in units.
+
+```
+root@test:~# lvs --units m --reportformat json /dev/vg_data/lv_data
+  {
+      "report": [
+          {
+              "lv": [
+                  {"lv_name":"lv_data", "vg_name":"vg_data", "lv_attr":"-wi-ao----", "lv_size":"972800.00m", "pool_lv":"", "origin":"", "data_percent":"", "metadata_percent":"", "move_pv":"", "mirror_log":"", "copy_percent":"", "convert_lv":""}
+              ]
+          }
+      ]
+  }
+```
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+          Salt: 3002.5
+
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.6.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.5.6
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.4.7
+        pygit2: Not Installed
+        Python: 3.6.9 (default, Jan 26 2021, 15:33:00)
+  python-gnupg: 0.4.1
+        PyYAML: 3.12
+         PyZMQ: 17.1.2
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.2.5
+
+System Versions:
+          dist: ubuntu 18.04 Bionic Beaver
+        locale: UTF-8
+       machine: x86_64
+       release: 4.15.0-91-generic
+        system: Linux
+```
+</details>

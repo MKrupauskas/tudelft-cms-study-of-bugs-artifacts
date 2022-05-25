@@ -1,0 +1,38 @@
+After upgrading our master to 2018.3.0 from 2017.7.2, pillar_ldap quit working properly.  Every time it tried to reference the pillar, we would get this error in the logs 
+```
+2018-04-04 05:37:16,969 [salt.loaded.int.pillar.pillar_ldap:262 ][CRITICAL][5777] Failed to retrieve pillar data from LDAP:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/pillar/pillar_ldap.py", line 256, in _do_search
+    **connargs)['results']
+  File "/usr/lib/python2.7/site-packages/salt/modules/ldapmod.py", line 150, in search
+    results = _ldap.search_s(dn, int(scope), filter, attrs)
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 552, in search_s
+    return self.search_ext_s(base,scope,filterstr,attrlist,attrsonly,None,None,timeout=self.timeout)
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 545, in search_ext_s
+    msgid = self.search_ext(base,scope,filterstr,attrlist,attrsonly,serverctrls,clientctrls,timeout,sizelimit)
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 541, in search_ext
+    timeout,sizelimit,
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 99, in _ldap_call
+    result = func(*args,**kwargs)
+TypeError: ('expected string in list', u'uid')
+```
+
+I'm not sure what would have changed, whether something in parsing pillar_ldap.yaml, or something in pillar_ldap itself.  Whatever has happened, python-ldap is not happy getting a unicode type in the attribute list.  
+
+This is on a CentOS system using python-ldap-2.4.15-2.el7.x86_64
+
+In the meantime, without knowing what a proper fix would be, I have worked around the problem with:
+
+```
+--- /usr/lib/python2.7/site-packages/salt/pillar/pillar_ldap.py 2018-04-04 05:35:30.530488040 +0000
++++ -   2018-04-04 05:36:04.207733550 +0000
+@@ -251,6 +251,8 @@
+     if not attrs:
+         attrs = None
+     # Perform the search
++    attrs = [x.encode('utf-8') for x in attrs]
++
+     try:
+         result = __salt__['ldap.search'](_filter, _dn, scope, attrs,
+                                          **connargs)['results']
+```

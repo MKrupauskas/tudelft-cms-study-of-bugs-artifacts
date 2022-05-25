@@ -1,0 +1,93 @@
+So I'm trying to run a command on a "sub-master" from a master of masters.  
+
+If I try a test.ping, I get the following stack trace:
+
+```
+root@5b4814bb3d7f:/#  salt 'vm88888888-SubMaster' saltutil.cmd '*' test.ping
+vm88888888-SubMaster:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1142, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/saltutil.py", line 706, in cmd
+        client, tgt, fun, arg, timeout, expr_form, ret, kwarg, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/saltutil.py", line 674, in _exec
+        tgt, fun, arg, timeout, expr_form, ret, kwarg, **kwargs):
+      File "/usr/lib/python2.7/dist-packages/salt/client/__init__.py", line 644, in cmd_iter
+        **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/client/__init__.py", line 282, in run_job
+        'The salt master could not be contacted. Is master running?'
+    SaltClientError: The salt master could not be contacted. Is master running?
+
+```
+
+But when I use this custom module I wrote, 
+
+```
+# -*- coding: utf-8 -*-
+'''
+Module for being conducted by a "master of masters".  An alternative to syndic
+'''
+from __future__ import absolute_import
+
+from salt.client import LocalClient
+
+def run(target, fun, arg=(), kwarg=None):
+    '''
+    Run a command on local client
+
+    CLI Example:
+    From the master of masters
+    .. code-block:: bash
+
+        salt 'my-sub-master' remoterunner.run '*' 'test.ping'
+    '''
+
+    local = LocalClient()
+    # TODO: restrict functions that can be called, restrict targets
+    try:
+        ret = local.cmd(target, fun, arg=arg, kwarg=kwarg)
+        return ret
+    except Exception as e:
+        return {'error': e.message}
+```
+
+I get what you'd expect
+
+```
+root@5b4814bb3d7f:/# salt 'vm88888888-SubMaster' remoterunner.run '*' test.ping
+vm88888888-SubMaster:
+    ----------
+    vm88888888-SubMinion:
+        True
+```
+
+The mater, submaster, and subminion attached to that submaster have the same version of salt
+
+```
+root@5b4814bb3d7f:/# salt --versions-report
+Salt Version:
+           Salt: 2015.5.0-1301-g72a8a77
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+           RAET: Not Installed
+            ZMQ: 4.0.4
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+       pycrypto: 2.6.1
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-32-generic
+         system: Ubuntu 14.04 trusty
+```
+
+tagging @johnbloom as he is working on this problem with me

@@ -1,0 +1,196 @@
+### Description of Issue/Question
+If you change a user's shadow `mindays`, `warndays`, or `inactdays` to something other than salt's default values, and then attemp to change them back to salt's default values salt reports them as already "up to date".
+### Setup
+
+A state, `user_changes.sls`, to change a user to non-default values:
+```
+set_vagrant_user_non_defaults:
+  user.present:
+    - name: vagrant
+    - mindays: 2
+    - maxdays: 88888
+    - inactdays: 77
+    - warndays: 14
+```
+A state, `user_defaults.sls`, to set the user to salt's default values:
+```
+set_vagrant_user_defaults:
+  user.present:
+    - name: vagrant
+    - mindays: 0
+    - maxdays: 999999
+    - inactdays: 0
+    - warndays: 7
+```
+A script, `showme.sh`, to display a user's shadow values
+```
+#!/usr/bin/bash
+
+testuser=$(whoami)
+
+user_days () {
+    mindays=$(sudo grep $1 /etc/shadow | cut -d: -f4)
+    maxdays=$(sudo grep $1 /etc/shadow | cut -d: -f5)
+    warndays=$(sudo grep $1 /etc/shadow | cut -d: -f6)
+    inactdays=$(sudo grep $1 /etc/shadow | cut -d: -f7)
+    echo user: $1, mindays: $mindays, maxdays: $maxdays, warndays: $warndays, inactdays: $inactdays
+}
+
+echo "Showing numbers from /etc/shadow"
+user_days $testuser
+```
+
+### Steps to Reproduce Issue
+Show the starting values
+```
+[vagrant@saltmaster ~]$ ./showme.sh
+Showing numbers from /etc/shadow
+user: vagrant, mindays: 0, maxdays: 99999, warndays: 7, inactdays:
+```
+Apply the state to change the user's settings
+```
+[vagrant@saltmaster ~]$ sudo salt-call state.sls user_changes
+local:
+----------
+          ID: set_vagrant_non_defaults
+    Function: user.present
+        Name: vagrant
+      Result: True
+     Comment: Updated user vagrant
+     Started: 16:23:09.873689
+    Duration: 159.314 ms
+     Changes:
+              ----------
+              inact:
+                  77
+              max:
+                  88888
+              min:
+                  2
+              warn:
+                  14
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time: 159.314 ms
+```
+Verify the changes were applied.
+```
+[vagrant@saltmaster ~]$ ./showme.sh
+Showing numbers from /etc/shadow
+user: vagrant, mindays: 2, maxdays: 88888, warndays: 14, inactdays: 77
+```
+All is well.
+
+Now, we try to change settings to salt's default values (as defined in `user.py`)
+```
+[vagrant@saltmaster ~]$ sudo salt-call state.sls user_defaults
+local:
+----------
+          ID: set_vagrant_user_defaults
+    Function: user.present
+        Name: vagrant
+      Result: True
+     Comment: Updated user vagrant
+     Started: 16:23:32.602035
+    Duration: 59.099 ms
+     Changes:
+              ----------
+              max:
+                  999999
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  59.099 ms
+```
+Salt reports that only `maxdays` was updated. Verify the results.
+```
+[vagrant@saltmaster ~]$ ./showme.sh
+Showing numbers from /etc/shadow
+user: vagrant, mindays: 2, maxdays: 999999, warndays: 14, inactdays: 77
+```
+
+*Only `maxdays` was updated.  `mindays`, `warndays`, and `inactdays` were left unchanged.*
+
+Calling the state again:
+```
+[vagrant@saltmaster ~]$ sudo salt-call state.sls user_defaults
+local:
+----------
+          ID: set_vagrant_user_defaults
+    Function: user.present
+        Name: vagrant
+      Result: True
+     Comment: User vagrant is present and up to date
+     Started: 16:47:46.292247
+    Duration: 33.8 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:  33.800 ms
+```
+Salt reports that the user is "up to date", but the `mindays`, `warndays`, and `inactdays` values remain at their old values.
+```
+[vagrant@saltmaster ~]$ ./showme.sh
+Showing numbers from /etc/shadow
+user: vagrant, mindays: 2, maxdays: 999999, warndays: 14, inactdays: 77
+```
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Apr 11 2018, 07:36:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.2.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```
+
+Attaching a log file. Results of `salt-call state.sls user_defaults --log-file-level=all`
+[minion.log](https://github.com/saltstack/salt/files/2236603/minion.log)

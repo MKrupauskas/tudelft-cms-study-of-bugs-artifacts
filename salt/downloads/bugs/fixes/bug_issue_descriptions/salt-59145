@@ -1,0 +1,105 @@
+**Description**
+When adding a container using the `salt.states.lxd_container.present` state, if more than one device is passed, it sometimes
+fails to create all of them and only some or the last in the list is created.
+ 
+**Steps to Reproduce the behavior**
+1. Create a *new* container with `salt.states.lxd_container.present` and pass more than one device
+2. Once done, examine the list of devices for that container (e.g. `lxc config device show <container name>`)
+
+(I've tested it inside a (slow) vm, so you might need some retries on a fast machine)
+
+Example:
+```
+mkdir /tmp/test-disk0; mkdir /tmp/test-disk1
+salt-call lxd.container_create name=test source=bionic/amd64 devices='{test-disk0: {device_type: disk, source: /tmp/test-disk0, path: storage }, test-disk1: {device_type: disk, source: /tmp/test-disk1, path: storage1}}'
+lxc config device show test
+```
+Result:
+```
+lxc config device show test
+test-disk1:
+  path: storage1
+  source: /tmp/test-disk1
+  type: disk
+```
+
+=> only the second device was added
+
+**Expected behavior**
+All devices should be added to the container.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+          Salt: 3002.2
+ 
+Dependency Versions:
+          cffi: 1.14.4
+      cherrypy: Not Installed
+      dateutil: 2.8.1
+     docker-py: Not Installed
+         gitdb: 2.0.3
+     gitpython: 2.1.8
+        Jinja2: 2.10
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.5.6
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.20
+      pycrypto: 2.6.1
+  pycryptodome: 3.4.7
+        pygit2: Not Installed
+        Python: 3.6.9 (default, Oct  8 2020, 12:12:24)
+  python-gnupg: 0.4.1
+        PyYAML: 3.12
+         PyZMQ: 17.1.2
+         smmap: 2.0.3
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.2.5
+ 
+System Versions:
+          dist: ubuntu 18.04 Bionic Beaver
+        locale: UTF-8
+       machine: x86_64
+       release: 4.15.0-124-generic
+        system: Linux
+       version: Ubuntu 18.04 Bionic Beaver
+
+```
+</details>
+
+**Additional context**
+Afaics, the bug happens because we don't wait for the device changes to be saved and therefore a device may be lost
+when the next one is added. This bug can be fixed by applying the following patch:
+```
+diff --git a/salt/modules/lxd.py b/salt/modules/lxd.py                          
+index 7c8f9fb..c9a4d17 100644                                                   
+--- a/salt/modules/lxd.py                                                       
++++ b/salt/modules/lxd.py                                                       
+@@ -406,7 +406,7 @@ def pylxd_save_object(obj):                                 
+     This is an internal method, no CLI Example.                                
+     """                                                                        
+     try:                                                                       
+-        obj.save()                                                             
++        obj.save(wait=True)                                                    
+     except pylxd.exceptions.LXDAPIException as e:                              
+         raise CommandExecutionError(six.text_type(e))                          
+```
+Repeating the steps from above now results in:
+```
+lxc config device show test
+test-disk0:
+  path: storage
+  source: /tmp/test-disk0
+  type: disk
+test-disk1:
+  path: storage1
+  source: /tmp/test-disk1
+  type: disk
+```

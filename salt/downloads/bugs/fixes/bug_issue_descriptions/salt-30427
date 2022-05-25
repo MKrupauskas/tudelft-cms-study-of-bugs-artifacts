@@ -1,0 +1,83 @@
+Hello,
+
+(This is a follow-up to: https://groups.google.com/d/msg/salt-users/9Kr4sMt3iIA/PqjUsVAqAgAJ)
+
+How can accumulator variable be not defined, while we can clearly see `file.accumulated` being successfully executed beforehand?
+
+```
+----------
+      ID: vpn_config_firewall_hook
+Function: file.accumulated
+  Result: True
+ Comment: Accumulator vpn_config_firewall_hook for file /etc/config/firewall was charged by text
+ Started: 00:57:19.745641
+Duration: 9.008 ms
+ Changes:
+----------
+      ID: /etc/config/firewall
+Function: file.managed
+  Result: False
+ Comment: Unable to manage file: Jinja variable 'accumulator' is undefined
+ Started: 00:57:19.763855
+Duration: 292.169 ms
+ Changes:
+----------
+```
+
+AFAIK, I’m strictly following the documentation [1], here are the relevant parts of my state files:
+
+…/foo/init.sls:
+
+``` yaml
+vpn_config_firewall_hook:
+file.accumulated:
+- filename: /etc/config/firewall
+- text: |
+    # Allow the LAN to access the VPN
+    config forwarding
+      option src  lan
+      option dest vpn
+- require_in:
+  - file: /etc/config/firewall
+```
+
+…/bar/init.sls:
+
+``` yaml
+/etc/config/firewall:
+file.managed:
+- source: salt://bar/config.firewall
+- template: jinja
+- context:
+    has_dmz: {{ "dmz_if" in pillar }}
+```
+
+The relevant part of the config.firewall template:
+
+``` jinja
+{% for bits in accumulator["vpn_config_firewall_hook"] %}
+{{ bits }}
+{% endfor %}
+```
+
+And the `salt --versions-report` output:
+
+```
+              Salt: 2015.5.3
+            Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+            Jinja2: 2.6
+          M2Crypto: 0.21.1
+    msgpack-python: 0.1.10
+      msgpack-pure: Not Installed
+          pycrypto: 2.6
+           libnacl: Not Installed
+            PyYAML: 3.10
+             ioflo: Not Installed
+             PyZMQ: 13.1.0
+              RAET: Not Installed
+               ZMQ: 3.2.3
+              Mako: 0.7.0
+           Tornado: Not Installed
+```
+
+I’m configuring that minion using salt-ssh.

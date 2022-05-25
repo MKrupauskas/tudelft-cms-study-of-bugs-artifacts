@@ -1,0 +1,68 @@
+## Description of Issue
+When trying to run the nftables.get_rules command, the state always fails with a syntax error:
+
+```
+Command '[u'nft', u'--numeric', u'--numeric', u'--numeric', u'list', u'table', u'ip', u'ip']' failed with return code: 1
+
+Error: syntax error, unexpected ip, expecting string
+list table ip ip
+              ^^
+Error: syntax error, unexpected ip6, expecting string
+list table ip6 ip6
+               ^^^
+```
+
+This also appears to break the nftables.save function and therefore affects the nftables.managed state when one tries to make their nftable rules persistent with the `save=True` parameter.
+
+I looked at the code of the nftables module and it appears to be a problem in passing the wrong list element from the previously splitted table.
+The code that does this is `table_name = table.split(' ')[1]`
+The value of table output it tries to parse is something like `table ip input {`, with the chain element  the third element but instead it takes the second one, that is the tables family.
+After quickly fixing this to `table_name = table.split(' ')[2]` the state now returns rule lists. I just don't know if this fix of mine now breaks the module for non RHEL distributions but we could reproduce this behaviour on CentOS7 and CentOS8 machines.
+
+### Steps to Reproduce Issue
+```salt test12 nftables.get_rules```
+
+### Versions Report
+```
+
+Salt Version:
+           Salt: 2019.2.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  7 2019, 00:51:29)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.7.1908 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1062.4.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.7.1908 Core
+```

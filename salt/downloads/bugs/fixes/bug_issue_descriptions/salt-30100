@@ -1,0 +1,45 @@
+When using masterless salt with the gitfs fileserver I observed that performance was scaling with the number of sls files \* number of git repos configured in my minion config. With 12 state files and 13 pillar files and 9 git repos a noop highstate run was taking ~3 minutes to complete.
+
+I was able to track this down to the time updating the git repos multiple times in a single highstate run. It seems that a salt master periodically updates, it seems by default once a minute. On the other hand when running masterless the construction of a `FSChan` causes the git repos to be updated.
+
+I was able to test this by changing `get_file_client` to cache the `FSChan` instance, in a hacked up way complete ignoring the value of `opts`. After this a noop highstate run was finishing in ~30 seconds, most of which is my fault with one slow virtualenv.managed state, and the debug logs show that the repos were only updated once.
+
+I don't have the context to propose the correct solution but would be happy to help with a patch with some guidance.
+
+```
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 4.2.0-0.bpo.1-amd64
+         system: Ubuntu 14.04 trusty
+```

@@ -1,0 +1,103 @@
+**Description**
+TOML serializer broken after ba9a222f532c52b59038f809dbabf7ad63823f59
+
+This commit breaks code (as I mentioned in comment there specific to file).
+
+`import toml` tries to load this file itself which later doesn't contain `dump()` or `dumps()` function. Also, `toml` is different Python library than `pytoml`, so… which one should be used anyway?
+This is because Python import path firstly try to import local files and after that tries to load python modules.
+
+Currently I'm having this problem:
+```
+          ID: telegraf-config
+    Function: file.serialize
+        Name: /etc/telegraf/telegraf.conf
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/salt/serializers/toml.py", line 57, in serialize
+                  return toml.dumps(obj, **options)
+              AttributeError: module 'toml' has no attribute 'dumps'
+              
+              During handling of the above exception, another exception occurred:
+              
+              Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/salt/state.py", line 2154, in call
+                  *cdata["args"], **cdata["kwargs"]
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2188, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/states/file.py", line 7863, in serialize
+                  dataset, **serializer_options.get(serializer_name, {})
+                File "/usr/lib/python3/dist-packages/salt/serializers/toml.py", line 59, in serialize
+                  raise SerializationError(error)
+              salt.serializers.SerializationError: module 'toml' has no attribute 'dumps'
+     Started: 13:52:05.629876
+    Duration: 11.287 ms
+     Changes:   
+```
+
+Reverting to `import pytoml as toml` fixes issue.
+
+**Setup**
+SLS in formula (a little cutted-down version, just use `formatter` option in `file.serialize`):
+```sls
+telegraf-config:
+  file.serialize:
+  - name: /etc/telegraf/telegraf.conf
+  - formatter: toml
+  - dataset:
+      {{ salt['pillar.get']('telegraf', default=defaults['telegraf'], merge=True)|yaml(False)|indent(6) }}
+  - user: root
+  - group: root
+  - mode: 644
+```
+
+**Steps to Reproduce the behavior**
+Run `state.apply` for such state.
+
+**Expected behavior**
+Runs cleanly and applies change.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+(Master is also 3002)
+
+```# salt-call --versions-report
+Salt Version:
+           Salt: 3002
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.6.1
+         pygit2: Not Installed
+         Python: 3.5.3 (default, Jul  9 2020, 13:00:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 17.1.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9 stretch
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-12-amd64
+         system: Linux
+        version: Debian GNU/Linux 9 stretch
+```
+</details>

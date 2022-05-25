@@ -1,0 +1,438 @@
+I've been testing multi-master with a simple Vagrant setup.  I'm seeing extra time to execute commands on minions when one of the masters is down (Logs detailing this below).  With both masters up, it takes less then 3 seconds for either master to do a test.ping against all minions.  With one master down it takes 56.5 seconds (I've seen this go as high as 75 seconds).  Details below:
+
+Two minions:
+- CentOS 6.5
+- Salt 2014.7.0
+- Salt-Minion 2014.7.0
+
+2 masters:
+- CentOS 6.5
+- Salt 2014.7.0
+- Salt-Minion 2014.7.0
+- Salt-Master 2014.7.0
+
+Minion configs (note: the id: field is set correctly to each minion's name):
+
+```
+id: saltmaster1
+
+master:
+  - saltmaster1
+  - saltmaster2
+
+ipv6: false
+
+retry_dns: 30
+master_port: 4506
+
+user: root
+pidfile: /var/run/salt-minion.pid
+pki_dir: /etc/salt/pki/minion
+cachedir: /var/cache/salt/minion
+sock_dir: /var/run/salt/minion
+
+log_file: /var/log/salt/minion
+key_logfile: /var/log/salt/key
+log_level: debug
+log_level_logfile: debug
+
+verify_env: true
+output: nested
+color: true
+acceptance_wait_time: 10
+
+loop_interval: 60
+dns_check: true
+
+ipc_mode: ipc
+tcp_pub_port: 4510
+tcp_pull_port: 4511 
+
+cython_enable: false
+renderer: yaml_jinja
+failhard: false
+autoload_dynamic_modules: true
+clean_dynamic_modules: true
+hash_type: md5
+
+state_top: top.sls
+state_verbose: true
+state_output: full
+multiprocessing: true
+
+tcp_keepalive: true
+tcp_keepalive_idle: 300
+tcp_keepalive_cnt: -1
+tcp_keepalive_intvl: -1
+```
+
+Master configs:
+
+```
+interface: 0.0.0.0
+ipv6: false
+publish_port: 4505
+user: root
+max_open_files: 100000
+worker_threads: 5
+ret_port: 4506
+pidfile: /var/run/salt-master.pid
+root_dir: /
+pki_dir:  /etc/salt/pki/master
+cachedir: /var/cache/salt/master
+verify_env: true
+keep_jobs: 24
+timeout: 60
+loop_interval: 60
+output: nested
+color: true
+sock_dir: /var/run/salt/master
+job_cache: true
+minion_data_cache: true
+open_mode: false
+auto_accept: true
+autosign_file: /etc/salt/autosign.conf
+permissive_pki_access: false
+cython_enable: false
+
+state_top: top.sls
+external_nodes: None
+renderer: yaml_jinja
+failhard: false
+state_verbose: true
+state_output: full
+
+file_roots:
+  base:
+    - /srv/salt
+    - /srv/saltfs
+  prod:
+    - /srv/salt
+  qa:
+    - /srv/salt
+  dev:
+    - /srv/salt
+
+
+pillar_roots:
+  base:
+    - /srv/pillarroot/base
+  dev:
+    - /srv/pillarroot/dev
+  qa:
+    - /srv/pillarroot/qa
+  prod:
+    - /srv/pillarroot/prod
+
+hash_type: md5
+file_buffer_size: 1048576
+
+log_file: /var/log/salt/master
+key_logfile: /var/log/salt/key
+log_level: warning
+log_level_logfile: debug
+```
+
+**Good Case; both masters up**
+
+```
+[root@saltmaster1 ~]# date && time salt '*' test.ping && date
+Tue Mar  3 13:37:42 CST 2015
+saltminion1:
+    True
+saltmaster2:
+    True
+saltmaster1:
+    True
+saltminion2:
+    True
+
+real    0m2.728s
+user    0m0.390s
+sys 0m0.095s
+Tue Mar  3 13:37:45 CST 2015
+
+[root@saltmaster2 ~]# date && time salt '*' test.ping && date
+Tue Mar  3 13:37:44 CST 2015
+saltminion1:
+    True
+saltminion2:
+    True
+saltmaster1:
+    True
+saltmaster2:
+    True
+
+real    0m0.783s
+user    0m0.343s
+sys 0m0.072s
+Tue Mar  3 13:37:45 CST 2015
+```
+
+**saltmaster1 logs (good case)**:
+
+```
+2015-03-03 13:37:43,161 [salt.config      ][DEBUG   ] Reading configuration from /etc/salt/master
+2015-03-03 13:37:43,176 [salt.config      ][DEBUG   ] Using cached minion ID from /etc/salt/minion_id: saltmaster1
+2015-03-03 13:37:43,177 [salt.config      ][DEBUG   ] Missing configuration file: ~/.saltrc
+2015-03-03 13:37:43,178 [salt.utils.event ][DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-03-03 13:37:43,179 [salt.utils.event ][DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-03-03 13:37:43,179 [salt.config                                 ][DEBUG   ] Reading configuration from /etc/salt/master
+2015-03-03 13:37:43,181 [salt.master                                ][INFO    ] Clear payload received with command publish
+2015-03-03 13:37:43,182 [salt.loader                                ][DEBUG   ] LazyLoaded local_cache.prep_jid
+2015-03-03 13:37:43,182 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'_stamp': '2015-03-03T13:37:43.182349', 'minions': ['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2']}
+2015-03-03 13:37:43,183 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150303133743182013', 'tgt': '*', '_stamp': '2015-03-03T13:37:43.182678', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'minions': ['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2']}
+2015-03-03 13:37:43,183 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150303133743182013', 'tgt': '*', '_stamp': '2015-03-03T13:37:43.182973', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'minions': ['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2']}
+2015-03-03 13:37:43,183 [salt.master                                ][INFO    ] User root Published command test.ping with jid 20150303133743182013
+2015-03-03 13:37:43,184 [salt.master                                ][DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20150303133743182013', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+2015-03-03 13:37:43,187 [salt.loader      ][DEBUG   ] LazyLoaded local_cache.get_load
+2015-03-03 13:37:43,188 [salt.client      ][DEBUG   ] get_iter_returns for jid 20150303133743182013 sent to set(['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2']) will timeout at 13:38:43.187827
+2015-03-03 13:37:43,196 [salt.config                                 ][DEBUG   ] Using cached minion ID from /etc/salt/minion_id: saltmaster1
+2015-03-03 13:37:43,197 [salt.config                                 ][DEBUG   ] Reading configuration from /etc/salt/master
+2015-03-03 13:37:43,638 [salt.loader                                 ][DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+2015-03-03 13:37:44,253 [salt.utils.verify                           ][DEBUG   ] This salt-master instance has accepted 4 minion keys.
+2015-03-03 13:37:45,132 [salt.master                                ][INFO    ] Clear payload received with command _auth
+2015-03-03 13:37:45,132 [salt.master                                ][INFO    ] Authentication request from saltmaster1
+2015-03-03 13:37:45,132 [salt.master                                ][INFO    ] Authentication accepted from saltmaster1
+2015-03-03 13:37:45,138 [salt.master                                ][INFO    ] Clear payload received with command _auth
+2015-03-03 13:37:45,138 [salt.master                                ][INFO    ] Authentication request from saltminion2
+2015-03-03 13:37:45,138 [salt.master                                ][INFO    ] Authentication accepted from saltminion2
+2015-03-03 13:37:45,139 [salt.master                                ][INFO    ] Clear payload received with command _auth
+2015-03-03 13:37:45,139 [salt.master                                ][INFO    ] Authentication request from saltminion1
+2015-03-03 13:37:45,139 [salt.master                                ][INFO    ] Authentication accepted from saltminion1
+2015-03-03 13:37:45,173 [salt.master                                ][INFO    ] Clear payload received with command _auth
+2015-03-03 13:37:45,173 [salt.master                                ][INFO    ] Authentication request from saltmaster2
+2015-03-03 13:37:45,173 [salt.master                                ][INFO    ] Authentication accepted from saltmaster2
+2015-03-03 13:37:45,218 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'saltminion1', '_stamp': '2015-03-03T13:37:45.217572', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAneNRAUstM+/XoJUg3rav\n8fSNYdhMx4cfkTxtQgF/vvUTgv6hcPHDH/zPGp5SsWq3d3jQ3/wui+vw9jgKiWV3\ndmacT9qwOiOLoXT24fY7KEut/150DxexRhEt9xff35oOVS3oK/8Bo9OfSixgWrAp\nITjVSo1KR08BpnI4l7aCWu0r8exKik2jEfqy9woL/WB4CAI6FZ04uRC8X6fZep3K\n+IAK+1p9+RzS/5Ayslgabu0ShcGmDztBD7nL1T2leuVIafGVTz4yxCLG6fl+2c9/\nQWw79RpW+Z2wfE5szIutVD6RDTd8gDDmRsaKfmSDww2qYcW+Ka0h3+xUFJXb8lIc\nbNQPzstV6hJB3NvmImK61EIeXjIJmAvm5vADPjg/wJp94plOzgmBoZRtAjy24YU/\nbkIIPaB9EcBdekEq7PaXbibzHarKBtZE+iKjwkaTJdCR3MRMVkYrOjEMK2hG4YV1\nlLgC4qEj5xVsn7DyWuaMQBiImlYRZz/Hxg22B7ct7V/DSpFxxM+KyrGS8dwNzF7u\nh5HUak2ZqtfaWOu3yr4mJuHx+H1yWgT8CGAToVATyu9Qu/kLAkRvyhXoM+x4L4JI\nIl8LC2wcajPUAOFEQFpxdnQ6FPar+xUWdPRCNjTNIMuuIfHdC1ExIp7mVDARtU+Z\nIfd4DfXeFFsY9Vn7NNU5l+UCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+2015-03-03 13:37:45,281 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'saltmaster2', '_stamp': '2015-03-03T13:37:45.280912', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAwOvQgA22iO+i1nj80w0d\nlJP82sYrL2WDhV9hCmuD+yCfldaMW53/KXbWwU9AzoA6P7hCsFJiftUIpusaqr+l\nnRqk4/W8s2t9N73tgZEGUEeS8jQttSoa0AmISmLTb/HsKKLQ7ivZtV34t9ftJxkf\nWsSCxa2blQE6v4LAMsb8+b6dVODCZiYVDJHNHAKUbl6G8DaoxyBB9R4VF/gh3X+2\nmvdfUScwoFI9RNW1xxaS0yA2x5bSUEeBdH78taJLOVUFcu3XLJ8sogjN5ud9Newi\nFxhJbMh8ZNL60T9pnew0PZRnaL3Lx5XKKy56ookumQvm9ypmAFmVFsObEhK7yMrk\nxGbGul6WaGufT9mrpKk5gVdriv4VzfpUenEELN0xxYktq3ORZJcQUQofnVoSZyi2\nmTRSZsWL2rY0wBawJ9lUKQholmxs9VS/Z4xb1W/APBTmcaKHF3fY1mNKuFN79frm\nU5JxUoninunRyTTUsVEpg/4LTNzdP51tCnSBy1g/Q2oz3bpsSHhRdGHD5Q0N+7I3\nte/v4OfZbYOl7E6+RbX7lfbDVpVdiM6M0k24qWz4juuL49EBSkmfRH9h4UmA5eo6\nf4Wun9OLoNsUjgnhYDpw95350nwbN9t/LvUDX4ZfA4yPTKJABCfp3VjvSsCoMfZF\nOilKPNtnTJV9YKA7RBAIG/ECAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+2015-03-03 13:37:45,304 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'saltmaster1', '_stamp': '2015-03-03T13:37:45.303179', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAqXzc518cTAtwQa+gu4gV\n7a6SGruqDa/m6mac2W4IFrND2D0HTUmSIrEMERoaAL1dEoDfroPEZSOROxaldVtq\nwC+4htu0C3djQDf6hkpuSzIaeOMwSFXP4jHUjXakkWbcdsAWI/hRyT/EATnVxz7w\nj9jBvZ6JkjpSs5UfvWqFOwH/8bjpVR4dG5TZ1aYl65tkI2UYIVhnvtsqCh/b0UCY\n30dprruf+D4sTv8cy6vT5IG3V68xmKx3LKlh8L1y7Zwl2fYVyp5D4HjgZa6Jrzfq\nvXOdufeevaJGABrTLyvWJSG/jS+YoleBooIHQ5GllXsadyMJBGAEb7w+ysCLoxQ0\nBxRx3kTCN7Ze+0OT48YOZ1iKyHyChug1i+ggPXucyj3ZE7/nb9jJ2C6ra81LSWMC\nQ6Ur3AaJW5QCaZHEqtiT0n549lXPdYcKwkqOu6rj8ENuUk5d10JOSn/LMJcY8ubF\nhX6+28K3bxwolDIsCuQit+PW1jytaEPfdB6BebQdvh9MOaocBZ1LgymAoVoB8fvp\n2SJkWteXLF9aCcTESZ9zg5XCZks8bKE+e878nR5VsUk+1c76aZ7SASoltZCLyQgt\nZ/rgSu7DH6n9qwLyaHHXR/C0iT+RuImVK/1U/trz5+FHzPixW/Bln6Oc+FAEMxTc\nHTWyHSDHZR6CvuGAE7vcD9MCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+2015-03-03 13:37:45,309 [salt.master                                ][INFO    ] AES payload received with command _return
+2015-03-03 13:37:45,309 [salt.master                                ][INFO    ] Got return from saltminion1 for job 20150303133743182013
+2015-03-03 13:37:45,310 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133743182013', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.309657', 'fun': 'test.ping', 'id': 'saltminion1'}
+2015-03-03 13:37:45,310 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133743182013', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.310048', 'fun': 'test.ping', 'id': 'saltminion1'}
+2015-03-03 13:37:45,311 [salt.loader                                ][DEBUG   ] LazyLoaded local_cache.returner
+2015-03-03 13:37:45,315 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'saltminion2', '_stamp': '2015-03-03T13:37:45.314572', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAzw1ihmH9W03Q8tWtu4Kg\nh8AbGDnJgQVUn13RSsIf7ERPAX7w8cztTSv8TavRGtziAHdGDxBG5iu4ixvm4cur\nejQq90ZcsqoAkxYV/ja1otYYs8W0ldr0oYHR8kN6NEE0Gn5HuEhPaoqtOdwHU1dv\nuO8/ptj803VRpXmBiDmhNfqP0UO1vDyfOxO3ajdpMb4fpj1ZXZSaoYgtUZ2wSgb/\nb749D5RDlK9DEN99XYJnH7b352fUhwkoe39YtfBgmnB+gp0ZQbq+M1RGXF7UAwbn\nus0ktOkAa/o3jL8ZlQ8Ccow55bB7KpqOrTGq749oUu0AijcYtOIBJcL6SX5n8JDw\nM9mDYCRgRPdVWTtdlVBmI2w8mZcakz5+8PDl0LymivnKtgd9Idrb253j0olRzmda\n+F3gzBmOQsgfvSQTw4J4xLFLHT64GidfjNR4HNUUsnyN/AkpgxNZ5nh3S+9AdG0m\nytOpu60Q4q6qUn16MwfLg/kBhR8qLcWsJcQ6OaEM16Gh4X8rsE+3uOpJMKiOStLL\nvLFUxjsR9wpkyXZ9bFlioqfVPwNoxRLSfxGUKM9ULw8F4w8Lwpe9iJM7nHHtI0UY\n7l4ekN23uVqcQ6tSrMlcNtVMAThhj/cBf53wgTXvgHC8+W2pzaADO46Cd6OrTAKz\nw/sS7GskMfgGzY/RX+UdaTsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+2015-03-03 13:37:45,336 [salt.client      ][DEBUG   ] jid 20150303133743182013 return from saltminion1
+2015-03-03 13:37:45,371 [salt.master                                ][INFO    ] AES payload received with command _return
+2015-03-03 13:37:45,372 [salt.master                                ][INFO    ] Got return from saltmaster2 for job 20150303133743182013
+2015-03-03 13:37:45,372 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133743182013', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.372365', 'fun': 'test.ping', 'id': 'saltmaster2'}
+2015-03-03 13:37:45,373 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133743182013', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.372715', 'fun': 'test.ping', 'id': 'saltmaster2'}
+2015-03-03 13:37:45,373 [salt.loader                                ][DEBUG   ] LazyLoaded local_cache.returner
+2015-03-03 13:37:45,391 [salt.client      ][DEBUG   ] jid 20150303133743182013 return from saltmaster2
+2015-03-03 13:37:45,394 [salt.master                                ][INFO    ] AES payload received with command _return
+2015-03-03 13:37:45,394 [salt.master                                ][INFO    ] Got return from saltmaster1 for job 20150303133743182013
+2015-03-03 13:37:45,395 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133743182013', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.395285', 'fun': 'test.ping', 'id': 'saltmaster1'}
+2015-03-03 13:37:45,396 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133743182013', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.395498', 'fun': 'test.ping', 'id': 'saltmaster1'}
+2015-03-03 13:37:45,396 [salt.loader                                ][DEBUG   ] LazyLoaded local_cache.returner
+2015-03-03 13:37:45,416 [salt.client      ][DEBUG   ] jid 20150303133743182013 return from saltmaster1
+2015-03-03 13:37:45,450 [salt.master                                ][INFO    ] AES payload received with command _return
+2015-03-03 13:37:45,450 [salt.master                                ][INFO    ] Got return from saltminion2 for job 20150303133743182013
+2015-03-03 13:37:45,451 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133743182013', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.451090', 'fun': 'test.ping', 'id': 'saltminion2'}
+2015-03-03 13:37:45,452 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133743182013', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.451413', 'fun': 'test.ping', 'id': 'saltminion2'}
+2015-03-03 13:37:45,452 [salt.client      ][DEBUG   ] jid 20150303133743182013 return from saltminion2
+2015-03-03 13:37:45,452 [salt.loader                                ][DEBUG   ] LazyLoaded local_cache.returner
+2015-03-03 13:37:45,458 [salt.client      ][DEBUG   ] jid 20150303133743182013 found all minions set(['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2'])
+```
+
+**saltmaster2 logs (good case)**
+
+```
+2015-03-03 13:37:45,075 [salt.config      ][DEBUG   ] Reading configuration from /etc/salt/master
+2015-03-03 13:37:45,089 [salt.config      ][DEBUG   ] Using cached minion ID from /etc/salt/minion_id: saltmaster2
+2015-03-03 13:37:45,090 [salt.config      ][DEBUG   ] Missing configuration file: ~/.saltrc
+2015-03-03 13:37:45,090 [salt.utils.event ][DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-03-03 13:37:45,091 [salt.utils.event ][DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-03-03 13:37:45,093 [salt.master                                ][INFO    ] Clear payload received with command publish
+2015-03-03 13:37:45,094 [salt.loader                                ][DEBUG   ] LazyLoaded local_cache.prep_jid
+2015-03-03 13:37:45,095 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'_stamp': '2015-03-03T13:37:45.094774', 'minions': ['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2']}
+2015-03-03 13:37:45,095 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150303133745094495', 'tgt': '*', '_stamp': '2015-03-03T13:37:45.095090', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'minions': ['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2']}
+2015-03-03 13:37:45,096 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150303133745094495', 'tgt': '*', '_stamp': '2015-03-03T13:37:45.095593', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'minions': ['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2']}
+2015-03-03 13:37:45,097 [salt.master                                ][INFO    ] User root Published command test.ping with jid 20150303133745094495
+2015-03-03 13:37:45,097 [salt.master                                ][DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20150303133745094495', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+2015-03-03 13:37:45,100 [salt.loader      ][DEBUG   ] LazyLoaded local_cache.get_load
+2015-03-03 13:37:45,100 [salt.client      ][DEBUG   ] get_iter_returns for jid 20150303133745094495 sent to set(['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2']) will timeout at 13:38:45.100288
+2015-03-03 13:37:45,114 [salt.master                                ][INFO    ] Clear payload received with command _auth
+2015-03-03 13:37:45,114 [salt.master                                ][INFO    ] Authentication request from saltmaster2
+2015-03-03 13:37:45,114 [salt.master                                ][INFO    ] Authentication accepted from saltmaster2
+2015-03-03 13:37:45,118 [salt.master                                ][INFO    ] Clear payload received with command _auth
+2015-03-03 13:37:45,119 [salt.master                                ][INFO    ] Authentication request from saltmaster1
+2015-03-03 13:37:45,119 [salt.master                                ][INFO    ] Authentication accepted from saltmaster1
+2015-03-03 13:37:45,122 [salt.master                                ][INFO    ] Clear payload received with command _auth
+2015-03-03 13:37:45,122 [salt.master                                ][INFO    ] Authentication request from saltminion2
+2015-03-03 13:37:45,122 [salt.master                                ][INFO    ] Authentication accepted from saltminion2
+2015-03-03 13:37:45,123 [salt.master                                ][INFO    ] Clear payload received with command _auth
+2015-03-03 13:37:45,123 [salt.master                                ][INFO    ] Authentication request from saltminion1
+2015-03-03 13:37:45,123 [salt.master                                ][INFO    ] Authentication accepted from saltminion1
+2015-03-03 13:37:45,282 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'saltmaster1', '_stamp': '2015-03-03T13:37:45.281665', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAqXzc518cTAtwQa+gu4gV\n7a6SGruqDa/m6mac2W4IFrND2D0HTUmSIrEMERoaAL1dEoDfroPEZSOROxaldVtq\nwC+4htu0C3djQDf6hkpuSzIaeOMwSFXP4jHUjXakkWbcdsAWI/hRyT/EATnVxz7w\nj9jBvZ6JkjpSs5UfvWqFOwH/8bjpVR4dG5TZ1aYl65tkI2UYIVhnvtsqCh/b0UCY\n30dprruf+D4sTv8cy6vT5IG3V68xmKx3LKlh8L1y7Zwl2fYVyp5D4HjgZa6Jrzfq\nvXOdufeevaJGABrTLyvWJSG/jS+YoleBooIHQ5GllXsadyMJBGAEb7w+ysCLoxQ0\nBxRx3kTCN7Ze+0OT48YOZ1iKyHyChug1i+ggPXucyj3ZE7/nb9jJ2C6ra81LSWMC\nQ6Ur3AaJW5QCaZHEqtiT0n549lXPdYcKwkqOu6rj8ENuUk5d10JOSn/LMJcY8ubF\nhX6+28K3bxwolDIsCuQit+PW1jytaEPfdB6BebQdvh9MOaocBZ1LgymAoVoB8fvp\n2SJkWteXLF9aCcTESZ9zg5XCZks8bKE+e878nR5VsUk+1c76aZ7SASoltZCLyQgt\nZ/rgSu7DH6n9qwLyaHHXR/C0iT+RuImVK/1U/trz5+FHzPixW/Bln6Oc+FAEMxTc\nHTWyHSDHZR6CvuGAE7vcD9MCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+2015-03-03 13:37:45,284 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'saltminion2', '_stamp': '2015-03-03T13:37:45.284075', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAzw1ihmH9W03Q8tWtu4Kg\nh8AbGDnJgQVUn13RSsIf7ERPAX7w8cztTSv8TavRGtziAHdGDxBG5iu4ixvm4cur\nejQq90ZcsqoAkxYV/ja1otYYs8W0ldr0oYHR8kN6NEE0Gn5HuEhPaoqtOdwHU1dv\nuO8/ptj803VRpXmBiDmhNfqP0UO1vDyfOxO3ajdpMb4fpj1ZXZSaoYgtUZ2wSgb/\nb749D5RDlK9DEN99XYJnH7b352fUhwkoe39YtfBgmnB+gp0ZQbq+M1RGXF7UAwbn\nus0ktOkAa/o3jL8ZlQ8Ccow55bB7KpqOrTGq749oUu0AijcYtOIBJcL6SX5n8JDw\nM9mDYCRgRPdVWTtdlVBmI2w8mZcakz5+8PDl0LymivnKtgd9Idrb253j0olRzmda\n+F3gzBmOQsgfvSQTw4J4xLFLHT64GidfjNR4HNUUsnyN/AkpgxNZ5nh3S+9AdG0m\nytOpu60Q4q6qUn16MwfLg/kBhR8qLcWsJcQ6OaEM16Gh4X8rsE+3uOpJMKiOStLL\nvLFUxjsR9wpkyXZ9bFlioqfVPwNoxRLSfxGUKM9ULw8F4w8Lwpe9iJM7nHHtI0UY\n7l4ekN23uVqcQ6tSrMlcNtVMAThhj/cBf53wgTXvgHC8+W2pzaADO46Cd6OrTAKz\nw/sS7GskMfgGzY/RX+UdaTsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+2015-03-03 13:37:45,291 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'saltminion1', '_stamp': '2015-03-03T13:37:45.290947', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAneNRAUstM+/XoJUg3rav\n8fSNYdhMx4cfkTxtQgF/vvUTgv6hcPHDH/zPGp5SsWq3d3jQ3/wui+vw9jgKiWV3\ndmacT9qwOiOLoXT24fY7KEut/150DxexRhEt9xff35oOVS3oK/8Bo9OfSixgWrAp\nITjVSo1KR08BpnI4l7aCWu0r8exKik2jEfqy9woL/WB4CAI6FZ04uRC8X6fZep3K\n+IAK+1p9+RzS/5Ayslgabu0ShcGmDztBD7nL1T2leuVIafGVTz4yxCLG6fl+2c9/\nQWw79RpW+Z2wfE5szIutVD6RDTd8gDDmRsaKfmSDww2qYcW+Ka0h3+xUFJXb8lIc\nbNQPzstV6hJB3NvmImK61EIeXjIJmAvm5vADPjg/wJp94plOzgmBoZRtAjy24YU/\nbkIIPaB9EcBdekEq7PaXbibzHarKBtZE+iKjwkaTJdCR3MRMVkYrOjEMK2hG4YV1\nlLgC4qEj5xVsn7DyWuaMQBiImlYRZz/Hxg22B7ct7V/DSpFxxM+KyrGS8dwNzF7u\nh5HUak2ZqtfaWOu3yr4mJuHx+H1yWgT8CGAToVATyu9Qu/kLAkRvyhXoM+x4L4JI\nIl8LC2wcajPUAOFEQFpxdnQ6FPar+xUWdPRCNjTNIMuuIfHdC1ExIp7mVDARtU+Z\nIfd4DfXeFFsY9Vn7NNU5l+UCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+2015-03-03 13:37:45,292 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'saltmaster2', '_stamp': '2015-03-03T13:37:45.291443', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAwOvQgA22iO+i1nj80w0d\nlJP82sYrL2WDhV9hCmuD+yCfldaMW53/KXbWwU9AzoA6P7hCsFJiftUIpusaqr+l\nnRqk4/W8s2t9N73tgZEGUEeS8jQttSoa0AmISmLTb/HsKKLQ7ivZtV34t9ftJxkf\nWsSCxa2blQE6v4LAMsb8+b6dVODCZiYVDJHNHAKUbl6G8DaoxyBB9R4VF/gh3X+2\nmvdfUScwoFI9RNW1xxaS0yA2x5bSUEeBdH78taJLOVUFcu3XLJ8sogjN5ud9Newi\nFxhJbMh8ZNL60T9pnew0PZRnaL3Lx5XKKy56ookumQvm9ypmAFmVFsObEhK7yMrk\nxGbGul6WaGufT9mrpKk5gVdriv4VzfpUenEELN0xxYktq3ORZJcQUQofnVoSZyi2\nmTRSZsWL2rY0wBawJ9lUKQholmxs9VS/Z4xb1W/APBTmcaKHF3fY1mNKuFN79frm\nU5JxUoninunRyTTUsVEpg/4LTNzdP51tCnSBy1g/Q2oz3bpsSHhRdGHD5Q0N+7I3\nte/v4OfZbYOl7E6+RbX7lfbDVpVdiM6M0k24qWz4juuL49EBSkmfRH9h4UmA5eo6\nf4Wun9OLoNsUjgnhYDpw95350nwbN9t/LvUDX4ZfA4yPTKJABCfp3VjvSsCoMfZF\nOilKPNtnTJV9YKA7RBAIG/ECAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+2015-03-03 13:37:45,385 [salt.master                                ][INFO    ] AES payload received with command _return
+2015-03-03 13:37:45,386 [salt.master                                ][INFO    ] Got return from saltminion1 for job 20150303133745094495
+2015-03-03 13:37:45,387 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133745094495', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.386547', 'fun': 'test.ping', 'id': 'saltminion1'}
+2015-03-03 13:37:45,387 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133745094495', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.386947', 'fun': 'test.ping', 'id': 'saltminion1'}
+2015-03-03 13:37:45,388 [salt.loader                                ][DEBUG   ] LazyLoaded local_cache.returner
+2015-03-03 13:37:45,400 [salt.client      ][DEBUG   ] jid 20150303133745094495 return from saltminion1
+2015-03-03 13:37:45,413 [salt.master                                ][INFO    ] AES payload received with command _return
+2015-03-03 13:37:45,414 [salt.master                                ][INFO    ] Got return from saltminion2 for job 20150303133745094495
+2015-03-03 13:37:45,414 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133745094495', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.414098', 'fun': 'test.ping', 'id': 'saltminion2'}
+2015-03-03 13:37:45,415 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133745094495', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.414559', 'fun': 'test.ping', 'id': 'saltminion2'}
+2015-03-03 13:37:45,416 [salt.loader                                ][DEBUG   ] LazyLoaded local_cache.returner
+2015-03-03 13:37:45,424 [salt.master                                ][INFO    ] AES payload received with command _return
+2015-03-03 13:37:45,425 [salt.master                                ][INFO    ] Got return from saltmaster2 for job 20150303133745094495
+2015-03-03 13:37:45,426 [salt.master                                ][INFO    ] AES payload received with command _return
+2015-03-03 13:37:45,426 [salt.master                                ][INFO    ] Got return from saltmaster1 for job 20150303133745094495
+2015-03-03 13:37:45,426 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133745094495', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.425894', 'fun': 'test.ping', 'id': 'saltmaster2'}
+2015-03-03 13:37:45,426 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133745094495', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.426288', 'fun': 'test.ping', 'id': 'saltmaster2'}
+2015-03-03 13:37:45,427 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133745094495', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.426526', 'fun': 'test.ping', 'id': 'saltmaster1'}
+2015-03-03 13:37:45,427 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303133745094495', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:37:45.426823', 'fun': 'test.ping', 'id': 'saltmaster1'}
+2015-03-03 13:37:45,428 [salt.loader                                ][DEBUG   ] LazyLoaded local_cache.returner
+2015-03-03 13:37:45,428 [salt.client      ][DEBUG   ] jid 20150303133745094495 return from saltminion2
+2015-03-03 13:37:45,430 [salt.loader                                ][DEBUG   ] LazyLoaded local_cache.returner
+2015-03-03 13:37:45,448 [salt.client      ][DEBUG   ] jid 20150303133745094495 return from saltmaster1
+2015-03-03 13:37:45,464 [salt.client      ][DEBUG   ] jid 20150303133745094495 return from saltmaster2
+2015-03-03 13:37:45,469 [salt.client      ][DEBUG   ] jid 20150303133745094495 found all minions set(['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2'])
+2015-03-03 13:38:44,993 [salt.config                                 ][DEBUG   ] Reading configuration from /etc/salt/master
+2015-03-03 13:38:45,010 [salt.config                                 ][DEBUG   ] Using cached minion ID from /etc/salt/minion_id: saltmaster2
+2015-03-03 13:38:45,010 [salt.config                                 ][DEBUG   ] Reading configuration from /etc/salt/master
+2015-03-03 13:38:45,452 [salt.loader                                 ][DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+2015-03-03 13:38:46,029 [salt.utils.verify                           ][DEBUG   ] This salt-master instance has accepted 4 minion keys.
+```
+
+**saltminion1 logs (good case)**
+
+```
+2015-03-03 13:37:45,100 [salt.minion                                 ][INFO    ] User root Executing command test.ping with jid 20150303133745094495
+2015-03-03 13:37:45,100 [salt.minion                                 ][DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20150303133745094495', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+2015-03-03 13:37:45,115 [salt.minion                                 ][INFO    ] User root Executing command test.ping with jid 20150303133743182013
+2015-03-03 13:37:45,112 [salt.minion                                 ][INFO    ] Starting a new job with PID 32327
+2015-03-03 13:37:45,115 [salt.minion                                 ][DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20150303133743182013', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+2015-03-03 13:37:45,117 [salt.minion                                 ][INFO    ] Returning information for job: 20150303133745094495
+2015-03-03 13:37:45,131 [salt.minion                                 ][INFO    ] Starting a new job with PID 32332
+2015-03-03 13:37:45,133 [salt.minion                                 ][INFO    ] Returning information for job: 20150303133743182013
+2015-03-03 13:37:45,219 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-03-03 13:37:45,219 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-03-03 13:37:45,293 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-03-03 13:37:45,294 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+```
+
+**saltminion2 logs (good case)**
+
+```
+2015-03-03 13:37:45,100 [salt.minion                                 ][INFO    ] User root Executing command test.ping with jid 20150303133745094495
+2015-03-03 13:37:45,100 [salt.minion                                 ][DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20150303133745094495', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+2015-03-03 13:37:45,113 [salt.minion                                 ][INFO    ] User root Executing command test.ping with jid 20150303133743182013
+2015-03-03 13:37:45,113 [salt.minion                                 ][DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20150303133743182013', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+2015-03-03 13:37:45,113 [salt.minion                                 ][INFO    ] Starting a new job with PID 31189
+2015-03-03 13:37:45,116 [salt.minion                                 ][INFO    ] Returning information for job: 20150303133745094495
+2015-03-03 13:37:45,126 [salt.minion                                 ][INFO    ] Starting a new job with PID 31194
+2015-03-03 13:37:45,128 [salt.minion                                 ][INFO    ] Returning information for job: 20150303133743182013
+2015-03-03 13:37:45,286 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-03-03 13:37:45,287 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-03-03 13:37:45,318 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-03-03 13:37:45,318 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+```
+
+**Bad Case; one master down**
+
+```
+[root@saltmaster1 ~]# date && time salt '*' test.ping && date
+Tue Mar  3 13:50:33 CST 2015
+saltminion1:
+    True
+saltmaster2:
+    True
+saltminion2:
+    True
+saltmaster1:
+    True
+
+real    0m56.658s
+user    0m1.141s
+sys 0m0.338s
+Tue Mar  3 13:51:29 CST 2015
+```
+
+**saltmaster1 logs (bad case)**
+
+```
+2015-03-03 13:50:33,595 [salt.config      ][DEBUG   ] Reading configuration from /etc/salt/master
+2015-03-03 13:50:33,611 [salt.config      ][DEBUG   ] Using cached minion ID from /etc/salt/minion_id: saltmaster1
+2015-03-03 13:50:33,612 [salt.config      ][DEBUG   ] Missing configuration file: ~/.saltrc
+2015-03-03 13:50:33,613 [salt.utils.event ][DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-03-03 13:50:33,613 [salt.utils.event ][DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-03-03 13:50:33,616 [salt.master                                ][INFO    ] Clear payload received with command publish
+2015-03-03 13:50:33,618 [salt.loader                                ][DEBUG   ] LazyLoaded local_cache.prep_jid
+2015-03-03 13:50:33,619 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'_stamp': '2015-03-03T13:50:33.618959', 'minions': ['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2']}
+2015-03-03 13:50:33,620 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150303135033618398', 'tgt': '*', '_stamp': '2015-03-03T13:50:33.619558', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'minions': ['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2']}
+2015-03-03 13:50:33,620 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150303135033618398', 'tgt': '*', '_stamp': '2015-03-03T13:50:33.620263', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'minions': ['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2']}
+2015-03-03 13:50:33,622 [salt.master                                ][INFO    ] User root Published command test.ping with jid 20150303135033618398
+2015-03-03 13:50:33,622 [salt.master                                ][DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20150303135033618398', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+2015-03-03 13:50:33,626 [salt.loader      ][DEBUG   ] LazyLoaded local_cache.get_load
+2015-03-03 13:50:33,626 [salt.client      ][DEBUG   ] get_iter_returns for jid 20150303135033618398 sent to set(['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2']) will timeout at 13:51:33.626271
+2015-03-03 13:50:57,540 [salt.config                                 ][DEBUG   ] Reading configuration from /etc/salt/master
+2015-03-03 13:50:57,558 [salt.config                                 ][DEBUG   ] Using cached minion ID from /etc/salt/minion_id: saltmaster1
+2015-03-03 13:50:57,559 [salt.config                                 ][DEBUG   ] Reading configuration from /etc/salt/master
+2015-03-03 13:50:58,044 [salt.loader                                 ][DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+2015-03-03 13:50:58,668 [salt.utils.verify                           ][DEBUG   ] This salt-master instance has accepted 4 minion keys.
+2015-03-03 13:51:29,454 [salt.master                                ][INFO    ] Clear payload received with command _auth
+2015-03-03 13:51:29,454 [salt.master                                ][INFO    ] Authentication request from saltmaster1
+2015-03-03 13:51:29,455 [salt.master                                ][INFO    ] Authentication accepted from saltmaster1
+2015-03-03 13:51:29,504 [salt.master                                ][INFO    ] Clear payload received with command _auth
+2015-03-03 13:51:29,504 [salt.master                                ][INFO    ] Clear payload received with command _auth
+2015-03-03 13:51:29,504 [salt.master                                ][INFO    ] Authentication request from saltminion2
+2015-03-03 13:51:29,504 [salt.master                                ][INFO    ] Authentication request from saltmaster2
+2015-03-03 13:51:29,504 [salt.master                                ][INFO    ] Authentication accepted from saltmaster2
+2015-03-03 13:51:29,504 [salt.master                                ][INFO    ] Authentication accepted from saltminion2
+2015-03-03 13:51:29,507 [salt.master                                ][INFO    ] Clear payload received with command _auth
+2015-03-03 13:51:29,507 [salt.master                                ][INFO    ] Authentication request from saltminion1
+2015-03-03 13:51:29,508 [salt.master                                ][INFO    ] Authentication accepted from saltminion1
+2015-03-03 13:51:29,613 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'saltmaster1', '_stamp': '2015-03-03T13:51:29.613054', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAqXzc518cTAtwQa+gu4gV\n7a6SGruqDa/m6mac2W4IFrND2D0HTUmSIrEMERoaAL1dEoDfroPEZSOROxaldVtq\nwC+4htu0C3djQDf6hkpuSzIaeOMwSFXP4jHUjXakkWbcdsAWI/hRyT/EATnVxz7w\nj9jBvZ6JkjpSs5UfvWqFOwH/8bjpVR4dG5TZ1aYl65tkI2UYIVhnvtsqCh/b0UCY\n30dprruf+D4sTv8cy6vT5IG3V68xmKx3LKlh8L1y7Zwl2fYVyp5D4HjgZa6Jrzfq\nvXOdufeevaJGABrTLyvWJSG/jS+YoleBooIHQ5GllXsadyMJBGAEb7w+ysCLoxQ0\nBxRx3kTCN7Ze+0OT48YOZ1iKyHyChug1i+ggPXucyj3ZE7/nb9jJ2C6ra81LSWMC\nQ6Ur3AaJW5QCaZHEqtiT0n549lXPdYcKwkqOu6rj8ENuUk5d10JOSn/LMJcY8ubF\nhX6+28K3bxwolDIsCuQit+PW1jytaEPfdB6BebQdvh9MOaocBZ1LgymAoVoB8fvp\n2SJkWteXLF9aCcTESZ9zg5XCZks8bKE+e878nR5VsUk+1c76aZ7SASoltZCLyQgt\nZ/rgSu7DH6n9qwLyaHHXR/C0iT+RuImVK/1U/trz5+FHzPixW/Bln6Oc+FAEMxTc\nHTWyHSDHZR6CvuGAE7vcD9MCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+2015-03-03 13:51:29,648 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'saltminion2', '_stamp': '2015-03-03T13:51:29.648049', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAzw1ihmH9W03Q8tWtu4Kg\nh8AbGDnJgQVUn13RSsIf7ERPAX7w8cztTSv8TavRGtziAHdGDxBG5iu4ixvm4cur\nejQq90ZcsqoAkxYV/ja1otYYs8W0ldr0oYHR8kN6NEE0Gn5HuEhPaoqtOdwHU1dv\nuO8/ptj803VRpXmBiDmhNfqP0UO1vDyfOxO3ajdpMb4fpj1ZXZSaoYgtUZ2wSgb/\nb749D5RDlK9DEN99XYJnH7b352fUhwkoe39YtfBgmnB+gp0ZQbq+M1RGXF7UAwbn\nus0ktOkAa/o3jL8ZlQ8Ccow55bB7KpqOrTGq749oUu0AijcYtOIBJcL6SX5n8JDw\nM9mDYCRgRPdVWTtdlVBmI2w8mZcakz5+8PDl0LymivnKtgd9Idrb253j0olRzmda\n+F3gzBmOQsgfvSQTw4J4xLFLHT64GidfjNR4HNUUsnyN/AkpgxNZ5nh3S+9AdG0m\nytOpu60Q4q6qUn16MwfLg/kBhR8qLcWsJcQ6OaEM16Gh4X8rsE+3uOpJMKiOStLL\nvLFUxjsR9wpkyXZ9bFlioqfVPwNoxRLSfxGUKM9ULw8F4w8Lwpe9iJM7nHHtI0UY\n7l4ekN23uVqcQ6tSrMlcNtVMAThhj/cBf53wgTXvgHC8+W2pzaADO46Cd6OrTAKz\nw/sS7GskMfgGzY/RX+UdaTsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+2015-03-03 13:51:29,677 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'saltminion1', '_stamp': '2015-03-03T13:51:29.676371', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAneNRAUstM+/XoJUg3rav\n8fSNYdhMx4cfkTxtQgF/vvUTgv6hcPHDH/zPGp5SsWq3d3jQ3/wui+vw9jgKiWV3\ndmacT9qwOiOLoXT24fY7KEut/150DxexRhEt9xff35oOVS3oK/8Bo9OfSixgWrAp\nITjVSo1KR08BpnI4l7aCWu0r8exKik2jEfqy9woL/WB4CAI6FZ04uRC8X6fZep3K\n+IAK+1p9+RzS/5Ayslgabu0ShcGmDztBD7nL1T2leuVIafGVTz4yxCLG6fl+2c9/\nQWw79RpW+Z2wfE5szIutVD6RDTd8gDDmRsaKfmSDww2qYcW+Ka0h3+xUFJXb8lIc\nbNQPzstV6hJB3NvmImK61EIeXjIJmAvm5vADPjg/wJp94plOzgmBoZRtAjy24YU/\nbkIIPaB9EcBdekEq7PaXbibzHarKBtZE+iKjwkaTJdCR3MRMVkYrOjEMK2hG4YV1\nlLgC4qEj5xVsn7DyWuaMQBiImlYRZz/Hxg22B7ct7V/DSpFxxM+KyrGS8dwNzF7u\nh5HUak2ZqtfaWOu3yr4mJuHx+H1yWgT8CGAToVATyu9Qu/kLAkRvyhXoM+x4L4JI\nIl8LC2wcajPUAOFEQFpxdnQ6FPar+xUWdPRCNjTNIMuuIfHdC1ExIp7mVDARtU+Z\nIfd4DfXeFFsY9Vn7NNU5l+UCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+2015-03-03 13:51:29,696 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'saltmaster2', '_stamp': '2015-03-03T13:51:29.695477', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAwOvQgA22iO+i1nj80w0d\nlJP82sYrL2WDhV9hCmuD+yCfldaMW53/KXbWwU9AzoA6P7hCsFJiftUIpusaqr+l\nnRqk4/W8s2t9N73tgZEGUEeS8jQttSoa0AmISmLTb/HsKKLQ7ivZtV34t9ftJxkf\nWsSCxa2blQE6v4LAMsb8+b6dVODCZiYVDJHNHAKUbl6G8DaoxyBB9R4VF/gh3X+2\nmvdfUScwoFI9RNW1xxaS0yA2x5bSUEeBdH78taJLOVUFcu3XLJ8sogjN5ud9Newi\nFxhJbMh8ZNL60T9pnew0PZRnaL3Lx5XKKy56ookumQvm9ypmAFmVFsObEhK7yMrk\nxGbGul6WaGufT9mrpKk5gVdriv4VzfpUenEELN0xxYktq3ORZJcQUQofnVoSZyi2\nmTRSZsWL2rY0wBawJ9lUKQholmxs9VS/Z4xb1W/APBTmcaKHF3fY1mNKuFN79frm\nU5JxUoninunRyTTUsVEpg/4LTNzdP51tCnSBy1g/Q2oz3bpsSHhRdGHD5Q0N+7I3\nte/v4OfZbYOl7E6+RbX7lfbDVpVdiM6M0k24qWz4juuL49EBSkmfRH9h4UmA5eo6\nf4Wun9OLoNsUjgnhYDpw95350nwbN9t/LvUDX4ZfA4yPTKJABCfp3VjvSsCoMfZF\nOilKPNtnTJV9YKA7RBAIG/ECAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+2015-03-03 13:51:29,771 [salt.master                                ][INFO    ] AES payload received with command _return
+2015-03-03 13:51:29,772 [salt.master                                ][INFO    ] Got return from saltminion1 for job 20150303135033618398
+2015-03-03 13:51:29,772 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303135033618398', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:51:29.771763', 'fun': 'test.ping', 'id': 'saltminion1'}
+2015-03-03 13:51:29,772 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303135033618398', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:51:29.772106', 'fun': 'test.ping', 'id': 'saltminion1'}
+2015-03-03 13:51:29,779 [salt.client      ][DEBUG   ] jid 20150303135033618398 return from saltminion1
+2015-03-03 13:51:29,793 [salt.master                                ][INFO    ] AES payload received with command _return
+2015-03-03 13:51:29,793 [salt.master                                ][INFO    ] Got return from saltmaster2 for job 20150303135033618398
+2015-03-03 13:51:29,794 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303135033618398', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:51:29.793428', 'fun': 'test.ping', 'id': 'saltmaster2'}
+2015-03-03 13:51:29,794 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303135033618398', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:51:29.793816', 'fun': 'test.ping', 'id': 'saltmaster2'}
+2015-03-03 13:51:29,795 [salt.client      ][DEBUG   ] jid 20150303135033618398 return from saltmaster2
+2015-03-03 13:51:29,809 [salt.master                                ][INFO    ] AES payload received with command _return
+2015-03-03 13:51:29,809 [salt.master                                ][INFO    ] AES payload received with command _return
+2015-03-03 13:51:29,809 [salt.master                                ][INFO    ] Got return from saltminion2 for job 20150303135033618398
+2015-03-03 13:51:29,809 [salt.master                                ][INFO    ] Got return from saltmaster1 for job 20150303135033618398
+2015-03-03 13:51:29,810 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303135033618398', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:51:29.809448', 'fun': 'test.ping', 'id': 'saltmaster1'}
+2015-03-03 13:51:29,810 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303135033618398', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:51:29.809428', 'fun': 'test.ping', 'id': 'saltminion2'}
+2015-03-03 13:51:29,810 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303135033618398', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:51:29.809763', 'fun': 'test.ping', 'id': 'saltmaster1'}
+2015-03-03 13:51:29,810 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150303135033618398', 'return': True, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-03-03T13:51:29.809810', 'fun': 'test.ping', 'id': 'saltminion2'}
+2015-03-03 13:51:29,811 [salt.client      ][DEBUG   ] jid 20150303135033618398 return from saltminion2
+2015-03-03 13:51:29,817 [salt.client      ][DEBUG   ] jid 20150303135033618398 return from saltmaster1
+2015-03-03 13:51:29,823 [salt.client      ][DEBUG   ] jid 20150303135033618398 found all minions set(['saltminion1', 'saltminion2', 'saltmaster1', 'saltmaster2'])
+```
+
+**saltmaster2 no logs (bad case)**
+**saltminion1 logs (bad case)**
+
+```
+2015-03-03 13:51:29,486 [salt.minion                                 ][INFO    ] User root Executing command test.ping with jid 20150303135033618398
+2015-03-03 13:51:29,487 [salt.minion                                 ][DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20150303135033618398', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+2015-03-03 13:51:29,500 [salt.minion                                 ][INFO    ] Starting a new job with PID 32360
+2015-03-03 13:51:29,502 [salt.minion                                 ][INFO    ] Returning information for job: 20150303135033618398
+2015-03-03 13:51:29,678 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-03-03 13:51:29,679 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+```
+
+**saltminion2 logs (bad case)**
+
+```
+2015-03-03 13:51:29,485 [salt.minion                                 ][INFO    ] User root Executing command test.ping with jid 20150303135033618398
+2015-03-03 13:51:29,485 [salt.minion                                 ][DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20150303135033618398', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+2015-03-03 13:51:29,497 [salt.minion                                 ][INFO    ] Starting a new job with PID 31220
+2015-03-03 13:51:29,499 [salt.minion                                 ][INFO    ] Returning information for job: 20150303135033618398
+2015-03-03 13:51:29,651 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-03-03 13:51:29,652 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+```

@@ -1,0 +1,60 @@
+I'm trying to test out my salt files before deploying to production but am running into problems.  For example, below I am creating an app user and then creating a file in their home directory once the user exists.  In this example I think the dependency on the user may not actually be necessary since I could create the folder independently, however it demonstrates the problems I am having.  
+
+```
+User app:
+  user.present:
+    - name: app
+    - groups:
+      - app
+    - system: False
+    - empty_password: True
+
+/home/app/.profile:
+  file.managed:
+    - source: salt://users/.profile
+    - user: app
+    - group: app
+    - template: jinja
+    - require:
+        - user: User app
+```
+
+I evaluated this in local mode using the command below and set `test=True`.
+
+```
+salt-call --local --config-dir=/srv/salt_config state.highstate test=True
+```
+
+The app user is set to be created.
+
+```
+          ID: User app
+    Function: user.present
+        Name: app
+      Result: None
+     Comment: User app set to be added
+     Started: 21:23:30.286652
+    Duration: 64.135 ms
+     Changes: 
+```
+
+But, the /home/app/.profile state fails because `User app` is not available.  
+
+```
+          ID: /home/app/.profile
+    Function: file.managed
+      Result: False
+     Comment: User app is not available
+     Started: 21:23:30.351001
+    Duration: 2.416 ms
+     Changes: 
+```
+
+Am I doing something wrong here?  It seems like `/home/app/.profile` should operate under the assumption that `User app` will succeed.  Does the `user.present` state report what will be changes?  In the source code for `user.py` I see the code below.  Should this code modify `ret['changes']` to indicate a user will be added?
+
+```
+        if __opts__['test']:
+            ret['result'] = None
+            ret['comment'] = 'User {0} set to be added'.format(name)
+            return ret
+```

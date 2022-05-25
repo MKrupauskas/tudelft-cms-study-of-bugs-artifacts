@@ -1,0 +1,137 @@
+### Description of Issue/Question
+We have lots of scheduled deploys using salt-api. Sometimes auth token can;t be generated and api returns HTTP 500. Details below.
+
+### Setup
+No extra setup required except for salt-master and salt-api.
+
+### Steps to Reproduce Issue
+Execute /login resource many times by different threads. This should eventually reproduce problem.
+
+Salt api will return HTTP status 500, with response:
+```
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN""http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"></meta>
+    <title>500 Internal Server Error</title>
+    <style type="text/css">
+    #powered_by {
+        margin-top: 20px;
+        border-top: 2px solid black;
+        font-style: italic;
+    }
+
+    #traceback {
+        color: red;
+    }
+    </style>
+</head>
+    <body>
+        <h2>500 Internal Server Error</h2>
+        <p>The server encountered an unexpected condition which prevented it from fulfilling the request.</p>
+        <pre id="traceback"></pre>
+    <div id="powered_by">
+    <span>Powered by <a href="http://www.cherrypy.org">CherryPy 3.2.2</a></span>
+    </div>
+    </body>
+</html>
+```
+
+It salt master logs I found error:
+```
+2017-04-27 10:30:06,266 [salt.loaded.int.auth.ldap                            ][DEBUG   ][15022] Running LDAP user dn search with filter:sAMAccountName=docuautn, dn:, scope:2
+2017-04-27 10:30:06,271 [salt.loaded.int.auth.ldap                            ][DEBUG   ][15022] Attempting LDAP bind with user dn: CN=docuautn,OU=UsersGeneric,OU=PD,OU=Nutley,OU=AdminUnits,DC=nala,DC=roche,DC=com
+2017-04-27 10:30:06,280 [salt.loaded.int.auth.ldap                            ][DEBUG   ][15022] Successfully authenticated user dn via LDAP: CN=docuautn,OU=UsersGeneric,OU=PD,OU=Nutley,OU=AdminUnits,DC=nala,DC=roche,DC=com
+2017-04-27 10:30:06,280 [salt.loaded.int.auth.ldap                            ][DEBUG   ][15022] ldap bind to determine group membership succeeded!
+2017-04-27 10:30:06,283 [salt.loaded.int.auth.ldap                            ][DEBUG   ][15022] Running LDAP group membership search: (&(member=CN=docuautn,OU=UsersGeneric,OU=PD,OU=Nutley,OU=AdminUnits,DC=nala,DC=roche,DC=com)(objectClass=group))
+2017-04-27 10:30:06,284 [salt.loaded.int.auth.ldap                            ][DEBUG   ][15022] User docuautn is a member of groups: ['GLOREGAINFO_DA']
+2017-04-27 10:30:06,293 [salt.loaded.int.auth.ldap                            ][DEBUG   ][15022] Running LDAP user dn search with filter:sAMAccountName=docuautn, dn:, scope:2
+2017-04-27 10:30:06,297 [salt.loaded.int.auth.ldap                            ][DEBUG   ][15022] Attempting LDAP bind with user dn: CN=docuautn,OU=UsersGeneric,OU=PD,OU=Nutley,OU=AdminUnits,DC=nala,DC=roche,DC=com
+2017-04-27 10:30:06,307 [salt.loaded.int.auth.ldap                            ][DEBUG   ][15022] Successfully authenticated user dn via LDAP: CN=docuautn,OU=UsersGeneric,OU=PD,OU=Nutley,OU=AdminUnits,DC=nala,DC=roche,DC=com
+2017-04-27 10:30:06,308 [salt.loaded.int.auth.ldap                            ][DEBUG   ][15022] LDAP authentication successful
+2017-04-27 10:30:06,339 [cherrypy.error.58577616                  ][ERROR   ][16837] [27/Apr/2017:10:30:06]  Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/cherrypy/_cprequest.py", line 102, in run
+    hook()
+  File "/usr/lib/python2.6/site-packages/cherrypy/_cprequest.py", line 62, in __call__
+    return self.callback(**self.kwargs)
+  File "/usr/lib/python2.6/site-packages/cherrypy/lib/sessions.py", line 698, in save
+    cherrypy.session.save()
+  File "/usr/lib/python2.6/site-packages/cherrypy/lib/sessions.py", line 230, in save
+    self.release_lock()
+  File "/usr/lib/python2.6/site-packages/cherrypy/lib/sessions.py", line 374, in release_lock
+    self.locks[self.id].release()
+KeyError: u'cfd207d26da031d5f58e6fb4ca312ec0a2308691'
+
+2017-04-27 10:30:06,339 [cherrypy.error.58577616                  ][ERROR   ][16837] [27/Apr/2017:10:30:06] HTTP Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/cherrypy/_cprequest.py", line 660, in respond
+    self.hooks.run('before_finalize')
+  File "/usr/lib/python2.6/site-packages/cherrypy/_cprequest.py", line 112, in run
+    raise exc
+KeyError: u'cfd207d26da031d5f58e6fb4ca312ec0a2308691'
+
+2017-04-27 10:30:06,340 [cherrypy.access.58577616                 ][INFO    ][16837] 10.114.134.26 - - [27/Apr/2017:10:30:06] "POST /login HTTP/1.1" 500 805 "" "rundeck-salt-api 1.0"
+2017-04-27 10:30:06,340 [cherrypy.error.58577616                  ][ERROR   ][16837] [27/Apr/2017:10:30:06]  Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/cherrypy/_cprequest.py", line 102, in run
+    hook()
+  File "/usr/lib/python2.6/site-packages/cherrypy/_cprequest.py", line 62, in __call__
+    return self.callback(**self.kwargs)
+  File "/usr/lib/python2.6/site-packages/cherrypy/lib/sessions.py", line 706, in close
+    sess.release_lock()
+  File "/usr/lib/python2.6/site-packages/cherrypy/lib/sessions.py", line 374, in release_lock
+    self.locks[self.id].release()
+KeyError: u'cfd207d26da031d5f58e6fb4ca312ec0a2308691'
+
+2017-04-27 10:30:06,341 [cherrypy.error.58577616                  ][ERROR   ][16837] [27/Apr/2017:10:30:06]  Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/cherrypy/_cptree.py", line 140, in release_serving
+    req.close()
+  File "/usr/lib/python2.6/site-packages/cherrypy/_cprequest.py", line 492, in close
+    self.hooks.run('on_end_request')
+  File "/usr/lib/python2.6/site-packages/cherrypy/_cprequest.py", line 112, in run
+    raise exc
+KeyError: u'cfd207d26da031d5f58e6fb4ca312ec0a2308691'
+
+2017-04-27 10:30:07,421 [cherrypy.access.58577616                 ][INFO    ][16837] 10.114.134.20 - - [27/Apr/2017:10:30:07] "GET / HTTP/1.1" 200 181 "" ""
+```
+
+I checked `/var/cache/salt/master/tokens`. There is no file token file. I check about hour after this error occurred, so the token file was not deleted, there are older tokens in this dir.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 1.4.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Nov 21 2013, 10:50:32)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: redhat 6.6 Santiago
+        machine: x86_64
+        release: 2.6.32-504.12.2.el6.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 6.6 Santiago
+```

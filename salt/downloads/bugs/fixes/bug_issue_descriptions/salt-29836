@@ -1,0 +1,51 @@
+States depdendent on `__low__` currently fails if called through `__states__` as `__low__` is not defined.
+
+This can be tested through a custom state like this:
+
+``` python
+# _states/acc.py
+
+def helper(name, **kwargs):
+    return  __states__['file.accumulated'](
+        filename='/tmp/accumulated.txt',
+        name='lines',
+        text=name,
+    )
+```
+
+and this state definition:
+
+``` yaml
+the-file:
+    file.managed:
+        - name: /tmp/accumulated.txt
+        - source: salt://ordering.txt
+        - template: jinja
+
+a-line:
+    acc.helper:
+        - name: a line
+        - require_in:
+            - file: the-file
+```
+
+and for completeness, this template:
+
+``` sls
+{% for line in accumulator['lines'] -%}
+{{ line }}
+{% endfor %}
+```
+
+This should have resulted in a file `/tmp/accumulated.txt` with the contents `a line`, but fails with
+
+``` python-traceback
+An exception occurred in this state: Traceback (most recent call last):
+File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1591, in call
+  **cdata['kwargs'])
+File "/var/cache/salt/minion/extmods/states/acc.py", line 105, in helper
+  text=name,
+File "/usr/lib/python2.7/dist-packages/salt/states/file.py", line 4043, in accumulated
+  require_in = __low__.get('require_in', [])
+NameError: global name '__low__' is not defined
+```

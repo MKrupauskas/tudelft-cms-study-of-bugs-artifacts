@@ -1,0 +1,32 @@
+### Description of Issue/Question
+
+On one of our virtual Windows servers, the salt-minion fails to start.
+
+The reason is that the following line fails to calculate the total amount of physical memory available: https://github.com/saltstack/salt/blob/develop/salt/grains/core.py#L416 
+
+On this particular machine, one of the objects returned from wmi lacks the `Capacity` property:
+
+``` python
+>>> import wmi
+>>> wmi_c = wmi.WMI()
+>>> [x.Capacity for x in wmi_c.Win32_PhysicalMemory()]
+[u'4160749568', None, u'671088640']
+```
+
+This prevents `_memdata` from casting each entry to int and then calculate the sum to get a total amount of ram memory.
+
+The following works, however:
+
+``` python
+>>> import win32api
+>>> win32api.GlobalMemoryStatus()['TotalPhys']
+68716363776L
+```
+
+Note that summing the valid values from calling WMI doesn't add up to the value returned by `GlobalMemoryStatus`, which matches the amount of physical memory actual available on that machine.
+
+I don't know enough WMI or running windows in virtual environments to know why one of the entries returned doesn't report any capacity, or if that is even valid. This particular machine has had no other problems though.
+
+I'd suggest changing `_memdata` to use `win32api.GlobalMemoryStatus()` instead, as this uses the Win32 API directly unless there are other differences between WMI and the Win32 API that makes this unfeasable.
+
+The salt-minion has version 2015.8.8

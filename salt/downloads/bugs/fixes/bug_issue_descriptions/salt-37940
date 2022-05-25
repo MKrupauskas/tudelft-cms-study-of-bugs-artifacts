@@ -1,0 +1,81 @@
+### Description of Issue/Question
+When running dockerng.sls_build, the state runs a cmd command '/usr/bin/sleep infinity', however 'sleep' is not located in /usr/bin/ in all distributions, for example in Ubuntu sleep in located at /bin/sleep.
+This causes the command to fail, workaround is to create a symlink of sleep in /usr/bin/.
+
+However this should be noted in the docs, I'll try to find a fix for this, if I do i'll create a PR.
+
+### Setup
+Build image with python (docker files are created from template for each distro, this one is for Ubuntu 16.04):
+```
+FROM ubuntu:16.04
+MAINTAINER 'Alex Zeleznikov'
+RUN apt-get update
+RUN apt-get upgrade -y
+RUN apt-get install -y python2.7
+```
+Using sls file:
+```
+{% from 'docker/docker.jinja' import dockerfile with context %}
+
+{% for distro, data in dockerfile.iteritems() %}
+docker.file_{{ distro }}:
+  file.managed:
+    - name: '/usr/share/COMPANY/docker/{{ distro }}/dockerfile'
+    - source: 'salt://docker/files/template.dockerfile'
+    - makedirs: True
+    - template: jinja
+    - defaults:
+        distro: {{ data }}
+
+docker.image_{{ distro }}:
+  dockerng.image_present:
+    - name: 'COMPANY/salt:{{ distro }}'
+    - build: '/usr/share/COMPANY/docker/{{ distro }}'
+    - require:
+      - docker.file_{{ distro }}
+{% endfor %}
+```
+
+### Steps to Reproduce Issue
+`salt DOCKERHOST state.apply docker`
+`salt DOCKERHOST  dockerng.sls_build salt_testing base='COMPANY/salt:ubuntu16' mods=base`
+above command results in following error: "/usr/bin/sleep: no such file or directory"
+
+### Versions Report
+Salt Version:
+           Salt: 2016.11.0
+
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: 8.1.2
+       dateutil: 2.4.2
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.9.dev
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-47-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial

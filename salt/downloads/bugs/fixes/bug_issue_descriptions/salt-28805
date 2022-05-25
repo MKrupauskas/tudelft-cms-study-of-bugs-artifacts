@@ -1,0 +1,66 @@
+Upon testing reactors within a syndic environment, the MastersMaster has the following inside /etc/salt/master.d/reactor.conf:
+
+``` salt
+reactor:
+  - 'salt/presence/present':
+    - /srv/reactor/test.sls
+
+/src/reactor/test.sls:
+
+get_minion_disk_info:
+  local.status.diskusage:
+    - tgt: {{ data['present'] }}
+    - expr_form: list
+    - ret: shaker_disk_ret
+```
+
+The errors from salt-master -l debug:
+
+``` py-traceback
+[DEBUG   ] Sending event - data = {'_stamp': '2015-11-11T23:58:55.813181', 'tag': 'salt/presence/present', 'data': {'_stamp': '2015-11-11T23:52:07.807058', 'present': ['Nebula-DB02.nebula-hosting.net', 'Nebula-CBDB01']}}
+[DEBUG   ] Sending event - data = {'_stamp': '2015-11-11T23:58:55.813559', 'present': ['Nebula-DB02.nebula-hosting.net', 'Nebula-CBDB01']}
+[DEBUG   ] Gathering reactors for tag salt/presence/present
+[DEBUG   ] Compiling reactions for tag salt/presence/present
+[DEBUG   ] compile template: /srv/reactor/test.sls
+[DEBUG   ] Jinja search path: ['/var/cache/salt/master/files/base']
+[ERROR   ] Rendering exception occurred :Jinja variable 'dict object' has no attribute 'present'
+[ERROR   ] Failed to render "/srv/reactor/test.sls":
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/utils/reactor.py", line 53, in render_reaction
+    data=data)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 279, in render_template
+    template, self.rend, self.opts['renderer'], **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/template.py", line 94, in compile_template
+    ret = render(input_data, saltenv, sls, **render_kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/renderers/jinja.py", line 333, in render
+    **kws)
+  File "/usr/lib/python2.7/site-packages/salt/utils/templates.py", line 180, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/usr/lib/python2.7/site-packages/salt/utils/templates.py", line 386, in render_jinja_tmpl
+    buf=tmplstr)
+```
+
+Here is the event in question, from running     `salt-run state.event pretty=True`    on the master:
+
+``` yaml
+salt/presence/present   {
+    "_stamp": "2015-11-12T00:00:58.806674",
+    "data": {
+        "_stamp": "2015-11-11T23:54:10.537524",
+        "present": [
+            "Nebula-DB02.nebula-hosting.net",
+            "Nebula-CBDB01"
+        ]
+    },
+    "tag": "salt/presence/present"
+}
+syndic/Salt-MinMas/salt/presence/present        {
+    "_stamp": "2015-11-12T00:00:58.807055",
+    "present": [
+        "Nebula-DB02.nebula-hosting.net",
+        "Nebula-CBDB01"
+    ]
+}
+```
+
+My guess would be that instead of being passed the prettied up dict, the reactor is actually being handed the syndic version which is missing the data field.

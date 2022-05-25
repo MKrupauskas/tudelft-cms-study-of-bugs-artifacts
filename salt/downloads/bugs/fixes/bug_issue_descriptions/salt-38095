@@ -1,0 +1,99 @@
+I'm reopening the issue we discovered in #37580 with a minimal reproducer. \cc @isbm
+
+# Setup
+* on the 1st system: salt-master, salt-ssh in version 2016.3.4 or 2015.8.7
+* on the 2nd system: `sshd` configured & running
+
+# Steps to reproduce:
+On the 1st system:
+1. File roots base /srv/salt:
+Relevant portion of master config:
+```
+file_roots:
+  base:
+    - /srv/salt/
+```
+
+2. Roster
+```
+myhost:
+  host: myhostfqdn
+  user: root
+  passwod: mypass
+```
+
+3. Create a custom module in /srv/salt/_modules/mymodule.py with the following contents:
+```
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import
+
+import logging
+import salt.modules.cmdmod
+
+__salt__ = {
+    'cmd.run_all': salt.modules.cmdmod.run_all,
+}
+
+log = logging.getLogger(__name__)
+
+def __virtual__():
+    return True
+
+def get_me_stuff():
+    result = {"status": "ok"}
+    return result
+```
+
+4. Create a state using the module above in /srv/salt/my/state.sls
+```
+state:
+  module.run:
+      - name: mymodule.get_me_stuff
+```
+
+5. Proceed as follows (on the "master")
+* `salt-ssh -i myhost state.apply my.state` -> succeeds
+* `salt-ssh -i myhost saltutil.sync_modules` -> empty output
+* `salt-ssh -i myhost state.apply my.state` -> fails now
+
+The last command fails, until we delete the extracted thin in the temp of the
+target system (`-w` parameter as suggested in the older issue doesn't help). After the 1st command execution, the `mymodule.py` is present in extracted thin on the target system, but running `sync_modules` deletes it and it's not copied again by running the last state.apply.
+
+# Versions report
+Salt Version:
+           Salt: 2016.3.4
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Jun 28 2016, 06:57:42) [GCC]
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.2
+ 
+System Versions:
+           dist: SuSE 42.2 x86_64
+        machine: x86_64
+        release: 4.1.34-33-default
+         system: Linux
+        version: openSUSE  42.2 x86_64

@@ -1,0 +1,78 @@
+### Description of Issue
+pip.installed is not available on salt 3000 or the head of master on older versions of pip on windows
+
+https://gitlab.com/saltstack/employees/sre/bryceml/ec2-amis/-/jobs/473544805
+fails with salt 3000 and default pip (9.0.1).
+https://gitlab.com/saltstack/employees/sre/bryceml/ec2-amis/-/jobs/473602961
+succeeds with salt 2019.2.3 and default pip (9.0.1).
+
+```
+{%- set get_python_dir = salt.temp.dir(prefix='get-python-') %}
+{%- set get_python_path = (get_python_dir | path_join('python-3.6.8-amd64.exe')).replace('\\', '\\\\') %}
+
+download-get-python:
+  file.managed:
+    - name: {{ get_python_path }}
+    - source: https://www.python.org/ftp/python/3.6.8/python-3.6.8-amd64.exe
+    - skip_verify: true
+
+python3:
+  cmd.run:
+    - name: {{ get_python_path }} /quiet InstallAllUsers=1 TargetDir=C:\\Python36 Include_doc=0 Include_tcltk=0 Include_test=0 Include_launcher=1 PrependPath=1 Shortcuts=0
+
+{%- set get_pip_dir = salt.temp.dir(prefix='get-pip-') %}
+{%- set get_pip_path = (get_pip_dir | path_join('get-pip.py')).replace('\\', '\\\\') %}
+{%- set python3 = 'c:\\\\Python36\\\\python.exe' %}
+{%- set get_pip3 = '{} {}'.format(python3, get_pip_path) %}
+{%- set pip3 = 'pip3' %}
+
+download-get-pip:
+  file.managed:
+    - name: {{ get_pip_path }}
+    - source: https://raw.githubusercontent.com/pypa/get-pip/69941dc3ee6a2562d873f8616a4df31ba401b2a9/get-pip.py
+    - skip_verify: true
+
+pip3-install:
+  cmd.run:
+    # -c <() because of https://github.com/pypa/get-pip/issues/37
+    - name: '{{ get_pip3 }} "pip<=20.0.2"'
+    - cwd: /
+    - reload_modules: True
+
+upgrade-installed-pip3:
+  pip.installed:
+    - name: pip <=20.0.2
+    - upgrade: True
+    - onlyif:
+      - 'if (py.exe -3 -c "import sys; print(sys.executable)") { exit 0 } else { exit 1 }'
+      - 'if (get-command pip3) { exit 0 } else { exit 1 }'
+    - require:
+      - cmd: pip3-install
+
+```
+are the states I used
+
+If I use salt 3000 or the head of master and upgrade to pip 20.0.2 it works.
+
+When it doesn't work, I get this as a traceback:
+```
+==> amazon-ebs: [ERROR   ] Error encountered during module reload. Modules were not reloaded.
+==> amazon-ebs: [ERROR   ] Failed to import states pip_state, this is due most likely to a syntax error:
+==> amazon-ebs: Traceback (most recent call last):
+==> amazon-ebs:   File "C:\salt\bin\lib\site-packages\salt-3000-py2.7.egg\salt\loader.py", line 1607, in _load_module
+==> amazon-ebs:     mod = imp.load_module(mod_namespace, fn_, fpath, desc)
+==> amazon-ebs:   File "C:\salt\bin\lib\site-packages\salt-3000-py2.7.egg\salt\states\pip_state.py", line 95, in <module>
+==> amazon-ebs:     import pip
+==> amazon-ebs:   File "C:\salt\bin\lib\site-packages\pip\__init__.py", line 26, in <module>
+==> amazon-ebs:     from pip.utils import get_installed_distributions, get_prog
+==> amazon-ebs:   File "C:\salt\bin\lib\site-packages\pip\utils\__init__.py", line 23, in <module>
+==> amazon-ebs:     from pip.locations import (
+==> amazon-ebs:   File "C:\salt\bin\lib\site-packages\pip\locations.py", line 88, in <module>
+==> amazon-ebs:     bin_user = os.path.join(user_site, 'Scripts')
+==> amazon-ebs:   File "C:\salt\bin\lib\ntpath.py", line 65, in join
+==> amazon-ebs:     result_drive, result_path = splitdrive(path)
+==> amazon-ebs:   File "C:\salt\bin\lib\ntpath.py", line 115, in splitdrive
+==> amazon-ebs:     if len(p) > 1:
+==> amazon-ebs: TypeError: object of type 'NoneType' has no len()
+==> amazon-ebs: [ERROR   ] State 'pip.installed' was not found in SLS 'dependencies.windows_pip'
+```

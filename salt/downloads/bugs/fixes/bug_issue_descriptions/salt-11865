@@ -1,0 +1,159 @@
+[Didn't find any similar issue, so just open a new one here.]
+
+```
+$ salt --versions-report
+           Salt: 2014.1.1
+         Python: 2.7.6 (default, Apr  4 2014, 13:21:05)
+         Jinja2: 2.7.2
+       M2Crypto: 0.22
+ msgpack-python: 0.4.1
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 14.1.1
+            ZMQ: 4.0.4
+```
+
+I'm trying to attach 1K minions to a single master in parallel, everything is a clean setup, nothing has been cached.
+
+After accepted all the 1K minions' keys, the master becomes busy all the time, and the memory usage keep increasing. Here are some metrics from Ganglia during that period before the master been stopped.
+
+![loadone](https://cloud.githubusercontent.com/assets/196830/2651446/6553b80c-bf8d-11e3-8bf8-eb2e1c20b83a.png)
+![totalcpu](https://cloud.githubusercontent.com/assets/196830/2651450/7513e05a-bf8d-11e3-8fcc-036787ac93dc.png)
+![totalmem](https://cloud.githubusercontent.com/assets/196830/2651451/796f5c24-bf8d-11e3-881c-b445b34c60e4.png)
+![totalpackets](https://cloud.githubusercontent.com/assets/196830/2651452/7c2a4cda-bf8d-11e3-9cd0-41eee082813c.png)
+![cpu-user](https://cloud.githubusercontent.com/assets/196830/2651442/52b7fd3e-bf8d-11e3-8214-6d3c574c6af6.png)
+![saltmaster-cpu](https://cloud.githubusercontent.com/assets/196830/2651465/a18c032e-bf8d-11e3-925f-85a8a2fe49e2.png)
+![saltmaster-mem](https://cloud.githubusercontent.com/assets/196830/2651466/a712e8b2-bf8d-11e3-97ed-464404b27f48.png)
+![saltmaster-vmdata](https://cloud.githubusercontent.com/assets/196830/2651469/add1bad4-bf8d-11e3-9d57-68a0db931c1d.png)
+![saltmaster-vmhwm](https://cloud.githubusercontent.com/assets/196830/2651470/b0ed6970-bf8d-11e3-8201-cec241c69db0.png)
+![saltmaster-vmpeak](https://cloud.githubusercontent.com/assets/196830/2651472/b529de4c-bf8d-11e3-9099-3ce7ac2ccb1b.png)
+![saltmaster-vmpte](https://cloud.githubusercontent.com/assets/196830/2651473/ba5c73ca-bf8d-11e3-9daf-aefce17333f6.png)
+![saltmaster-vmrss](https://cloud.githubusercontent.com/assets/196830/2651475/bee983d8-bf8d-11e3-8a4a-cc7e35c01718.png)
+![saltmaster-vmsize](https://cloud.githubusercontent.com/assets/196830/2651477/c2283ec2-bf8d-11e3-812a-eb2814a8c5d2.png)
+![net-packets-received](https://cloud.githubusercontent.com/assets/196830/2651480/d3a5cd7c-bf8d-11e3-8be1-c9271247b715.png)
+![net-packets-sent](https://cloud.githubusercontent.com/assets/196830/2651481/d61e7554-bf8d-11e3-9cb4-d855fb0a797f.png)
+![tcp-established](https://cloud.githubusercontent.com/assets/196830/2651482/da5b67c6-bf8d-11e3-9de1-3b6d3cc9177f.png)
+Seems that only about 500 minions can be authenticated at a time in this situation.
+
+A simple strace shows as below (snipped), the master just keep opening and reading the key files of the master and minion.
+
+```
+$ sudo strace -p 20150 # normal worker process
+close(124)                              = 0
+munmap(0x7f4526f20000, 4096)            = 0
+stat("/etc/salt/pki/master/minions/<hostname>", {st_mode=S_IFREG|0644, st_size=800, ...}) = 0
+open("/etc/salt/pki/master/minions/<hostname>", O_RDONLY) = 124
+fstat(124, {st_mode=S_IFREG|0644, st_size=800, ...}) = 0
+fstat(124, {st_mode=S_IFREG|0644, st_size=800, ...}) = 0
+mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f4526f20000
+read(124, "-----BEGIN PUBLIC KEY-----\nMIICI"..., 4096) = 800
+close(124)                              = 0
+munmap(0x7f4526f20000, 4096)            = 0
+stat("/etc/salt/pki/master/master.pub", {st_mode=S_IFREG|0644, st_size=800, ...}) = 0
+open("/etc/salt/pki/master/master.pub", O_RDONLY) = 124
+fstat(124, {st_mode=S_IFREG|0644, st_size=800, ...}) = 0
+fcntl(124, F_GETFD)                     = 0
+fcntl(124, F_SETFD, FD_CLOEXEC)         = 0
+fstat(124, {st_mode=S_IFREG|0644, st_size=800, ...}) = 0
+lseek(124, 0, SEEK_CUR)                 = 0
+fstat(124, {st_mode=S_IFREG|0644, st_size=800, ...}) = 0
+mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f4526f20000
+lseek(124, 0, SEEK_CUR)                 = 0
+read(124, "-----BEGIN PUBLIC KEY-----\nMIICI"..., 4096) = 800
+read(124, "", 4096)                     = 0
+close(124)                              = 0
+munmap(0x7f4526f20000, 4096)            = 0
+```
+
+Another strace:
+
+```
+$ sudo strace -c -p 20129 # another normal worker process
+Process 20129 attached - interrupt to quit
+^CProcess 20129 detached
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ----------------
+ 24.20    0.006477           0     68175           sendto
+ 19.14    0.005124           0     68576           poll
+ 12.03    0.003219           0    169992           read
+  9.19    0.002460           0    101931           munmap
+  8.55    0.002290           0    105894      3560 open
+  7.50    0.002008           0    170599     69046 stat
+  5.19    0.001390           0    272189           fstat
+  4.44    0.001189           0    102336           close
+  4.15    0.001110           0    101933           mmap
+  2.36    0.000631           0    135745           fcntl
+  1.98    0.000531           0    135501        61 lseek
+  0.77    0.000207           0     46529           madvise
+  0.33    0.000088           1       119           write
+  0.12    0.000033           0        69           rename
+  0.04    0.000012          12         1           wait4
+  0.00    0.000000           0        16           mprotect
+  0.00    0.000000           0        10           brk
+  0.00    0.000000           0         1         1 ioctl
+  0.00    0.000000           0        78        78 access
+  0.00    0.000000           0         1           pipe
+  0.00    0.000000           0       263           recvfrom
+  0.00    0.000000           0         1           socketpair
+  0.00    0.000000           0         1           clone
+  0.00    0.000000           0         1           uname
+  0.00    0.000000           0        52           getdents
+  0.00    0.000000           0         1           getcwd
+  0.00    0.000000           0        82           mkdir
+  0.00    0.000000           0        29           unlink
+  0.00    0.000000           0       174        21 futex
+  0.00    0.000000           0         1           restart_syscall
+  0.00    0.000000           0         1           clock_gettime
+------ ----------- ----------- --------- --------- ----------------
+100.00    0.026769               1480301     72767 total
+```
+
+Then, cleaned all the cache files and profiled with Valgrind.
+
+```
+$ sudo valgrind --suppressions=/<path-to>/valgrind-python.supp --tool=memcheck --leak-check=full --show-leak-kinds=all /usr/bin/salt-master
+```
+
+```
+$ sudo netstat -lnp |grep salt
+unix  2      [ ACC ]     STREAM     LISTENING     19219007 815/valgrind        /var/run/salt/master/publish_pull.ipc
+unix  2      [ ACC ]     STREAM     LISTENING     19219004 816/valgrind        /var/run/salt/master/master_event_pull.ipc
+unix  2      [ ACC ]     STREAM     LISTENING     19219015 816/valgrind        /var/run/salt/master/master_event_pub.ipc
+unix  2      [ ACC ]     STREAM     LISTENING     19219258 776/valgrind        /var/run/salt/master/workers.ipc
+```
+
+```
+$ top -n 1 -p $(pidof -x valgrind |tr ' ' ',')
+top - 18:05:43 up 107 days,  8:05,  5 users,  load average: 16.44, 16.41, 16.30
+Tasks:  20 total,  16 running,   4 sleeping,   0 stopped,   0 zombie
+Cpu(s): 99.2%us,  0.2%sy,  0.6%ni,  0.0%id,  0.0%wa,  0.0%hi,  0.0%si,  0.0%st
+Mem:  24728732k total,  9487880k used, 15240852k free,   226852k buffers
+Swap:  1999864k total,        0k used,  1999864k free,  1256212k cached
+
+  PID USER      PR  NI  VIRT  RES  SHR S %CPU %MEM    TIME+  COMMAND
+  776 root      20   0 6649m 4.2g 7048 S  6.9 18.0   9:52.98 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  824 root      20   0  661m 215m 3804 R 98.3  0.9 134:22.18 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  837 root      20   0  661m 215m 3792 R 99.7  0.9 134:19.39 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  829 root      20   0  661m 215m 3792 R 98.3  0.9 134:06.04 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  822 root      20   0  661m 215m 3740 R 99.7  0.9 134:12.26 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  850 root      20   0  661m 215m 3640 R 99.7  0.9 134:13.19 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  825 root      20   0  661m 215m 3648 R 98.3  0.9 134:11.66 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  856 root      20   0  661m 215m 3740 R 98.3  0.9 134:16.13 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  841 root      20   0  661m 215m 3640 R 99.7  0.9 134:16.34 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  828 root      20   0  661m 215m 3748 R 99.7  0.9 134:06.45 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  847 root      20   0  661m 215m 3740 R 99.7  0.9 134:25.16 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  832 root      20   0  661m 215m 3640 R 90.0  0.9 134:18.80 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  821 root      20   0  661m 215m 3740 R 99.7  0.9 134:25.53 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  844 root      20   0  661m 215m 3640 R 99.7  0.9 134:11.76 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  861 root      20   0  661m 215m 3644 R 98.3  0.9 134:21.77 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  838 root      20   0  661m 215m 3640 R 99.7  0.9 134:09.63 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  823 root      20   0  661m 215m 3640 R 99.7  0.9 134:13.45 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  797 root      20   0  477m 185m 3736 S  0.0  0.8   0:52.11 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  816 root      20   0  573m 167m 1720 S  0.0  0.7   0:29.95 valgrind --suppressions=/<path-to>/valgrind-python.supp
+  815 root      20   0  568m 159m 1760 S  0.0  0.7   0:00.19 valgrind --suppressions=/<path-to>/valgrind-python.supp
+```
+
+The result of Valgrind is too long, only the lines from my TMUX buffer is recorded and is available in [this GIST](https://gist.github.com/cowyn/10221180).
+
+The process leaking memory is the master managing _workers.ipc_.

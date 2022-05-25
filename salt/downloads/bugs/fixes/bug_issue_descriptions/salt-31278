@@ -1,0 +1,142 @@
+I expected file.append to be stateful.  By that I mean if you append X to a file and later change X to Y, X should be removed from the file and Y should be added.  I found that when I change X and try to apply the highstate, it never returns and salt-minion process spikes to 100% until I restart it.
+
+Here's my use-case:
+
+supervisord is installed via yum and ships with some default config files.  I thought appending to one of the default config files was very elegant: 
+
+```
+/etc/sysconfig/supervisord:
+  file.append:
+    - source: salt://mystate/files/sysconfig
+```
+
+However, a few weeks after the initial setup I found a need to add some values to the file.  I think that's a typical pattern which should be supported and should not pin a CPU or cause highstate to fail.
+
+When the minion CPU spikes to 100% there are two salt-minion processes.  When I strace the one that's pegging the CPU, I don't see anything.  When I strace the other, I see lots of this:
+
+```
+clock_gettime(CLOCK_MONOTONIC, {68298, 676974506}) = 0
+gettimeofday({1455734102, 441523}, NULL) = 0
+gettimeofday({1455734102, 441770}, NULL) = 0
+gettimeofday({1455734102, 442013}, NULL) = 0
+gettimeofday({1455734102, 442228}, NULL) = 0
+clock_gettime(CLOCK_MONOTONIC, {68298, 677977944}) = 0
+poll([{fd=8, events=POLLIN}, {fd=16, events=POLLIN}, {fd=24, events=POLLIN}], 3, 0) = 0 (Timeout)
+poll([{fd=16, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=24, events=POLLIN}], 1, 0)    = 0 (Timeout)
+clock_gettime(CLOCK_MONOTONIC, {68298, 678454749}) = 0
+poll([{fd=8, events=POLLIN}, {fd=16, events=POLLIN}, {fd=24, events=POLLIN}], 3, 997) = 0 (Timeout)
+poll([{fd=16, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=24, events=POLLIN}], 1, 0)    = 0 (Timeout)
+clock_gettime(CLOCK_MONOTONIC, {68299, 676855261}) = 0
+gettimeofday({1455734103, 441357}, NULL) = 0
+gettimeofday({1455734103, 441590}, NULL) = 0
+gettimeofday({1455734103, 441811}, NULL) = 0
+gettimeofday({1455734103, 441986}, NULL) = 0
+clock_gettime(CLOCK_MONOTONIC, {68299, 677738964}) = 0
+poll([{fd=8, events=POLLIN}, {fd=16, events=POLLIN}, {fd=24, events=POLLIN}], 3, 0) = 0 (Timeout)
+poll([{fd=16, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=24, events=POLLIN}], 1, 0)    = 0 (Timeout)
+clock_gettime(CLOCK_MONOTONIC, {68299, 678096784}) = 0
+poll([{fd=8, events=POLLIN}, {fd=16, events=POLLIN}, {fd=24, events=POLLIN}], 3, 997) = 0 (Timeout)
+poll([{fd=16, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=24, events=POLLIN}], 1, 0)    = 0 (Timeout)
+clock_gettime(CLOCK_MONOTONIC, {68300, 676357743}) = 0
+gettimeofday({1455734104, 440899}, NULL) = 0
+gettimeofday({1455734104, 441066}, NULL) = 0
+gettimeofday({1455734104, 441307}, NULL) = 0
+gettimeofday({1455734104, 441498}, NULL) = 0
+clock_gettime(CLOCK_MONOTONIC, {68300, 677246722}) = 0
+poll([{fd=8, events=POLLIN}, {fd=16, events=POLLIN}, {fd=24, events=POLLIN}], 3, 0) = 0 (Timeout)
+poll([{fd=16, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=24, events=POLLIN}], 1, 0)    = 0 (Timeout)
+clock_gettime(CLOCK_MONOTONIC, {68300, 677599173}) = 0
+```
+
+Here's some version info...
+
+master:
+
+```
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: 0.3.6
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-48-generic
+         system: Ubuntu 14.04 trusty
+```
+
+minion:
+
+```
+    Salt Version:
+               Salt: 2015.8.5
+
+    Dependency Versions:
+             Jinja2: 2.7.2
+           M2Crypto: 0.21.1
+               Mako: Not Installed
+             PyYAML: 3.11
+              PyZMQ: 14.5.0
+             Python: 2.6.9 (unknown, Dec 17 2015, 01:08:55)
+               RAET: Not Installed
+            Tornado: 4.2.1
+                ZMQ: 4.0.5
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: Not Installed
+              gitdb: Not Installed
+          gitpython: Not Installed
+              ioflo: Not Installed
+            libgit2: Not Installed
+            libnacl: Not Installed
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.6
+       mysql-python: 1.2.3
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+             pygit2: Not Installed
+       python-gnupg: Not Installed
+              smmap: Not Installed
+            timelib: Not Installed
+
+    System Versions:
+               dist:
+            machine: x86_64
+            release: 4.1.10-17.31.amzn1.x86_64
+```
+
+I'm switching my code to `file.blockreplace`, so I have a workaround.  But I think this should be considered as a serious bug.
+
+Please let me know if there's anything I can do to help.
+
+Thank you.

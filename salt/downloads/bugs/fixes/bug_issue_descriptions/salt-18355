@@ -1,0 +1,32 @@
+I recently introduced an S3 external pillar to our Salt Master (2014.7.0), and noticed that it immediately started overwriting the `pillar_roots` that the Git pillars were returning. I tracked it down to a couple of lines that seem to be coded into every pillar module's `ext_pillar()` function:
+
+```
+if __opts__['pillar_roots'].get(environment, []) == [pillar_dir]:
+    return {}
+```
+
+and after it:
+
+```
+opts['pillar_roots'][environment] = [pillar_dir]
+```
+
+Maybe this contrary to the specification, but replacing these two code blocks as follows made things work beautifully for our use case (merging them in the same way `pillar_roots` in master config does with local file pillars)
+
+```
+if pillar_dir in __opts__['pillar_roots'].get(environment, []):
+    return {}
+```
+
+and
+
+```
+if environment in opts['pillar_roots']:
+    opts['pillar_roots'][environment].append(pillar_dir)
+else:
+    opts['pillar_roots'][environment] = [pillar_dir]
+```
+
+In the case of _git_pillar.py_, `environment` was called `branch` but the concept was the same.
+
+Thoughts?

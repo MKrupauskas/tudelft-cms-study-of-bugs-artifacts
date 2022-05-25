@@ -1,0 +1,161 @@
+Here is my master configuration file:
+
+```
+git_pillar_env: base
+git_pillar_branch: master
+git_pillar_provider: pygit2
+git_pillar_privkey: /root/.ssh/id_rsa
+git_pillar_pubkey: /root/.ssh/id_rsa.pub
+git_pillar_passphrase: "password-for-key"
+
+ext_pillar:
+  - git:
+    - master git@bitbucket.org:_Ch3LL_/pillars_test2.git:
+      - env: base
+    - master git@bitbucket.org:_Ch3LL_/pillars-test.git:
+      - env: base
+```
+
+Contents of pillars_test2.git:
+
+```
+ ntp
+    init.sls
+ top.sls
+```
+
+top.sls
+
+```
+base:                                                                                      
+  '*':
+    - ntp
+```
+
+ntp/init.sls
+
+```
+ntp: 
+  client:
+    enabled: true                                                                          
+    strata:
+    - testntp1
+    - testntp2
+```
+
+Contents of pillars-test
+
+```
+ datasources
+    dev-int2.sls
+ top.sls
+```
+
+top.sls
+
+```
+base:
+  '*':
+    - datasources.dev-int2
+```
+
+datasources/dev-int2.sls
+
+```
+gittest: yeahitworkedk
+```
+
+When i run salt '*' saltutil.refresh_pillar adn then saltutil.pillar_items I only see the pillar values of pillars_test repo in salt 2015.8.4
+
+When I try this on 2015.8.3 or 2015.8.4 it does not work. It only shows the contents of the pillar-test repo..
+Here is my test-case for 2015.8.4:
+
+```
+[root@li1182-24 ~]# salt --version
+salt 2015.8.4 (Beryllium)
+```
+
+```
+[root@li1182-24 ~]# salt '*' saltutil.refresh_pillar                                                                                                                            
+li1182-24.members.linode.com:
+    True
+```
+
+```
+[root@li1182-24 ~]# salt '*' pillar.items
+li1182-24.members.linode.com:
+    ----------
+    gittest:
+        yeahitworkedk
+```
+
+As you can see above it is only showing the pillar data from the pillar-test repo and does not include the pillar data from the other repo in the master config
+
+Below shows that both repositories are showing in the cach
+
+```
+[root@li1182-24 ~]# tree /var/cache/salt/master/git_pillar/
+/var/cache/salt/master/git_pillar/
+ 37d8b25fse922cdb2a36rb8b9041a942
+    datasources
+       dev-int2.sls
+    datasources.sls
+    top.sls
+ cd13adka1f2d3b026cf6ed8dda4aecc1
+    ntp
+       init.sls
+    top.sls
+ remote_map.txt
+```
+
+Test-Case when running 2015.8.1:
+
+```
+[root@li1182-24 ~]# salt --version
+salt 2015.8.1 (Beryllium)
+```
+
+```
+[root@li1182-24 ~]# salt '*' saltutil.refresh_pillar                                                                                                                            
+li1182-24.members.linode.com:
+    True
+```
+
+```
+[root@li1182-24 ~]# salt '*' pillar.items
+li1182-24.members.linode.com:
+    ----------
+    gittest:
+        yeahitworkedk
+    ntp:
+        ----------
+        client:
+            ----------
+            enabled:
+                True
+            strata:
+                - testntp1
+                - testntp2
+```
+
+As shown above in version 2015.8.1 it shows all pillar data from both repos.
+
+git bisect shows this as the first bad commit:
+
+```
+05782aa78f6dcb377b203ac3378ea3fdeae72601 is the first bad commit
+commit 05782aa78f6dcb377b203ac3378ea3fdeae72601
+Author: Elias Probst <mail@eliasprobst.eu>
+Date:   Wed Oct 14 09:08:48 2015 +0200
+
+    Provide all git pillar dirs in `opts[pillar_roots]`
+
+    Do not only provide the `pillar_roots` directory of the currently
+    evaluated pillar SLS.
+    This makes it impossible to use `include` for pillar SLS located in
+    another git repository.
+
+    Fixes #27932
+
+:040000 040000 c98634d8a8ebefda2969ea5fceca6359006908aa 853636a87d6bd8cd817fda36f40ea9e928a8e91e M      salt
+```

@@ -1,0 +1,40 @@
+The **timeout** keyword is used by Junos State but in Junos Exxecution module, the keyword is dev_timeout and no allowance is made for this difference, except in one function.
+see https://docs.saltstack.com/en/latest/ref/states/all/salt.states.junos.html#salt.states.junos.install_config
+and 
+https://docs.saltstack.com/en/latest/ref/modules/all/salt.modules.junos.html#salt.modules.junos.install_config
+
+When **timeout** is passed to the execution module junos.py, there is no translation of **timeout** to **dev_timeout** which is used by the **_timeoutDecorator_**, for example:
+
+salt/states/junos.py
+```
+358     ret = {"name": name, "changes": {}, "result": True, "comment": ""}
+359     ret["changes"] = __salt__["junos.install_config"](name, **kwargs)
+360     return ret
+```
+
+modules/junos.py
+```
+ 165 
+ 166 def timeoutDecorator(function):
+ 167     @wraps(function)
+ 168     def wrapper(*args, **kwargs):
+ 169         if "dev_timeout" in kwargs:
+ 170             conn = __proxy__["junos.conn"]()
+ 171             restore_timeout = conn.timeout
+ 172             conn.timeout = kwargs.pop("dev_timeout", None)
+ 173             try:
+ 174                 result = function(*args, **kwargs)
+ 175                 conn.timeout = restore_timeout
+ 176                 return result
+ 177             except Exception:  # pylint: disable=broad-except
+ 178                 conn.timeout = restore_timeout
+ 179                 raise
+ 180         else:
+ 181             return function(*args, **kwargs)
+ 182 
+ 183     return wrapper
+ 184 
+```
+
+Most of the functions in modules/junos.py do not account for the difference, except for **install_os**.
+

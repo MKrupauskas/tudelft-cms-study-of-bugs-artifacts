@@ -1,0 +1,175 @@
+### Description of Issue/Question
+The fileclient's cache-dir gets switched from the master (`/var/cache/salt/master/`) to the minion (`/var/cache/salt/minion/`) during an orchestration run.
+The odd thing is that in the end, setting the `gpg`-option for `yaml`_sdb (or removing the option alltogether) to `False` is what makes the difference here between a succesful run (with all files cached to the master cache dir) and an unsuccesful run (with `two.sls` being cached into the minion cache dir).
+
+### Setup
+A single host with both a 2019.2 master and a 2019.2 minion running on it (branch `2019.2`, `commit a00245eb6a245cfcff272f3e15ffbc25e7234860`).
+
+master configuration:
+```
+# Fileserver related settings
+fileserver_backend:
+  - roots
+
+# Nodegroup related settings
+nodegroups: sdb://yaml_sdb/nodegroups
+yaml_sdb:
+  driver: yaml
+  files:
+  - /etc/salt/master.d/nodegroups.yaml
+  gpg: True
+```
+minion configuration:
+```
+master: localhost
+id: mgmt
+```
+Contents of `/etc/salt/master.d/nodegroups.yaml`:
+```
+---
+nodegroups:
+  mgmt:
+  - mgmt
+```
+
+Orchestration files (in `/srv/salt`):
+`one.sls`:
+```
+{%- set one = 1 %}
+```
+`two.sls`:
+```
+{%- set two = 2 %}
+```
+`test_cache.sls`:
+```
+{%- include 'one.sls' with context %}
+{%- set nodegroups = salt['saltutil.runner']('salt.cmd', fun='config.get', key='nodegroups') %}
+{%- include 'two.sls' with context %}
+```
+
+### Steps to Reproduce Issue
+- Run `salt-run state.orchestrate test_cache`
+  Note the contents of `salt.fileclient:Client:get_cachedir:` in the extra debuglogging.
+
+Console output:
+```
+redacted_hostname:
+    Data failed to compile:
+----------
+    Rendering SLS 'base:test_cache' failed: Jinja error: two.sls
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/utils/templates.py", line 392, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python2.7/site-packages/jinja2/environment.py", line 969, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python2.7/site-packages/jinja2/environment.py", line 742, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 3, in top-level template code
+  File "/usr/lib/python2.7/site-packages/salt/utils/jinja.py", line 171, in get_source
+    raise TemplateNotFound(template)
+TemplateNotFound: two.sls
+
+; line 3
+
+---
+{%- include 'one.sls' with context %}
+{%- set nodegroups = salt['saltutil.runner']('salt.cmd', fun='config.get', key='nodegroups') %}
+{%- include 'two.sls' with context %}    <======================
+
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/utils/templates.py", line 392, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python2.7/site-packages/jinja2/environment.py", line 969, in render
+[...]
+---
+```
+
+Additional debuglog from the orchestration run (with custom debugging added):
+```
+[DEBUG   ] salt.utils.jinja:check_cache:
+		template: one.sls
+		cached files: []
+[DEBUG   ] salt.utils.jinja:check_cache: FETCHING FILE
+[DEBUG   ] salt.utils.jinja:cache_file:
+		getting file: salt://one.sls
+[DEBUG   ] In saltenv 'base', looking at rel_path 'one.sls' to resolve 'salt://one.sls'
+[DEBUG   ] salt.fileclient:Client:get_cachedir:
+		cachedir: /var/cache/salt/master
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/master/files/base/one.sls' to resolve 'salt://one.sls'
+[DEBUG   ] salt.utils.jinja:cache_file: FETCH RESULT: /var/cache/salt/master/files/base/one.sls
+[DEBUG   ] salt.utils.jinja:get_source:
+		searchpath: [u'/var/cache/salt/master/files/base']
+...skipped some entries here...
+[DEBUG   ] Called salt.cmd runner with minion function config.get
+[DEBUG   ] Grains refresh requested. Refreshing grains.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/ogd.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/ogd.conf
+[DEBUG   ] Loading static grains from /etc/salt/grains
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[DEBUG   ] Sending event: tag = salt/run/20190322142854982390/ret; data = {u'fun_args': [{'fun': 'config.get', 'key': 'nodegroups'}], u'jid': u'20190322142854982390', u'return': {u'mgmt': [u'mgmt']}, u'success': True, u'_stamp': '2019-03-22T13:28:55.223630', u'user': u'UNKNOWN', u'fun': u'runner.salt.cmd'}
+[INFO    ] Runner completed: 20190322142854982390
+[DEBUG   ] Closing IPCMessageClient instance
+[DEBUG   ] salt.utils.jinja:check_cache:
+		template: two.sls
+		cached files: ['one.sls']
+[DEBUG   ] salt.utils.jinja:check_cache: FETCHING FILE
+[DEBUG   ] salt.utils.jinja:cache_file:
+		getting file: salt://two.sls
+[DEBUG   ] In saltenv 'base', looking at rel_path 'two.sls' to resolve 'salt://two.sls'
+[DEBUG   ] salt.fileclient:Client:get_cachedir:
+		cachedir: /var/cache/salt/minion
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/two.sls' to resolve 'salt://two.sls'
+[DEBUG   ] salt.utils.jinja:cache_file: FETCH RESULT: /var/cache/salt/minion/files/base/two.sls
+[DEBUG   ] salt.utils.jinja:get_source:
+		searchpath: [u'/var/cache/salt/master/files/base']
+[DEBUG   ] Jinja Error
+[DEBUG   ] Exception:
+```
+
+### Versions Report
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Apr 11 2018, 07:36:10)
+   python-gnupg: 0.4.3
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.2.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+
+Salt was first installed using yum and the saltstack repository (i.e. 2019.2.0).
+Then I cloned the salt repository and symlinked `/usr/lib/python2.7/site-packages/salt` to point to the git repo before starting the salt-master and salt-minion. It is my experience that working this way does not reliably produce the correct version that is actually running when using `salt --versions`.

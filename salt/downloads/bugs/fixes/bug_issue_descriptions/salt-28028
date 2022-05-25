@@ -1,0 +1,41 @@
+After deploying an EC2 instance and then subsequently destroying it, eventually, I have allocated my current limit of 5 EIP addresses. Rather than reusing one of the available 5 addresses, the deploy of an instance requiring an EIP will eventually fail with the following error message:
+
+```
+[INFO    ] Starting new HTTPS connection (1): ec2.us-west-2.amazonaws.com
+[DEBUG   ] "GET /?Action=AllocateAddress&Domain=vpc&Version=2014-10-01 HTTP/1.1" 400 None
+[DEBUG   ] AWS Response Status Code: 400
+[ERROR   ] AWS Response Status Code and Error: [400 400 Client Error: Bad Request] {'Errors': {'Error': {'Message': 'The maximum number of addresses has been reached.', 'Code': 'AddressLimitExceeded'}}, 'RequestID': 'e18da542-482d-4854-bdb7-a6c6a4e70d40'}
+```
+
+After releasing the unused EIP addresses, future deployments work until I have tried all 5 available slots.
+
+The network interface is also not destroyed, which may be why this process is not releasing the EIP.
+
+I would expect the destroy instance to release a public address but do not see a way to configure this behavior if it is not the default.
+
+Profile description:
+
+```
+nat-gateway-primary:
+  provider: aws-uswest2
+  availability_zone: us-west-2a
+  del_root_vol_on_destroy: True
+  rename_on_destroy: True
+  ssh_username: ec2-user
+  extends: base-ec2-uswest2a-linux
+  image: ami-xxx
+  size: t2.micro
+  private_key: /srv/etc/.ssh/mykey.pem
+  keyname: mykey.pem.pub
+  iam_profile: NATProxyRole
+  network_interfaces:
+    - DeviceIndex: 0
+      PublicIpAddresses:
+        - Primary: True
+      AssociatePublicIpAddress: True
+      allocate_new_eip: False
+      SubnetId: subnet-xxx
+      SecurityGroupId: sg-xxx
+      SourceDestCheck: False
+  tag: {'Monitored': 'Yes', 'Role': 'nat'}
+```

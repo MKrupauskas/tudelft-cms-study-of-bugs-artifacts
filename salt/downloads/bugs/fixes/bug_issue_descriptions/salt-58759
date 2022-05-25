@@ -1,0 +1,321 @@
+**Description**
+When used with `extents: 100%VG` `lvm.lv_present` creates logical volume without problems. But when I run the same state again I get an exception. Tested on CentOS 7, I'm not sure if that happens on other Linux distributions.
+
+**Setup**
+Create a virtual machine with one extra unused disk. In the following example that disk is `/dev/sdb`.
+
+State which causes an exception is:
+```
+lv_vgbkp_bar00:
+  lvm.lv_present:
+  - name: bar00
+  - vgname: vgbkp
+  - extents: 100%VG
+```
+
+<details><summary>The whole test file</summary>
+
+```
+mount_data_dir:
+  file.directory:
+    - user: root
+    - group: root
+    - mode: 755
+    - names:
+      - /data
+
+pv_dsk_/dev/sdb:
+  lvm.pv_present:
+    - name: /dev/sdb
+
+vg_vgbkp:
+  lvm.vg_present:
+  - name: vgbkp
+  - devices:
+    - /dev/sdb
+  - require:
+    - pv_dsk_/dev/sdb
+
+lv_vgbkp_bar00:
+  lvm.lv_present:
+  - name: bar00
+  - vgname: vgbkp
+  - extents: 100%VG
+
+lv_vgbkp_bar00_format:
+  blockdev.formatted:
+  - name: /dev/mapper/vgbkp-bar00
+  - fs_type: ext4
+  - require:
+    - lv_vgbkp_bar00
+
+mount_barman:
+  mount.mounted:
+  - name: /data/barman
+  - mkmnt: true
+  - device: /dev/mapper/vgbkp-bar00
+  - fstype: ext4
+  - require:
+    - mount_data_dir
+```
+</details>
+
+**Steps to Reproduce the behavior**
+Run the file.
+```
+salt stest-barman-01.xdc state.apply test
+```
+Everything is fine and the file system is created on the minion.
+<details><summary>Salt output</summary>
+
+```
+stest-barman-01.xdc:
+----------
+          ID: mount_data_dir
+    Function: file.directory
+        Name: /data
+      Result: True
+     Comment: Directory /data updated
+     Started: 14:18:50.664100
+    Duration: 26.845 ms
+     Changes:   
+              ----------
+              /data:
+                  New Dir
+----------
+          ID: pv_dsk_/dev/sdb
+    Function: lvm.pv_present
+        Name: /dev/sdb
+      Result: True
+     Comment: Created Physical Volume /dev/sdb
+     Started: 14:18:50.693774
+    Duration: 280.726 ms
+     Changes:   
+              ----------
+              created:
+                  True
+----------
+          ID: vg_vgbkp
+    Function: lvm.vg_present
+        Name: vgbkp
+      Result: True
+     Comment: Created Volume Group vgbkp
+     Started: 14:18:50.976765
+    Duration: 141.945 ms
+     Changes:   
+              ----------
+              created:
+                  ----------
+                  Output from vgcreate:
+                      Volume group "vgbkp" successfully created
+                  vgbkp:
+                      ----------
+                      Actual Physical Volumes:
+                          1
+                      Allocated Physical Extents:
+                          0
+                      Current Logical Volumes:
+                          0
+                      Current Physical Volumes:
+                          1
+                      Free Physical Extents:
+                          7679
+                      Internal Volume Group Number:
+                          -1
+                      Maximum Logical Volume Size:
+                          -1
+                      Maximum Logical Volumes:
+                          0
+                      Maximum Physical Volumes:
+                          0
+                      Open Logical Volumes:
+                          0
+                      Physical Extent Size (kB):
+                          4096
+                      Total Physical Extents:
+                          7679
+                      UUID:
+                          lwqiA3-MWc5-NTxu-zZfo-Xn9Z-BtQq-uTDYeK
+                      Volume Group Access:
+                          r/w
+                      Volume Group Name:
+                          vgbkp
+                      Volume Group Size (kB):
+                          31453184
+                      Volume Group Status:
+                          772
+----------
+          ID: lv_vgbkp_bar00
+    Function: lvm.lv_present
+        Name: bar00
+      Result: True
+     Comment: Created Logical Volume bar00
+     Started: 14:18:51.119482
+    Duration: 154.302 ms
+     Changes:   
+              ----------
+              created:
+                  ----------
+                  /dev/vgbkp/bar00:
+                      ----------
+                      Allocated Logical Extents:
+                          -1
+                      Allocation Policy:
+                          0
+                      Current Logical Extents Associated:
+                          7679
+                      Internal Logical Volume Number:
+                          -1
+                      Logical Volume Access:
+                          3
+                      Logical Volume Name:
+                          /dev/vgbkp/bar00
+                      Logical Volume Size:
+                          62906368
+                      Logical Volume Status:
+                          1
+                      Major Device Number:
+                          253
+                      Minor Device Number:
+                          3
+                      Open Logical Volumes:
+                          0
+                      Read Ahead Sectors:
+                          -1
+                      Volume Group Name:
+                          vgbkp
+                  Output from lvcreate:
+                      Logical volume "bar00" created.
+----------
+          ID: lv_vgbkp_bar00_format
+    Function: blockdev.formatted
+        Name: /dev/mapper/vgbkp-bar00
+      Result: True
+     Comment: /dev/mapper/vgbkp-bar00 has been formatted with ext4
+     Started: 14:18:51.279144
+    Duration: 605.649 ms
+     Changes:   
+              ----------
+              new:
+                  ext4
+              old:
+                  ext4
+----------
+          ID: mount_barman
+    Function: mount.mounted
+        Name: /data/barman
+      Result: True
+     Comment: Target was successfully mounted. Added new entry to the fstab.
+     Started: 14:18:51.887724
+    Duration: 323.301 ms
+     Changes:   
+              ----------
+              mount:
+                  True
+              persist:
+                  new
+
+Summary for stest-barman-01.xdc
+------------
+Succeeded: 6 (changed=6)
+Failed:    0
+------------
+Total states run:     6
+Total run time:   1.533 s
+```
+</details>
+
+Now run it again:
+```
+# salt --state-verbose False stest-barman-01.xdc state.apply test                                           
+stest-barman-01.xdc:
+----------
+          ID: lv_vgbkp_bar00
+    Function: lvm.lv_present
+        Name: bar00
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3.6/site-packages/salt/state.py", line 2154, in call
+                  *cdata["args"], **cdata["kwargs"]
+                File "/usr/lib/python3.6/site-packages/salt/loader.py", line 2188, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3.6/site-packages/salt/states/lvm.py", line 334, in lv_present
+                  if force is False and (size_mb < old_size_mb or extents < old_extents):
+              TypeError: '<' not supported between instances of 'str' and 'int'
+     Started: 14:19:42.874347
+    Duration: 43.475 ms
+     Changes:   
+----------
+          ID: lv_vgbkp_bar00_format
+    Function: blockdev.formatted
+        Name: /dev/mapper/vgbkp-bar00
+      Result: False
+     Comment: One or more requisite failed: test.lv_vgbkp_bar00
+     Started: 14:19:42.925035
+    Duration: 0.008 ms
+     Changes:   
+
+Summary for stest-barman-01.xdc
+------------
+Succeeded: 4
+Failed:    2
+------------
+Total states run:     6
+Total run time: 274.294 ms
+```
+
+**Expected behavior**
+The exception should not have happened. This wasn't happening in the previous releases.
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+Master is at the same version as the minion.
+
+```
+# salt-minion --versions-report
+Salt Version:
+           Salt: 3002rc1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.1
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Apr  2 2020, 13:34:55)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7 Core
+         locale: ISO-8859-2
+        machine: x86_64
+        release: 3.10.0-1127.18.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7 Core
+ 
+```
+</details>
+
+**Additional context**
+Add any other context about the problem here.

@@ -1,0 +1,230 @@
+HieveryoneI setup a salt test environment follow this link [ https://docs.saltstack.com/en/latest/topics/tutorials/multimaster_pki.html](https://docs.saltstack.com/en/latest/topics/tutorials/multimaster_pki.html):
+
+server:
+
+```
+master:
+   master-1:192.168.57.187
+   master-2:192.168.57.190
+minion:
+   minion-1: 192.168.57.188
+```
+
+salt version:
+
+```
+[root@at-saltmaster-1 ~]# salt --versions-report
+Salt Version:
+           Salt: 2015.8.3
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Jun 17 2014, 18:11:42)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+System Versions:
+           dist: centos 7.1.1503 Core
+        machine: x86_64
+        release: 3.10.0-229.el7.x86_64
+         system: CentOS Linux 7.1.1503 Core
+```
+
+salt-master configuration:
+
+```
+interface: 192.168.57.187
+master_sign_pubkey: True
+master_use_pubkey_signature: True
+master_pubkey_signature: at-saltmaster-1
+reactor:
+ - 'salt/auth':
+  - /srv/salt/reactor/autosign.sls
+```
+
+salt-minion configuration:
+
+```
+default_include: minion.d/*.conf
+master:
+ - 192.168.57.187
+ - 192.168.57.190
+random_master: False
+master_type: failover
+master_alive_interval: 15
+verify_master_pubkey_sign: True
+always_verify_signature: True
+ipv6: False
+retry_dns: 0
+master_port: 4506
+user: root
+color: True
+rejected_retry: True
+random_reauth_delay: 15
+auth_timeout: 15
+auth_tries: 1
+auth_safemode: False
+recon_default: 1000
+recon_max: 5000
+recon_randomize: Tru
+```
+
+autosign.sls:
+
+```
+#!py
+
+import logging
+import sqlite3
+
+log = logging.getLogger(__name__)
+
+def check_autosign(minion_id):
+con = sqlite3.connect('/srv/salt/reactor/cmdb')
+cur = con.cursor()
+cur.execute("select device_name from device where device_name = '%s'" % minion_id)
+result = cur.fetchall()
+if len(result) >= 1 :
+return True
+return False
+
+def run():
+'''
+Autosign demo by reactor
+'''
+minion_id = data['id']
+if data.get('act') == 'pend' and check_autosign(minion_id):
+log.info('I will accept {0} key by reactor'.format(minion_id))
+return {
+'minion_add': {
+'wheel.key.accept': [{
+'match': minion_id}]
+}
+}
+return {}
+```
+
+ when i start all of them, minion-1 connect to master-1 successful:
+
+```
+[INFO    ] Got list of available master addresses: ['192.168.57.187', '192.168.57.190', '192.168.57.195', '192.168.57.196']
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', 'minion-1', 'tcp://192.168.57.187:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '6000ms' (3694)
+[DEBUG   ] Setting zmq_reconnect_ivl to '3694ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '6000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'minion-1', 'tcp://192.168.57.187:4506', 'clear')
+[ERROR   ] The Salt Master has cached the public key for this node, this salt minion will wait for 10 seconds before attempting to re-authenticate
+[INFO    ] Waiting 10 seconds before retry.
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'minion-1', 'tcp://192.168.57.187:4506', 'clear')
+[DEBUG   ] salt.crypt.verify_signature: Loading public key
+[DEBUG   ] salt.crypt.verify_signature: Verifying signature
+[DEBUG   ] Successfully verified signature of master public key with verification public key master_sign.pub
+[INFO    ] Received signed and verified master pubkey from master 192.168.57.187
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+```
+
+and executed command on master-1 :
+
+```
+# salt "*" test.ping
+```
+
+it looks worked successful.
+
+```
+[root@at-saltmaster-2 master.d]# salt "*" test.ping
+minion-1:
+    True
+```
+
+when i stop master-1,it looks minion-1 connected to master-2 successful.
+
+```
+[INFO    ] Connection to master 192.168.57.187 lost
+[INFO    ] Trying to tune in to next master from master-list
+[INFO    ] Removing possibly failed master 192.168.57.187 from list of masters
+[WARNING ] Master ip address changed from 192.168.57.187 to 192.168.57.190
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', 'minion-1', 'tcp://192.168.57.190:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '6000ms' (4724)
+[DEBUG   ] Setting zmq_reconnect_ivl to '4724ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '6000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'minion-1', 'tcp://192.168.57.190:4506', 'clear')
+val\x85\xa8function\xabmine.update\xabjid_include\xc3\xa7minutes<\xaamaxrunning\x02\xa4name\xaf__mine_interval'
+[ERROR   ] The Salt Master has cached the public key for this node, this salt minion will wait for 10 seconds before attempting to re-authenticate
+[INFO    ] Waiting 10 seconds before retry.
+[INFO    ] Running scheduled job: __master_alive
+[DEBUG   ] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+[DEBUG   ] schedule: This job was scheduled with a max number of 2
+chedule': '__master_alive'}
+[DEBUG   ] schedule.handle_func: Incrementing jobcount, now 1, maxrunning is 2
+'schedule': '__master_alive'}
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'minion-1', 'tcp://192.168.57.190:4506', 'aes')
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', 'minion-1', 'tcp://192.168.57.190:4506')
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'minion-1', 'tcp://192.168.57.190:4506', 'clear')
+[DEBUG   ] salt.crypt.verify_signature: Loading public key
+[DEBUG   ] salt.crypt.verify_signature: Verifying signature
+[DEBUG   ] Successfully verified signature of master public key with verification public key master_sign.pub
+[INFO    ] Received signed and verified master pubkey from master <tornado.concurrent.Future object at 0x202c750>
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] schedule.handle_func: Removing /var/cache/salt/minion/proc/20151209173723541822
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'minion-1', 'tcp://192.168.57.190:4506', 'clear')
+[DEBUG   ] salt.crypt.verify_signature: Loading public key
+[DEBUG   ] salt.crypt.verify_signature: Verifying signature
+[DEBUG   ] Successfully verified signature of master public key with verification public key master_sign.pub
+[INFO    ] Received signed and verified master pubkey from master <tornado.concurrent.Future object at 0x202c750>
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+```
+
+but when i executed command on master-2:
+
+```
+# salt "*" test.ping
+```
+
+it returned "Minion did not return. [No response]".
+
+```
+[root@at-saltmaster-2 master.d]# salt "*" test.ping
+minion-1:
+Minion did not return. [No response]
+```
+
+search the minion's debug log and found when minion connected to master-2, there a re something diffrent with minion-1 connect to master-1:
+
+minion-1 connected to master-1:
+
+```
+[INFO    ] Received signed and verified master pubkey from master 192.168.57.187
+```
+
+minion-1 connected to master-2:
+
+```
+[INFO    ] Received signed and verified master pubkey from master <tornado.concurrent.Future object at 0x202c750>
+```
+
+is it a bug ?

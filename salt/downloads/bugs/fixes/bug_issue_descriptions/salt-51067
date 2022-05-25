@@ -1,0 +1,172 @@
+### Description of Issue/Question
+
+On my Raspberry Pi 3B (OpenBSD arm64 6.4), salt-minion and salt-call crash at startup. This appears to be due to a missing `osdata['manufacturer']` key, causing the code to give a `KeyError: u'manufacturer'`.
+
+### Setup
+
+- OpenBSD 6.4 arm64 (Raspberry Pi 3B)
+- Salt package 2018.3.2 (OpenBSD packages)
+
+
+### Proposed fix
+
+Although I run 2018.3.2, I adapted the diff to the version I see in Github.
+Arguably, I'm mixing two items into one:
+1. salt-minion not starting on systems that have no hw.vendor sysctl
+2. SmartOS KVM-based VMs returning 'physical' instead of 'virtual'.
+	(sysctl hw.vendor == 'Joyent')
+
+```diff
+--- salt/grains/core.py.orig        Sat Jan  5 21:19:31 2019
++++ salt/grains/core.py     Sat Jan  5 21:18:09 2019
+@@ -1017,10 +1017,11 @@
+             if 'QEMU Virtual CPU' in model:
+                 grains['virtual'] = 'kvm'
+     elif osdata['kernel'] == 'OpenBSD':
+-        if osdata['manufacturer'] in ['QEMU', 'Red Hat']:
+-            grains['virtual'] = 'kvm'
+-        if osdata['manufacturer'] == 'OpenBSD':
+-            grains['virtual'] = 'vmm'
++        if 'manufacturer' in osdata:
++            if osdata['manufacturer'] in ['QEMU', 'Red Hat', 'Joyent']:
++                grains['virtual'] = 'kvm'
++            if osdata['manufacturer'] == 'OpenBSD':
++                grains['virtual'] = 'vmm'
+     elif osdata['kernel'] == 'SunOS':
+         if grains['virtual'] == 'LDOM':
+             roles = []
+```
+
+For the former, checking whether the 'manufacturer' key exists is sufficient to prevent the error.
+
+For the latter, I'm aware that installing virt-what yields the correct virtual grain value (at least on my SmartOS-based VMs)
+
+
+### Steps to Reproduce Issue
+
+```bash
+# rcctl start salt_minion
+salt_minion(ok)
+```
+But no salt minion is actually running afterwards.
+Trying in more detail yields the following error:
+
+```bash
+# salt-call --local grains.items | egrep -A1 'kernel|productname|virtual|manufacturer'
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+KeyError: u'manufacturer'
+Traceback (most recent call last):
+  File "/usr/local/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/local/lib/python2.7/site-packages/salt/scripts.py", line 400, in salt_call
+    client.run()
+  File "/usr/local/lib/python2.7/site-packages/salt/cli/call.py", line 47, in run
+    caller = salt.cli.caller.Caller.factory(self.config)
+  File "/usr/local/lib/python2.7/site-packages/salt/cli/caller.py", line 79, in factory
+    return ZeroMQCaller(opts, **kwargs)
+  File "/usr/local/lib/python2.7/site-packages/salt/cli/caller.py", line 291, in __init__
+    super(ZeroMQCaller, self).__init__(opts)
+  File "/usr/local/lib/python2.7/site-packages/salt/cli/caller.py", line 102, in __init__
+    self.minion = salt.minion.SMinion(opts)
+  File "/usr/local/lib/python2.7/site-packages/salt/minion.py", line 784, in __init__
+    opts['grains'] = salt.loader.grains(opts)
+  File "/usr/local/lib/python2.7/site-packages/salt/loader.py", line 734, in grains
+    ret = funcs[key]()
+  File "/usr/local/lib/python2.7/site-packages/salt/grains/core.py", line 1792, in os_data
+    grains.update(_virtual(grains))
+  File "/usr/local/lib/python2.7/site-packages/salt/grains/core.py", line 925, in _virtual
+    if osdata['manufacturer'] in ['QEMU', 'Red Hat']:
+KeyError: u'manufacturer'
+Traceback (most recent call last):
+  File "/usr/local/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/local/lib/python2.7/site-packages/salt/scripts.py", line 400, in salt_call
+    client.run()
+  File "/usr/local/lib/python2.7/site-packages/salt/cli/call.py", line 47, in run
+    caller = salt.cli.caller.Caller.factory(self.config)
+  File "/usr/local/lib/python2.7/site-packages/salt/cli/caller.py", line 79, in factory
+    return ZeroMQCaller(opts, **kwargs)
+  File "/usr/local/lib/python2.7/site-packages/salt/cli/caller.py", line 291, in __init__
+    super(ZeroMQCaller, self).__init__(opts)
+  File "/usr/local/lib/python2.7/site-packages/salt/cli/caller.py", line 102, in __init__
+    self.minion = salt.minion.SMinion(opts)
+  File "/usr/local/lib/python2.7/site-packages/salt/minion.py", line 784, in __init__
+    opts['grains'] = salt.loader.grains(opts)
+  File "/usr/local/lib/python2.7/site-packages/salt/loader.py", line 734, in grains
+    ret = funcs[key]()
+  File "/usr/local/lib/python2.7/site-packages/salt/grains/core.py", line 1792, in os_data
+    grains.update(_virtual(grains))
+  File "/usr/local/lib/python2.7/site-packages/salt/grains/core.py", line 925, in _virtual
+    if osdata['manufacturer'] in ['QEMU', 'Red Hat']:
+```
+
+Browsing through the code and testing on other systems, I suspect the missing `hw.vendor` sysctl value on this system to be the cause.
+
+```bash
+# sysctl hw.vendor
+sysctl: hw.vendor: value is not available
+
+# sysctl hw
+hw.machine=arm64
+hw.model=ARM Cortex-A53 r0p4
+hw.ncpu=4
+hw.byteorder=1234
+hw.pagesize=4096
+hw.disknames=sd0:[blanked out]
+hw.diskcount=1
+hw.sensors.bcmtemp0.temp0=45.08 degC
+hw.product=Raspberry Pi 3 Model B Rev 1.2
+hw.physmem=961404928
+hw.usermem=961392640
+hw.ncpufound=4
+hw.allowpowerdown=1
+hw.ncpuonline=4
+```
+
+
+### Versions Report
+
+```bash
+# salt --versions-report
+Salt Version:
+           Salt: 2018.3.2
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.30.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 3.6.6
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.15 (default, Oct 12 2018, 02:29:21)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 16.0.3
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.2.5
+
+System Versions:
+           dist:
+         locale: US-ASCII
+        machine: arm64
+        release: 6.4
+         system: OpenBSD
+        version: Not Installed
+
+```

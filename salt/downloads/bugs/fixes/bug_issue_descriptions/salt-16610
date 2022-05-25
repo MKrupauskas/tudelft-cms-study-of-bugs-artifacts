@@ -1,0 +1,64 @@
+Found this issue while testing latest code for related  #16271.  It looks like a regression as bb7dd9c is ok.
+
+To reproduce:
+
+``` bash
+$ salt-call --version
+salt-call 2014.7.0rc3-156-g4b630d7 (Helium)
+
+$ cat srv/test.sls
+regular-module:
+  module.run:
+    - name: test.echo
+    - text: hello
+
+$ salt-call --local state.sls test
+local:
+----------
+          ID: regular-module
+    Function: module.run
+        Name: test.echo
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/site-packages/salt/state.py", line 1529, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/site-packages/salt/states/module.py", line 214, in run
+                  if ret['changes'].get('ret', {}).get('retcode', 0) != 0:
+              AttributeError: 'str' object has no attribute 'get'
+     Started: 20:03:44.367913
+    Duration: 0.797 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+```
+
+Have a fix for this, which basically boils down to:
+
+``` bash
+$ git diff
+diff --git a/salt/states/module.py b/salt/states/module.py
+index faa7790..8dd4944 100644
+--- a/salt/states/module.py
++++ b/salt/states/module.py
+@@ -210,9 +210,14 @@ def run(name, **kwargs):
+         if kwargs['returner'] in returners:
+             returners[kwargs['returner']](ret_ret)
+     ret['comment'] = 'Module function {0} executed'.format(name)
++
+     ret['result'] = True
+-    if ret['changes'].get('ret', {}).get('retcode', 0) != 0:
++    if ret['changes'].get('retcode', 0) != 0:
+         ret['result'] = False
++    else:
++        changes_ret = ret['changes'].get('ret', {})
++        if isinstance(changes_ret, dict) and changes_ret.get('retcode', 0) != 0:
++            ret['result'] = False
+     return ret
+```
+
+and am working in a PR now.

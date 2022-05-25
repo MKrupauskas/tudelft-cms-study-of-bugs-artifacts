@@ -1,0 +1,84 @@
+### Description of Issue/Question
+I'm trying to set a DWORD value above 0x7FFFFFFF (but not larger than 0xFFFFFFFF). I was able to do this in 2016.3.6, but cannot in 2016.11.5.
+
+The reg module contains a function [`_mbcs_to_unicode_wrap`](https://github.com/saltstack/salt/blob/660ccbdb4f32d1c2eccd1f4fc1a54ccef0ede9f6/salt/modules/reg.py#L117) that checks `elif isinstance(obj, int):`. However, in Python 2.7, when a number is large enough, its type is `long` instead of `int`:
+
+```
+>>> isinstance(0x7FFFFFFF, int)
+True
+>>> isinstance(0xF0000000, int)
+False
+>>> isinstance(0xF0000000, long)
+True
+>>> isinstance(0xF0000000, six.integer_types)
+True
+```
+
+### Setup / Steps to Reproduce Issue
+Using this state:
+
+```yaml
+'HKLM\SOFTWARE':
+  reg.present:
+    - vname: 'number'
+    - vdata: 0xFFFFFFFF
+    - vtype: REG_DWORD
+```
+
+It will fail with this error:
+
+```
+[ERROR   ] coercing to Unicode: need string or buffer, long found
+Traceback (most recent call last):
+  File "C:\salt\bin\lib\site-packages\salt\modules\reg.py", line 565, in set_value
+    local_vdata = _mbcs_to_unicode_wrap(vdata, local_vtype)
+  File "C:\salt\bin\lib\site-packages\salt\modules\reg.py", line 120, in _mbcs_to_unicode_wrap
+    return _mbcs_to_unicode(obj)
+  File "C:\salt\bin\lib\site-packages\salt\modules\reg.py", line 103, in _mbcs_to_unicode
+    return six.text_type(instr, 'mbcs')
+TypeError: coercing to Unicode: need string or buffer, long found
+[ERROR   ] Failed to add HKLM\SOFTWARE to HKLM\SOFTWARE
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.5
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: unknown
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 2.0.8
+          ioflo: 1.5.5
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: 1.4.5
+       M2Crypto: Not Installed
+           Mako: 1.0.4
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (v2.7.12:d33e0cf91556, Jun 27 2016, 15:19:22) [MSC v.1500 32 bit (Intel)]
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 16.0.1
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: 0.2.4
+        Tornado: 4.4.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+        machine: x86
+        release: 7
+         system: Windows
+        version: 7 6.1.7601 SP1 Multiprocessor Free
+```

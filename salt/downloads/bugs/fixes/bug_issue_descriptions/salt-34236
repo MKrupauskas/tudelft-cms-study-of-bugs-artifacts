@@ -1,0 +1,134 @@
+### Description of Issue/Question
+
+After upgrading from 2015.8.10 to 2016.3.1 on Wheezy ini.options_preset fails if target .ini file does not exist before execution. 2015.8 created file did not exist.
+### Setup
+
+ini.sls:
+
+```
+ini:    
+  ini.options_present:
+    - name: /etc/some_config.ini
+    - sections:
+        general:
+          server_hostname: my.server.com
+          server_port: 1234
+
+```
+### Steps to Reproduce Issue
+
+While with 2015.8 master and minion:
+
+```
+root@test:/# salt minion test.version
+minion:
+    2015.8.10
+root@test:/# salt minion state.highstate
+minion:
+----------
+          ID: ini
+    Function: ini.options_present
+        Name: /etc/some_config.ini
+      Result: True
+     Comment: No anomaly detected
+     Started: 10:01:45.993864
+    Duration: 0.837 ms
+     Changes:   
+
+Summary for minion
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+root@test:/# cat /etc/some_config.ini 
+
+[general]
+server_hostname=my.server.com
+server_port=1234
+
+```
+
+After removing salt-master, salt-minion, apt-get autoremove, (and deleting /etc/salt/pki/minion/minion_master.pub) and then installing using bootstrap-salt.sh -M stable 2016.3 (script from salt-bootstrap HEAD):
+
+```
+root@test:/# rm /etc/some_config.ini
+root@test:/# salt minion test.version
+minion:
+    2016.3.1
+root@test:/# salt minion state.highstate
+minion:
+----------
+          ID: ini
+    Function: ini.options_present
+        Name: /etc/some_config.ini
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1723, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1650, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/ini_manage.py", line 62, in options_present
+                  changes = __salt__['ini.set_option'](name, sections)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/ini_manage.py", line 70, in set_option
+                  inifile = _Ini.get_ini_file(file_name)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/ini_manage.py", line 350, in get_ini_file
+                  inifile.refresh()
+                File "/usr/lib/python2.7/dist-packages/salt/modules/ini_manage.py", line 328, in refresh
+                  inicontents = inicontents or _fopen(self.name).read()
+                File "/usr/lib/python2.7/dist-packages/salt/utils/__init__.py", line 1209, in fopen
+                  fhandle = open(*args, **kwargs)
+              IOError: [Errno 2] No such file or directory: '/etc/some_config.ini'
+     Started: 10:14:04.995673
+    Duration: 2.254 ms
+     Changes:   
+
+Summary for minion
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.3 (default, Jun 21 2016, 18:38:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 3.2.3
+
+System Versions:
+           dist: debian 7.11 
+        machine: x86_64
+        release: 3.16.0-0.bpo.4-amd64
+         system: Linux
+        version: debian 7.11 
+
+```

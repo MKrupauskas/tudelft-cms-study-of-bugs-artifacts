@@ -1,0 +1,53 @@
+Using the following state, a change in "project-code" does not trigger a service restart.
+
+```
+service-name:
+  file.managed:
+    - name: /etc/init.d/service-name
+    - source: salt://src/initdscripts/service-name
+    - mode: 755
+  service.running:
+    - enable: True
+    - provider: service
+    - watch:
+      - file: project-code
+```
+
+This does trigger a "changed" event, which results in the following:
+
+```
+ID: service-name
+Function: service.running
+Result: True
+Comment: Service service-name is already enabled, and is running
+```
+
+This can be worked around with the following changes, which split things into a "provider: service" block to manage the file and enable it, while a separate block without the provider is responsible for monitoring for changes and restarting.
+
+```
+service-name-init:
+  file.managed:
+    - name: /etc/init.d/service-name
+    - source: salt://src/initdscripts/service-name
+    - mode: 755
+  service.enabled:
+    - name: service-name
+    - provider: service
+
+service-name-monitor:
+  service.running:
+    - name: service-name
+    - enable: True
+    - watch:
+      - file: project-code
+```
+
+In this case, the expected event happens:
+
+```
+ID: service-name-monitor
+Function: service.running
+Name: service-name
+Result: True
+Comment: Service restarted
+```

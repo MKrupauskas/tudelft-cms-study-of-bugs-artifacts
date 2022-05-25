@@ -1,0 +1,51 @@
+I needed to pre-configure APT repository that is always trusted. According to [the manual](http://manpages.ubuntu.com/manpages/precise/ja/man5/sources.list.5.html), this is done by specifying `trusted=yes` option after `deb` in the name. It is valid statement and it works perfectly with APT. Problem is, that salt creates this repository on every run.
+
+Example state:
+
+```
+"my repo":
+  pkgrepo.managed:
+    - name: "deb [trusted=yes] http://apt.example.net/ binary/"
+```
+## Bug description
+
+```
+staging:/srv/salt# cat /etc/apt/sources.list
+deb http://ftp.us.debian.org/debian wheezy main
+deb-src http://ftp.us.debian.org/debian wheezy main
+staging:/srv/salt#
+
+staging:/srv/salt# salt-call --local state.sls example.sls
+[...]
+----------
+          ID: strategic repo
+    Function: pkgrepo.managed
+        Name: deb [trusted=yes] http://apt.example.net/ binary/
+      Result: True
+     Comment: Configured package repo 'deb [trusted=yes] http://apt.example.net/ binary/'
+     Started: 13:19:39.065776
+    Duration: 12555.233 ms
+     Changes:
+              ----------
+              repo:
+                  deb [trusted=yes] http://apt.example.net binary/
+[...]
+staging:/srv/salt# cat /etc/apt/sources.list
+deb http:[kk//ftp.us.debian.org/debian wheezy main
+deb-src http://ftp.us.debian.org/debian wheezy main
+deb [trusted=yes] http://apt.example.net binary/staging:/srv/salt#
+
+```
+
+Notice missing `\n` on the end. It's not the biggest problem, but if you run the state again, this is what you get:
+
+```
+staging:/srv/salt# cat /etc/apt/sources.list
+deb http://ftp.us.debian.org/debian wheezy main
+deb-src http://ftp.us.debian.org/debian wheezy main
+deb [trusted=yes] http://apt.example.net binary/
+
+deb [trusted=yes] http://apt.example.net binary/deb [trusted=yes] http://apt.example.net binary/staging:/srv/salt#
+```
+
+This obviously results in non-working repo. Is there any other way to specify APT repository options to avoid this bug?

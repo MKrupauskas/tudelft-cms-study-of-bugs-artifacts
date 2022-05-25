@@ -1,0 +1,74 @@
+I'm not _quite_ sure where this fault lies yet, but I'll present what I have below, and what I've done so far to trace it.
+
+What I'm doing: I have some sensu checks that are tied to a given "subscription", which I'm managing on a per-state basis. The sensu server should, however, have all these check types written out so that it can assign checks as necessary. I have the following:
+
+yaml template file of sensu checks:
+
+```
+checks:
+  https_alive:
+    command: curl -s -kLI https://localhost/
+    interval: 30
+    subscribers: [https]
+    handlers: [flapjack]
+    type: metric
+```
+
+State that'll write this out on the sensu server (these are actually in a loop on the real setup, but this example suffices):
+
+```
+include:
+  - sensu.server
+
+{% set role = 'https' %}
+{% set components = ["monitoring/files/maps/", role] %}
+{% set ifilepath = components|join('') %}
+{% import_yaml ifilepath as contents %}
+{{ role }} sensu role subscriptions:
+  file.managed:
+      - name: /etc/sensu/conf.d/{{ role }}.json
+      - contents: {{ contents | json }}
+      - watch_in: 
+        - service: sensu-server
+```
+
+On my sensu server, I see the following file content:
+
+```
+root@monitor:/etc/sensu/conf.d# cat https.json
+{'checks': {'https_alive': {'type': 'metric', 'interval': 30, 'command': 'curl -s -kLI https://localhost/', 'subscribers': ['https'], 'handlers': ['flapjack']}}}
+```
+
+This isn't valid JSON. I've found https://groups.google.com/forum/#!topic/salt-users/4ZIZlFjM1e8 previously, but it's not quite right.
+
+Some digging has revealed the following:
+
+I tweak the config file on the server to force a salt update, and then in a highstate run with debug logging, I see the following in the render result:
+
+```
+https sensu role subscriptions:
+  file.managed:
+      - name: /etc/sensu/conf.d/https.json
+      - contents: {"checks": {"https_alive": {"command": "curl -s -kLI https://localhost/", "handlers": ["flapjack"], "interval": 30, "subscribers": ["https"], "type": "metric"}}}
+      - watch_in:
+        - service: sensu-server
+```
+
+Looks right, has double quotes. However, later on the file.managed state/function does the following:
+
+```
+[DEBUG   ] Could not LazyLoad file.mod_init
+[INFO    ] Running state [/etc/sensu/conf.d/https.json] at time 12:21:18.511748
+[INFO    ] Executing state file.managed for /etc/sensu/conf.d/https.json
+[INFO    ] File changed:
+
+---
++++
+@@ -1 +1 @@
+-{"checks': {'https_alive': {'type': 'metric', 'interval': 30, 'command': 'curl -s -kLI https://localhost/', 'subscribers': ['https'], 'handlers': ['flapjack']}}}
++{'checks': {'https_alive': {'type': 'metric', 'interval': 30, 'command': 'curl -s -kLI https://localhost/', 'subscribers': ['https'], 'handlers': ['flapjack']}}}
+
+[INFO    ] Completed state [/etc/sensu/conf.d/https.json] at time 12:21:18.513394
+```
+
+This leads me to believe that somewhere there's something that is conflating quotes.

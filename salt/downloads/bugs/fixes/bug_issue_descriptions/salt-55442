@@ -1,0 +1,125 @@
+### Description of Issue
+
+In 2019.2.2, certain structures and values passed as pillar data (at least) result in the `found unexpected ':'` error on rendering, even with `use_yamlloader_old` enabled.  In 2018.3.3, the failure case below works fine.
+
+This is essentially the minimal case submitted in https://github.com/saltstack/salt/issues/52681#issuecomment-487609024.
+
+### Setup
+
+```yaml
+#  Fail with state.apply w/ pillar='{"test": ["a:b"]}'
+/etc/foo.conf:
+  file.managed:
+    - context:
+        foo: {{ pillar.get('test', ["c:d"]) }}
+```
+
+### Steps to Reproduce Issue
+
+On master/minion running 2019.2.2, with or without `use_yamlloader_old` enabled:
+
+```text
+[root@master1 /]# salt 3dedd8fe9f9f state.apply foo_state
+3dedd8fe9f9f:
+----------
+          ID: /etc/foo.conf
+    Function: file.managed
+      Result: True
+     Comment: File /etc/foo.conf exists with proper permissions. No changes made.
+     Started: 14:01:46.765194
+    Duration: 4.462 ms
+     Changes:   
+
+Summary for 3dedd8fe9f9f
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:   4.462 ms
+[root@master1 /]# salt 3dedd8fe9f9f state.apply foo_state pillar='{"test": ["a"]}'
+3dedd8fe9f9f:
+----------
+          ID: /etc/foo.conf
+    Function: file.managed
+      Result: True
+     Comment: File /etc/foo.conf exists with proper permissions. No changes made.
+     Started: 14:02:09.330459
+    Duration: 5.295 ms
+     Changes:   
+
+Summary for 3dedd8fe9f9f
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:   5.295 ms
+[root@master1 /]# salt 3dedd8fe9f9f state.apply foo_state pillar='{"test": ["a:b"]}'
+3dedd8fe9f9f:
+    Data failed to compile:
+----------
+    Rendering SLS 'base:foo_state' failed: found unexpected ':'
+ERROR: Minions returned with non-zero exit code
+```
+
+Minion logs around the error:
+
+```text
+2019-11-26 14:24:41,920 [salt.template    :120 ][DEBUG   ][2912] Rendered data from file: /var/cache/salt/minion/files/base/foo_state/init.sls:
+#  Fail with state.apply w/ pillar='{"test": ["a:b"]}'
+/etc/foo.conf:
+  file.managed:
+    - context:
+        foo: [u'a:b']
+
+2019-11-26 14:24:41,920 [salt.loaded.int.render.yaml:55  ][WARNING ][2912] Using the old YAML Loader for rendering, consider disabling this and using the tojson filter.
+2019-11-26 14:24:41,920 [salt.state       :3487][CRITICAL][2912] Rendering SLS 'base:foo_state' failed: found unexpected ':'
+
+```
+
+### Versions Report
+
+```text
+[root@3dedd8fe9f9f /]# salt --versions-report
+Salt Version:
+           Salt: 2019.2.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  7 2019, 00:51:29)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.6.1810 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 5.0.0-35-generic
+         system: Linux
+        version: CentOS Linux 7.6.1810 Core
+```

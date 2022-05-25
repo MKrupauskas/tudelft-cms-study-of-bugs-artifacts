@@ -1,0 +1,69 @@
+The file.replace state module provides a show_changes option so confidential information such as passwords are not logged. This is a great idea, but unfortunately the implementation doesn't seem to work.
+
+Here is an example:
+
+```
+{% if salt['pillar.get']('postfix:config') %}
+{% for file in salt['pillar.get']('postfix:config') %}
+{% for setting in salt['pillar.get']('postfix:config:' + file) %}
+
+Setting '{{ setting }}' in '{{ file }}' settings:
+  file.replace:
+    - name: {{ file }}
+    - pattern: '^{{ setting }}\s=.*$'
+    - repl: "{{ setting }} = {{ salt['pillar.get']('postfix:config:' + file + ':' + setting) }}"
+    - count: 1
+    - backup: False
+     {# Setting show_changes to False always incorrectly reports that "Changes were made". #}
+    - show_changes: False
+    - require:
+      - file: Set /etc/postfix/main.cf permissions
+
+{% endfor %}
+{% endfor %}
+{% endif %}
+```
+
+When show_changes is set to True, Salt's output looks like:
+
+```
+          ID: Setting 'inet_interfaces' in '/etc/postfix/main.cf' settings
+    Function: file.replace
+        Name: /etc/postfix/main.cf
+      Result: True
+     Comment: No changes were made
+     Changes:   
+```
+
+However setting show_changes is set to False, I always get:
+
+```
+          ID: Setting 'inet_interfaces' in '/etc/postfix/main.cf' settings
+    Function: file.replace
+        Name: /etc/postfix/main.cf
+      Result: True
+     Comment: Changes were made
+     Changes:   
+              ----------
+              diff:
+                  True
+```
+
+Re-calculating the checksum of the file in question confirms that no changes are actually made.
+
+Versions on both the master and minion:
+
+```
+           Salt: 2014.1.7
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.3
+```
+
+This is on Debian Wheezy amd64.

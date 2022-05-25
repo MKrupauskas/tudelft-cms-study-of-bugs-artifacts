@@ -1,0 +1,708 @@
+I've got a problem where if I change the default renderer to yaml_mako, highstate stops working properly.
+
+The same system is both master and minion:
+
+``` yaml
+Salt: 2014.7.0
+Python: 2.7.6(default,Mar222014,22:59:56)
+Jinja2: 2.7.2
+M2Crypto: 0.21.1
+msgpack-python: 0.3.0
+msgpack-pure: NotInstalled
+pycrypto: 2.6.1
+libnacl: NotInstalled
+PyYAML: 3.10
+ioflo: NotInstalled
+PyZMQ: 14.0.1
+RAET: NotInstalled
+ZMQ: 4.0.4
+Mako: 1.0.1
+```
+
+/etc/salt/master:
+
+``` yaml
+renderer: yaml_mako
+file_roots:
+  base:
+    - /srv/salt
+```
+
+/etc/salt/minion:
+
+``` yaml
+master: localhost
+```
+
+/srv/salt/top.sls:
+
+``` yaml
+base:
+  '*':
+    - webserver
+```
+
+/srv/salt/webserver.sls
+
+``` yaml
+apache2:
+  pkg:
+    - installed
+```
+
+/srv/pillar/top.sls
+
+``` yaml
+base:
+  '*':
+    - data
+```
+
+/srv/pillar/data.sls
+
+``` yaml
+info: some data
+```
+
+example of running highstate:
+
+``` console
+root@dora:/srv# salt '*' state.highstate
+dora:
+----------
+          ID: apache2
+    Function: pkg.installed
+      Result: True
+     Comment: Package apache2 is already installed.
+     Started: 19:34:41.564177
+    Duration: 589.164 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+root@dora:/srv# salt '*' state.highstate
+dora:
+----------
+          ID: apache2
+    Function: pkg.installed
+      Result: True
+     Comment: Package apache2 is already installed.
+     Started: 19:34:46.996597
+    Duration: 587.118 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+root@dora:/srv# salt '*' state.highstate
+dora:
+----------
+          ID: states
+    Function: no.None
+      Result: False
+     Comment: Unknown yaml render error
+     Started: 
+    Duration: 
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+root@dora:/srv# salt '*' state.highstate
+dora:
+    Data failed to compile:
+----------
+    ID info in SLS data is not a dictionary
+root@dora:/srv# 
+```
+
+the 'data.sls' file shows up in the cache (not after the first run, but when the SLS error shows up:
+
+``` console
+ls -l /var/cache/salt/minion/files/base/
+total 12
+-rw------- 1 root root 16 maj  4 19:34 data.sls
+-rw------- 1 root root 24 maj  4 19:34 top.sls
+-rw------- 1 root root 32 maj  4 19:34 webserver.sls
+```
+
+If I add a setting for worker_threads in the master config file to be > 5, then I am able to run highstate more times before errors start to crop up
+
+debug output of  the  master (with default worker_threads setting):
+
+```
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dora
+[DEBUG   ] Configuration file path: /etc/salt/master
+[INFO    ] Setting up the Salt Master
+[DEBUG   ] Loaded master key: /etc/salt/pki/master/master.pem
+[INFO    ] Preparing the root key for local communication
+[DEBUG   ] Created pidfile: /var/run/salt-master.pid
+[INFO    ] salt-master is starting as user 'root'
+[INFO    ] Current values for max open files soft/hard setting: 1024/4096
+[INFO    ] The value for the 'max_open_files' setting, 100000, is higher than what the user running salt is allowed to raise to, 4096. Defaulting to 4096.
+[INFO    ] Raising max open files value to 4096
+[INFO    ] New values for max open files soft/hard values: 4096/4096
+[DEBUG   ] Started '<bound method Master._clear_old_jobs of <salt.master.Master object at 0x7f1f22dcb510>>'(*[], **{} with pid 15930
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Started '<class 'salt.master.Publisher'>'(*({'reactor': [], 'search_index_interval': 3600, 'token_expire': 43200, 'master_sign_pubkey': False, 'ioflo_verbose': 0, 'show_jid': False, 'svnfs_remotes': [], 'syndic_master': '', 'minion_data_cache': True, 'ioflo_realtime': True, 'max_open_files': 100000, 'syndic_jid_forward_cache_hwm': 100, 'fileserver_backend': ['roots'], 'outputter_dirs': [], 'master_pubkey_signature': 'master_pubkey_signature', 'reactor_worker_hwm': 10000, 'extension_modules': '/var/cache/salt/extmods', 'state_auto_order': True, '__role': 'master', 'svnfs_env_blacklist': [], 'cluster_masters': [], 'file_ignore_glob': None, 'auto_accept': False, 'daemon': False, 'open_mode': False, 'win_repo': '/srv/salt/win/repo', 'hgfs_env_whitelist': [], 'state_verbose': True, 'svnfs_env_whitelist': [], 'cluster_mode': 'paranoid', 'sqlite_queue_dir': '/var/cache/salt/master/queues', 'aes': 'JqUtFJulFaVSwBC8R2TrVEHmBAW1XZiEUo+/KVEldWdf8hH/SzvsIYhVJEn7ILzIUJD6UFpCQLE=', 'publish_session': 86400, 'file_recv_max_size': 100, 'ssh_sudo': False, 'keep_jobs': 24, 'fileserver_ignoresymlinks': False, 'minionfs_blacklist': [], 'timeout': 5, 'gitfs_pubkey': '', 'file_roots': {'base': ['/srv/salt']}, 'root_dir': '/', 'runner_dirs': [], 'log_granular_levels': {}, 'gitfs_privkey': '', 'svnfs_branches': 'branches', 'log_datefmt_logfile': '%Y-%m-%d %H:%M:%S', 'config_dir': '/etc/salt', 'transport': 'zeromq', 'gitfs_base': 'master', 'gitfs_user': '', 'ssh_passwd': '', 'fileserver_limit_traversal': False, 'ioflo_console_logdir': '', 'conf_file': '/etc/salt/master', 'external_auth': {}, 'syndic_max_event_process_time': 0.5, 'ssh_user': 'root', 'key_logfile': '/var/log/salt/key', 'reactor_worker_threads': 10, 'svnfs_tags': 'tags', 'pidfile': '/var/run/salt-master.pid', 'range_server': 'range:80', 'win_repo_mastercachefile': '/srv/salt/win/repo/winrepo.p', 'raet_mutable': False, 'permissive_pki_access': False, 'file_ignore_regex': None, 'pillar_opts': True, 'svnfs_root': '', 'raet_main': True, 'pub_hwm': 1000, 'cachedir': '/var/cache/salt/master', 'peer': {}, 'default_include': 'master.d/*.conf', 'preserve_minion_cache': False, 'search': '', 'state_events': False, 'gitfs_mountpoint': '', 'master_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/master.flo', 'state_output': 'full', 'jinja_trim_blocks': False, 'svnfs_trunk': 'trunk', 'enable_gpu_grains': False, 'keysize': 4096, 'master_sign_key_name': 'master_sign', 'jinja_lstrip_blocks': False, 'cython_enable': False, 'raet_port': 4506, 'ssh_port': '22', 'ext_job_cache': '', 'hash_type': 'md5', 'cli_summary': False, 'ping_on_rotate': False, 'hgfs_root': '', 'renderer': 'yaml_mako', 'state_top': 'top.sls', 'gitfs_env_whitelist': [], 'hgfs_branch_method': 'branches', 'max_minions': 0, 'gitfs_insecure_auth': False, 'nodegroups': {}, 'file_recv': False, 'ipv6': False, 'verify_env': True, 'order_masters': False, 'syndic_wait': 5, 'worker_threads': 5, 'pillar_version': 2, 'failhard': False, 'rotate_aes_key': True, 'gitfs_passphrase': '', 'fileserver_followsymlinks': True, 'ioflo_period': 0.01, 'token_dir': '/var/cache/salt/master/tokens', 'worker_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/worker.flo', 'zmq_filtering': False, 'svnfs_mountpoint': '', 'show_timeout': False, 'pillar_source_merging_strategy': 'smart', 'minionfs_env': 'base', 'state_aggregate': False, 'master_tops': {}, 'hgfs_env_blacklist': [], 'hgfs_mountpoint': '', 'master_job_cache': 'local_cache', 'sign_pub_messages': False, 'auth_mode': 1, 'file_buffer_size': 1048576, 'log_fmt_console': '[%(levelname)-8s] %(message)s', 'log_datefmt': '%H:%M:%S', 'serial': 'msgpack', 'rep_hwm': 50000, 'client_acl_blacklist': {}, 'id': 'dora_master', 'minionfs_mountpoint': '', 'loop_interval': 60, 'log_level': 'debug', 'gitfs_env_blacklist': [], 'ret_port': '4506', 'maintenance_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/maint.flo', 'gitfs_root': '', 'gitfs_password': '', 'enumerate_proxy_minions': False, 'syndic_event_forward_timeout': 0.5, 'queue_dirs': [], 'gather_job_timeout': 5, 'pillar_roots': {'base': ['/srv/pillar']}, 'minionfs_whitelist': [], 'user': 'root', 'master_roots': {'base': ['/srv/salt-master']}, 'hgfs_base': 'default', 'hgfs_remotes': [], 'ext_pillar': [], 'client_acl': {}, 'win_gitrepos': ['https://github.com/saltstack/salt-winrepo.git'], 'master_use_pubkey_signature': False, 'gitfs_remotes': [], 'pki_dir': '/etc/salt/pki/master', 'enforce_mine_cache': False, 'max_event_size': 1048576, 'publish_port': '4505', 'job_cache': True, 'sock_dir': '/var/run/salt/master', 'reactor_refresh_interval': 60, 'log_fmt_logfile': '%(asctime)s,%(msecs)03.0f [%(name)-17s][%(levelname)-8s] %(message)s', 'log_file': '/var/log/salt/master', 'interface': '0.0.0.0', 'ssh_timeout': 60},), **{} with pid 15931
+[DEBUG   ] Started '<class 'salt.utils.event.EventPublisher'>'(*({'reactor': [], 'search_index_interval': 3600, 'token_expire': 43200, 'master_sign_pubkey': False, 'ioflo_verbose': 0, 'show_jid': False, 'svnfs_remotes': [], 'syndic_master': '', 'minion_data_cache': True, 'ioflo_realtime': True, 'max_open_files': 100000, 'syndic_jid_forward_cache_hwm': 100, 'fileserver_backend': ['roots'], 'outputter_dirs': [], 'master_pubkey_signature': 'master_pubkey_signature', 'reactor_worker_hwm': 10000, 'extension_modules': '/var/cache/salt/extmods', 'state_auto_order': True, '__role': 'master', 'svnfs_env_blacklist': [], 'cluster_masters': [], 'file_ignore_glob': None, 'auto_accept': False, 'daemon': False, 'open_mode': False, 'win_repo': '/srv/salt/win/repo', 'hgfs_env_whitelist': [], 'state_verbose': True, 'svnfs_env_whitelist': [], 'cluster_mode': 'paranoid', 'sqlite_queue_dir': '/var/cache/salt/master/queues', 'aes': 'JqUtFJulFaVSwBC8R2TrVEHmBAW1XZiEUo+/KVEldWdf8hH/SzvsIYhVJEn7ILzIUJD6UFpCQLE=', 'publish_session': 86400, 'file_recv_max_size': 100, 'ssh_sudo': False, 'keep_jobs': 24, 'fileserver_ignoresymlinks': False, 'minionfs_blacklist': [], 'timeout': 5, 'gitfs_pubkey': '', 'file_roots': {'base': ['/srv/salt']}, 'root_dir': '/', 'runner_dirs': [], 'log_granular_levels': {}, 'gitfs_privkey': '', 'svnfs_branches': 'branches', 'log_datefmt_logfile': '%Y-%m-%d %H:%M:%S', 'config_dir': '/etc/salt', 'transport': 'zeromq', 'gitfs_base': 'master', 'gitfs_user': '', 'ssh_passwd': '', 'fileserver_limit_traversal': False, 'ioflo_console_logdir': '', 'conf_file': '/etc/salt/master', 'external_auth': {}, 'syndic_max_event_process_time': 0.5, 'ssh_user': 'root', 'key_logfile': '/var/log/salt/key', 'reactor_worker_threads': 10, 'svnfs_tags': 'tags', 'pidfile': '/var/run/salt-master.pid', 'range_server': 'range:80', 'win_repo_mastercachefile': '/srv/salt/win/repo/winrepo.p', 'raet_mutable': False, 'permissive_pki_access': False, 'file_ignore_regex': None, 'pillar_opts': True, 'svnfs_root': '', 'raet_main': True, 'pub_hwm': 1000, 'cachedir': '/var/cache/salt/master', 'peer': {}, 'default_include': 'master.d/*.conf', 'preserve_minion_cache': False, 'search': '', 'state_events': False, 'gitfs_mountpoint': '', 'master_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/master.flo', 'state_output': 'full', 'jinja_trim_blocks': False, 'svnfs_trunk': 'trunk', 'enable_gpu_grains': False, 'keysize': 4096, 'master_sign_key_name': 'master_sign', 'jinja_lstrip_blocks': False, 'cython_enable': False, 'raet_port': 4506, 'ssh_port': '22', 'ext_job_cache': '', 'hash_type': 'md5', 'cli_summary': False, 'ping_on_rotate': False, 'hgfs_root': '', 'renderer': 'yaml_mako', 'state_top': 'top.sls', 'gitfs_env_whitelist': [], 'hgfs_branch_method': 'branches', 'max_minions': 0, 'gitfs_insecure_auth': False, 'nodegroups': {}, 'file_recv': False, 'ipv6': False, 'verify_env': True, 'order_masters': False, 'syndic_wait': 5, 'worker_threads': 5, 'pillar_version': 2, 'failhard': False, 'rotate_aes_key': True, 'gitfs_passphrase': '', 'fileserver_followsymlinks': True, 'ioflo_period': 0.01, 'token_dir': '/var/cache/salt/master/tokens', 'worker_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/worker.flo', 'zmq_filtering': False, 'svnfs_mountpoint': '', 'show_timeout': False, 'pillar_source_merging_strategy': 'smart', 'minionfs_env': 'base', 'state_aggregate': False, 'master_tops': {}, 'hgfs_env_blacklist': [], 'hgfs_mountpoint': '', 'master_job_cache': 'local_cache', 'sign_pub_messages': False, 'auth_mode': 1, 'file_buffer_size': 1048576, 'log_fmt_console': '[%(levelname)-8s] %(message)s', 'log_datefmt': '%H:%M:%S', 'serial': 'msgpack', 'rep_hwm': 50000, 'client_acl_blacklist': {}, 'id': 'dora_master', 'minionfs_mountpoint': '', 'loop_interval': 60, 'log_level': 'debug', 'gitfs_env_blacklist': [], 'ret_port': '4506', 'maintenance_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/maint.flo', 'gitfs_root': '', 'gitfs_password': '', 'enumerate_proxy_minions': False, 'syndic_event_forward_timeout': 0.5, 'queue_dirs': [], 'gather_job_timeout': 5, 'pillar_roots': {'base': ['/srv/pillar']}, 'minionfs_whitelist': [], 'user': 'root', 'master_roots': {'base': ['/srv/salt-master']}, 'hgfs_base': 'default', 'hgfs_remotes': [], 'ext_pillar': [], 'client_acl': {}, 'win_gitrepos': ['https://github.com/saltstack/salt-winrepo.git'], 'master_use_pubkey_signature': False, 'gitfs_remotes': [], 'pki_dir': '/etc/salt/pki/master', 'enforce_mine_cache': False, 'max_event_size': 1048576, 'publish_port': '4505', 'job_cache': True, 'sock_dir': '/var/run/salt/master', 'reactor_refresh_interval': 60, 'log_fmt_logfile': '%(asctime)s,%(msecs)03.0f [%(name)-17s][%(levelname)-8s] %(message)s', 'log_file': '/var/log/salt/master', 'interface': '0.0.0.0', 'ssh_timeout': 60},), **{} with pid 15932
+[DEBUG   ] Halite: Unavailable.
+[DEBUG   ] Started '<function run_reqserver at 0x7f1f224d6a28>'(*[], **{} with pid 15935
+[INFO    ] Starting the Salt Publisher on tcp://0.0.0.0:4505
+[INFO    ] Starting the Salt Puller on ipc:///var/run/salt/master/publish_pull.ipc
+[DEBUG   ] Started '<class 'salt.master.MWorker'>'(*({'reactor': [], 'search_index_interval': 3600, 'token_expire': 43200, 'master_sign_pubkey': False, 'ioflo_verbose': 0, 'show_jid': False, 'svnfs_remotes': [], 'syndic_master': '', 'minion_data_cache': True, 'ioflo_realtime': True, 'max_open_files': 100000, 'syndic_jid_forward_cache_hwm': 100, 'fileserver_backend': ['roots'], 'outputter_dirs': [], 'master_pubkey_signature': 'master_pubkey_signature', 'reactor_worker_hwm': 10000, 'extension_modules': '/var/cache/salt/extmods', 'state_auto_order': True, '__role': 'master', 'svnfs_env_blacklist': [], 'cluster_masters': [], 'file_ignore_glob': None, 'auto_accept': False, 'daemon': False, 'open_mode': False, 'win_repo': '/srv/salt/win/repo', 'hgfs_env_whitelist': [], 'state_verbose': True, 'svnfs_env_whitelist': [], 'cluster_mode': 'paranoid', 'sqlite_queue_dir': '/var/cache/salt/master/queues', 'aes': 'JqUtFJulFaVSwBC8R2TrVEHmBAW1XZiEUo+/KVEldWdf8hH/SzvsIYhVJEn7ILzIUJD6UFpCQLE=', 'publish_session': 86400, 'file_recv_max_size': 100, 'ssh_sudo': False, 'keep_jobs': 24, 'fileserver_ignoresymlinks': False, 'minionfs_blacklist': [], 'timeout': 5, 'gitfs_pubkey': '', 'file_roots': {'base': ['/srv/salt']}, 'root_dir': '/', 'runner_dirs': [], 'log_granular_levels': {}, 'gitfs_privkey': '', 'svnfs_branches': 'branches', 'log_datefmt_logfile': '%Y-%m-%d %H:%M:%S', 'config_dir': '/etc/salt', 'transport': 'zeromq', 'gitfs_base': 'master', 'gitfs_user': '', 'ssh_passwd': '', 'fileserver_limit_traversal': False, 'ioflo_console_logdir': '', 'conf_file': '/etc/salt/master', 'external_auth': {}, 'syndic_max_event_process_time': 0.5, 'ssh_user': 'root', 'key_logfile': '/var/log/salt/key', 'reactor_worker_threads': 10, 'svnfs_tags': 'tags', 'pidfile': '/var/run/salt-master.pid', 'range_server': 'range:80', 'win_repo_mastercachefile': '/srv/salt/win/repo/winrepo.p', 'raet_mutable': False, 'permissive_pki_access': False, 'file_ignore_regex': None, 'pillar_opts': True, 'svnfs_root': '', 'raet_main': True, 'pub_hwm': 1000, 'cachedir': '/var/cache/salt/master', 'peer': {}, 'default_include': 'master.d/*.conf', 'preserve_minion_cache': False, 'search': '', 'state_events': False, 'gitfs_mountpoint': '', 'master_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/master.flo', 'state_output': 'full', 'jinja_trim_blocks': False, 'svnfs_trunk': 'trunk', 'enable_gpu_grains': False, 'keysize': 4096, 'master_sign_key_name': 'master_sign', 'jinja_lstrip_blocks': False, 'cython_enable': False, 'raet_port': 4506, 'ssh_port': '22', 'ext_job_cache': '', 'hash_type': 'md5', 'cli_summary': False, 'ping_on_rotate': False, 'hgfs_root': '', 'renderer': 'yaml_mako', 'state_top': 'top.sls', 'gitfs_env_whitelist': [], 'hgfs_branch_method': 'branches', 'max_minions': 0, 'gitfs_insecure_auth': False, 'nodegroups': {}, 'file_recv': False, 'ipv6': False, 'verify_env': True, 'order_masters': False, 'syndic_wait': 5, 'worker_threads': 5, 'pillar_version': 2, 'failhard': False, 'rotate_aes_key': True, 'gitfs_passphrase': '', 'fileserver_followsymlinks': True, 'ioflo_period': 0.01, 'token_dir': '/var/cache/salt/master/tokens', 'worker_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/worker.flo', 'zmq_filtering': False, 'svnfs_mountpoint': '', 'show_timeout': False, 'pillar_source_merging_strategy': 'smart', 'minionfs_env': 'base', 'state_aggregate': False, 'master_tops': {}, 'hgfs_env_blacklist': [], 'hgfs_mountpoint': '', 'master_job_cache': 'local_cache', 'sign_pub_messages': False, 'auth_mode': 1, 'file_buffer_size': 1048576, 'log_fmt_console': '[%(levelname)-8s] %(message)s', 'log_datefmt': '%H:%M:%S', 'serial': 'msgpack', 'rep_hwm': 50000, 'client_acl_blacklist': {}, 'id': 'dora_master', 'minionfs_mountpoint': '', 'loop_interval': 60, 'log_level': 'debug', 'gitfs_env_blacklist': [], 'ret_port': '4506', 'maintenance_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/maint.flo', 'gitfs_root': '', 'gitfs_password': '', 'enumerate_proxy_minions': False, 'syndic_event_forward_timeout': 0.5, 'queue_dirs': [], 'gather_job_timeout': 5, 'pillar_roots': {'base': ['/srv/pillar']}, 'minionfs_whitelist': [], 'user': 'root', 'master_roots': {'base': ['/srv/salt-master']}, 'hgfs_base': 'default', 'hgfs_remotes': [], 'ext_pillar': [], 'client_acl': {}, 'win_gitrepos': ['https://github.com/saltstack/salt-winrepo.git'], 'master_use_pubkey_signature': False, 'gitfs_remotes': [], 'pki_dir': '/etc/salt/pki/master', 'enforce_mine_cache': False, 'max_event_size': 1048576, 'publish_port': '4505', 'job_cache': True, 'sock_dir': '/var/run/salt/master', 'reactor_refresh_interval': 60, 'log_fmt_logfile': '%(asctime)s,%(msecs)03.0f [%(name)-17s][%(levelname)-8s] %(message)s', 'log_file': '/var/log/salt/master', 'interface': '0.0.0.0', 'ssh_timeout': 60}, {}, {'root': 'nzZ79VnbwGFDl+EHxJ2ZG2Zos423db1gNtU2LiQgqNwQsrkbsvHgeoL87n9p5Z3IH4mPaAc2T88='}, <salt.crypt.Crypticle object at 0x7f1f22dcba90>), **{} with pid 15938
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Started '<class 'salt.master.MWorker'>'(*({'reactor': [], 'search_index_interval': 3600, 'token_expire': 43200, 'master_sign_pubkey': False, 'ioflo_verbose': 0, 'show_jid': False, 'svnfs_remotes': [], 'syndic_master': '', 'minion_data_cache': True, 'ioflo_realtime': True, 'max_open_files': 100000, 'syndic_jid_forward_cache_hwm': 100, 'fileserver_backend': ['roots'], 'outputter_dirs': [], 'master_pubkey_signature': 'master_pubkey_signature', 'reactor_worker_hwm': 10000, 'extension_modules': '/var/cache/salt/extmods', 'state_auto_order': True, '__role': 'master', 'svnfs_env_blacklist': [], 'cluster_masters': [], 'file_ignore_glob': None, 'auto_accept': False, 'daemon': False, 'open_mode': False, 'win_repo': '/srv/salt/win/repo', 'hgfs_env_whitelist': [], 'state_verbose': True, 'svnfs_env_whitelist': [], 'cluster_mode': 'paranoid', 'sqlite_queue_dir': '/var/cache/salt/master/queues', 'aes': 'JqUtFJulFaVSwBC8R2TrVEHmBAW1XZiEUo+/KVEldWdf8hH/SzvsIYhVJEn7ILzIUJD6UFpCQLE=', 'publish_session': 86400, 'file_recv_max_size': 100, 'ssh_sudo': False, 'keep_jobs': 24, 'fileserver_ignoresymlinks': False, 'minionfs_blacklist': [], 'timeout': 5, 'gitfs_pubkey': '', 'file_roots': {'base': ['/srv/salt']}, 'root_dir': '/', 'runner_dirs': [], 'log_granular_levels': {}, 'gitfs_privkey': '', 'svnfs_branches': 'branches', 'log_datefmt_logfile': '%Y-%m-%d %H:%M:%S', 'config_dir': '/etc/salt', 'transport': 'zeromq', 'gitfs_base': 'master', 'gitfs_user': '', 'ssh_passwd': '', 'fileserver_limit_traversal': False, 'ioflo_console_logdir': '', 'conf_file': '/etc/salt/master', 'external_auth': {}, 'syndic_max_event_process_time': 0.5, 'ssh_user': 'root', 'key_logfile': '/var/log/salt/key', 'reactor_worker_threads': 10, 'svnfs_tags': 'tags', 'pidfile': '/var/run/salt-master.pid', 'range_server': 'range:80', 'win_repo_mastercachefile': '/srv/salt/win/repo/winrepo.p', 'raet_mutable': False, 'permissive_pki_access': False, 'file_ignore_regex': None, 'pillar_opts': True, 'svnfs_root': '', 'raet_main': True, 'pub_hwm': 1000, 'cachedir': '/var/cache/salt/master', 'peer': {}, 'default_include': 'master.d/*.conf', 'preserve_minion_cache': False, 'search': '', 'state_events': False, 'gitfs_mountpoint': '', 'master_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/master.flo', 'state_output': 'full', 'jinja_trim_blocks': False, 'svnfs_trunk': 'trunk', 'enable_gpu_grains': False, 'keysize': 4096, 'master_sign_key_name': 'master_sign', 'jinja_lstrip_blocks': False, 'cython_enable': False, 'raet_port': 4506, 'ssh_port': '22', 'ext_job_cache': '', 'hash_type': 'md5', 'cli_summary': False, 'ping_on_rotate': False, 'hgfs_root': '', 'renderer': 'yaml_mako', 'state_top': 'top.sls', 'gitfs_env_whitelist': [], 'hgfs_branch_method': 'branches', 'max_minions': 0, 'gitfs_insecure_auth': False, 'nodegroups': {}, 'file_recv': False, 'ipv6': False, 'verify_env': True, 'order_masters': False, 'syndic_wait': 5, 'worker_threads': 5, 'pillar_version': 2, 'failhard': False, 'rotate_aes_key': True, 'gitfs_passphrase': '', 'fileserver_followsymlinks': True, 'ioflo_period': 0.01, 'token_dir': '/var/cache/salt/master/tokens', 'worker_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/worker.flo', 'zmq_filtering': False, 'svnfs_mountpoint': '', 'show_timeout': False, 'pillar_source_merging_strategy': 'smart', 'minionfs_env': 'base', 'state_aggregate': False, 'master_tops': {}, 'hgfs_env_blacklist': [], 'hgfs_mountpoint': '', 'master_job_cache': 'local_cache', 'sign_pub_messages': False, 'auth_mode': 1, 'file_buffer_size': 1048576, 'log_fmt_console': '[%(levelname)-8s] %(message)s', 'log_datefmt': '%H:%M:%S', 'serial': 'msgpack', 'rep_hwm': 50000, 'client_acl_blacklist': {}, 'id': 'dora_master', 'minionfs_mountpoint': '', 'loop_interval': 60, 'log_level': 'debug', 'gitfs_env_blacklist': [], 'ret_port': '4506', 'maintenance_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/maint.flo', 'gitfs_root': '', 'gitfs_password': '', 'enumerate_proxy_minions': False, 'syndic_event_forward_timeout': 0.5, 'queue_dirs': [], 'gather_job_timeout': 5, 'pillar_roots': {'base': ['/srv/pillar']}, 'minionfs_whitelist': [], 'user': 'root', 'master_roots': {'base': ['/srv/salt-master']}, 'hgfs_base': 'default', 'hgfs_remotes': [], 'ext_pillar': [], 'client_acl': {}, 'win_gitrepos': ['https://github.com/saltstack/salt-winrepo.git'], 'master_use_pubkey_signature': False, 'gitfs_remotes': [], 'pki_dir': '/etc/salt/pki/master', 'enforce_mine_cache': False, 'max_event_size': 1048576, 'publish_port': '4505', 'job_cache': True, 'sock_dir': '/var/run/salt/master', 'reactor_refresh_interval': 60, 'log_fmt_logfile': '%(asctime)s,%(msecs)03.0f [%(name)-17s][%(levelname)-8s] %(message)s', 'log_file': '/var/log/salt/master', 'interface': '0.0.0.0', 'ssh_timeout': 60}, {}, {'root': 'nzZ79VnbwGFDl+EHxJ2ZG2Zos423db1gNtU2LiQgqNwQsrkbsvHgeoL87n9p5Z3IH4mPaAc2T88='}, <salt.crypt.Crypticle object at 0x7f1f22dcba90>), **{} with pid 15939
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Started '<class 'salt.master.MWorker'>'(*({'reactor': [], 'search_index_interval': 3600, 'token_expire': 43200, 'master_sign_pubkey': False, 'ioflo_verbose': 0, 'show_jid': False, 'svnfs_remotes': [], 'syndic_master': '', 'minion_data_cache': True, 'ioflo_realtime': True, 'max_open_files': 100000, 'syndic_jid_forward_cache_hwm': 100, 'fileserver_backend': ['roots'], 'outputter_dirs': [], 'master_pubkey_signature': 'master_pubkey_signature', 'reactor_worker_hwm': 10000, 'extension_modules': '/var/cache/salt/extmods', 'state_auto_order': True, '__role': 'master', 'svnfs_env_blacklist': [], 'cluster_masters': [], 'file_ignore_glob': None, 'auto_accept': False, 'daemon': False, 'open_mode': False, 'win_repo': '/srv/salt/win/repo', 'hgfs_env_whitelist': [], 'state_verbose': True, 'svnfs_env_whitelist': [], 'cluster_mode': 'paranoid', 'sqlite_queue_dir': '/var/cache/salt/master/queues', 'aes': 'JqUtFJulFaVSwBC8R2TrVEHmBAW1XZiEUo+/KVEldWdf8hH/SzvsIYhVJEn7ILzIUJD6UFpCQLE=', 'publish_session': 86400, 'file_recv_max_size': 100, 'ssh_sudo': False, 'keep_jobs': 24, 'fileserver_ignoresymlinks': False, 'minionfs_blacklist': [], 'timeout': 5, 'gitfs_pubkey': '', 'file_roots': {'base': ['/srv/salt']}, 'root_dir': '/', 'runner_dirs': [], 'log_granular_levels': {}, 'gitfs_privkey': '', 'svnfs_branches': 'branches', 'log_datefmt_logfile': '%Y-%m-%d %H:%M:%S', 'config_dir': '/etc/salt', 'transport': 'zeromq', 'gitfs_base': 'master', 'gitfs_user': '', 'ssh_passwd': '', 'fileserver_limit_traversal': False, 'ioflo_console_logdir': '', 'conf_file': '/etc/salt/master', 'external_auth': {}, 'syndic_max_event_process_time': 0.5, 'ssh_user': 'root', 'key_logfile': '/var/log/salt/key', 'reactor_worker_threads': 10, 'svnfs_tags': 'tags', 'pidfile': '/var/run/salt-master.pid', 'range_server': 'range:80', 'win_repo_mastercachefile': '/srv/salt/win/repo/winrepo.p', 'raet_mutable': False, 'permissive_pki_access': False, 'file_ignore_regex': None, 'pillar_opts': True, 'svnfs_root': '', 'raet_main': True, 'pub_hwm': 1000, 'cachedir': '/var/cache/salt/master', 'peer': {}, 'default_include': 'master.d/*.conf', 'preserve_minion_cache': False, 'search': '', 'state_events': False, 'gitfs_mountpoint': '', 'master_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/master.flo', 'state_output': 'full', 'jinja_trim_blocks': False, 'svnfs_trunk': 'trunk', 'enable_gpu_grains': False, 'keysize': 4096, 'master_sign_key_name': 'master_sign', 'jinja_lstrip_blocks': False, 'cython_enable': False, 'raet_port': 4506, 'ssh_port': '22', 'ext_job_cache': '', 'hash_type': 'md5', 'cli_summary': False, 'ping_on_rotate': False, 'hgfs_root': '', 'renderer': 'yaml_mako', 'state_top': 'top.sls', 'gitfs_env_whitelist': [], 'hgfs_branch_method': 'branches', 'max_minions': 0, 'gitfs_insecure_auth': False, 'nodegroups': {}, 'file_recv': False, 'ipv6': False, 'verify_env': True, 'order_masters': False, 'syndic_wait': 5, 'worker_threads': 5, 'pillar_version': 2, 'failhard': False, 'rotate_aes_key': True, 'gitfs_passphrase': '', 'fileserver_followsymlinks': True, 'ioflo_period': 0.01, 'token_dir': '/var/cache/salt/master/tokens', 'worker_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/worker.flo', 'zmq_filtering': False, 'svnfs_mountpoint': '', 'show_timeout': False, 'pillar_source_merging_strategy': 'smart', 'minionfs_env': 'base', 'state_aggregate': False, 'master_tops': {}, 'hgfs_env_blacklist': [], 'hgfs_mountpoint': '', 'master_job_cache': 'local_cache', 'sign_pub_messages': False, 'auth_mode': 1, 'file_buffer_size': 1048576, 'log_fmt_console': '[%(levelname)-8s] %(message)s', 'log_datefmt': '%H:%M:%S', 'serial': 'msgpack', 'rep_hwm': 50000, 'client_acl_blacklist': {}, 'id': 'dora_master', 'minionfs_mountpoint': '', 'loop_interval': 60, 'log_level': 'debug', 'gitfs_env_blacklist': [], 'ret_port': '4506', 'maintenance_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/maint.flo', 'gitfs_root': '', 'gitfs_password': '', 'enumerate_proxy_minions': False, 'syndic_event_forward_timeout': 0.5, 'queue_dirs': [], 'gather_job_timeout': 5, 'pillar_roots': {'base': ['/srv/pillar']}, 'minionfs_whitelist': [], 'user': 'root', 'master_roots': {'base': ['/srv/salt-master']}, 'hgfs_base': 'default', 'hgfs_remotes': [], 'ext_pillar': [], 'client_acl': {}, 'win_gitrepos': ['https://github.com/saltstack/salt-winrepo.git'], 'master_use_pubkey_signature': False, 'gitfs_remotes': [], 'pki_dir': '/etc/salt/pki/master', 'enforce_mine_cache': False, 'max_event_size': 1048576, 'publish_port': '4505', 'job_cache': True, 'sock_dir': '/var/run/salt/master', 'reactor_refresh_interval': 60, 'log_fmt_logfile': '%(asctime)s,%(msecs)03.0f [%(name)-17s][%(levelname)-8s] %(message)s', 'log_file': '/var/log/salt/master', 'interface': '0.0.0.0', 'ssh_timeout': 60}, {}, {'root': 'nzZ79VnbwGFDl+EHxJ2ZG2Zos423db1gNtU2LiQgqNwQsrkbsvHgeoL87n9p5Z3IH4mPaAc2T88='}, <salt.crypt.Crypticle object at 0x7f1f22dcba90>), **{} with pid 15940
+[DEBUG   ] Started '<class 'salt.master.MWorker'>'(*({'reactor': [], 'search_index_interval': 3600, 'token_expire': 43200, 'master_sign_pubkey': False, 'ioflo_verbose': 0, 'show_jid': False, 'svnfs_remotes': [], 'syndic_master': '', 'minion_data_cache': True, 'ioflo_realtime': True, 'max_open_files': 100000, 'syndic_jid_forward_cache_hwm': 100, 'fileserver_backend': ['roots'], 'outputter_dirs': [], 'master_pubkey_signature': 'master_pubkey_signature', 'reactor_worker_hwm': 10000, 'extension_modules': '/var/cache/salt/extmods', 'state_auto_order': True, '__role': 'master', 'svnfs_env_blacklist': [], 'cluster_masters': [], 'file_ignore_glob': None, 'auto_accept': False, 'daemon': False, 'open_mode': False, 'win_repo': '/srv/salt/win/repo', 'hgfs_env_whitelist': [], 'state_verbose': True, 'svnfs_env_whitelist': [], 'cluster_mode': 'paranoid', 'sqlite_queue_dir': '/var/cache/salt/master/queues', 'aes': 'JqUtFJulFaVSwBC8R2TrVEHmBAW1XZiEUo+/KVEldWdf8hH/SzvsIYhVJEn7ILzIUJD6UFpCQLE=', 'publish_session': 86400, 'file_recv_max_size': 100, 'ssh_sudo': False, 'keep_jobs': 24, 'fileserver_ignoresymlinks': False, 'minionfs_blacklist': [], 'timeout': 5, 'gitfs_pubkey': '', 'file_roots': {'base': ['/srv/salt']}, 'root_dir': '/', 'runner_dirs': [], 'log_granular_levels': {}, 'gitfs_privkey': '', 'svnfs_branches': 'branches', 'log_datefmt_logfile': '%Y-%m-%d %H:%M:%S', 'config_dir': '/etc/salt', 'transport': 'zeromq', 'gitfs_base': 'master', 'gitfs_user': '', 'ssh_passwd': '', 'fileserver_limit_traversal': False, 'ioflo_console_logdir': '', 'conf_file': '/etc/salt/master', 'external_auth': {}, 'syndic_max_event_process_time': 0.5, 'ssh_user': 'root', 'key_logfile': '/var/log/salt/key', 'reactor_worker_threads': 10, 'svnfs_tags': 'tags', 'pidfile': '/var/run/salt-master.pid', 'range_server': 'range:80', 'win_repo_mastercachefile': '/srv/salt/win/repo/winrepo.p', 'raet_mutable': False, 'permissive_pki_access': False, 'file_ignore_regex': None, 'pillar_opts': True, 'svnfs_root': '', 'raet_main': True, 'pub_hwm': 1000, 'cachedir': '/var/cache/salt/master', 'peer': {}, 'default_include': 'master.d/*.conf', 'preserve_minion_cache': False, 'search': '', 'state_events': False, 'gitfs_mountpoint': '', 'master_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/master.flo', 'state_output': 'full', 'jinja_trim_blocks': False, 'svnfs_trunk': 'trunk', 'enable_gpu_grains': False, 'keysize': 4096, 'master_sign_key_name': 'master_sign', 'jinja_lstrip_blocks': False, 'cython_enable': False, 'raet_port': 4506, 'ssh_port': '22', 'ext_job_cache': '', 'hash_type': 'md5', 'cli_summary': False, 'ping_on_rotate': False, 'hgfs_root': '', 'renderer': 'yaml_mako', 'state_top': 'top.sls', 'gitfs_env_whitelist': [], 'hgfs_branch_method': 'branches', 'max_minions': 0, 'gitfs_insecure_auth': False, 'nodegroups': {}, 'file_recv': False, 'ipv6': False, 'verify_env': True, 'order_masters': False, 'syndic_wait': 5, 'worker_threads': 5, 'pillar_version': 2, 'failhard': False, 'rotate_aes_key': True, 'gitfs_passphrase': '', 'fileserver_followsymlinks': True, 'ioflo_period': 0.01, 'token_dir': '/var/cache/salt/master/tokens', 'worker_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/worker.flo', 'zmq_filtering': False, 'svnfs_mountpoint': '', 'show_timeout': False, 'pillar_source_merging_strategy': 'smart', 'minionfs_env': 'base', 'state_aggregate': False, 'master_tops': {}, 'hgfs_env_blacklist': [], 'hgfs_mountpoint': '', 'master_job_cache': 'local_cache', 'sign_pub_messages': False, 'auth_mode': 1, 'file_buffer_size': 1048576, 'log_fmt_console': '[%(levelname)-8s] %(message)s', 'log_datefmt': '%H:%M:%S', 'serial': 'msgpack', 'rep_hwm': 50000, 'client_acl_blacklist': {}, 'id': 'dora_master', 'minionfs_mountpoint': '', 'loop_interval': 60, 'log_level': 'debug', 'gitfs_env_blacklist': [], 'ret_port': '4506', 'maintenance_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/maint.flo', 'gitfs_root': '', 'gitfs_password': '', 'enumerate_proxy_minions': False, 'syndic_event_forward_timeout': 0.5, 'queue_dirs': [], 'gather_job_timeout': 5, 'pillar_roots': {'base': ['/srv/pillar']}, 'minionfs_whitelist': [], 'user': 'root', 'master_roots': {'base': ['/srv/salt-master']}, 'hgfs_base': 'default', 'hgfs_remotes': [], 'ext_pillar': [], 'client_acl': {}, 'win_gitrepos': ['https://github.com/saltstack/salt-winrepo.git'], 'master_use_pubkey_signature': False, 'gitfs_remotes': [], 'pki_dir': '/etc/salt/pki/master', 'enforce_mine_cache': False, 'max_event_size': 1048576, 'publish_port': '4505', 'job_cache': True, 'sock_dir': '/var/run/salt/master', 'reactor_refresh_interval': 60, 'log_fmt_logfile': '%(asctime)s,%(msecs)03.0f [%(name)-17s][%(levelname)-8s] %(message)s', 'log_file': '/var/log/salt/master', 'interface': '0.0.0.0', 'ssh_timeout': 60}, {}, {'root': 'nzZ79VnbwGFDl+EHxJ2ZG2Zos423db1gNtU2LiQgqNwQsrkbsvHgeoL87n9p5Z3IH4mPaAc2T88='}, <salt.crypt.Crypticle object at 0x7f1f22dcba90>), **{} with pid 15941
+[DEBUG   ] Started '<class 'salt.master.MWorker'>'(*({'reactor': [], 'search_index_interval': 3600, 'token_expire': 43200, 'master_sign_pubkey': False, 'ioflo_verbose': 0, 'show_jid': False, 'svnfs_remotes': [], 'syndic_master': '', 'minion_data_cache': True, 'ioflo_realtime': True, 'max_open_files': 100000, 'syndic_jid_forward_cache_hwm': 100, 'fileserver_backend': ['roots'], 'outputter_dirs': [], 'master_pubkey_signature': 'master_pubkey_signature', 'reactor_worker_hwm': 10000, 'extension_modules': '/var/cache/salt/extmods', 'state_auto_order': True, '__role': 'master', 'svnfs_env_blacklist': [], 'cluster_masters': [], 'file_ignore_glob': None, 'auto_accept': False, 'daemon': False, 'open_mode': False, 'win_repo': '/srv/salt/win/repo', 'hgfs_env_whitelist': [], 'state_verbose': True, 'svnfs_env_whitelist': [], 'cluster_mode': 'paranoid', 'sqlite_queue_dir': '/var/cache/salt/master/queues', 'aes': 'JqUtFJulFaVSwBC8R2TrVEHmBAW1XZiEUo+/KVEldWdf8hH/SzvsIYhVJEn7ILzIUJD6UFpCQLE=', 'publish_session': 86400, 'file_recv_max_size': 100, 'ssh_sudo': False, 'keep_jobs': 24, 'fileserver_ignoresymlinks': False, 'minionfs_blacklist': [], 'timeout': 5, 'gitfs_pubkey': '', 'file_roots': {'base': ['/srv/salt']}, 'root_dir': '/', 'runner_dirs': [], 'log_granular_levels': {}, 'gitfs_privkey': '', 'svnfs_branches': 'branches', 'log_datefmt_logfile': '%Y-%m-%d %H:%M:%S', 'config_dir': '/etc/salt', 'transport': 'zeromq', 'gitfs_base': 'master', 'gitfs_user': '', 'ssh_passwd': '', 'fileserver_limit_traversal': False, 'ioflo_console_logdir': '', 'conf_file': '/etc/salt/master', 'external_auth': {}, 'syndic_max_event_process_time': 0.5, 'ssh_user': 'root', 'key_logfile': '/var/log/salt/key', 'reactor_worker_threads': 10, 'svnfs_tags': 'tags', 'pidfile': '/var/run/salt-master.pid', 'range_server': 'range:80', 'win_repo_mastercachefile': '/srv/salt/win/repo/winrepo.p', 'raet_mutable': False, 'permissive_pki_access': False, 'file_ignore_regex': None, 'pillar_opts': True, 'svnfs_root': '', 'raet_main': True, 'pub_hwm': 1000, 'cachedir': '/var/cache/salt/master', 'peer': {}, 'default_include': 'master.d/*.conf', 'preserve_minion_cache': False, 'search': '', 'state_events': False, 'gitfs_mountpoint': '', 'master_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/master.flo', 'state_output': 'full', 'jinja_trim_blocks': False, 'svnfs_trunk': 'trunk', 'enable_gpu_grains': False, 'keysize': 4096, 'master_sign_key_name': 'master_sign', 'jinja_lstrip_blocks': False, 'cython_enable': False, 'raet_port': 4506, 'ssh_port': '22', 'ext_job_cache': '', 'hash_type': 'md5', 'cli_summary': False, 'ping_on_rotate': False, 'hgfs_root': '', 'renderer': 'yaml_mako', 'state_top': 'top.sls', 'gitfs_env_whitelist': [], 'hgfs_branch_method': 'branches', 'max_minions': 0, 'gitfs_insecure_auth': False, 'nodegroups': {}, 'file_recv': False, 'ipv6': False, 'verify_env': True, 'order_masters': False, 'syndic_wait': 5, 'worker_threads': 5, 'pillar_version': 2, 'failhard': False, 'rotate_aes_key': True, 'gitfs_passphrase': '', 'fileserver_followsymlinks': True, 'ioflo_period': 0.01, 'token_dir': '/var/cache/salt/master/tokens', 'worker_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/worker.flo', 'zmq_filtering': False, 'svnfs_mountpoint': '', 'show_timeout': False, 'pillar_source_merging_strategy': 'smart', 'minionfs_env': 'base', 'state_aggregate': False, 'master_tops': {}, 'hgfs_env_blacklist': [], 'hgfs_mountpoint': '', 'master_job_cache': 'local_cache', 'sign_pub_messages': False, 'auth_mode': 1, 'file_buffer_size': 1048576, 'log_fmt_console': '[%(levelname)-8s] %(message)s', 'log_datefmt': '%H:%M:%S', 'serial': 'msgpack', 'rep_hwm': 50000, 'client_acl_blacklist': {}, 'id': 'dora_master', 'minionfs_mountpoint': '', 'loop_interval': 60, 'log_level': 'debug', 'gitfs_env_blacklist': [], 'ret_port': '4506', 'maintenance_floscript': '/usr/local/lib/python2.7/dist-packages/salt/daemons/flo/maint.flo', 'gitfs_root': '', 'gitfs_password': '', 'enumerate_proxy_minions': False, 'syndic_event_forward_timeout': 0.5, 'queue_dirs': [], 'gather_job_timeout': 5, 'pillar_roots': {'base': ['/srv/pillar']}, 'minionfs_whitelist': [], 'user': 'root', 'master_roots': {'base': ['/srv/salt-master']}, 'hgfs_base': 'default', 'hgfs_remotes': [], 'ext_pillar': [], 'client_acl': {}, 'win_gitrepos': ['https://github.com/saltstack/salt-winrepo.git'], 'master_use_pubkey_signature': False, 'gitfs_remotes': [], 'pki_dir': '/etc/salt/pki/master', 'enforce_mine_cache': False, 'max_event_size': 1048576, 'publish_port': '4505', 'job_cache': True, 'sock_dir': '/var/run/salt/master', 'reactor_refresh_interval': 60, 'log_fmt_logfile': '%(asctime)s,%(msecs)03.0f [%(name)-17s][%(levelname)-8s] %(message)s', 'log_file': '/var/log/salt/master', 'interface': '0.0.0.0', 'ssh_timeout': 60}, {}, {'root': 'nzZ79VnbwGFDl+EHxJ2ZG2Zos423db1gNtU2LiQgqNwQsrkbsvHgeoL87n9p5Z3IH4mPaAc2T88='}, <salt.crypt.Crypticle object at 0x7f1f22dcba90>), **{} with pid 15942
+[DEBUG   ] Started '<bound method ReqServer.zmq_device of <salt.master.ReqServer object at 0x7f1f26cc8d10>>'(*[], **{} with pid 15943
+[INFO    ] Setting up the master communication server
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dora
+[DEBUG   ] Missing configuration file: ~/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dora
+[DEBUG   ] Missing configuration file: ~/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dora
+[DEBUG   ] Missing configuration file: ~/.saltrc
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dora
+[DEBUG   ] Missing configuration file: ~/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dora
+[DEBUG   ] Missing configuration file: ~/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 1 minion keys.
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dora
+[DEBUG   ] Missing configuration file: ~/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dora
+[DEBUG   ] Missing configuration file: ~/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dora
+[DEBUG   ] Missing configuration file: ~/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dora
+[DEBUG   ] Missing configuration file: ~/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dora
+[DEBUG   ] Missing configuration file: ~/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[INFO    ] Worker binding to socket ipc:///var/run/salt/master/workers.ipc
+[INFO    ] Worker binding to socket ipc:///var/run/salt/master/workers.ipc
+[INFO    ] Worker binding to socket ipc:///var/run/salt/master/workers.ipc
+[INFO    ] Worker binding to socket ipc:///var/run/salt/master/workers.ipc
+[INFO    ] Worker binding to socket ipc:///var/run/salt/master/workers.ipc
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:33.521584', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:33.640766', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _pillar
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] Rendered data from file: /srv/pillar/top.sls:
+base:
+  '*':
+    - data
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('base', OrderedDict([('*', ['data'])]))])
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] Rendered data from file: /srv/pillar/data.sls:
+info: some data
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('info', 'some data')])
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:34.266174', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _minion_event
+[DEBUG   ] Sending event - data = {'_stamp': '2015-05-04T17:34:34.334399', 'pretag': None, 'cmd': '_minion_event', 'tag': 'minion_start', 'data': 'Minion dora started at Mon May  4 19:34:34 2015', 'id': 'dora'}
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:34.400346', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _minion_event
+[DEBUG   ] Sending event - data = {'_stamp': '2015-05-04T17:34:34.465390', 'pretag': None, 'cmd': '_minion_event', 'tag': 'salt/minion/dora/start', 'data': 'Minion dora started at Mon May  4 19:34:34 2015', 'id': 'dora'}
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:34.540049', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:34.698408', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _mine
+[INFO    ] Clear payload received with command publish
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[DEBUG   ] Sending event - data = {'_stamp': '2015-05-04T17:34:39.805932', 'minions': ['dora']}
+[DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150504193439805766', 'tgt': '*', '_stamp': '2015-05-04T17:34:39.806081', 'user': 'root', 'arg': [], 'fun': 'state.highstate', 'minions': ['dora']}
+[DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150504193439805766', 'tgt': '*', '_stamp': '2015-05-04T17:34:39.806241', 'user': 'root', 'arg': [], 'fun': 'state.highstate', 'minions': ['dora']}
+[INFO    ] User root Published command state.highstate with jid 20150504193439805766
+[DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20150504193439805766', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'state.highstate'}
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:39.882824', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _master_opts
+[INFO    ] AES payload received with command _file_list
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:40.696147', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _pillar
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] Rendered data from file: /srv/pillar/top.sls:
+base:
+  '*':
+    - data
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('base', OrderedDict([('*', ['data'])]))])
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] Rendered data from file: /srv/pillar/data.sls:
+info: some data
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('info', 'some data')])
+[INFO    ] AES payload received with command _serve_file
+[INFO    ] AES payload received with command _serve_file
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:41.018782', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _ext_nodes
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:41.191535', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _serve_file
+[INFO    ] AES payload received with command _serve_file
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:41.505980', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:42.223513', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _return
+[INFO    ] Got return from dora for job 20150504193439805766
+[DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150504193439805766', 'return': {'pkg_|-apache2_|-apache2_|-installed': {'comment': 'Package apache2 is already installed.', 'name': 'apache2', 'start_time': '19:34:41.564177', 'result': True, 'duration': 589.164, '__run_num__': 0, 'changes': {}}}, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-05-04T17:34:42.286599', 'fun': 'state.highstate', 'id': 'dora', 'out': 'highstate'}
+[DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150504193439805766', 'return': {'pkg_|-apache2_|-apache2_|-installed': {'comment': 'Package apache2 is already installed.', 'name': 'apache2', 'start_time': '19:34:41.564177', 'result': True, 'duration': 589.164, '__run_num__': 0, 'changes': {}}}, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-05-04T17:34:42.286815', 'fun': 'state.highstate', 'id': 'dora', 'out': 'highstate'}
+[DEBUG   ] LazyLoaded local_cache.returner
+[INFO    ] Clear payload received with command publish
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[DEBUG   ] Sending event - data = {'_stamp': '2015-05-04T17:34:45.625860', 'minions': ['dora']}
+[DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150504193445625689', 'tgt': '*', '_stamp': '2015-05-04T17:34:45.626018', 'user': 'root', 'arg': [], 'fun': 'state.highstate', 'minions': ['dora']}
+[DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150504193445625689', 'tgt': '*', '_stamp': '2015-05-04T17:34:45.626159', 'user': 'root', 'arg': [], 'fun': 'state.highstate', 'minions': ['dora']}
+[INFO    ] User root Published command state.highstate with jid 20150504193445625689
+[DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20150504193445625689', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'state.highstate'}
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:45.701164', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _master_opts
+[INFO    ] AES payload received with command _file_list
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:46.118445', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _pillar
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] Rendered data from file: /srv/pillar/top.sls:
+base:
+  '*':
+    - data
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('base', OrderedDict([('*', ['data'])]))])
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] Rendered data from file: /srv/pillar/data.sls:
+info: some data
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('info', 'some data')])
+[INFO    ] AES payload received with command _file_hash
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:46.439023', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _ext_nodes
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:46.613919', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_hash
+[INFO    ] AES payload received with command _serve_file
+[INFO    ] AES payload received with command _serve_file
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:46.930942', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:47.637773', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _return
+[INFO    ] Got return from dora for job 20150504193445625689
+[DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150504193445625689', 'return': {'pkg_|-apache2_|-apache2_|-installed': {'comment': 'Package apache2 is already installed.', 'name': 'apache2', 'start_time': '19:34:46.996597', 'result': True, 'duration': 587.118, '__run_num__': 0, 'changes': {}}}, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-05-04T17:34:47.693127', 'fun': 'state.highstate', 'id': 'dora', 'out': 'highstate'}
+[DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150504193445625689', 'return': {'pkg_|-apache2_|-apache2_|-installed': {'comment': 'Package apache2 is already installed.', 'name': 'apache2', 'start_time': '19:34:46.996597', 'result': True, 'duration': 587.118, '__run_num__': 0, 'changes': {}}}, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-05-04T17:34:47.693298', 'fun': 'state.highstate', 'id': 'dora', 'out': 'highstate'}
+[DEBUG   ] LazyLoaded local_cache.returner
+[INFO    ] Clear payload received with command publish
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[DEBUG   ] Sending event - data = {'_stamp': '2015-05-04T17:34:48.830468', 'minions': ['dora']}
+[DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150504193448830076', 'tgt': '*', '_stamp': '2015-05-04T17:34:48.830861', 'user': 'root', 'arg': [], 'fun': 'state.highstate', 'minions': ['dora']}
+[DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150504193448830076', 'tgt': '*', '_stamp': '2015-05-04T17:34:48.831288', 'user': 'root', 'arg': [], 'fun': 'state.highstate', 'minions': ['dora']}
+[INFO    ] User root Published command state.highstate with jid 20150504193448830076
+[DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20150504193448830076', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'state.highstate'}
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:48.908983', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _master_opts
+[INFO    ] AES payload received with command _file_list
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:49.317015', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _pillar
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] Rendered data from file: /srv/pillar/top.sls:
+base:
+  '*':
+    - data
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('base', OrderedDict([('*', ['data'])]))])
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] Rendered data from file: /srv/pillar/data.sls:
+info: some data
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('info', 'some data')])
+[INFO    ] AES payload received with command _file_hash
+[INFO    ] AES payload received with command _serve_file
+[INFO    ] AES payload received with command _serve_file
+[INFO    ] AES payload received with command _serve_file
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:49.628006', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:49.756578', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _return
+[INFO    ] Got return from dora for job 20150504193448830076
+[DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150504193448830076', 'return': {'no_|-states_|-states_|-None': {'comment': 'Unknown yaml render error', '__run_num__': 0, 'changes': {}, 'result': False, 'name': 'No States'}}, 'retcode': 2, 'success': True, 'cmd': '_return', '_stamp': '2015-05-04T17:34:49.811732', 'fun': 'state.highstate', 'id': 'dora', 'out': 'highstate'}
+[DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150504193448830076', 'return': {'no_|-states_|-states_|-None': {'comment': 'Unknown yaml render error', '__run_num__': 0, 'changes': {}, 'result': False, 'name': 'No States'}}, 'retcode': 2, 'success': True, 'cmd': '_return', '_stamp': '2015-05-04T17:34:49.811928', 'fun': 'state.highstate', 'id': 'dora', 'out': 'highstate'}
+[DEBUG   ] Sending event - data = {'comment': 'Unknown yaml render error', '_stamp': '2015-05-04T17:34:49.812112', 'retcode': 2, 'result': False, '__run_num__': 0, 'changes': {}, 'name': 'No States'}
+[DEBUG   ] LazyLoaded local_cache.returner
+[INFO    ] Clear payload received with command publish
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[DEBUG   ] Sending event - data = {'_stamp': '2015-05-04T17:34:57.604598', 'minions': ['dora']}
+[DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150504193457604436', 'tgt': '*', '_stamp': '2015-05-04T17:34:57.604749', 'user': 'root', 'arg': [], 'fun': 'state.highstate', 'minions': ['dora']}
+[DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150504193457604436', 'tgt': '*', '_stamp': '2015-05-04T17:34:57.604908', 'user': 'root', 'arg': [], 'fun': 'state.highstate', 'minions': ['dora']}
+[INFO    ] User root Published command state.highstate with jid 20150504193457604436
+[DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20150504193457604436', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'state.highstate'}
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:57.693969', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _master_opts
+[INFO    ] AES payload received with command _file_list
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:58.547177', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _pillar
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] Rendered data from file: /srv/pillar/top.sls:
+base:
+  '*':
+    - data
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('base', OrderedDict([('*', ['data'])]))])
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] Rendered data from file: /srv/pillar/data.sls:
+info: some data
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('info', 'some data')])
+[INFO    ] AES payload received with command _file_hash
+[INFO    ] AES payload received with command _serve_file
+[INFO    ] AES payload received with command _serve_file
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:58.854800', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _ext_nodes
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:59.014584', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _file_list
+[INFO    ] AES payload received with command _serve_file
+[INFO    ] AES payload received with command _serve_file
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:59.337430', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dora
+[INFO    ] Authentication accepted from dora
+[DEBUG   ] Sending event - data = {'id': 'dora', '_stamp': '2015-05-04T17:34:59.461163', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtz99//KbuTpUqP3AyUqY\nDblN/UFsZWeu/ny6mCm6NDooVewDVDkjnsOIozWioHxHI9uv7L+PDwq4OM43RhOm\nw/CzijQKlv29p7lTKg4lSzvfV09TKrmzRFB9cbNU6CCMbOOJHARNi4v3mYGXa9LD\nns9hTLEjGv3g4AUO8hW3VKMeXnMCo1bxCMIGFoCo+XZz/Gs/lJvg2tFFqZXO2Y8O\nC8i1luyXZ1NWzYzpc3NucBzjZlF2WTW3NPV6kCkbHh+0mXLdcfZk1K4tcsFJBqJM\neSD50x9oPY9nE+FNFolyommfAyyVXec3KV0yGGjoEKauzVRoC0amSTSBQrTz6YTM\nIG4imBhcyJoIk+SKAxIV6kuKa+1Oyey2cLHsiaO03BeDmMwcm7XKRxsG2Zesnaq0\nF8htrK1+NeTGS03RL3mFka7Pj2WGQzL9q9icAgEJHfISb3m4fg0fhLyflnKLffiY\nMCpMcn1v1INaLnUTISWfsUdTcAKxmcijBtxID5H85SUALOxqbeaw+wRISCOSJ/I3\nnQVfPIus8ogyNwX9hEk2vKRMqzfeqHIuL0z0fOjHhURC81jxltpu7JXrePvB/o7z\n+wXS1zhh/gOR5NHqG4Ab0JIutcyuD+O+sZb7Tz6ZykWwxHt5ZG3vPjK30LJXr3Fs\nWXap0KAEadAAHM2vf35DgQsCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}
+[INFO    ] AES payload received with command _return
+[INFO    ] Got return from dora for job 20150504193457604436
+[DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150504193457604436', 'return': ['ID info in SLS data is not a dictionary'], 'retcode': 1, 'success': True, 'cmd': '_return', '_stamp': '2015-05-04T17:34:59.518246', 'fun': 'state.highstate', 'id': 'dora', 'out': 'highstate'}
+[DEBUG   ] Sending event - data = {'fun_args': [], 'jid': '20150504193457604436', 'return': ['ID info in SLS data is not a dictionary'], 'retcode': 1, 'success': True, 'cmd': '_return', '_stamp': '2015-05-04T17:34:59.518408', 'fun': 'state.highstate', 'id': 'dora', 'out': 'highstate'}
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 1 minion keys.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 1 minion keys.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 1 minion keys.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 1 minion keys.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 1 minion keys.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 1 minion keys.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/id.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/id.conf
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] This salt-master instance has accepted 1 minion keys.
+```

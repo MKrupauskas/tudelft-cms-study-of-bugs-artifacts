@@ -1,0 +1,91 @@
+### Description of Issue/Question
+
+When using salt-ssh via the API (cherrypy), a casual call like this:
+
+```
+curl -sS localhost:9080/run \
+  -H 'Accept: application/x-yaml' \
+  -H 'Content-type: application/json' \
+  -d  \
+      '[
+          {
+              "client": "ssh",
+              "expr_form": "list",
+              "fun": "test.ping",
+              "ignore_host_keys": false,
+              "roster_file": "/tmp/emptyroster",
+              "ssh_passwd": "secret",
+              "ssh_user": "root",
+              "tgt": "idontexist"
+          }
+      ]'
+```
+
+makes the server go down, curl output is: `curl: (52) Empty reply from server`.
+
+Relevant master log output:
+
+```
+2016-10-13 13:06:37,888 [salt.template    ][WARNING ][15405] Template is an empty file: /tmp/emptyroster
+2016-10-13 13:06:37,989 [cherrypy.error   ][INFO    ][15405] [13/Oct/2016:13:06:37] ENGINE SystemExit raised: shutting down HTTP server
+2016-10-13 13:06:37,989 [cherrypy.error   ][INFO    ][15405] [13/Oct/2016:13:06:37] ENGINE Bus STOPPING
+2016-10-13 13:06:37,989 [cherrypy.error   ][INFO    ][15405] [13/Oct/2016:13:06:37] ENGINE HTTP Server cherrypy._cpwsgi_server.CPWSGIServer(('127.0.0.1', 9080)) shut down
+2016-10-13 13:06:37,990 [cherrypy.error   ][INFO    ][15405] [13/Oct/2016:13:06:37] ENGINE Stopped thread '_TimeoutMonitor'.
+2016-10-13 13:06:37,990 [cherrypy.error   ][INFO    ][15405] [13/Oct/2016:13:06:37] ENGINE Terminating WebSocket processing
+2016-10-13 13:06:37,990 [ws4py            ][INFO    ][15405] Closing all websockets with [1001] 'Server is shutting down'
+2016-10-13 13:06:38,063 [cherrypy.error   ][INFO    ][15405] [13/Oct/2016:13:06:38] ENGINE Bus STOPPED
+2016-10-13 13:06:38,063 [cherrypy.error   ][INFO    ][15405] [13/Oct/2016:13:06:38] ENGINE Bus EXITING
+2016-10-13 13:06:38,063 [cherrypy.error   ][INFO    ][15405] [13/Oct/2016:13:06:38] ENGINE Bus EXITED
+2016-10-13 13:06:38,163 [cherrypy.error   ][INFO    ][15405] [13/Oct/2016:13:06:38] ENGINE Waiting for child threads to terminate...
+2016-10-13 13:06:38,165 [salt.utils.process][INFO    ][15396] Process <function start at 0x7fdef831d7d0> (15405) died with exit status None, restarting...
+```
+
+I've discovered that salt ssh considers a scenario with no matching "ssh-minions" to be an exception and I worked this around using the attached patch (which breaks the `salt-ssh` CLI :) ). This is not to fix the issue, but to perhaps shed more light on it.
+### Setup
+- running salt-api (cherrypy)
+### Steps to Reproduce Issue
+- Perform the call above (or any salt ssh sync call via API where no minions match given target)
+### Partial work around
+
+Spoiler alert: it breaks `salt-ssh` cli
+[0001-salt-ssh-Return-empty-dict-when-no-minions-match.patch.txt](https://github.com/saltstack/salt/files/526962/0001-salt-ssh-Return-empty-dict-when-no-minions-match.patch.txt)
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.0
+         Python: 2.7.9 (default, Dec 21 2014, 11:02:59) [GCC]
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: 1.1.0
+       cherrypy: 3.6.0
+       dateutil: 2.4.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: SuSE 12 x86_64
+        machine: x86_64
+        release: 3.12.62-60.62-default
+         system: SUSE Linux Enterprise Server  12 x86_64
+```

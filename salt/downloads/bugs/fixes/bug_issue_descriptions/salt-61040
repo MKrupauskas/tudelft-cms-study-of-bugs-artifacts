@@ -1,0 +1,250 @@
+**Description**
+When using relative path (eg.: `{% from './map.jinja' import packages with context %}`) in a formula, a windows minion will not cache the file speficied in the relative path (I can't find that file inside `C:\salt\var\cache\salt\minion\files\base\formula-name`). 
+
+**Setup**
+
+- [ ] on-prem machine
+- [x] VM (Vmware)
+- [ ] VM running on a cloud service, please be explicit and add details
+- [ ] container (Kubernetes, Docker, containerd, etc. please specify)
+- [ ] or a combination, please be explicit
+- [ ] jails if it is FreeBSD
+
+  
+**Steps to Reproduce the behavior**
+We have found this bug using the `package` formula with the `chocolatey` state on a windows minion.
+We had this pillar:
+```
+packages:
+  chocolatey:
+    wanted:
+      prometheus-windows-exporter.install:
+        version: '0.16.0'
+```
+When we run the command `salt skyros.pc.itc.it state.test packages.chocolatey`, we get the error: 
+```
+skyros.pc.itc.it:                                                                                         
+    Data failed to compile:                                                                               
+----------                                                                                                
+    Rendering SLS 'base:packages.chocolatey' failed: Jinja error: ./map.jinja                             
+Traceback (most recent call last):                                                                        
+  File "c:\salt\bin\lib\site-packages\salt-3003.3-py3.7.egg\salt\utils\templates.py", line 500, in render_
+jinja_tmpl                                                                                                
+    output = template.render(**decoded_context)                                                           
+  File "c:\salt\bin\lib\site-packages\jinja2\environment.py", line 1090, in render                        
+    self.environment.handle_exception()                                                                   
+  File "c:\salt\bin\lib\site-packages\jinja2\environment.py", line 832, in handle_exception               
+    reraise(*rewrite_traceback_stack(source=source))                                                      
+  File "c:\salt\bin\lib\site-packages\jinja2\_compat.py", line 28, in reraise                             
+    raise value.with_traceback(tb)                                                                        
+  File "<template>", line 3, in top-level template code                                                   
+  File "c:\salt\bin\lib\site-packages\salt-3003.3-py3.7.egg\salt\utils\jinja.py", line 198, in get_source 
+    raise TemplateNotFound(template)                                                                      
+jinja2.exceptions.TemplateNotFound: ./map.jinja                                                           
+                                                                                                          
+; line 3                                                                                                  
+                                                                                                          
+---                                                                                                       
+# -*- coding: utf-8 -*-                                                                                   
+# vim: ft=sls                                                                                             
+{%- from "./map.jinja" import packages with context %}    <======================                         
+                                                                                                          
+{%- if grains['os'] == 'Windows' %}                                                                       
+                                                                                                          
+  {%- if packages.chocolatey %}                                                                           
+    {%- set req_states = packages.chocolatey.required.states %}                                           
+[...]                                                                                                     
+---                                                                                                       
+ERROR: Minions returned with non-zero exit code
+```
+and in the cache folder on the target (`C:\salt\var\cache\salt\minion\files\base\packages`) the only file is `chocolately.sls` without any `map.jinja`.
+
+We tried with different version of salt-minion, with different windows version (win10, win server 2016/2019) and with two different salt-master (same version of salt-master).
+
+When I run `salt skyros.pc.itc.it state.test packages` in the cache folder on the target machine I have more files (for example the `map.jinja`) but not all files (the `default.yaml` is missing). In fact I get multiple errors regarding the `default.yaml` file, like this:
+
+```
+----------                                                                                                
+    Rendering SLS 'base:packages.golang.goget' failed: Jinja error: ./defaults.yaml                       
+c:\salt\var\cache\salt\minion\files\base\packages/map.jinja(4):                                           
+---                                                                                                       
+# -*- coding: utf-8 -*-                                                                                   
+# vim: ft=jinja                                                                                           
+                                                                                                          
+{%- import_yaml './defaults.yaml' as defaults %}    <======================                               
+{%- import_yaml './osfamilymap.yaml' as osfamilymap %}                                                    
+{%- import_yaml './osmap.yaml' as osmap %}                                                                
+{%- import_yaml './osfingermap.yaml' as osfingermap %}                                                    
+                                                                                                          
+{%- set packages = salt['grains.filter_by'](                                                              
+[...]                                                                                                     
+---                                                                                                       
+Traceback (most recent call last):                                                                        
+  File "c:\salt\bin\lib\site-packages\salt-3003.3-py3.7.egg\salt\utils\templates.py", line 500, in render_
+jinja_tmpl                                                                                                
+    output = template.render(**decoded_context)                                                           
+  File "c:\salt\bin\lib\site-packages\jinja2\environment.py", line 1090, in render                        
+    self.environment.handle_exception()                                                                   
+  File "c:\salt\bin\lib\site-packages\jinja2\environment.py", line 832, in handle_exception               
+    reraise(*rewrite_traceback_stack(source=source))                                                      
+  File "c:\salt\bin\lib\site-packages\jinja2\_compat.py", line 28, in reraise                             
+    raise value.with_traceback(tb)                                                                        
+  File "<template>", line 6, in top-level template code                                                   
+  File "c:\salt\bin\lib\site-packages\jinja2\environment.py", line 1155, in make_module                   
+    return TemplateModule(self, self.new_context(vars, shared, locals))                                   
+  File "c:\salt\bin\lib\site-packages\jinja2\environment.py", line 1238, in __init__                      
+    body_stream = list(template.root_render_func(context))                                                
+  File "c:\salt\var\cache\salt\minion\files\base\packages/map.jinja", line 4, in top-level template code  
+    {%- import_yaml './defaults.yaml' as defaults %}                                                      
+  File "c:\salt\bin\lib\site-packages\salt-3003.3-py3.7.egg\salt\utils\jinja.py", line 198, in get_source 
+    raise TemplateNotFound(template)                                                                      
+jinja2.exceptions.TemplateNotFound: ./defaults.yaml
+```
+## Additional tests
+With every test it's important to have the cache folder on the minion (`C:\salt\var\cache\salt\minion\files\base`) empty.  We use `salt skyros.pc.itc.it saltutil.clear_cache`. 
+
+We tried without chocolatey, so using directly winrepo. My pillar now is:
+```
+packages:
+  pkgs:
+    wanted:
+      - prometheus-wmi-exporter
+ ```
+but the problem persist.
+
+We then did other tests to understand if the bug was only related to that formula.
+We made a simple formula called "winpackages":
+`init.sls`:
+```
+{% from './map.jinja' import packages with context %}
+{% for pkg in packages %}
+Choco_package_{{ pkg|upper }}_install:
+ chocolatey.installed:
+     - name: {{ pkg }}
+{% endfor %}
+```
+`map.jinja`:
+```
+{% set default_packages = salt['grains.filter_by']({
+    'Windows': {
+        'pkgs': [
+           'googlechrome',
+      ]
+    },
+}) %}
+{% set packages = salt['pillar.get']('winpackages:pkgs', default=default_packages.pkgs, merge=True) %}
+```
+`pillar.sls`
+```
+winpackages:
+  pkgs:
+    - prometheus-windows-exporter.install
+```
+and this is not working, always giving me `./map.jinja not found`.
+
+Then we modify the init.sls like this:
+`init.sls`:
+```
+{% from 'winpackages/map.jinja' import packages with context %}
+{% for pkg in packages %}
+Choco_package_{{ pkg|upper }}_install:
+ chocolatey.installed:
+     - name: {{ pkg }}
+{% endfor %}
+```
+and this is working. 
+Our theory is: salt minion is searching `./map.jinja` not inside the formula folder, but on the parent folder (`C:\salt\var\cache\salt\minion\files\base`).
+
+BUT, we did another test:
+- I first use the working method (importing using  `winpackages/map.jinja`)
+- so I now have all the formula's files chached on the minion (in `C:\salt\var\cache\salt\minion\files\base\winpackages` we have both `map.jinja` and `init.sls`) 
+-  if then we use the first method (importing using `./map.jinja`) is now working. 
+So our theory is wrong: the salt-minion is not searching in the parent formula (at least when the formula's files are cached). 
+
+**Expected behavior**
+Salt minion should understand the relative path specified in the formula and it should cache those formula's file in the minion.
+
+**Versions Report**
+Salt master:
+```
+Salt Version:
+          Salt: 3003.3
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.6
+     gitpython: 3.0.7
+        Jinja2: 2.10.1
+       libgit2: 0.28.3
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: 1.0.3
+        Python: 3.8.10 (default, Jun  2 2021, 10:49:15)
+  python-gnupg: 0.4.5
+        PyYAML: 5.3.1
+         PyZMQ: 18.1.1
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.2
+ 
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 5.8.0-59-generic
+        system: Linux
+       version: Ubuntu 20.04 focal
+```
+Salt minion:
+```
+Salt Version:
+          Salt: 3003.3
+
+Dependency Versions:
+          cffi: 1.14.5
+      cherrypy: 18.6.0
+      dateutil: 2.8.1
+     docker-py: Not Installed
+         gitdb: 4.0.5
+     gitpython: 3.1.13
+        Jinja2: 2.11.3
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: 1.1.4
+       msgpack: 1.0.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.20
+      pycrypto: Not Installed
+  pycryptodome: 3.9.8
+        pygit2: Not Installed
+        Python: 3.7.4 (tags/v3.7.4:e09359112e, Jul  8 2019, 20:34:20) [MSC v.1916 64 bit (AMD64)]
+  python-gnupg: 0.4.6
+        PyYAML: 5.4.1
+         PyZMQ: 18.0.1
+         smmap: 3.0.4
+       timelib: 0.2.4
+       Tornado: 4.5.3
+           ZMQ: 4.3.1
+
+System Versions:
+          dist:
+        locale: cp1252
+       machine: AMD64
+       release: 10
+        system: Windows
+       version: 10 10.0.19041 SP0
+```
+
+**Additional context**
+We thought it was a bug of the `package` formula, in particular with the `chocolatey` state so we opened an issue with the same details here: https://github.com/saltstack-formulas/packages-formula/issues/79 . 

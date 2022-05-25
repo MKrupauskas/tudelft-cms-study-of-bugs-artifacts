@@ -1,0 +1,90 @@
+**Description**
+when we nested import_yaml for a SLS file, this had a multi-objects such as sequences or maps as a value for a yaml node.
+
+
+**Setup**
+SLS file like this:
+```bash
+{% import_yaml "config/xxx/xxx.yaml" as xxx %}
+```
+for SLS's yaml file like this:
+```yaml
+{% import_json "config/xxx/xxx.json" as aaa with context %}
+conf:
+    nodes: {{ aaa.get('nodes') }}
+```
+for yaml's json file like this:
+```json
+"nodes": {
+                "servers": [
+                    "app1:10790",
+                    "app2:20790",
+                    "app3:30790",
+                    "app4:40790",
+                    "app5:50790"
+                ]
+            }
+```
+**Steps to Reproduce the behavior**
+command line
+```bash
+salt-call state.sls server.test_1 test=true
+```
+
+
+**Expected behavior**
+if this useful, we can get `xxx` info in sls 
+but log error is:
+```conf
+[ERROR   ] Rendering exception occurred
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/utils/templates.py", line 169, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/usr/lib/python2.7/site-packages/salt/utils/templates.py", line 443, in render_jinja_tmpl
+    trace=tracestr)
+SaltRenderError: Jinja error: 'NoneType' object has no attribute 'splitlines'
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/utils/templates.py", line 394, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python2.7/site-packages/jinja2/environment.py", line 969, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python2.7/site-packages/jinja2/environment.py", line 742, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 1, in top-level template code
+  File "/usr/lib/python2.7/site-packages/salt/utils/jinja.py", line 955, in load_yaml
+    marker='    <======================')
+  File "/usr/lib/python2.7/site-packages/salt/utils/stringutils.py", line 527, in get_context
+    template_lines = template.splitlines()
+AttributeError: 'NoneType' object has no attribute 'splitlines'
+
+---
+{% import_yaml "config/xxx/xxx.yaml" as xxx %}
+<======================
+
+; line 1
+
+```
+
+**Versions Report**
+<details><summary>salt --versions-report: 3000.2</summary>
+<details><summary>python --versions-report: 2.7.5</summary>
+
+</details>
+
+**Additional context**
+we change little code for py, we found error ouccered from yaml pakge(version=3.1.1)
+scanner.py from_line: 1304
+```python
+ if (self.flow_level and ch == u':'
+                    and self.peek(length+1) not in u'\0 \t\r\n\x85\u2028\u2029,[]{}'):
+                self.forward(length)
+                raise ScannerError("while scanning a plain scalar", start_mark,
+                    "found unexpected ':'", self.get_mark(),
+                    "Please check http://pyyaml.org/wiki/YAMLColonInFlowContext for details.")
+```
+then we write xxx.yaml to local
+it seems unicode had been rendered to yaml file:
+```yaml
+conf:
+  nodes: {u'servers': [u'app1:10790', u'app2:20790', u'app3:30790', u'app4:40790', u'app5:50790']}
+```

@@ -1,0 +1,128 @@
+### Description of Issue/Question
+There is a regression in 2017.7.3 that breaks `cmd.script` for windows host when running a powershell script that passes in arguments. 
+
+I believe its caused by this commit: https://github.com/saltstack/salt/commit/8dfcf71b08e5fa68079e184740f7d1fcbafb97eb#diff-879e9c967b796ba8a6922815406a96ff
+
+### Setup
+
+example state file:
+```
+{% from "windows/map.jinja" import windows with context %}
+{% set hostname = salt.grains.get('instance_id') %}
+
+{% if hostname %}
+set_hostname:
+ cmd.script:
+   - source: salt://windows/files/change_computername.ps1
+   - args: {{ hostname }}
+   - shell: powershell
+{% endif %}
+
+set_description:
+ system.computer_desc:
+   - name: {{ windows.host_desc }}
+```
+example state.sls run:
+```
+PS C:\Users\Administrator> salt-call state.sls windows.hostname
+[WARNING ] random_master is True but there is only one master specified. Ignoring.
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Running state [set_hostname] at time 17:00:22.026000
+[INFO    ] Executing state cmd.script for [set_hostname]
+[INFO    ] Executing command 'Powershell -NonInteractive -NoProfile -ExecutionPolicy Bypass -File 'c:\users\administrato
+r\appdata\local\temp\2\__salt.tmp.dvnmun.ps1' win2012r2-qmkyi' in directory 'C:\Users\Administrator'
+[ERROR   ] cmd.script: Unable to clean tempfile ''c:\users\administrator\appdata\local\temp\2\__salt.tmp.dvnmun.ps1'': P
+ath not found: 'c:\users\administrator\appdata\local\temp\2\__salt.tmp.dvnmun.ps1'
+[ERROR   ] {'pid': 4944, 'retcode': -196608, 'stderr': "Processing -File ''c:\\users\\administrator\\appdata\\local\\tem
+p\\2\\__salt.tmp.dvnmun.ps1'' failed: The given path's format is not supported. Specify a valid path for the -File param
+eter.", 'stdout': ''}
+[INFO    ] Completed state [set_hostname] at time 17:00:22.682000 duration_in_ms=656.0
+[INFO    ] Running state [Cloud Server] at time 17:00:22.682000
+[INFO    ] Executing state system.computer_desc for [Cloud Server]
+[INFO    ] Computer description already set to 'Cloud Server'
+[INFO    ] Completed state [Cloud Server] at time 17:00:23.839000 duration_in_ms=1157.0
+[INFO    ] Executing command ['attrib', '-R', 'c:\\salt\\var\\cache\\salt\\minion\\sls.p'] in directory 'C:\Users\Admini
+strator'
+local:
+----------
+          ID: set_hostname
+    Function: cmd.script
+      Result: False
+     Comment: Command 'set_hostname' run
+     Started: 17:00:22.026000
+    Duration: 656.0 ms
+     Changes:
+              ----------
+              pid:
+                  4944
+              retcode:
+                  -196608
+              stderr:
+                  Processing -File ''c:\users\administrator\appdata\local\temp\2\__salt.tmp.dvnmun.ps1'' failed: The giv
+en path's format is not supported. Specify a valid path for the -File parameter.
+              stdout:
+----------
+          ID: set_description
+    Function: system.computer_desc
+        Name: Cloud Server
+      Result: True
+     Comment: Computer description already set to 'Cloud Server'
+     Started: 17:00:22.682000
+    Duration: 1157.0 ms
+     Changes:
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    1
+------------
+Total states run:     2
+Total run time:   1.813 s
+```
+
+### Steps to Reproduce Issue
+1. Create a cmd.script within your state file that uses args attribute (tested broken in windows only).
+2. Run using `2017.7.2` minion and state should succeed.
+2. Run using `2017.7.3` minion and state should fail.
+
+### Versions Report
+PS C:\Users\Administrator> salt-call --versions-report
+Salt Version:
+           Salt: 2017.7.3
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: unknown
+       dateutil: 2.6.0
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.3
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: 1.6.1
+       M2Crypto: Not Installed
+           Mako: 1.0.6
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (v2.7.13:a06454b1afa1, Dec 17 2016, 20:53:40) [MSC v.1500 64 bit (AMD64)]
+   python-gnupg: 0.4.0
+         PyYAML: 3.11
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: 0.2.4
+        Tornado: 4.5.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+         locale: cp1252
+        machine: AMD64
+        release: 2012ServerR2
+         system: Windows
+        version: 2012ServerR2 6.3.9600  Multiprocessor Free

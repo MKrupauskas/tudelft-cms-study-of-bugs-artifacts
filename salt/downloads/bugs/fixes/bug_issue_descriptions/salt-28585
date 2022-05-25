@@ -1,0 +1,185 @@
+Master and minions are running RHEL6, using the 2015.8.1-1 packages from the official repositories.
+
+Enabling FIPS in the kernel breaks a few things. I had already set `hash_type` to `sha512` on the master and minions previously. Some things I've seen so far:
+
+1) Setting `master_finger` causes the salt-minion daemon to crash.
+
+```
+$ salt-call --versions-report
+Salt Version:
+           Salt: 2015.8.1
+
+Dependency Versions:
+         Jinja2: unknown
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+         Python: 2.6.6 (r266:84292, May 22 2015, 08:34:51)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.4.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: redhat 6.7 Santiago
+        machine: x86_64
+        release: 2.6.32-573.7.1.el6.x86_64
+         system: Red Hat Enterprise Linux Server 6.7 Santiago
+
+$ 
+```
+
+```
+/var/log/salt/minion:
+
+2015-11-03 00:04:24,744 [salt.scripts                             ][ERROR   ][2411] Minion failed to start: 
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/scripts.py", line 81, in minion_process
+    minion.start()
+  File "/usr/lib/python2.6/site-packages/salt/cli/daemons.py", line 275, in start
+    self.minion.tune_in()
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1628, in tune_in
+    io_loop=self.io_loop,
+  File "/usr/lib/python2.6/site-packages/salt/utils/event.py", line 731, in __init__
+    id_hash = hash_type(salt.utils.to_bytes(self.opts.get('id', ''))).hexdigest()[:10]
+ValueError: error:060800A3:digital envelope routines:EVP_DigestInit_ex:disabled for fips
+```
+
+2) The master can accept keys and states seem to run fine after removing `master_finger` from the minions, but I noticed `salt-key -F master` fails:
+
+```
+$ salt --versions-report
+Salt Version:
+           Salt: 2015.8.1
+
+Dependency Versions:
+         Jinja2: unknown
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+         Python: 2.6.6 (r266:84292, May 22 2015, 08:34:51)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.4.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: redhat 6.7 Santiago
+        machine: x86_64
+        release: 2.6.32-573.7.1.el6.x86_64
+         system: Red Hat Enterprise Linux Server 6.7 Santiago
+
+$ salt-key -F master
+Traceback (most recent call last):
+  File "/usr/bin/salt-key", line 10, in <module>
+    salt_key()
+  File "/usr/lib/python2.6/site-packages/salt/scripts.py", line 285, in salt_key
+    client.run()
+  File "/usr/lib/python2.6/site-packages/salt/cli/key.py", line 32, in run
+    key.run()
+  File "/usr/lib/python2.6/site-packages/salt/key.py", line 431, in run
+    self.finger_all()
+  File "/usr/lib/python2.6/site-packages/salt/key.py", line 317, in finger_all
+    matches = self.key.finger('*')
+  File "/usr/lib/python2.6/site-packages/salt/key.py", line 936, in finger
+    ret[status][key] = salt.utils.pem_finger(path)
+  File "/usr/lib/python2.6/site-packages/salt/utils/__init__.py", line 880, in pem_finger
+    pre = getattr(hashlib, sum_type)(key).hexdigest()
+ValueError: error:060800A3:digital envelope routines:EVP_DigestInit_ex:disabled for fips
+$ 
+```
+
+3) Similarly, from my non-FIPS Debian laptop, using salt-ssh against a FIPS system, the test.ping and cmd.run functions work, but I run into problems enforcing states:
+
+```
+$ salt-ssh --versions-report
+Salt Version:
+           Salt: 2015.8.1
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: Not Installed
+           Mako: 1.0.2
+         PyYAML: 3.11
+          PyZMQ: Not Installed
+         Python: 2.7.10+ (default, Oct 10 2015, 09:11:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: Not Installed
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.3.4
+      pycparser: Not Installed
+       pycrypto: Not Installed
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 7.9 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 7.9 
+
+$ salt-ssh fips-test state.sls core
+[ERROR   ] JSON Render failed for: 
+Traceback (most recent call last):
+  File "/tmp/.salt_c87ee6_salt/salt-call", line 4, in <module>
+    salt_call()
+  File "/tmp/.salt_c87ee6_salt/salt/scripts.py", line 331, in salt_call
+    client.run()
+  File "/tmp/.salt_c87ee6_salt/salt/cli/call.py", line 53, in run
+    caller.run()
+  File "/tmp/.salt_c87ee6_salt/salt/cli/caller.py", line 133, in run
+    ret = self.call()
+  File "/tmp/.salt_c87ee6_salt/salt/cli/caller.py", line 196, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/tmp/.salt_c87ee6_salt/salt/modules/state.py", line 1163, in pkg
+    if not salt.utils.get_hash(pkg_path, hash_type) == pkg_sum:
+  File "/tmp/.salt_c87ee6_salt/salt/utils/__init__.py", line 1995, in get_hash
+    hash_obj = hash_type()
+ValueError: error:060800A3:digital envelope routines:EVP_DigestInit_ex:disabled for fips
+[ERROR   ] No JSON object could be decoded
+fips-test:
+$ 
+```

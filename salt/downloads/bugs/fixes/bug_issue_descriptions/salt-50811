@@ -1,0 +1,141 @@
+### Description of Issue/Question
+
+When applying a state containing a `watch_any` that depend on files changes, a RecursionError is triggered:
+
+```
+salt bcn-windev-1 state.apply windows.common.telegraf
+bcn-windev-1:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "c:\salt\bin\lib\site-packages\salt\minion.py", line 1607, in _thread_return
+        return_data = minion_instance.executors[fname](opts, data, func, args, kwargs)
+      File "c:\salt\bin\lib\site-packages\salt\executors\direct_call.py", line 12, in execute
+        return func(*args, **kwargs)
+      File "c:\salt\bin\lib\site-packages\salt\modules\state.py", line 763, in apply_
+        return sls(mods, **kwargs)
+      File "c:\salt\bin\lib\site-packages\salt\modules\state.py", line 1327, in sls
+        ret = st_.state.call_high(high_, orchestration_jid)
+      File "c:\salt\bin\lib\site-packages\salt\state.py", line 2764, in call_high
+        ret = self.call_chunks(chunks)
+      File "c:\salt\bin\lib\site-packages\salt\state.py", line 2129, in call_chunks
+        running = self.call_chunk(low, running, chunks)
+      File "c:\salt\bin\lib\site-packages\salt\state.py", line 2563, in call_chunk
+        running = self.call_chunk(low, running, chunks)
+      File "c:\salt\bin\lib\site-packages\salt\state.py", line 2563, in call_chunk
+        running = self.call_chunk(low, running, chunks)
+      File "c:\salt\bin\lib\site-packages\salt\state.py", line 2563, in call_chunk
+        running = self.call_chunk(low, running, chunks)
+      File "c:\salt\bin\lib\site-packages\salt\state.py", line 2563, in call_chunk
+        running = self.call_chunk(low, running, chunks)
+..... <Long list> .....
+      File "c:\salt\bin\lib\site-packages\salt\state.py", line 2563, in call_chunk
+        running = self.call_chunk(low, running, chunks)
+      File "c:\salt\bin\lib\site-packages\salt\state.py", line 2563, in call_chunk
+        running = self.call_chunk(low, running, chunks)
+      File "c:\salt\bin\lib\site-packages\salt\state.py", line 2459, in call_chunk
+        status, reqs = self.check_requisite(low, running, chunks, pre=True)
+      File "c:\salt\bin\lib\site-packages\salt\state.py", line 2243, in check_requisite
+        if '{0}.mod_watch'.format(low['state']) not in self.states:
+      File "c:\salt\bin\lib\_collections_abc.py", line 603, in __contains__
+        self[key]
+      File "c:\salt\bin\lib\site-packages\salt\loader.py", line 1155, in __getitem__
+        func = super(LazyLoader, self).__getitem__(item)
+      File "c:\salt\bin\lib\site-packages\salt\utils\lazy.py", line 94, in __getitem__
+        if self._missing(key):
+    RecursionError: maximum recursion depth exceeded
+```
+
+### Setup
+Applied state: 
+```
+Install Telegraf:
+  chocolatey.installed:
+    - name: telegraf
+
+Setup Telegraf Global Configuration:
+  file.managed:
+    - name: C:\Program Files\telegraf\telegraf.conf
+    - source: salt://windows/telegraf/telegraf.conf
+    - template: jinja2
+
+Setup Telegraf Prometheus Output:
+  file.managed:
+    - name: C:\Program Files\telegraf\telegraf.d\output-prometheus.conf
+    - source: salt://windows/telegraf/output-prometheus.conf
+
+Setup Telegraf Perf Input:
+  file.managed:
+    - name: C:\Program files\telegraf\telegraf.d\input-win-perf-counters.conf
+    - source: salt://windows/telegraf/input-win-perf-counters.conf
+
+{% if "roles" in grains and "sqlserver" in grains["roles"] %}
+Setup Telegraf SQL Server Input:
+  file.managed:
+    - name: C:\Program files\telegraf\telegraf.d\input-sqlserver.conf
+    - source: salt://windows/telegraf/input-sqlserver.conf
+    - template: jinja2
+{% endif %}
+
+Start Telegraf:
+  service.running:
+    - name: telegraf
+    - enable: true
+    - watch_any:
+      - file: C:\Program Files\telegraf\telegraf.conf
+      - file: C:\Program Files\telegraf\telegraf.d\output-prometheus.conf
+      - file: C:\Program files\telegraf\telegraf.d\input-win-perf-counters.conf
+      - file: C:\Program files\telegraf\telegraf.d\input-sqlserver.conf
+
+```
+
+### Steps to Reproduce Issue
+Apply the state on a Windows host
+
+### Versions Report
+```
+Master:
+salt --versions-report                                                                [10/4838]
+Salt Version:
+           Salt: 2018.3.3
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.26.3
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: 3.6.6
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, Jul 13 2018, 13:06:57)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.3.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+
+Minion:
+PS C:\salt> .\salt-minion.bat --version
+salt-minion 2018.3.3 (Oxygen)
+```

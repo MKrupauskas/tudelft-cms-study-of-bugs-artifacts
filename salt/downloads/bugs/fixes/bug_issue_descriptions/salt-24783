@@ -1,0 +1,26 @@
+Ok, I get the intent of this but it's horribly flawed and I can't think how to fix it.  The problem stems from these lines in states/service.py:dead()
+
+``` python
+    before_toggle_status = __salt__['service.status'](name, sig)
+    before_toggle_enable_status = __salt__['service.enabled'](name)
+    if not before_toggle_status:
+        ret['comment'] = 'The service {0} is already dead'.format(name)
+
+    # snip
+
+    # only force a change state if we have explicitly detected them
+    after_toggle_status = __salt__['service.status'](name)
+    after_toggle_enable_status = __salt__['service.enabled'](name)
+    if (
+        (before_toggle_enable_status != after_toggle_enable_status) or
+        (before_toggle_status != after_toggle_status)
+    ) and not ret.get('changes', {}):
+        ret['changes'][name] = func_ret
+    return ret
+```
+
+This seems logical enough, get the status before, check if it's actually running, then afterwards get the status again and compare to try and determine if we made a change.
+
+Only that doesn't work for an obvious reason... service.status is returning the pids of the processes it thinks belongs to that service.  That might result in sane behaviour for something that has a single process model, but if you bring something like apache prefork in to the picture you have a reasonably constant failure scenario.  Any service that forks worker processes off on a regular basis is going to trigger false alarms to greater or lesser extents.
+
+Any ideas how the logic can be adjusted to be more reliable?  Parent process detection might be a workable approach?

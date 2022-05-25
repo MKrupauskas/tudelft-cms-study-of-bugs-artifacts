@@ -1,0 +1,239 @@
+### Description of Issue/Question
+
+At least `salt-ssh` automatically “unmasks” systemd services when `service.running` is used. In my opinion this is a bug since masking is meant as a [stronger version of disable](https://www.freedesktop.org/software/systemd/man/systemctl.html#mask%20NAME%E2%80%A6).
+
+This was explicitly introduced by @evverx in #26413 and he actually quoted the documentation. 
+
+Why I think that services should not automatically be unmasked: If an administrator wants to disable a service on a machine without modifying the high state, i.e. for some maintenance, and still be able to run the high state this would silently revert the fact that the service has been masked.
+
+In my opinion the state should rather fail with an explicit error message than silently unmask the service. Maybe an option for `service.running` could be used to control unmasking behaviour instead?
+
+Since an MR for Nitrogen (#37698) makes masking available as a normal state it’s even more important.
+### Setup
+
+I used Vagrant with the libvirt provider to set up a test environment for anyone to reproduce.
+
+Create `Vagrantfile`
+```sh
+cd $(mktemp -d) && cat >Vagrantfile <<EOF
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "debian/jessie64"
+  config.vm.provision :salt do |salt|
+    # This sets the official Salt repositories up for us
+    salt.install_master = true
+    salt.no_minion = true
+  end
+end
+EOF
+```
+
+Commands
+```sh
+vagrant up
+vagrant ssh
+# Now continue in the vagrant box
+ssh-add -L >>.ssh/authorized_keys
+sudo -i
+apt update && apt install salt-ssh vim
+```
+
+Files to be created inside the Vagrant box:
+```sh
+mkdir -p /srv/salt
+cat >/etc/salt/roster <<EOF
+well-of-souls:
+  host: localhost
+  user: vagrant
+  sudo: True
+EOF
+cat >/etc/salt/master.d/vagrant.conf <<EOF
+ssh_use_home_key: True
+EOF
+cat >/etc/sudoers.d/vagrant-ssh <<EOF
+Defaults    env_keep+=SSH_AUTH_SOCK
+EOF
+cat >/srv/salt/Colonel_Dietrich.sls <<EOF
+snakepit:
+  service.dead:
+    - name: salt-master
+  module.run:
+    - name: service.mask
+    - m_name: salt-master.service
+    - require:
+      - service: snakepit
+EOF
+cat >/srv/salt/Indiana_Jones.sls <<EOF
+escape:
+   service.running:
+     - name: salt-master
+EOF
+```
+
+
+### Steps to Reproduce Issue
+
+Fire up the above Vagrant environment and play around with the option.
+
+```sh
+# If you just added the files above, make sure to exit sudo and re-enter it
+# to get the ssh-agent passed through
+root@jessie:~% logout
+vagrant@jessie:~$ sudo -i
+root@jessie:~% systemctl status salt-master.service
+ salt-master.service - The Salt Master Server
+   Loaded: loaded (/lib/systemd/system/salt-master.service; enabled)
+   Active: active (running) since Fri 2017-04-28 07:43:12 UTC; 6s ago
+ Main PID: 7921 (salt-master)
+   CGroup: /system.slice/salt-master.service
+           7921 /usr/bin/python /usr/bin/salt-master
+           7935 /usr/bin/python /usr/bin/salt-master
+           7938 /usr/bin/python /usr/bin/salt-master
+           7939 /usr/bin/python /usr/bin/salt-master
+           7943 /usr/bin/python /usr/bin/salt-master
+           7944 /usr/bin/python /usr/bin/salt-master
+           7945 /usr/bin/python /usr/bin/salt-master
+           7946 /usr/bin/python /usr/bin/salt-master
+           7947 /usr/bin/python /usr/bin/salt-master
+           7954 /usr/bin/python /usr/bin/salt-master
+           7955 /usr/bin/python /usr/bin/salt-master
+           7956 /usr/bin/python /usr/bin/salt-master
+
+Apr 28 07:43:12 jessie systemd[1]: Started The Salt Master Server.
+root@jessie:~% salt-ssh -i 'well-of-souls' state.apply Colonel_Dietrich
+well-of-souls:
+----------
+          ID: snakepit
+    Function: service.dead
+        Name: salt-master
+      Result: True
+     Comment: Service salt-master was killed
+     Started: 07:44:47.776194
+    Duration: 106.246 ms
+     Changes:
+              ----------
+              salt-master:
+                  False
+----------
+          ID: snakepit
+    Function: module.run
+        Name: service.mask
+      Result: True
+     Comment: Module function service.mask executed
+     Started: 07:44:47.883089
+    Duration: 36.305 ms
+     Changes:
+              ----------
+              ret:
+                  True
+
+Summary for well-of-souls
+------------
+Succeeded: 2 (changed=2)
+Failed:    0
+------------
+Total states run:     2
+Total run time: 142.551 ms
+root@jessie:~% systemctl status salt-master.service
+ salt-master.service
+   Loaded: masked (/dev/null)
+   Active: inactive (dead) since Fri 2017-04-28 07:44:47 UTC; 21s ago
+ Main PID: 8993 (code=exited, status=0/SUCCESS)
+
+Apr 28 07:44:41 jessie systemd[1]: Started The Salt Master Server.
+Apr 28 07:44:47 jessie systemd[1]: Stopping The Salt Master Server...
+Apr 28 07:44:47 jessie salt-master[8993]: [WARNING ] Master received a SIGTERM. Exiting.
+Apr 28 07:44:47 jessie salt-master[8993]: The salt master is shutdown. Master received a SIGTERM. Exited.
+Apr 28 07:44:47 jessie systemd[1]: Stopped The Salt Master Server.
+root@jessie:~% /etc/init.d/salt-master status
+root@jessie:~% salt-ssh 'well-of-souls' state.apply Indiana_Jones
+well-of-souls:
+----------
+          ID: escape
+    Function: service.running
+        Name: salt-master
+      Result: True
+     Comment: Started Service salt-master
+     Started: 07:45:50.659999
+    Duration: 597.018 ms
+     Changes:
+              ----------
+              salt-master:
+                  True
+
+Summary for well-of-souls
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time: 597.018 ms
+root@jessie:~% systemctl status salt-master.service
+ salt-master.service - The Salt Master Server
+   Loaded: loaded (/lib/systemd/system/salt-master.service; enabled)
+   Active: active (running) since Fri 2017-04-28 07:45:51 UTC; 26s ago
+ Main PID: 9961 (salt-master)
+   CGroup: /system.slice/salt-master.service
+           9961 /usr/bin/python /usr/bin/salt-master
+           9974 /usr/bin/python /usr/bin/salt-master
+           9977 /usr/bin/python /usr/bin/salt-master
+           9981 /usr/bin/python /usr/bin/salt-master
+           9982 /usr/bin/python /usr/bin/salt-master
+           9983 /usr/bin/python /usr/bin/salt-master
+           9984 /usr/bin/python /usr/bin/salt-master
+           9985 /usr/bin/python /usr/bin/salt-master
+           9986 /usr/bin/python /usr/bin/salt-master
+           9987 /usr/bin/python /usr/bin/salt-master
+           9994 /usr/bin/python /usr/bin/salt-master
+           9995 /usr/bin/python /usr/bin/salt-master
+
+Apr 28 07:45:51 jessie systemd[1]: Started The Salt Master Server.
+```
+
+
+### Versions Report
+
+```
+root@jessie:~% salt --versions-report
+Salt Version:
+           Salt: 2016.11.4
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+      docker-py: Not Installed
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.7
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.7
+```

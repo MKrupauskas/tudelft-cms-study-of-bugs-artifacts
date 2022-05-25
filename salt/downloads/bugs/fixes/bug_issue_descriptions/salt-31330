@@ -1,0 +1,87 @@
+I have a simple orchestrator set up with the following files:
+
+```
+# /srv/salt/orch/sleep-1.sls
+call_sleep_state:
+  salt.state:
+    - tgt: rallytime
+    - sls: simple_sleep
+
+#/srv/salt/simple_sleep.sls
+sleep_3:
+  module.run:
+    - name: test.sleep
+    - length: '3'
+```
+
+When I run the orchestrator in 2015.8, the state information is output correctly like so:
+
+```
+root@rallytime:~# salt-run state.orchestrate orch.sleep-1
+[INFO    ] Determining pillar cache
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://orch/sleep-1.sls'
+[INFO    ] Running state [call_sleep_state] at time 21:31:07.178180
+[INFO    ] Executing state salt.state for call_sleep_state
+[INFO    ] {'ret': {'rallytime': {'module_|-sleep_3_|-test.sleep_|-run': {'comment': 'Module function test.sleep executed', 'name': 'test.sleep', 'start_time': '21:31:07.404029', 'result': True, 'duration': 3055.65, '__run_num__': 0, 'changes': {'ret': True}, '__id__': 'sleep_3'}}}, 'out': 'highstate'}
+[INFO    ] Completed state [call_sleep_state] at time 21:31:10.671625 duration_in_ms=3493.445
+outputter:
+    highstate
+[INFO    ] Runner completed: 20160218213106592151
+root@rallytime:~# sh ~/restart.sh
+root@rallytime:~# salt-run state.orchestrate orch.sleep-1
+rallytime_master:
+----------
+          ID: call_sleep_state
+    Function: salt.state
+      Result: True
+     Comment: States ran successfully. Updating rallytime.
+     Started: 21:37:14.511952
+    Duration: 3360.602 ms
+     Changes:
+              rallytime:
+              ----------
+                        ID: sleep_3
+                  Function: module.run
+                      Name: test.sleep
+                    Result: True
+                   Comment: Module function test.sleep executed
+                   Started: 21:37:14.676570
+                  Duration: 3058.296 ms
+                   Changes:
+                            ----------
+                            ret:
+                                True
+
+              Summary for rallytime
+              ------------
+              Succeeded: 1 (changed=1)
+              Failed:    0
+              ------------
+              Total states run:     1
+
+Summary for rallytime_master
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+```
+
+But when I upgrade to 2016.3 without changing anything else, there is not stateful output:
+
+```
+root@rallytime:~# salt-run state.orchestrate orch.sleep-1
+[INFO    ] Determining pillar cache
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://orch/sleep-1.sls'
+[INFO    ] Running state [call_sleep_state] at time 21:31:07.178180
+[INFO    ] Executing state salt.state for call_sleep_state
+[INFO    ] {'ret': {'rallytime': {'module_|-sleep_3_|-test.sleep_|-run': {'comment': 'Module function test.sleep executed', 'name': 'test.sleep', 'start_time': '21:31:07.404029', 'result': True, 'duration': 3055.65, '__run_num__': 0, 'changes': {'ret': True}, '__id__': 'sleep_3'}}}, 'out': 'highstate'}
+[INFO    ] Completed state [call_sleep_state] at time 21:31:10.671625 duration_in_ms=3493.445
+outputter:
+    highstate
+[INFO    ] Runner completed: 20160218213106592151
+```
+
+Git bisect points to the regression happing in this merge-forward somewhere: https://github.com/saltstack/salt/pull/27887

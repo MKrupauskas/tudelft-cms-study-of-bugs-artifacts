@@ -1,0 +1,44 @@
+Currently specifying `multiple_env: True` on an ext_pillar using S3 will cause salt to download the pillars by environment but it will not cause it to fully create each of those environments. For example, let's say I specify the following in my master config:
+
+```
+ext_pillar:
+  - s3:
+    bucket: salt-pillars
+    keyid: *redacted*
+    key: *redacted*
+    multple_env: True
+    verify_ssl: True
+```
+
+And I have no pillar_roots in my config file. Salt will download the following files from my bucket
+
+```
+s3://salt-pillars/base/top.sls
+s3://salt-pillars/prod/top.sls
+```
+
+However, `pillar/s3.py:ext_pillar` will return a compiled pillar where the environment is set to the default (`base`) that will not have merged in anything from `top.sls`. This means that for all intents and purposes `prod/top.sls` doesn't exist.
+
+The correct behavior would be to return a compiled pillar per environment that is found but I have no idea how to do that since `ext_pillar` is supposed to return a single pillar rather than many.
+
+One workaround that I have used is to specify my configuration as follows:
+
+```
+ext_pillar:
+  - s3:
+    bucket: salt-pillars
+    keyid: *redacted*
+    key: *redacted*
+    multple_env: True
+    verify_ssl: True
+    environment: base
+  - s3:
+    bucket: salt-pillars
+    keyid: *redacted*
+    key: *redacted*
+    multple_env: True
+    verify_ssl: True
+    environment: prod
+```
+
+In other words, you duplicate the configuration for each environment in your bucket. This means that salt will pull in your configurations N**2 times where N is the number of environments you've defined. This isn't so bad because of the caching that ext_pillar s3 uses.

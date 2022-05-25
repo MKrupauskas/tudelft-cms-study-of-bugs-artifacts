@@ -1,0 +1,156 @@
+### Description of Issue/Question
+Salt doesn't seem to correctly configure a network interface alias on Debian hosts. This was previously working in Salt v2018.3.3 but currently seems broken on develop.
+
+### Setup
+```
+# State File (hosts/debian9.sls)
+alias-interface:
+  network.managed:
+    - name: lo:0
+    - type: eth
+    - onboot: True
+    - ipaddr: 10.22.66.8
+    - netmask: 255.255.255.255
+```
+Initial `/etc/network/interfaces/` file:
+```
+# /etc/network/interfaces
+auto lo
+iface lo inet loopback
+allow-hotplug enp0s3
+iface enp0s3 inet dhcp
+auto enp0s8
+iface enp0s8 inet static
+    address 192.168.50.12
+    netmask 255.255.255.0
+```
+
+### Steps to Reproduce Issue
+Run using salt **v2018.3.3** (ad0d83c6a8)
+```
+# salt-call state.apply --output-diff hosts.debian9
+local:
+----------
+          ID: apache-load-balanced-interface
+    Function: network.managed
+        Name: lo:0
+      Result: True
+     Comment: Interface lo:0 added.
+     Started: 13:23:43.970444
+    Duration: 1216.52 ms
+     Changes:   
+              ----------
+              interface:
+                  Added network interface.
+              status:
+                  Interface lo:0 is up
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   1.217 s
+```
+```
+# /etc/network/interfaces
+auto lo
+iface lo inet loopback
+allow-hotplug enp0s3
+iface enp0s3 inet dhcp
+auto enp0s8
+iface enp0s8 inet static
+    address 192.168.50.12
+    netmask 255.255.255.0
+auto lo:0
+iface lo:0 inet static
+    address 10.22.66.8
+    netmask 255.255.255.255
+```
+
+Run using salt **develop** (ad0d83c6a8)
+```
+# salt-call state.apply --output-diff hosts.debian9
+[ERROR   ] Command '[u'ifup', u'lo:0']' failed with return code: 1
+[ERROR   ] stdout: ifup: unknown interface lo:0
+[ERROR   ] retcode: 1
+[ERROR   ] Command '[u'ifup', u'lo:0']' failed with return code: 1
+[ERROR   ] output: ifup: unknown interface lo:0
+local:
+----------
+          ID: apache-load-balanced-interface
+    Function: network.managed
+        Name: lo:0
+      Result: True
+     Comment: Interface lo:0 added.
+     Started: 13:25:28.512756
+    Duration: 1170.0 ms
+     Changes:   
+              ----------
+              interface:
+                  Added network interface.
+              status:
+                  Interface lo:0 is up
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   1.170 s
+```
+```
+# /etc/network/interfaces
+auto lo
+iface lo inet loopback
+allow-hotplug enp0s3
+iface enp0s3 inet dhcp
+auto enp0s8
+iface enp0s8 inet static
+    address 192.168.50.12
+    netmask 255.255.255.0
+auto lo:0
+```
+
+### Versions Report
+```
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.0
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Sep 26 2018, 18:42:22)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.2 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-4-amd64
+         system: Linux
+        version: debian 9.2 
+ ```

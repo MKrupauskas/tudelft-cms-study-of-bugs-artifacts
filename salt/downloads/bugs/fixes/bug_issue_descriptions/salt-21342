@@ -1,0 +1,45 @@
+This is a refactor wish / bunch of questions.
+
+While working on #21268 with @ptonelli, we noticed that external pillars that work by bringing files to compile as if they were on the file system in the regular hierarchy (such as git_pillar and, precisely hg_pillar) were implemented by re-instantiation of the `Pillar` class with a changed `pillar_root`, and calling its `compile_pillar()`. 
+
+The issue I have with this is that this apparently calls back all external pillars. 
+
+Example for git_pillar:
+
+```
+    # Don't recurse forever-- the Pillar object will re-call the ext_pillar
+    # function
+    if __opts__['pillar_roots'].get(branch, []) == [pillar_dir]:
+        return {}
+
+    gitpil.update()  # this here is just the git fetch/pull (comment added to extract)
+
+    opts = deepcopy(__opts__)
+
+    opts['pillar_roots'][environment] = [pillar_dir]
+
+    pil = Pillar(opts, __grains__, minion_id, branch)
+
+    return pil.compile_pillar()
+```
+
+This isn't a clean execution flow. 
+
+External pillar implementations such as git_pillar and friends should not need to call back the whole stack (it's possible that it was needed in the past and not nowadays, I don't have a full picture yet in my mind).
+
+I wondering what happens if several such external pillars are present at the same time. Is there a possibility of git_pillar and svn_pillar triggering together an infinite loop ?
+
+Besides, I noticed that the `Pillar` class has a special hardcoded case for git (hence reversing the logical dependencies of components):
+
+```
+        else:
+            if key == 'git':
+                ext = self.ext_pillars[key](self.opts['id'],
+                                            val,
+                                            pillar_dirs)
+            else:
+                ext = self.ext_pillars[key](self.opts['id'],
+                                            pillar,
+                                            val)
+        return ext
+```

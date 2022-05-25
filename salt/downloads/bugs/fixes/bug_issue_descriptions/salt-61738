@@ -1,0 +1,114 @@
+**Description**
+Performing `cp.list_states`, `cp.list_master`, or similar function calls between multiple dynamic environments often results in incorrect file listings depending on cache settings. The [code responsible for returning file lists](https://github.com/saltstack/salt/blob/master/salt/fileserver/roots.py#L327-L332) caches the listing by environment. In a dynamic configuration, the environment used for the cache file is the literal `__env__` string. This results in the cache for a previously run environment being returned for other envs within the cache retention period.
+
+**Setup**
+Master configuration:
+
+```yaml
+file_roots:
+  __env__:
+    - /srv/salt/__env__
+```
+
+Create filesystem contents on master:
+
+```bash
+for env in base foo bar
+do
+    mkdir -p /srv/salt/$env
+    touch /srv/salt/$env/${env}.sls
+done
+```
+
+**Steps to Reproduce the behavior**
+
+Running `cp.list_master` for each env:
+
+```bash
+for env in base foo bar
+do
+    salt-call cp.list_master saltenv=$env
+done
+```
+
+Results in just the contents of the first env being shown:
+
+```
+# base
+local:
+    - base.sls
+
+# foo
+local:
+    - base.sls
+
+# bar
+local:
+    - base.sls
+```
+
+**Expected behavior**
+
+The `cp.list_master` loop above should result in the contents of each filesystem being shown for each call:
+
+```
+# base
+local:
+    - base.sls
+
+# foo
+local:
+    - foo.sls
+
+# bar
+local:
+    - bar.sls
+```
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```yaml
+Salt Version:
+          Salt: 3005+0na.a22cd1d
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 3.0.3
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 1.0.3
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: 2.6.1
+  pycryptodome: 3.14.1
+        pygit2: Not Installed
+        Python: 3.7.3 (default, Jan 22 2021, 20:04:44)
+  python-gnupg: Not Installed
+        PyYAML: 6.0
+         PyZMQ: 22.3.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+ 
+System Versions:
+          dist: debian 10 buster
+        locale: UTF-8
+       machine: x86_64
+       release: 4.19.0-18-amd64
+        system: Linux
+       version: Debian GNU/Linux 10 buster
+```
+</details>
+
+**Additional context**
+This behavior is only reproducible with the new dynamic path support introduced in #61531 

@@ -1,0 +1,89 @@
+In versions 2014.7.0 and 2014.7.1 on Windows 7, I see the following error:
+
+```
+C:\Users\blaffoy>salt-call pkg.list_pkgs
+[INFO    ] Executing command 'Powershell " $msi = New-Object -ComObject WindowsInstaller.Installer; $msi.GetType().InvokeMember(\'ProductsEx\', \'GetProperty\', $null, $msi, (\'\', \'s-1-1-0\', 7)) | select @{       name=\'name\';       expression={$_.GetType().InvokeMember(\'InstallProperty\', \'GetProperty\', $null, $_, (\'ProductName\'))}     },     @{       name=\'version\';       expression={$_.GetType().InvokeMember(\'InstallProperty\', \'GetProperty\', $null, $_, (\'VersionString\'))}     } | Write-host "' in directory 'C:\\Users\\blaffoy-admin'
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+UnicodeDecodeError: 'ascii' codec can't decode byte 0x82 in position 12: ordinal not in range(128)
+Traceback (most recent call last):
+  File "<string>", line 6, in <module>
+  File "__main__.py", line 726, in <module>
+  File "__main__.py", line 332, in bootstrap
+  File "__main__.py", line 359, in chainload
+  File "__main__.py", line 715, in _chainload
+  File "__main__.py", line 128, in <module>
+  File "__main__salt-call__.py", line 14, in <module>
+  File "salt/scripts.py", line 123, in salt_call
+  File "salt/cli/__init__.py", line 420, in run
+  File "salt/cli/caller.py", line 235, in run
+  File "salt/output/__init__.py", line 44, in display_output
+  File "salt/output/nested.py", line 122, in output
+  File "salt/output/nested.py", line 113, in display
+  File "salt/output/nested.py", line 105, in display
+UnicodeDecodeError: 'ascii' codec can't decode byte 0x82 in position 12: ordinal not in range(128)
+Traceback (most recent call last):
+  File "<string>", line 6, in <module>
+  File "__main__.py", line 726, in <module>
+  File "__main__.py", line 332, in bootstrap
+  File "__main__.py", line 359, in chainload
+  File "__main__.py", line 715, in _chainload
+  File "__main__.py", line 128, in <module>
+  File "__main__salt-call__.py", line 14, in <module>
+  File "salt/scripts.py", line 123, in salt_call
+  File "salt/cli/__init__.py", line 420, in run
+  File "salt/cli/caller.py", line 235, in run
+  File "salt/output/__init__.py", line 44, in display_output
+  File "salt/output/nested.py", line 122, in output
+  File "salt/output/nested.py", line 113, in display
+  File "salt/output/nested.py", line 105, in display
+UnicodeDecodeError: 'ascii' codec can't decode byte 0x82 in position 12: ordinal not in range(128)
+
+C:\Users\blaffoy>
+```
+
+If I reconstruct the Powershell call shown in the output, the result looks correct:
+
+```
+PS C:\> $msi.GetType().InvokeMember('ProductsEx', 'GetProperty', $null, $msi, ('', 's-1-1-0', 7)) | select @{       name='name';       expression={$_.GetType().InvokeMember('InstallProperty', 'GetProperty', $null, $_, ('ProductName'))}
+},     @{       name='version';       expression={$_.GetType().InvokeMember('InstallProperty', 'GetProperty', $null, $_, ('VersionString'))}     } | Write-host
+@{name=Microsoft Office OneNote MUI (English) 2010; version=14.0.7015.1000}
+@{name=Microsoft Office Standard 2010; version=14.0.7015.1000}
+@{name=Microsoft Office Shared Setup Metadata MUI (English) 2010; version=14.0.7015.1000}
+@{name=Microsoft Office Excel MUI (English) 2010; version=14.0.7015.1000}
+@{name=Microsoft Office Shared 64-bit Setup Metadata MUI (English) 2010; version=14.0.7015.1000}
+@{name=Microsoft Office 2010 Primary Interop Assemblies; version=14.0.4763.1150}
+@{name=Microsoft Office PowerPoint MUI (English) 2010; version=14.0.7015.1000}
+@{name=Microsoft Office Publisher MUI (English) 2010; version=14.0.7015.1000}
+@{name=Microsoft Office Outlook MUI (English) 2010; version=14.0.7015.1000}
+...
+```
+
+Also, if I run this command from the master (running on Ubuntu, v2014.7.1), it looks okay:
+
+```
+blaffoy@salt:~/repos/pillar$ sudo salt my-minion pkg.list_pkgs
+salt.myorg.local:
+    ----------
+     Tools for .Net 3.5:
+        3.11.50727
+    7-Zip 9.22 (x64 edition):
+        9.22.00.0
+    ????? Visual Studio 2012 Verification SDK - rus:
+        12.0.30501
+    AWS Tools for Windows:
+        3.7.413.0
+    Adobe Flash Player 15 ActiveX:
+        15.0.0.167
+    Adobe Flash Player 15 Plugin:
+        15.0.0.239
+    Adobe Reader XI (11.0.10):
+        11.0.10
+    Adobe Refresh Manager:
+        1.8.0
+    Application Insights Tools for Visual Studio 2013:
+        2.4
+    AzureTools.Notifications:
+...
+```
+
+I thought that I previously observed this error leading to all calls to pkg.install(ed) and pkg.remove(d) returning an error even if the package installed/uninstalled correctly as they would call pkg.list_pkgs on completion. I can't reproduce that behaviour now, so I may have been mistaken.

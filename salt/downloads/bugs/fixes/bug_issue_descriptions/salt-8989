@@ -1,0 +1,68 @@
+This function in cloud/**init**.py hangs if provider credentials are invalid
+Had two provider files in /etc/salt/cloud.providers.d
+One of them was an ec2 example file that is invalid
+The other was a racksapce file that was valid.
+
+``` python
+    def map_providers_parallel(self, query='list_nodes', cached=False):
+        '''
+        Return a mapping of what named VMs are running on what VM providers
+        based on what providers are defined in the configuration and VMs
+
+        Same as map_providers but query in parallel.
+        '''
+        if cached is True and query in self.__cached_provider_queries:
+            return self.__cached_provider_queries[query]
+
+        opts = self.opts.copy()
+        multiprocessing_data = []
+        for alias, drivers in self.opts['providers'].iteritems():
+            for driver, details in drivers.iteritems():
+                fun = '{0}.{1}'.format(driver, query)
+                if fun not in self.clouds:
+                    log.error(
+                        'Public cloud provider {0} is not available'.format(
+                            driver
+                        )
+                    )
+                    continue
+
+                multiprocessing_data.append({
+                    'fun': fun,
+                    'opts': opts,
+                    'query': query,
+                    'alias': alias,
+                    'driver': driver
+                })
+
+        output = {}
+        data_count = len(multiprocessing_data)
+        pool = multiprocessing.Pool(
+            data_count < 10 and data_count or 10,
+            init_pool_worker
+        )
+        try:
+            parallel_pmap = pool.map(
+                func=run_parallel_map_providers_query,
+                iterable=multiprocessing_data
+            )
+        except KeyboardInterrupt:
+            print 'Caught KeyboardInterrupt, terminating workers'
+            pool.terminate()
+            pool.join()
+            raise SaltCloudSystemExit('Keyboard Interrupt caught')
+        else:
+            pool.close()
+            pool.join()
+
+        for alias, driver, details in parallel_pmap:
+            if not details:
+                # There's no providers details?! Skip it!
+                continue
+            if alias not in output:
+                output[alias] = {}
+            output[alias][driver] = details
+
+        self.__cached_provider_queries[query] = output
+        return output
+```

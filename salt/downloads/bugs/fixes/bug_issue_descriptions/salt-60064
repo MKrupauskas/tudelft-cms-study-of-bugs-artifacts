@@ -1,0 +1,62 @@
+**Description**
+After upgrading to salt 3003 on CentOS7 `salt-cloud` does not work anymore for users of the Google Compute Engine.
+
+```
+# salt-cloud -l warning --query
+[WARNING ] The cloud driver, 'gce', configured under the 'my-gce' cloud provider alias, could not be loaded. Please check your provider configuration files and ensure all required dependencies are installed for the 'gce' driver.
+In rare cases, this could indicate the 'gce.get_configured_provider()' function could not be found.
+Removing 'gce' from the available providers list
+#
+```
+
+https://github.com/saltstack/salt/pull/59374 changed the minimum required version of the libcloud dependency to 2.5.0 while epel7 ships with release 2.2.1
+
+I think it would be a good step here to ship a newer libcloud rpm in the saltstack repo, similar to other dependencies where you need newer versions than are available in epel.
+
+
+**Side notes**
+ - The PR claims that GCE is not able to authenticate with libcloud < 2.5.0, something that I cannot observe:
+
+```
+# yum downgrade -y 'salt*'
+[...]
+Removed:
+  salt.noarch 0:3003-1.el7          salt-api.noarch 0:3003-1.el7          salt-cloud.noarch 0:3003-1.el7          salt-master.noarch 0:3003-1.el7          salt-minion.noarch 0:3003-1.el7          salt-ssh.noarch 0:3003-1.el7
+
+Installed:
+  salt.noarch 0:3002.6-1.el7        salt-api.noarch 0:3002.6-1.el7        salt-cloud.noarch 0:3002.6-1.el7        salt-master.noarch 0:3002.6-1.el7        salt-minion.noarch 0:3002.6-1.el7        salt-ssh.noarch 0:3002.6-1.el7
+
+Complete!
+# salt-cloud -l warning --query
+my-gce:
+    ----------
+    gce:
+        ----------
+        sish:
+            ----------
+            id:
+                5765806444884460220
+            image:
+                cos-stable-85-13310-1209-17
+            name:
+                sish
+            private_ips:
+                - 10.156.x.x
+            public_ips:
+                - 35.198.x.x
+            size:
+                f1-micro
+            state:
+                RUNNING
+#
+```
+ 
+ - Another interesting observation: The message about the GCE driver requiring libcloud 2.5.0 that is returned in https://github.com/saltstack/salt/blob/master/salt/cloud/clouds/gce.py#L114 never makes it to the log/output for the user it seems. It only is available in TRACE level:
+ 
+ ```
+[TRACE   ] Error loading clouds.gce: The salt-cloud GCE driver requires apache-libcloud>=2.5.0
+[TRACE   ] Error loading clouds.libvirt: Unable to locate or import python libvirt library.
+```
+
+Maybe it makes sense to log with a higher priority as that makes find the error much easier:
+https://github.com/saltstack/salt/blob/master/salt/loader.py#L1971 uses TRACE...

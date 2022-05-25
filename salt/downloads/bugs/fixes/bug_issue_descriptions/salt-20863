@@ -1,0 +1,69 @@
+In the state below, I'd expect the require requisite to ensure that the package is always installed first, and not to attempt to manage the service if the package install fails. And I'd expect the listen requisite to restart the service at the end of the state run if the configuration file changes. But this does not behave as expected. It appears that listen and require conflict with eachother and when both requisites exist, the require requisite is not found.
+
+``` sls
+openntpd:
+  pkg.installed: []
+  service.running:
+    - enable: true
+    - require:
+      - pkg: openntpd
+    - listen:
+      - file: /etc/openntpd/ntpd.conf
+
+/etc/openntpd/ntpd.conf:
+  file.managed:
+    - source: salt://ntpd.conf
+```
+
+Result:
+
+```
+minion:
+----------
+          ID: openntpd
+    Function: pkg.installed
+      Result: True
+     Comment: Package openntpd is already installed.
+     Started: 10:33:44.753562
+    Duration: 1547.266 ms
+     Changes:   
+----------
+          ID: openntpd
+    Function: service.running
+      Result: True
+     Comment: Service openntpd is already enabled, and is in the desired state
+     Started: 10:33:46.301455
+    Duration: 60.327 ms
+     Changes:   
+----------
+          ID: /etc/openntpd/ntpd.conf
+    Function: file.managed
+      Result: True
+     Comment: File /etc/openntpd/ntpd.conf updated
+     Started: 10:33:46.362139
+    Duration: 339.398 ms
+     Changes:   
+              ----------
+              diff:
+                  New file
+              mode:
+                  0644
+----------
+          ID: listener_openntpd
+    Function: service.mod_watch
+        Name: openntpd
+      Result: False
+     Comment: The following requisites were not found:
+                                 require:
+                                     pkg: openntpd
+     Started: 
+    Duration: 
+     Changes:   
+
+Summary
+------------
+Succeeded: 3 (changed=1)
+Failed:    1
+------------
+Total states run:     4
+```

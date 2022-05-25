@@ -1,0 +1,172 @@
+This is only occurring on my minions running Salt 2015.5.5 and CentOS 7.  Issue is similar to #16727 and #16656.
+##### Version info - master and minion
+
+```
+[root@master ~]# cat /etc/redhat-release
+CentOS release 6.5 (Final)
+[root@master ~]# salt --versions
+           Salt: 2015.5.3
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+         Jinja2: 2.7.3
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 2.2.0.1
+           RAET: Not Installed
+            ZMQ: 3.2.4
+           Mako: Not Installed
+        Tornado: 2.2.1
+
+[root@centos7test-01 ~]# cat /etc/redhat-release
+CentOS Linux release 7.1.1503 (Core)
+[root@centos7test-01 ~]# salt-call --versions
+           Salt: 2015.5.5
+         Python: 2.7.5 (default, Jun 24 2015, 00:41:19)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: 0.8.1
+        Tornado: Not Installed
+        timelib: Not Installed
+       dateutil: 1.5
+```
+##### Pillar top.sls
+
+```
+base:
+  'role:bugdemo':
+    - match: grain
+    - bugdemo
+```
+##### Pillar bugdemo.sls
+
+```
+bugdemo: problem
+```
+##### minion /etc/salt/grains
+
+```
+role: bugdemo
+```
+##### Master /srv/salt/dev/bugdemo.sls
+
+```
+/var/tmp/{{ pillar['bugdemo'] }}:
+  file.exists:
+    - name: /var/tmp/{{ pillar['bugdemo'] }}
+```
+
+(Note: master config has "dev" saltenv configured with root /srv/salt/dev)
+##### Evidence
+
+Pillar value is present:
+
+```
+[root@centos7test-01 ~]# salt-call pillar.get bugdemo
+local:
+    problem
+```
+
+State fails to render when calling state.sls:
+
+```
+[root@centos7test-01 ~]# salt-call state.sls bugdemo saltenv=dev test=True
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'dev', ** skipped ** latest already in cache 'salt://bugdemo.sls'
+[CRITICAL] Rendering SLS 'dev:bugdemo' failed: Jinja variable 'dict object' has no attribute 'bugdemo'
+local:
+    Data failed to compile:
+----------
+    Rendering SLS 'dev:bugdemo' failed: Jinja variable 'dict object' has no attribute 'bugdemo'
+```
+
+Yet oddly enough, state.show_sls works:
+
+```
+[root@centos7test-01 ~]# salt-call state.show_sls bugdemo saltenv=dev
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'dev', ** skipped ** latest already in cache 'salt://bugdemo.sls'
+local:
+    ----------
+    /var/tmp/problem:
+        ----------
+        __env__:
+            dev
+        __sls__:
+            bugdemo
+        file:
+            |_
+              ----------
+              name:
+                  /var/tmp/problem
+            - exists
+            |_
+              ----------
+              order:
+                  10000
+```
+
+This works on another minion:
+
+```
+[root@centos6test-01 ~]# salt-call grains.get role
+local:
+    bugdemo
+[root@centos6test-01 ~]# salt-call pillar.get bugdemo
+local:
+    problem
+[root@centos6test-01 ~]# salt-call state.sls bugdemo saltenv=dev test=True
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'dev', ** skipped ** latest already in cache 'salt://bugdemo.sls'
+[INFO    ] Running state [/var/tmp/problem] at time 17:25:33.280407
+[INFO    ] Executing state file.exists for /var/tmp/problem
+[ERROR   ] Specified path /var/tmp/problem does not exist
+[INFO    ] Completed state [/var/tmp/problem] at time 17:25:33.281307
+local:
+----------
+          ID: /var/tmp/problem
+    Function: file.exists
+      Result: False
+     Comment: Specified path /var/tmp/problem does not exist
+     Started: 17:25:33.280407
+    Duration: 0.9 ms
+     Changes:
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+
+[root@centos6test-01 ~]# cat /etc/redhat-release
+CentOS release 6.7 (Final)
+[root@centos6test-01 ~]# salt-call --versions
+           Salt: 2015.5.3
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+        Tornado: Not Installed
+```

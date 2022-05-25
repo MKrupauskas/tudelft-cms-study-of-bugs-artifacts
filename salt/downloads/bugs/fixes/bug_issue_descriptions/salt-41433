@@ -1,0 +1,144 @@
+### Description of Issue/Question
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+**Minimal state**:
+```yaml
+example:
+  boto_cfn.present:
+    - template_body: salt://does/not/exist
+```
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+
+1. Create a state using the `boto_cfn.present` function.
+1. Set `template_url` or `template_body` to an invalid value.
+1. Apply the state on a minion.
+
+Instead of the state failing with a useful message, the following stacktrace is displayed:
+
+```
+An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/local/lib/python2.6/site-packages/salt/state.py", line 1735, in call
+    **cdata['kwargs'])
+  File "/usr/local/lib/python2.6/site-packages/salt/loader.py", line 1653, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib64/python2.6/contextlib.py", line 34, in __exit__
+    self.gen.throw(type, value, traceback)
+  File "/usr/local/lib/python2.6/site-packages/salt/utils/context.py", line 48, in func_globals_inject
+    yield
+  File "/usr/local/lib/python2.6/site-packages/salt/loader.py", line 1653, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/local/lib/python2.6/site-packages/salt/states/boto_cfn.py", line 147, in present
+    code, message = _get_error(_valid)
+  File "/usr/local/lib/python2.6/site-packages/salt/states/boto_cfn.py", line 263, in _get_error
+    error = '\n'.join(error.split('\n')[1:])
+AttributeError: 'tuple' object has no attribute 'split'
+```
+
+The source of the problem is line 147 in `boto_cfn.py`. When an error occurs in the `_validate` function, a tuple containing a code and message is returned. Then it tries to parse the tuple as if it were an error message, which fails when attempting to split the tuple.
+
+```python
+    _valid = _validate(template_body, template_url, region, key, keyid, profile)
+    log.debug('Validate is : {0}.'.format(_valid))
+    if _valid is not True:
+        code, message = _get_error(_valid) # fails here
+    ...
+```
+
+Since the error is already parsed, it just needs to be set without further processing.
+
+```python
+    _valid = _validate(template_body, template_url, region, key, keyid, profile)
+    log.debug('Validate is : {0}.'.format(_valid))
+    if _valid is not True:
+        code, message = _valid # fixed
+    ...
+```
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+**---- Master ----**
+```yaml
+Salt Version:
+           Salt: 2016.3.6
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.9 (unknown, Sep  1 2016, 23:34:36)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.2
+
+System Versions:
+           dist:
+        machine: x86_64
+        release: 4.4.15-25.57.amzn1.x86_64
+         system: Linux
+        version: Not Installed
+```
+
+**---- Minion ----**
+```yaml
+Salt Version:
+           Salt: 2016.3.6
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.9 (unknown, Sep  1 2016, 23:34:36)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist:
+        machine: x86_64
+        release: 4.4.41-35.53.amzn1.x86_64
+         system: Linux
+        version: Not Installed
+```

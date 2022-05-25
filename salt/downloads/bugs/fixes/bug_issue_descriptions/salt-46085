@@ -1,0 +1,75 @@
+### Description of Issue/Question
+
+I noticed this problem when a minion in a bad state started sending an empty public key. The problem is reproducible by replacing the minion's `/etc/salt/pki/minion/minion.pub` file with an entirely empty file (zero bytes). 
+
+### Setup
+Create a salt master with `open_mode: True`, and a minion with an entirely empty `/etc/salt/pki/minion/minion.pub` file (zero bytes).
+
+### Steps to Reproduce Issue
+With the configuration described in the setup section, the log for the salt master service will show a series of exceptions like the following:
+```
+2018-02-16 14:25:06,972 [tornado.application:129 ][ERROR   ][30725] Future exception was never retrieved: Traceback (most recent call last):
+  File "/usr/lib64/python2.7/site-packages/tornado/gen.py", line 285, in wrapper
+    yielded = next(result)
+  File "/usr/lib64/python2.7/site-packages/salt/transport/zeromq.py", line 620, in handle_message
+    stream.send(self.serial.dumps(self._auth(payload['load'])))
+  File "/usr/lib64/python2.7/site-packages/salt/transport/mixins/auth.py", line 430, in _auth
+    with salt.utils.fopen(pubfn) as f:
+  File "/usr/lib64/python2.7/site-packages/salt/utils/__init__.py", line 1361, in fopen
+    fhandle = open(*args, **kwargs)  # pylint: disable=resource-leakage
+IOError: [Errno 2] No such file or directory: '/etc/salt/pki/master/minions/salt-minion1.example.com'
+```
+I think the reason salt doesn't handle this well is that it's supposed to write the given key, but the key is an empty string, so `load['pub'] != disk_key` is False (due to earlier `disk_key = ''` initialization) and it fails to write the key here:
+
+https://github.com/saltstack/salt/blob/v2017.7.3/salt/transport/mixins/auth.py#L416
+
+Since the key is not written to disk, the `IOError: [Errno 2] No such file or directory` exception naturally occurs when it tries to open the file.
+
+Ultimately, the salt master becomes unresponsive to minions, leading to messages like the following in minion logs:
+```
+2018-02-16 14:27:38,945 [salt.minion      :1774][WARNING ][1776] The minion failed to return the job information for job 20180216142717409355. This is often due to the master being shut down or overloaded. If the master is running consider increasing the worker_threads value.
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.3
+
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: 1.7.4
+         Jinja2: 2.9.5
+        libgit2: Not Installed
+        libnacl: 1.6.1
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.14 (default, Jan 30 2018, 03:06:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: 0.6.8
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.2.2
+
+System Versions:
+           dist: gentoo 2.4.1
+         locale: UTF-8
+        machine: x86_64
+        release: 4.14.18-vanilla-base-4
+         system: Linux
+        version: Gentoo Base System 2.4.1
+```

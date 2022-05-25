@@ -1,0 +1,283 @@
+I have created a very simple set of packages and managed files (2 of each to establish the pattern).
+
+In each of the following cases the file.managed works by itself, when run before the pkg.installed, or when run with another file.managed, but fails with the following stack trace if it follows a pkg.installed state:
+
+```
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "salt/state.py", line 1371, in call
+                File "salt/states/file.py", line 1240, in managed
+                File "salt/modules/file.py", line 2305, in check_managed
+                File "salt/modules/file.py", line 2068, in get_managed
+              NameError: global name '__salt__' is not defined
+```
+
+For testing purposes I am managing files completely unrelated to the pkg commands; this is really probably a minor bug as it requires only reordering states in top.sls, but it's frustrating when it appears (and re-appears).
+
+My pkg.installed sls's:
+
+```
+# cat win_java/init.sls 
+win_java:
+  pkg:
+    - installed
+    - name: java
+    - version: 6.0.310
+
+# cat winPython/init.sls 
+winPython:
+  pkg.installed:
+    - name: python
+    - version: 2.7.6150
+```
+
+My file.managed sls's:
+
+```
+# cat squishLicense/init.sls 
+squishLicense:
+  file:
+    - managed
+    - name: 'C:\Users\{{ salt['pillar.get']('squish_user', '<redacted>') }}\.squish-3-license'
+    - source: salt://squishLicense/.squish-3-license
+
+# cat win_unzip/init.sls 
+{% set staging_dir = salt['pillar.get']('installer_dir','C:\Tools') %}
+
+win_unzip:
+  file:
+    - managed
+    - name: {{ staging_dir }}\unzip.exe
+    - source: salt://win_unzip/unzip.exe
+```
+
+Test Case 1: managed file before package install: success
+
+```
+# cat top.sls
+base:
+  'testux':
+    - squishLicense
+    - win_java
+
+# salt 'testux' state.highstate
+testux:
+----------
+          ID: squishLicense
+    Function: file.managed
+        Name: C:\Users\test\.squish-3-license
+      Result: True
+     Comment: File C:\Users\test\.squish-3-license is in the correct state
+     Changes:   
+----------
+          ID: win_java
+    Function: pkg.installed
+        Name: java
+      Result: True
+     Comment: Version 6.0.310 of package 'java' is already installed
+     Changes:   
+
+Summary
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total:     2
+```
+
+Test Case 2: managed file after package install: failure
+
+```
+# cat top.sls
+base:
+  'testux':
+    - win_java
+    - squishLicense
+
+# salt 'testux' state.highstate
+testux:
+----------
+          ID: win_java
+    Function: pkg.installed
+        Name: java
+      Result: True
+     Comment: Version 6.0.310 of package 'java' is already installed
+     Changes:   
+----------
+          ID: squishLicense
+    Function: file.managed
+        Name: C:\Users\test\.squish-3-license
+      Result: False
+     Comment: Unable to manage file: global name '__salt__' is not defined
+     Changes:   
+
+Summary
+------------
+Succeeded: 1
+Failed:    1
+------------
+Total:     2
+```
+
+Test Case 3: different managed file after package install: failure
+
+```
+# cat top.sls
+base:
+  'testux':
+    - win_java
+    - win_unzip
+
+# salt 'testux' state.highstate
+testux:
+----------
+          ID: win_java
+    Function: pkg.installed
+        Name: java
+      Result: True
+     Comment: Version 6.0.310 of package 'java' is already installed
+     Changes:   
+----------
+          ID: win_unzip
+    Function: file.managed
+        Name: C:\Tools\installers\unzip.exe
+      Result: False
+     Comment: Unable to manage file: global name '__salt__' is not defined
+     Changes:   
+
+Summary
+------------
+Succeeded: 1
+Failed:    1
+------------
+Total:     2
+```
+
+Test Case 4: managed file after different package install: failure
+
+```
+# cat top.sls
+base:
+  'testux':
+    - winPython
+    - win_unzip
+
+# salt 'testux' state.highstate
+testux:
+----------
+          ID: winPython
+    Function: pkg.installed
+        Name: python
+      Result: True
+     Comment: Version 2.7.6150 of package 'python' is already installed
+     Changes:   
+----------
+          ID: win_unzip
+    Function: file.managed
+        Name: C:\Tools\installers\unzip.exe
+      Result: False
+     Comment: Unable to manage file: global name '__salt__' is not defined
+     Changes:   
+
+Summary
+------------
+Succeeded: 1
+Failed:    1
+------------
+Total:     2
+```
+
+Test Case 5: two managed files: success
+
+```
+# cat top.sls
+base:
+  'testux':
+    - squishLicense
+    - win_unzip
+
+# salt 'testux' state.highstate
+testux:
+----------
+          ID: squishLicense
+    Function: file.managed
+        Name: C:\Users\test\.squish-3-license
+      Result: True
+     Comment: File C:\Users\test\.squish-3-license is in the correct state
+     Changes:   
+----------
+          ID: win_unzip
+    Function: file.managed
+        Name: C:\Tools\installers\unzip.exe
+      Result: True
+     Comment: File C:\Tools\installers\unzip.exe is in the correct state
+     Changes:   
+
+Summary
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total:     2
+```
+
+Test Case 6: Two Package Installs: success
+
+```
+# cat top.sls
+base:
+  'testux':
+    - win_java
+    - winPython
+
+# salt 'testux' state.highstate
+testux:
+----------
+          ID: win_java
+    Function: pkg.installed
+        Name: java
+      Result: True
+     Comment: Version 6.0.310 of package 'java' is already installed
+     Changes:   
+----------
+          ID: winPython
+    Function: pkg.installed
+        Name: python
+      Result: True
+     Comment: Version 2.7.6150 of package 'python' is already installed
+     Changes:   
+
+Summary
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total:     2
+```
+
+Test Case 7: package install and file manage in same state: success
+
+```
+# salt 'testux' state.sls win_java
+testux:
+----------
+          ID: win_java
+    Function: pkg.installed
+        Name: java
+      Result: True
+     Comment: Version 6.0.310 of package 'java' is already installed
+     Changes:   
+----------
+          ID: win_java
+    Function: file.managed
+        Name: C:\Tools\installers\unzip.exe
+      Result: True
+     Comment: File C:\Tools\installers\unzip.exe is in the correct state
+     Changes:   
+
+Summary
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total:     2
+```

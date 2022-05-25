@@ -1,0 +1,37 @@
+The docs for `force_clone` say this:
+
+> If **the target directory exists and is not a git repository**, then this state will fail. Set this argument to True to _remove the contents_ of the target directory and clone the repo into it.
+
+However, I faced this situation: I'm cloning a repo into a subdirectory where the parent directory is owned by a different user. `git.latest` can't create the directory, so I use `file.directory` to create an empty directory to clone the repo into. Now, by reading the docs, I assumed that I should use `force_clone` since the "target directory exists and is not a git repository". 
+
+However, with `force_clone` enabled, `git.latest` does not remove the _contents_ of the directory, it removes the directory itself, then tries to create it fresh, which it can't do because it doesn't have permission.
+
+Paradoxically, setting `force_clone: false` allows the state to complete successfully, even though the target directory already existed (empty) and wasn't a git repository.
+
+I've put together a gist to demonstrate the problem: https://gist.github.com/eykd/45d540f6eb3bca56563e. To reproduce the issue:
+
+```
+git clone https://gist.github.com/45d540f6eb3bca56563e.git salt-test-force-clone
+cd salt-test-force-clone
+vagrant up
+```
+
+Observe that the `django` state fails:
+
+```
+       ID: django
+ Function: git.latest
+     Name: https://github.com/django/django.git
+   Result: False
+  Comment: fatal: could not create work tree dir '/opt/stuff/nonsense'.: Permission denied
+  Started: 17:26:54.203447
+ Duration: 2400.69 ms
+  Changes:
+```
+
+To make the state succeed, remove  or comment `force_clone: true` from `my-env.sls`, then:
+
+```
+vagrant ssh
+sudo salt-call state.highstate
+```

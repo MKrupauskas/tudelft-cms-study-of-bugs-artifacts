@@ -1,0 +1,117 @@
+### Description of Issue
+
+The `identifier` is not working in `salt.states.cron.present` when a `special` is used.
+
+The `salt.states.cron.present` allows an `identifier` to be set. The underlying code checks whether or not a  `special` is used. In the case a special is used, the `salt.module.cron.set_special` is called instead of `salt.modules.cron.set_job` function. The `salt.module.cron.set_special` does nothing with the `identifier`. 
+
+Part of the code in [salt.states.cron.present](https://github.com/saltstack/salt/blob/develop/salt/states/cron.py) responsible for the issue:
+```python
+def present(name,
+            user='root',
+            minute='*',
+            hour='*',
+            daymonth='*',
+            month='*',
+            dayweek='*',
+            comment=None,
+            commented=False,
+            identifier=False,
+special=None):
+   ...
+    if special is None:
+        # Passed the identifier to the underlying code.
+        data = __salt__['cron.set_job'](user=user,
+                                    minute=minute,
+                                    hour=hour,
+                                    daymonth=daymonth,
+                                    month=month,
+                                    dayweek=dayweek,
+                                    cmd=name,
+                                    comment=comment,
+                                    commented=commented,
+                                    identifier=identifier)
+    else:
+        # Does not pass the identifier to the underlying code.
+        data = __salt__['cron.set_special'](user, special, name)
+...
+```
+
+In order to fix this issue, the `salt.modules.cron.set_special` will have to allow an identifier to be set/used.
+
+### Setup
+
+Example state:
+
+```yaml
+# In this case the IDENTIFIER is used:
+my-cron:
+  cron.present:
+    - name: my-cron
+    - identifier: IDENTIFIER
+    - minute: '00'
+    - hour: '*'
+
+# In this case the IDENTIFIER isn't used:
+my-cron:
+  cron.present:
+    - name: my-cron
+    - identifier: IDENTIFIER
+    - special: '@hourly'
+```
+
+### Steps to Reproduce Issue
+
+Apply the state following state and check for the (missing) identifier in the crontab:
+
+```yaml
+my-cron:
+  cron.present:
+    - name: my-cron
+    - identifier: IDENTIFIER
+    - special: '@hourly'
+```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-97-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

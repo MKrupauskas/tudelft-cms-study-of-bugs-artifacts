@@ -1,0 +1,154 @@
+This morning I had the most bizarre experience. Using Vagrant+VirtualBox and the [ubuntu/trusty64 image](https://vagrantcloud.com/ubuntu/boxes/trusty64), I had the vm running with ports 80&443 forwarded to the guest box. It had been working fine as I was working on building up my statefiles. I think [these are the relevant portions](https://gist.github.com/waynew/9ebe627502e1e1ac6df1).
+
+Then I would run `salt 'myminion' state.highstate` and after a few seconds - nothing. No output at all. `salt-run jobs.lookup_jid <my_jobid>` even displayed nothing. `salt 'myminion' test.ping` 73 times got me nothing.
+
+So I logged into the minion and checked:
+
+```
+# service salt-minion status
+salt-minion start/running, process 12345
+```
+
+Well... huh. 
+
+```
+$ telnet my.master.com 4505
+Trying 123.123.123.123...
+Connected to my.master.com.
+Escape character is '^]'.
+```
+
+Same thing for port 4506.
+
+So - minion is running. Master is running. Minion _box_ can connect to master on the right ports. But minion isn't connected. 
+
+How about `/var/log/salt/minion`? The last logline:
+
+> 2014-09-11 13:33:56,730 [salt.loaded.int.module.cmdmod][ERROR   ] output:  \* nginx is not running
+
+But **nothing** about failing to connect to the master. In #salt on IRC, babilen suggested I restart the minion. \o/ success! I can connect again.
+
+I run `state.highstate` again.
+
+Nothing.
+
+So I check the minion log again and see the _same nginx line_ (which nginx has failed to be reloading, btw). The plot thickens.
+
+```
+# service nginx status
+* nginx is not running
+```
+
+Wait a tick. I _know_ it's running because the whole reason I'm here now is because nginx appeared not to respect the `- watch` directive. 
+
+```
+# ps aux | grep nginx
+root     19823  0.0  0.0  87004  3280 ?        Ss   12:00   0:00 nginx: master process /usr/sbin/nginx
+nobody   21683  0.0  0.0  87356  2144 ?        S    14:28   0:00 nginx: worker process
+nobody   21684  0.0  0.0  87356  2144 ?        S    14:28   0:00 nginx: worker process
+nobody   21685  0.0  0.0  87356  2144 ?        S    14:28   0:00 nginx: worker process
+nobody   21686  0.0  0.0  87356  3360 ?        S    14:28   0:00 nginx: worker process
+```
+
+:rage: Okay, what's going on here? It's running, but not running? Well, now I look at `/etc/init.d/nginx`, look for `status` and add some debugging echo statements. Turns out it's looking for `log/nginx.pid`. Uh.... :confused: what?
+
+Then I find this:
+
+```
+PID=$(awk -F'[ \t;]+' '/[^#]pid/ {print $4}' /etc/nginx/nginx.conf)
+if [ -z "$PID" ]
+then
+        PID=/run/nginx.pid
+fi
+```
+
+Okay, so it's looking for pid in nginx.conf. 
+
+```
+$ cat /etc/nginx/nginx.conf | grep pid
+#pid        logs/nginx.pid;
+```
+
+Okay, so... it's getting a commented out line? That doesn't make sense. I copy the awk command, run it and get **nothing**. So I added `echo $PID` after the `PID=` line. 
+
+```
+# service nginx status
+* nginx is running
+```
+
+Uhhhh... What in the world is going on here? I removed the echo line... still reports nginx is running. o.O So I restart my salt-minion again and now the watch does in fact reload nginx.
+
+Master:
+
+```
+salt --versions-report                     $? 1  10:33:11
+           Salt: 2014.1.10
+         Python: 2.7.3 (default, Feb 27 2014, 19:58:35)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```
+
+Minion:
+
+```
+salt-call --versions-report
+           Salt: 2014.1.10
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.3.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+            ZMQ: 4.0.4
+```
+
+I'm not 100% sure that the `nginx status` command is what was breaking it - perhaps someone more familiar with the internals of salt would know if that could be causing some sort of blocking. I don't know if anyone not in my exact situation would even see this problem - as I finally identified the issue was due to this nginx status incorrectly returning the wrong status. 
+
+That being said, having a faulty status also shouldn't hang the salt-minion.
+
+For a more concise set of instructions to duplicate:
+1. Use Vagrant with this vagrant file to create the minion:
+
+```
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# Vagrantfile API/syntax version. Don't touch unless you know what you're doing!
+VAGRANTFILE_API_VERSION = "2"
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+  # Default Ubuntu 14.04 box
+  config.vm.box = "ubuntu/trusty64"
+
+  # Ports for Patient Portal
+  config.vm.network "forwarded_port", guest: 80, host: 80
+  config.vm.network "forwarded_port", guest: 443, host: 443
+
+  config.vm.synced_folder "/mycompany", "/mycompany_"
+
+  config.vm.provider "virtualbox" do |vb|
+    # Use VBoxManage to customize the VM. For example to change memory:
+    vb.customize ["modifyvm", :id, "--memory", "8192"]
+    vb.name = "example.com"
+  end
+end
+```
+1. add [saltstack PPA](http://docs.saltstack.com/en/latest/topics/installation/ubuntu.html)
+2. configure and start minion
+3. accept key on master
+4. [Setup master](https://gist.github.com/waynew/9ebe627502e1e1ac6df1)
+5. Run highstate on minion
+6. If nginx successfully restarts, go make the `status)` case in `/etc/init.d/nginx` return failure (3, I think?)
+7. If the bug is reproducible, you should no longer be able to connect from master -> minion
+
+It's possible that you may have to run highstate a few times, changing something in the `sites-enabled/my_site` file each time.
+
+If I can help in any other way, please let me know!

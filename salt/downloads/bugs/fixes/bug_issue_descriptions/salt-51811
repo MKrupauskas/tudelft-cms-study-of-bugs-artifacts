@@ -1,0 +1,45 @@
+### Description of Issue/Question
+The `salt.states.npm` module doesn't work because it's checking for npm support incorrectly. Back in 2017, some guy renamed the `salt.modules.list` function to `salt.modules.list_` which broke the npm module entirely.
+
+The reason being is that in order to verify that npm support is available, the following check is made:
+```
+def __virtual__():
+    '''
+    Only load if the npm module is available in __salt__
+    '''
+    return 'npm' if 'npm.list' in __salt__ else False, '\'npm\' binary not found on system'
+```
+
+Due to this states module checking for `npm.list` instead of the correct `npm.list_`, the npm state module can't be used.
+
+### Setup
+This apparently has been (not) working this way since 2017-06-04. Write up a state that uses `npm.installed` as you will use it to repro this issue.
+
+### Steps to Reproduce Issue
+Once you apply the state, you will see that it claims it's unable to locate the npm binary. This is a misnomer because if you try and exec `cmd.which` for npm, it will totally find it (assuming you use my PR #51785 if you're on Windows)
+
+### Versions Report
+
+This is in the develop branch, there's no need for versions here because you can literally see the code discrepancy. As a review look at `salt.states.npm` and then `salt.modules.npm.`
+
+`salt.states.npm:31`
+```
+def __virtual__():
+    '''
+    Only load if the npm module is available in __salt__
+    '''
+    return 'npm' if 'npm.list' in __salt__ else False, '\'npm\' binary not found on system'
+```
+
+`salt.modules.npm:237`:
+```
+def list_(pkg=None, dir=None, runas=None, env=None, depth=None):
+    '''
+    List installed NPM packages.
+
+    If no directory is specified, this will return the list of globally-
+    installed packages.
+
+    pkg
+        Limit package listing by name
+```

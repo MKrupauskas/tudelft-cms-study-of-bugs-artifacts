@@ -1,0 +1,263 @@
+**Description**
+One of the salt-minion processes hangs and does not respond to salt requests. The salt-master and salt-minion are on version 2019.2.2. I do not see this with a 2019.2.2 master and a 2017.7.1 minion. I am using TCP for transport. The last message the hung process logs is:
+```
+TypeError: heap argument must be a list
+```
+However other salt minion processes continue to log.
+
+**Setup**
+Salt minion config:
+```
+auth_safemode: true
+autoload_dynamic_modules: false
+enable_legacy_startup_events: false
+include: /usr/lib/128technology/python/salt/file_roots/_beacons/*.conf
+log_level_logfile: debug
+master:
+  - 172.17.200.38
+  - 172.17.200.39
+master_alive_interval: 30
+master_tries: -1
+ping_interval: 1
+random_reauth_delay: 120
+recon_default: 5000
+recon_max: 30000
+recon_randomize: true
+tcp_authentication_retries: -1
+tcp_keepalive_cnt: 3
+tcp_keepalive_idle: 5
+tcp_keepalive_intvl: 10
+```
+
+**Steps to Reproduce the behavior**
+I unfortunately don't have steps to reproduce the behavior. It has been happening sporadically but I have seen it 4-5 times in the last few days. I believe it always happens when executing a state or module.
+
+**Screenshots**
+Minion processes
+```
+USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root     26078  0.0  0.1 295168 23532 ?        Ss   Apr28   0:00 /usr/bin/python3 -s /usr/bin/salt-minion
+root     26083  0.0  0.3 1207912 54220 ?       Sl   Apr28   0:52 /usr/bin/python3 -s /usr/bin/salt-minion
+root     26086  0.0  0.1 380268 24532 ?        S    Apr28   0:00 /usr/bin/python3 -s /usr/bin/salt-minion
+```
+
+Receive queue building up on salt minion process PID 26083
+```
+Active Internet connections (servers and established)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name
+tcp   235268      0 169.254.1.2:37720       172.17.200.38:4505      ESTABLISHED 26083/python3
+tcp        0      0 169.254.1.2:45782       172.17.200.39:4505      ESTABLISHED 26083/python3
+```
+
+Last log message from this processes:
+```
+2020-04-28 22:55:08,548 [tornado.application:340 ][ERROR   ][26083] Future <tornado.concurrent.Future object at 0x7f3c641a4f60> exception was never retrieved: Traceback (most recent call last):
+  File "/usr/lib64/python3.6/site-packages/tornado/gen.py", line 1021, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python3.6/site-packages/salt/minion.py", line 1426, in _send_req_async
+    ret = yield channel.send(load, timeout=timeout)
+  File "/usr/lib64/python3.6/site-packages/tornado/gen.py", line 1015, in run
+    value = future.result()
+  File "/usr/lib64/python3.6/site-packages/tornado/concurrent.py", line 236, in result
+    raise_exc_info(self._exc_info)
+  File "<string>", line 3, in raise_exc_info
+  File "/usr/lib64/python3.6/site-packages/tornado/gen.py", line 1021, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python3.6/site-packages/salt/transport/tcp.py", line 406, in send
+    ret = yield self._crypted_transfer(load, tries=tries, timeout=timeout)
+  File "/usr/lib64/python3.6/site-packages/tornado/gen.py", line 1015, in run
+    value = future.result()
+  File "/usr/lib64/python3.6/site-packages/tornado/concurrent.py", line 236, in result
+    raise_exc_info(self._exc_info)
+  File "<string>", line 3, in raise_exc_info
+  File "/usr/lib64/python3.6/site-packages/tornado/gen.py", line 1021, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python3.6/site-packages/salt/transport/tcp.py", line 385, in _crypted_transfer
+    ret = yield _do_transfer()
+  File "/usr/lib64/python3.6/site-packages/tornado/gen.py", line 1015, in run
+    value = future.result()
+  File "/usr/lib64/python3.6/site-packages/tornado/concurrent.py", line 236, in result
+    raise_exc_info(self._exc_info)
+  File "<string>", line 3, in raise_exc_info
+  File "/usr/lib64/python3.6/site-packages/tornado/gen.py", line 285, in wrapper
+    yielded = next(result)
+  File "/usr/lib/python3.6/site-packages/salt/transport/tcp.py", line 370, in _do_transfer
+    timeout=timeout,
+  File "/usr/lib/python3.6/site-packages/salt/transport/tcp.py", line 914, in send
+    return message_clients[0].send(*args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/transport/tcp.py", line 1212, in send
+    send_timeout = self.io_loop.call_later(timeout, self.timeout_message, message_id)
+  File "/usr/lib64/python3.6/site-packages/tornado/ioloop.py", line 518, in call_later
+    return self.call_at(self.time() + delay, callback, *args, **kwargs)
+  File "/usr/lib64/python3.6/site-packages/tornado/ioloop.py", line 919, in call_at
+    heapq.heappush(self._timeouts, timeout)
+TypeError: heap argument must be a list
+```
+
+The minion service is still active:
+```
+systemctl status salt-minion
+ salt-minion.service - The Salt Minion
+   Loaded: loaded (/usr/lib/systemd/system/salt-minion.service; enabled; vendor preset: disabled)
+  Drop-In: /usr/lib/systemd/system/salt-minion.service.d
+           dnsTimeout.conf, minionWatchdog.conf, restartAlways.conf
+   Active: active (running) since Tue 2020-04-28 21:32:49 UTC; 18h ago
+     Docs: man:salt-minion(1)
+           file:///usr/share/doc/salt/html/contents.html
+           https://docs.saltstack.com/en/latest/contents.html
+ Main PID: 26078 (salt-minion)
+    Tasks: 14
+   Memory: 78.0M
+   CGroup: /system.slice/salt-minion.service
+           26078 /usr/bin/python3 -s /usr/bin/salt-minion
+           26083 /usr/bin/python3 -s /usr/bin/salt-minion
+           26086 /usr/bin/python3 -s /usr/bin/salt-minion
+```
+
+And other minion processes are still logging a day later:
+```
+020-04-29 15:25:49,653 [salt.utils.lazy  :104 ][DEBUG   ][20878] LazyLoaded jinja.render
+2020-04-29 15:25:49,656 [salt.utils.lazy  :104 ][DEBUG   ][20878] LazyLoaded yaml.render
+2020-04-29 15:25:49,795 [salt.utils.lazy  :104 ][DEBUG   ][20878] LazyLoaded test.ping
+2020-04-29 15:25:49,797 [salt.utils.lazy  :104 ][DEBUG   ][20878] LazyLoaded direct_call.execute
+2020-04-29 15:25:49,798 [salt.loaded.int.module.test:124 ][DEBUG   ][20878] test.ping received for minion 'sollanner10'
+2020-04-29 15:25:49,799 [salt.transport.tcp:239 ][DEBUG   ][20878] Initializing new AsyncTCPReqChannel for ('/etc/salt/pki/minion', 'sollanner10', 'tcp://172.17.200.38:4506', 'aes')
+2020-04-29 15:25:49,800 [salt.crypt       :464 ][DEBUG   ][20878] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'sollanner10', 'tcp://172.17.200.38:4506')
+2020-04-29 15:25:49,833 [salt.transport.tcp:309 ][DEBUG   ][20878] Closing AsyncTCPReqChannel instance
+2020-04-29 15:25:49,835 [salt.transport.tcp:1092][DEBUG   ][20878] tcp stream to 172.17.200.38:4506 closed, unable to recv
+2020-04-29 15:25:49,848 [salt.utils.lazy  :104 ][DEBUG   ][20878] LazyLoaded nested.output
+```
+
+I sent a sigterm to the process and collected the core dump. It is very odd that the process appears to be stuck on a ZMQ poll because I have transport set to TCP.
+```
+[root@solaapva0775p1a ~]# coredumpctl info
+           PID: 26083 (salt-minion)
+           UID: 0 (root)
+           GID: 0 (root)
+        Signal: 6 (ABRT)
+     Timestamp: Wed 2020-04-29 20:52:09 UTC (4min 44s ago)
+  Command Line: /usr/bin/python3 -s /usr/bin/salt-minion
+    Executable: /usr/bin/python3.6
+ Control Group: /system.slice/salt-minion.service
+          Unit: salt-minion.service
+         Slice: system.slice
+       Boot ID: aebf4989f96a4f0baa38959d85b51865
+    Machine ID: dede0e3489ad4516b74e9fd253183721
+      Hostname: solaapva0775p1a
+      Coredump: /var/lib/systemd/coredump/core.salt-minion.0.aebf4989f96a4f0baa38959d85b51865.26083.1588193529000000.xz
+       Message: Process 26083 (salt-minion) of user 0 dumped core.
+
+                Stack trace of thread 26083:
+                #0  0x00007f3c8106bbed poll (libc.so.6)
+                #1  0x00007f3c724f76bd zmq_poll (libzmq.so.5)
+                #2  0x00007f3c70c2a14b __pyx_pf_3zmq_7backend_6cython_5_poll_zmq_poll.isra.18 (_poll.cpython-36m-x86_64-linux-gnu.so)
+                #3  0x00007f3c70c2c3a0 __pyx_pw_3zmq_7backend_6cython_5_poll_1zmq_poll (_poll.cpython-36m-x86_64-linux-gnu.so)
+                #4  0x00007f3c81d13960 _PyObject_FastCallDict (libpython3.6m.so.1.0)
+                #5  0x00007f3c81d13fec _PyObject_FastCallKeywords (libpython3.6m.so.1.0)
+                #6  0x00007f3c81dbdf5c call_function (libpython3.6m.so.1.0)
+                #7  0x00007f3c81db38f9 _PyEval_EvalFrameDefault (libpython3.6m.so.1.0)
+                #8  0x00007f3c81dbcebc _PyEval_EvalCodeWithName (libpython3.6m.so.1.0)
+                #9  0x00007f3c81dbdc4a fast_function (libpython3.6m.so.1.0)
+                #10 0x00007f3c81dbded3 call_function (libpython3.6m.so.1.0)
+                #11 0x00007f3c81db2687 _PyEval_EvalFrameDefault (libpython3.6m.so.1.0)
+                #12 0x00007f3c81dbd39e _PyEval_EvalCodeWithName (libpython3.6m.so.1.0)
+                #13 0x00007f3c81dbdc4a fast_function (libpython3.6m.so.1.0)
+                #14 0x00007f3c81dbded3 call_function (libpython3.6m.so.1.0)
+                #15 0x00007f3c81db2687 _PyEval_EvalFrameDefault (libpython3.6m.so.1.0)
+                #16 0x00007f3c81dbdb9a fast_function (libpython3.6m.so.1.0)
+                #17 0x00007f3c81dbded3 call_function (libpython3.6m.so.1.0)
+                #18 0x00007f3c81db2687 _PyEval_EvalFrameDefault (libpython3.6m.so.1.0)
+                #19 0x00007f3c81dbd109 _PyEval_EvalCodeWithName (libpython3.6m.so.1.0)
+                #20 0x00007f3c81dbdc4a fast_function (libpython3.6m.so.1.0)
+                #21 0x00007f3c81dbded3 call_function (libpython3.6m.so.1.0)
+                #22 0x00007f3c81db2687 _PyEval_EvalFrameDefault (libpython3.6m.so.1.0)
+                #23 0x00007f3c81dbd39e _PyEval_EvalCodeWithName (libpython3.6m.so.1.0)
+                #24 0x00007f3c81dbdc4a fast_function (libpython3.6m.so.1.0)
+                #25 0x00007f3c81dbded3 call_function (libpython3.6m.so.1.0)
+                #26 0x00007f3c81db2687 _PyEval_EvalFrameDefault (libpython3.6m.so.1.0)
+                #27 0x00007f3c81dbd109 _PyEval_EvalCodeWithName (libpython3.6m.so.1.0)
+                #28 0x00007f3c81dbdc4a fast_function (libpython3.6m.so.1.0)
+                #29 0x00007f3c81dbded3 call_function (libpython3.6m.so.1.0)
+                #30 0x00007f3c81db38f9 _PyEval_EvalFrameDefault (libpython3.6m.so.1.0)
+                #31 0x00007f3c81dbdb9a fast_function (libpython3.6m.so.1.0)
+                #32 0x00007f3c81dbded3 call_function (libpython3.6m.so.1.0)
+                #33 0x00007f3c81db2687 _PyEval_EvalFrameDefault (libpython3.6m.so.1.0)
+                #34 0x00007f3c81dbcebc _PyEval_EvalCodeWithName (libpython3.6m.so.1.0)
+                #35 0x00007f3c81dbdc4a fast_function (libpython3.6m.so.1.0)
+                #36 0x00007f3c81dbded3 call_function (libpython3.6m.so.1.0)
+                #37 0x00007f3c81db38f9 _PyEval_EvalFrameDefault (libpython3.6m.so.1.0)
+                #38 0x00007f3c81d24cca gen_iternext (libpython3.6m.so.1.0)
+                #39 0x00007f3c81dafe8c builtin_next (libpython3.6m.so.1.0)
+                #40 0x00007f3c81d51bba _PyCFunction_FastCallDict (libpython3.6m.so.1.0)
+                #41 0x00007f3c81dbddaf call_function (libpython3.6m.so.1.0)
+                #42 0x00007f3c81db2687 _PyEval_EvalFrameDefault (libpython3.6m.so.1.0)
+                #43 0x00007f3c81dbd109 _PyEval_EvalCodeWithName (libpython3.6m.so.1.0)
+                #44 0x00007f3c81dbdc4a fast_function (libpython3.6m.so.1.0)
+                #45 0x00007f3c81dbded3 call_function (libpython3.6m.so.1.0)
+                #46 0x00007f3c81db2687 _PyEval_EvalFrameDefault (libpython3.6m.so.1.0)
+                #47 0x00007f3c81dbe184 PyEval_EvalCodeEx (libpython3.6m.so.1.0)
+                #48 0x00007f3c81d2bb52 function_call (libpython3.6m.so.1.0)
+                #49 0x00007f3c81d13763 PyObject_Call (libpython3.6m.so.1.0)
+                #50 0x00007f3c81db432a _PyEval_EvalFrameDefault (libpython3.6m.so.1.0)
+                #51 0x00007f3c81dbe47a PyEval_EvalCodeEx (libpython3.6m.so.1.0)
+                #52 0x00007f3c81d2bb52 function_call (libpython3.6m.so.1.0)
+                #53 0x00007f3c81d13763 PyObject_Call (libpython3.6m.so.1.0)
+                #54 0x00007f3c81db432a _PyEval_EvalFrameDefault (libpython3.6m.so.1.0)
+                #55 0x00007f3c81dbd109 _PyEval_EvalCodeWithName (libpython3.6m.so.1.0)
+                #56 0x00007f3c81dbefde _PyFunction_FastCallDict (libpython3.6m.so.1.0)
+                #57 0x00007f3c81d139de _PyObject_FastCallDict (libpython3.6m.so.1.0)
+                #58 0x00007f3c81d13af1 _PyObject_Call_Prepend (libpython3.6m.so.1.0)
+                #59 0x00007f3c81d13763 PyObject_Call (libpython3.6m.so.1.0)
+                #60 0x00007f3c81db432a _PyEval_E
+```
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+salt-minion --versions-report
+Salt Version:
+           Salt: 2019.2.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8.1
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.33.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Aug  9 2019, 16:44:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1062.9.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```
+</details>
+
+**Additional context**
+I will update if I get any more clues as to why the minion process hangs.

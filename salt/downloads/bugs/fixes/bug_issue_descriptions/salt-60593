@@ -1,0 +1,27 @@
+**Description**
+Windows Server 2019 VMware VMs do not have any `vmware` pillar data.
+
+**Background**
+In order for a salt minion to get  `vmware` pillar data it must have a `virtual` grain value of  'VMWare', 'ESXi', or 'VMWare ESXi' (source: https://docs.saltproject.io/en/latest/ref/pillar/all/salt.pillar.vmware_pillar.html). The `virtual` grain is set for Windows VMs in the https://github.com/saltstack/salt/blob/master/salt/grains/core.py file's `_windows_virtual()` function. In order for the grain to be set properly, the value of the `productname` grain must include `VMware Virtual Platform`. This value is pulled from the "Model" field as returned by the `win32_computerSystem` windows API.
+
+The problem is that for Server 2019 the Model is something of the form: "VMware7,1" or similar. As a result, salt does not properly identify the machine as being a VMware VM and therefore the `virtual` grain gets set to "physical". As a result, the `vmware` pillar data is empty.
+
+**Expected Behavior**
+The `_windows_virtual()` function should be more flexible in order to handle this case so that Server 2019 systems are properly identified as VMware VMs.
+
+**FAILED Workaround**
+Originally, I tried to follow guides such as this one: https://www.tenforums.com/tutorials/76570-customize-oem-support-information-windows-10-a.html in order to change the "Model" field to the expected value ("VMware Virtual Platform") but this did not work. It turns out that there are (at least) 3 ways to view the current machine's model name:
+
+1. Via the `Control Panel`->`Settings` GUI.
+2. Via the "System Settings" windows application
+3. Via the power shell command (or similar): `Get-WmiObject win32_computerSystem`
+
+Following the guide linked above (involving adding/modifying registry keys) only changes the value of the "Model" field as shown using the 1st mechanism. However, salt uses an analogue to the 3rd mechanism and as a result the guide does not work.
+
+**Workaround**
+I ended up getting the following to work.
+
+1. Clone the server 2019 VM and install the salt-minion as usual. (At this point, the `virtual` grain will be set to "physical" and the `vmware` pillar data will be empty.)
+2. From the salt master run: `salt MINION_NAME grains.set virtual VMware`
+3. From the salt master run: `salt MINION_NAME saltutil.refresh_pillar`. At this point, the `vmware` pillar data will be populated.
+

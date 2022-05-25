@@ -1,0 +1,134 @@
+### Description of Issue
+
+We rely on zmq_filtering, which enables [publisher side filtering](https://docs.saltstack.com/en/latest/topics/transports/zeromq.html).
+
+We intend to upgrade our salt-minions to a recent version. Therefore we tested “Can the master contact the minion with zmq_filtering?”:
+
+"minion_start delay" means the time between starting the salt-minion service and the minion_start event showing up in the event bus (of an salt-master having only one minion).
+
+We used two servers:
+ - WSL = Windows Server for Linux Debian.
+ - CentOS7
+
+
+ Minion-version                            | Does `test.ping` work in both directions? (master-version: minion_start delay)
+ -------------------------------------|--------------------------------
+ 3001 Py3 | Yes (2019.2.5 Py2 CentOS8)
+ v3000.1-344-Py3-64 | Yes (WSL2: 5s)
+ 3000.1-Py3-64 | Yes (3000.2Py3 CentOS7: 60; 2018.3.4 Py2 CentOS7: NO; WSL2: 5s )
+ 2019.2.3-Py3-D64 | Yes (WSL: 5s)
+ 2018.3 (Git head 1255) Py3 64   |   Yes (2018.3.4 Py2 CentOS: 6m)
+ 2018.3.4-Py3-D64  |   No   
+ 2018.3.4-Py2-64 | Yes (2018.3.4 Py2 CentOS: 6m)
+ 2018.3.3-Py2-64 | Yes (2018.3.4 Py2 CentOS: 6m)
+ 2017.7.8-Py3-32  | No (Exception below)
+ 2016.11.10-32  | Yes (no delay)
+ 2016.11.3-64 |  Yes  (no delay)
+
+
+### Setup
+
+To enable/disable publisher side filtering we used the following 6 steps:
+1. Stop salt-master service
+2. Stop salt-minion service
+3. Add/remove the setting “zmq_filtering: True” on the master
+4. Add/remove the setting “zmq_filtering: True” on the minion
+5. Start salt-master service
+6. Start salt-minion service
+
+
+We used the following two commands to test “can the server contact the minion?”:
+1. salt minion1 test.version
+2. salt-run manage.status
+
+Success of "salt-run manage.status" is given when the minion status is “up”.
+
+
+## Notes
+
+All above minions can contact the master without zmq_filtering.
+
+All above minions can contact the master with zmq_filtering, except 2017.7.8-Py3-x86 (see below).
+
+We noted that after disabling publisher side filtering, it took several minutes before the master could contact the minion. 
+
+
+### Salt-Minion-2017.7.8-Py3-x86-Setup.exe
+
+Salt-Minion-2017.7.8-Py3-x86-Setup.exe and “publisher side filtering” and “\salt\salt-call -l debug test.version” resulted in an Exception. Reproduced in a second installation.
+
+
+```
+
+TypeError: unicode not allowed, use setsockopt_string
+Traceback (most recent call last):
+..snip..
+  File "C:\salt\bin\lib\site-packages\salt\minion.py", line 620, in eval_master
+    pub_channel = salt.transport.client.AsyncPubChannel.factory(self.opts, **factory_kwargs)
+  File "C:\salt\bin\lib\site-packages\salt\transport\client.py", line 162, in factory
+    return salt.transport.zeromq.AsyncZeroMQPubChannel(opts, **kwargs)
+  File "C:\salt\bin\lib\site-packages\salt\transport\zeromq.py", line 340, in __init__
+    self._socket.setsockopt(zmq.SUBSCRIBE, self.hexid)
+  File "zmq\backend\cython\socket.pyx", line 374, in zmq.backend.cython.socket.Socket.set (zmq\backend\cython\socket.c:4610)
+TypeError: unicode not allowed, use setsockopt_string
+
+```
+
+#### Second note on Salt-Minion-2017.7.8-Py3-x86-Setup.exe
+
+About 30 minutes after the TypeError, a python.exe process with an empty command line (command line is an optional column of Windows Task-Manager/Processes) uses 28% CPU, resulting in 50% overall CPU consumption and a fan running at maximum. 
+	
+
+### Versions Report
+
+The salt-master has default configuration. 
+
+The only change to the configuration is zmq_filtering.
+
+```
+
+salt-run --versions-report
+Salt Version:
+           Salt: 2018.3.4
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Jun 20 2019, 20:27:34)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.6.1810 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-957.21.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.6.1810 Core
+
+
+```
+

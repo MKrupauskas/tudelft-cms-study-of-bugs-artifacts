@@ -1,0 +1,165 @@
+**Description**
+```
+[root@saltmaster01 ~]# salt 'minion' saltcheck.run_state_tests whatever.whatever
+whatever:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 394, in render_jinja_tmpl
+        output = template.render(**decoded_context)
+      File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 1090, in render
+        self.environment.handle_exception()
+      File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 832, in handle_exception
+        reraise(*rewrite_traceback_stack(source=source))
+      File "/usr/lib/python3.6/site-packages/jinja2/_compat.py", line 28, in reraise
+        raise value.with_traceback(tb)
+      File "<template>", line 1, in top-level template code
+      File "/usr/lib/python3.6/site-packages/salt/utils/jinja.py", line 193, in get_source
+        raise TemplateNotFound(template)
+    jinja2.exceptions.TemplateNotFound: whatever/map.jinja
+    
+    During handling of the above exception, another exception occurred:
+    
+    Traceback (most recent call last):
+      File "/usr/lib/python3.6/site-packages/salt/minion.py", line 1676, in _thread_return
+        return_data = minion_instance.executors[fname](opts, data, func, args, kwargs)
+      File "/usr/lib/python3.6/site-packages/salt/executors/direct_call.py", line 12, in execute
+        return func(*args, **kwargs)
+      File "/usr/lib/python3.6/site-packages/salt/modules/saltcheck.py", line 431, in run_state_tests
+        stl.load_test_suite()
+      File "/usr/lib/python3.6/site-packages/salt/modules/saltcheck.py", line 972, in load_test_suite
+        self._load_file_salt_rendered(myfile)
+      File "/usr/lib/python3.6/site-packages/salt/modules/saltcheck.py", line 980, in _load_file_salt_rendered
+        tests = _render_file(filepath)
+      File "/usr/lib/python3.6/site-packages/salt/modules/saltcheck.py", line 507, in _render_file
+        rendered = __salt__['slsutil.renderer'](file_path)
+      File "/usr/lib/python3.6/site-packages/salt/modules/slsutil.py", line 182, in renderer
+        **kwargs
+      File "/usr/lib/python3.6/site-packages/salt/template.py", line 101, in compile_template
+        ret = render(input_data, saltenv, sls, **render_kwargs)
+      File "/usr/lib/python3.6/site-packages/salt/renderers/jinja.py", line 70, in render
+        **kws)
+      File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 169, in render_tmpl
+        output = render_str(tmplstr, context, tmplpath)
+      File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 443, in render_jinja_tmpl
+        trace=tracestr)
+    salt.exceptions.SaltRenderError: Jinja error: whatever/map.jinja
+    Traceback (most recent call last):
+      File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 394, in render_jinja_tmpl
+        output = template.render(**decoded_context)
+      File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 1090, in render
+        self.environment.handle_exception()
+      File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 832, in handle_exception
+        reraise(*rewrite_traceback_stack(source=source))
+      File "/usr/lib/python3.6/site-packages/jinja2/_compat.py", line 28, in reraise
+        raise value.with_traceback(tb)
+      File "<template>", line 1, in top-level template code
+      File "/usr/lib/python3.6/site-packages/salt/utils/jinja.py", line 193, in get_source
+        raise TemplateNotFound(template)
+    jinja2.exceptions.TemplateNotFound: whatever/map.jinja
+    
+    ; line 1
+    
+    ---
+    {% from "whatever/map.jinja" import whatever with context %}    <======================
+    
+    [...]
+    ---
+ERROR: Minions returned with non-zero exit code
+```
+
+**Setup**
+```
+salt/
+  base/
+    whatever/
+      saltcheck/
+        whatever.tst
+    whatever.sls
+    map.jinja
+    defaults.yaml
+```
+
+The map.jinja contains
+```
+{% import_yaml 'whatever/defaults.yaml' as default_settings %}
+
+{% set init_map = salt['grains.filter_by']({
+        'CentOS Linux-7': {
+          'process': {
+            'servicemode': '644',
+          }
+        }
+  }
+  , grain="osfinger"
+  , merge=salt['pillar.get']('whatever:lookup'))
+%}
+
+{% do default_settings.whatever.update(init_map) %}
+
+{% set whatever = salt['pillar.get'](
+        'whatever',
+        default=default_settings.whatever,
+        merge=True
+    )
+%}
+```
+
+The whatever.tst file contains
+```
+{% from "whatever/map.jinja" import whatever with context %}
+
+verify_package_version:
+  module_and_function:  pkg.version
+  args:
+    - {{ whatever.pkg }}
+  kwargs:
+  assertion: assertEqual
+  expected_return: {{ whatever.pkg }}-{{ whatever.version }}
+```
+
+**Expected behavior**
+I should be able to use the `map.jinja` from a formula in a saltcheck test.
+
+**Versions Report**
+```
+Salt Version:
+           Salt: 3000.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.1
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Aug  7 2019, 17:28:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 15.3.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.7.1908 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1062.18.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.7.1908 Core
+```
+</details>
+
+**Additional context**
+Add any other context about the problem here.

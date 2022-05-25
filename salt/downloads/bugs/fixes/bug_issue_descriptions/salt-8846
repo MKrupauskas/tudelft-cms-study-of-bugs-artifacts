@@ -1,0 +1,146 @@
+This was found against the 0.17.2
+
+It looks like ordering is broken when a names array is used with requires.  Here is an example sls file:
+
+```
+pkg-core:
+  pkg.latest:
+    - names:
+      - update-notifier-common
+      - apt-transport-https
+      - python-apt
+
+wheezy-backports-pkgrepo:
+  pkgrepo.managed:
+    - humanname: Wheezy Backports
+    - name: deb http://{{ pillar.get('deb_mirror_prefix', 'ftp.us') }}.debian.org/debian wheezy-backports main
+    - file: /etc/apt/sources.list.d/wheezy-backports.list
+    - requires:
+      - pkg: pkg-core
+```
+
+The problem is that not all of the packages are installed before the pkgrepo is executed.  In this case it will fail as `python-apt` is required for `pkgrepo`.
+
+Dumping the high state looks reasonable:
+
+```
+local:
+    ----------
+    pkg-core:
+        ----------
+        __env__:
+            base
+        __sls__:
+            test
+        pkg:
+            ----------
+            - names:
+                - update-notifier-common
+                - apt-transport-https
+                - python-apt
+            - latest
+            ----------
+            - order:
+                10000
+    wheezy-backports-pkgrepo:
+        ----------
+        __env__:
+            base
+        __sls__:
+            test
+        pkgrepo:
+            ----------
+            - humanname:
+                Wheezy Backports
+            ----------
+            - name:
+                deb http://ftp.us.debian.org/debian wheezy-backports main
+            ----------
+            - file:
+                /etc/apt/sources.list.d/wheezy-backports.list
+            ----------
+            - requires:
+                ----------
+                - pkg:
+                    pkg-core
+            - managed
+            ----------
+            - order:
+                10001
+```
+
+However, dumping the low state shows this:
+
+```
+local:
+    ----------
+    - __env__:
+        base
+    - __id__:
+        pkg-core
+    - __sls__:
+        test
+    - fun:
+        latest
+    - name:
+        apt-transport-https
+    - order:
+        10001
+    - state:
+        pkg
+    ----------
+    - __env__:
+        base
+    - __id__:
+        wheezy-backports-pkgrepo
+    - __sls__:
+        test
+    - file:
+        /etc/apt/sources.list.d/wheezy-backports.list
+    - fun:
+        managed
+    - humanname:
+        Wheezy Backports
+    - name:
+        deb http://ftp.us.debian.org/debian wheezy-backports main
+    - order:
+        10001
+    - requires:
+        ----------
+        - pkg:
+            pkg-core
+    - state:
+        pkgrepo
+    ----------
+    - __env__:
+        base
+    - __id__:
+        pkg-core
+    - __sls__:
+        test
+    - fun:
+        latest
+    - name:
+        python-apt
+    - order:
+        10002
+    - state:
+        pkg
+    ----------
+    - __env__:
+        base
+    - __id__:
+        pkg-core
+    - __sls__:
+        test
+    - fun:
+        latest
+    - name:
+        update-notifier-common
+    - order:
+        10003
+    - state:
+        pkg
+```
+
+It looks like name expansion just increments the order index that is assigned during the highstate parsing stage.  But this causes it to overlap with other states and violates the ordering implied by `require`.

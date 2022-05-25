@@ -1,0 +1,92 @@
+### Description of Issue
+Running my reboot orchestration (which calls `system.reboot` and waits on minions sequentially) now (2019.2.1 vs 2018.3.4) returns errors for every minion.
+
+> [ERROR   ] No changes made for system.reboot
+
+```
+minion_master:
+----------
+          ID: reboot_minion
+    Function: salt.function
+      Result: False
+     Comment:
+     Started: 10:25:44.068240
+    Duration: 25508.371 ms
+     Changes:
+  Name: wait_for_minion - Function: salt.wait_for_event - Result: Changed Started: - 10:26:09.577013 Duration: 114922.756 ms
+  Name: pause_after_minion - Function: salt.runner - Result: Changed Started: - 10:28:04.500137 Duration: 60150.684 ms
+```
+
+While I understand the minion response may be lost while rebooting (e.g. #24297, though this isn't EL7), this error sounds like the minion decided not to reboot at all (though it did).
+
+### Steps to Reproduce Issue
+```
+{% for minion_id in salt['saltutil.wheel']('minions.connected')['return'] -%}
+{% if minion_id not in grains['id'] -%}{#- do not reboot this _master -#}
+
+reboot_{{ minion_id }}:
+  salt.function:
+    - name: system.reboot
+    - tgt: {{ minion_id }}
+    - order: {{ 3 * loop.index }}
+
+wait_for_{{ minion_id }}:
+  salt.wait_for_event:
+    - name: salt/minion/*/start
+    - id_list: [ {{ minion_id }} ]
+    - order: {{ 3 * loop.index + 1}}
+    - failhard: true
+
+pause_after_{{ minion_id }}:
+  salt.runner:
+    - name: test.sleep
+    - s_time: 60
+    - order: {{ 3 * loop.index + 2}}
+
+{% endif -%}
+{% endfor -%}
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2019.2.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.26.0
+        libnacl: Not Installed
+       M2Crypto: 0.32.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.2
+         Python: 3.6.8 (default, Aug 20 2019, 17:12:48)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: ISO-8859-1
+        machine: x86_64
+        release: 4.15.0-64-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```

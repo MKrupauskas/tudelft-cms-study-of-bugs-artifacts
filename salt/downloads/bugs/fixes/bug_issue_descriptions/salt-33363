@@ -1,0 +1,85 @@
+I am using state.single from an execution module:
+
+```
+result = __salt__["state.single"]("user.absent", name=username, force=True, purge=False, test=False)
+```
+
+however when I execute my execution module from the command line the output makes it clear that `state.single` is in fact executing as if test=True.  I used pdb to confirm the args being passed to `state.single`.  Here is the output of the args when I set a breakpoint in the state execution module's single function:
+
+```
+(Pdb) args
+fun = user.absent
+name = bogus
+test = False
+queue = False
+kwargs = {'purge': False, 'force': True, 'name': 'bogus', 'state': 'user', '__pub_fun': 'state.single', '__pub_jid': '20160519130902427317', '__id__': 'bogus', '__pub_tgt': 'salt-call', 'fun': 'absent', '__pub_pid': 30168}
+```
+
+The same behavior occurs when executing the equivalent statement from the command line:
+
+```
+salt-call state.single user.absent name=bogus force=True purge=False test=False
+```
+
+results in:
+
+```
+local:
+----------
+          ID: bogus
+    Function: user.absent
+      Result: None
+     Comment: User bogus set for removal
+     Started: 13:39:50.096742
+    Duration: 2.857 ms
+     Changes:
+
+Summary
+------------
+Succeeded: 1 (unchanged=1)
+Failed:    0
+------------
+Total states run:     1
+```
+
+The issue is lines 1086-1089 in salt/modules/state.py:
+
+```
+    if salt.utils.test_mode(test=test, **kwargs):
+        opts['test'] = True
+    else:
+        opts['test'] = __opts__.get('test', None)
+```
+
+since `test=False` it takes the else branch which sets `opts['test']` based on the minion config.  This is fine for the default minion config where `test=False` but does not work when the minion config specifies `test=True`.  The value of the explicit `test`` argument to`single()``` should always override the minion config value.
+
+`salt --versions-report`:
+
+```
+           Salt: 2015.5.10
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.7.0
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+        Tornado: Not Installed
+        timelib: Not Installed
+       dateutil: 1.5
+```
+
+I think these lines should be changed to:
+
+```
+    if test is not None:
+        opts['test'] = salt.utils.test_mode(test=test, **kwargs)
+    else:
+        opts['test'] = __opts__.get('test', None)
+```

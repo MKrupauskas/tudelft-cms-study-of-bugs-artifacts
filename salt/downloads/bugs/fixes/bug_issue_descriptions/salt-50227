@@ -1,0 +1,140 @@
+### Description of Issue/Question
+The current implementation of the salt/utils/mac_utils.py module uses exception handling during plist reading primarily as a means for dealing with binary encoded plists. However, it doesn't correctly handle plists which are invalid, leading to an unhandled exception blowing up the `_available_services` function.
+
+Obviously, you shouldn't have any broken launchd plists sitting around, but I found one on a machine in our environment.
+
+I have a fix for this incoming as a PR.
+
+### Setup
+Any Mac client.
+
+### Steps to Reproduce Issue
+1. Generate an incorrectly formed launchd plist: `sudo echo 'LOL' > /Library/LaunchDaemons/com.awesome.test.plist`
+2. Run anything relying on the `mac_utils` services check: `sudo salt-call service.enabled com.awesome.test`
+```
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+InvalidFileException: Invalid file
+Traceback (most recent call last):
+  File "/opt/salt/lib/python3.5/site-packages/salt/utils/mac_utils.py", line 324, in _available_services
+    plist = plistlib.readPlist(true_path)
+  File "/opt/salt/lib/python3.5/plistlib.py", line 164, in readPlist
+    dict_type=_InternalDict)
+  File "/opt/salt/lib/python3.5/plistlib.py", line 991, in load
+    raise InvalidFileException()
+plistlib.InvalidFileException: Invalid file
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/salt/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/opt/salt/lib/python3.5/site-packages/salt/scripts.py", line 400, in salt_call
+    client.run()
+  File "/opt/salt/lib/python3.5/site-packages/salt/cli/call.py", line 57, in run
+    caller.run()
+  File "/opt/salt/lib/python3.5/site-packages/salt/cli/caller.py", line 134, in run
+    ret = self.call()
+  File "/opt/salt/lib/python3.5/site-packages/salt/cli/caller.py", line 212, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/opt/salt/lib/python3.5/site-packages/salt/modules/mac_service.py", line 406, in enabled
+    list_(name=name, runas=runas)
+  File "/opt/salt/lib/python3.5/site-packages/salt/modules/mac_service.py", line 153, in list_
+    service = _get_service(name)
+  File "/opt/salt/lib/python3.5/site-packages/salt/modules/mac_service.py", line 64, in _get_service
+    services = __utils__['mac_utils.available_services']()
+  File "/opt/salt/lib/python3.5/site-packages/salt/utils/decorators/__init__.py", line 185, in _memoize
+    cache[args_] = func(*args, **kwargs)
+  File "/opt/salt/lib/python3.5/site-packages/salt/utils/mac_utils.py", line 368, in available_services
+    return _available_services()
+  File "/opt/salt/lib/python3.5/site-packages/salt/utils/mac_utils.py", line 336, in _available_services
+    salt.utils.stringutils.to_bytes(plist_xml))
+  File "/opt/salt/lib/python3.5/plistlib.py", line 1006, in loads
+    fp, fmt=fmt, use_builtin_types=use_builtin_types, dict_type=dict_type)
+  File "/opt/salt/lib/python3.5/plistlib.py", line 991, in load
+    raise InvalidFileException()
+plistlib.InvalidFileException: Invalid file
+Traceback (most recent call last):
+  File "/opt/salt/lib/python3.5/site-packages/salt/utils/mac_utils.py", line 324, in _available_services
+    plist = plistlib.readPlist(true_path)
+  File "/opt/salt/lib/python3.5/plistlib.py", line 164, in readPlist
+    dict_type=_InternalDict)
+  File "/opt/salt/lib/python3.5/plistlib.py", line 991, in load
+    raise InvalidFileException()
+plistlib.InvalidFileException: Invalid file
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/salt/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/opt/salt/lib/python3.5/site-packages/salt/scripts.py", line 400, in salt_call
+    client.run()
+  File "/opt/salt/lib/python3.5/site-packages/salt/cli/call.py", line 57, in run
+    caller.run()
+  File "/opt/salt/lib/python3.5/site-packages/salt/cli/caller.py", line 134, in run
+    ret = self.call()
+  File "/opt/salt/lib/python3.5/site-packages/salt/cli/caller.py", line 212, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/opt/salt/lib/python3.5/site-packages/salt/modules/mac_service.py", line 406, in enabled
+    list_(name=name, runas=runas)
+  File "/opt/salt/lib/python3.5/site-packages/salt/modules/mac_service.py", line 153, in list_
+    service = _get_service(name)
+  File "/opt/salt/lib/python3.5/site-packages/salt/modules/mac_service.py", line 64, in _get_service
+    services = __utils__['mac_utils.available_services']()
+  File "/opt/salt/lib/python3.5/site-packages/salt/utils/decorators/__init__.py", line 185, in _memoize
+    cache[args_] = func(*args, **kwargs)
+  File "/opt/salt/lib/python3.5/site-packages/salt/utils/mac_utils.py", line 368, in available_services
+    return _available_services()
+  File "/opt/salt/lib/python3.5/site-packages/salt/utils/mac_utils.py", line 336, in _available_services
+    salt.utils.stringutils.to_bytes(plist_xml))
+  File "/opt/salt/lib/python3.5/plistlib.py", line 1006, in loads
+    fp, fmt=fmt, use_builtin_types=use_builtin_types, dict_type=dict_type)
+  File "/opt/salt/lib/python3.5/plistlib.py", line 991, in load
+    raise InvalidFileException()
+plistlib.InvalidFileException: Invalid file
+```
+Also, this can be replicated trying to manage _other_ services too:
+`sudo salt-call service.enabled com.googlecode.munki.managedsoftwareupdate-check.plist` for example should work in our environment, but it fails due to the broken plist we put in during step 1.
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+Salt Version:
+           Salt: 2018.3.2
+
+Dependency Versions:
+           cffi: 1.11.2
+       cherrypy: 13.0.0
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.7
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.3 (default, Jun 18 2018, 16:05:29)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: 0.2.4
+        Tornado: 4.5.2
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 17.4.0
+         system: Darwin
+        version: 10.13.3 x86_64

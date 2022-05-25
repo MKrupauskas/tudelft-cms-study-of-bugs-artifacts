@@ -1,0 +1,50 @@
+I'm running the following version: salt-ssh 2015.2.0-935-g41d0c1a
+
+When I try to provide pillar data like this:
+
+salt-ssh state.sls state-name pillar='{"command":"activate"}'
+
+I get following error:
+
+<pre>
+    An Exception occurred while executing state.sls: dictionary update sequence element #0 has length 1; 2 is required
+</pre>
+
+
+This exception is thrown from sls() function in file client/ssh/wrapper/state.py, here is line causing exception:
+
+<pre>
+    __pillar__.update(kwargs.get('pillar', {}))
+</pre>
+
+
+This happens because pillar option is represented by string, not by dictionary. Command line processing is done in function **arg_comps() of class Single in file client/ssh/__init**.py (I removed comments):
+
+<pre>
+    def __arg_comps(self):
+        fun = self.argv[0] if self.argv else ''
+        args = []
+        kws = {}
+        for arg in self.argv[1:]:
+            if re.match(r'\w+=', arg):
+                (key, val) = arg.split('=', 1)
+                kws[key] = val
+            else:
+                args.append(arg)
+        return fun, args, kws
+</pre>
+
+
+All key=value pairs are processed in same fashion, there is no attempt to transform pillar data into dictionary.
+
+I think most reasonable fix would be to change
+
+<pre>
+    __pillar__.update(kwargs.get('pillar', {}))
+</pre>
+
+to
+
+<pre>
+    __pillar__.update(eval(kwargs.get('pillar', '{}')))
+</pre>

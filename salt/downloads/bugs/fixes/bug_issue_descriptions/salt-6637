@@ -1,0 +1,88 @@
+Salt minion on Windows Server 2012 exhibits a bit strange behavior - when `salt '*' state.highstate` invoked it calls package installation regardless without considering whether it has been installed already or not. And it shows no output on the salt-master, just quietly finishes.
+
+Also, may be helpfull in understanding what the issue is - invoking `salt '*win*' pkg.list_pkgs` results in the output where packages names are not the full name as specified in repo/.../init.sls, but the topmost name of the package, e.g. below
+
+```
+$ cat /srv/salt/os/windows/repo/chrome/init.sls
+chrome:
+  28.0.1500.95:
+    installer: 'salt://os/windows/repo/chrome/ChromeSetup.exe'
+    full_name: Google Chrome
+    locale: en_US
+    reboot: False
+    install_flags: ''
+    uninstaller: 'C:\Program Files (x86)\Google\Chrome\Application\28.0.1500.95\Installer\setup.exe'
+    uninstall_flags: ' --uninstall -force-uninstall'
+```
+
+```
+$ salt '*win*' pkg.list_pkgs
+win2012.example.com:
+    ----------
+    7z:
+        9.20.00.0
+    Google Update Helper:
+        1.3.21.153
+    Microsoft Visual C++ 2008 Redistributable - x64 9.0.30729.6161:
+        9.0.30729.6161
+    Microsoft Visual C++ 2008 Redistributable - x86 9.0.30729.4148:
+        9.0.30729.4148
+    Python 2.7.5 (64-bit):
+        2.7.5150
+    Salt Minion 0.16.2:
+        0.16.2
+    VMware Tools:
+        8.6.11.20852
+    chrome:
+        28.0.1500.95
+    far:
+        3.0.3525
+    winscp:
+        5.2.2 beta
+```
+
+Another thing, which may help to understand the nature of the problem - windows minion log, where is seems like few problems reported as errors (e.g. 'Not able to read repo file'), but few other things are mistakenly reported as problems (e.g. '[ERROR   ] No changes made for 7z').
+
+```
+cat C:\salt\var\log\salt-minion.log
+...
+2013-08-12 12:36:30,604 [salt.crypt       ][ERROR   ] The Salt Master has cached the public key for this node, this salt minion will wait for 10 seconds before attempting to re-authenticate
+2013-08-12 12:36:59,979 [salt.loaded.int.module.win_pkg][ERROR   ] Not able to read repo file
+2013-08-12 12:36:59,979 [salt.loaded.int.module.win_pkg][ERROR   ] [Errno 22] invalid mode ('r') or filename: ''
+Traceback (most recent call last):
+  File "salt/modules/win_pkg.py", line 664, in get_repo_data
+  File "salt/utils/__init__.py", line 825, in fopen
+IOError: [Errno 22] invalid mode ('r') or filename: ''
+2013-08-12 12:37:02,225 [salt.state       ][ERROR   ] Installed Packages:
+7z changed from absent to 9.20.00.0
+
+2013-08-12 12:37:32,958 [salt.state       ][ERROR   ] Installed Packages:
+chrome changed from absent to 28.0.1500.95
+
+2013-08-12 12:37:36,577 [salt.state       ][ERROR   ] Installed Packages:
+far changed from absent to 3.0.3525
+
+2013-08-12 12:37:43,277 [salt.state       ][ERROR   ] Installed Packages:
+winscp changed from absent to 5.2.2 beta
+
+2013-08-12 12:41:39,526 [salt.state       ][ERROR   ] No changes made for 7z
+2013-08-12 12:41:47,950 [salt.state       ][ERROR   ] No changes made for chrome
+2013-08-12 12:41:48,860 [salt.state       ][ERROR   ] No changes made for far
+2013-08-12 12:41:51,149 [salt.state       ][ERROR   ] No changes made for winscp
+```
+
+Output below will help to understand the version situation 
+
+```
+c:\salt\salt --versions-report
+           Salt: 0.16.2
+         Python: 2.7.3 (default, Apr 10 2012, 23:24:47) [MSC v.1500 64 bit (AMD64)]
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.12
+   msgpack-pure: Not Installed
+       pycrypto: 2.3
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.2
+```

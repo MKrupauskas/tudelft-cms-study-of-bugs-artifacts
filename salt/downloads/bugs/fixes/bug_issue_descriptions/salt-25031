@@ -1,0 +1,79 @@
+Hello everyone,
+
+I just added a [formula](https://github.com/DataDog/datadog-formula) to our gitfs remotes. Everything synced fine both on the master and the minion:
+
+On the master:
+
+```
+root@salt-master:/srv/saltstack# ls /var/cache/salt/master/gitfs/refs/base/datadog/
+init.sls
+```
+
+On the minions:
+
+```
+root@myminion:/tmp# ls /var/cache/salt/minion/files/base/datadog/
+init.sls
+```
+
+Yet I cannot run the state.
+
+```
+root@salt-master:/srv/saltstack# salt "mymion*" state.highstate
+myminion:
+    Data failed to compile:
+----------
+    Rendering SLS 'base:datadog' failed: Jinja variable 'dict object' has no attribute 'datadog'
+```
+
+Also calling the state directly with `state.sls datadog` does not work.
+
+I've inspected the salt-minion with [sysdig](http://www.sysdig.org/), and there are indeed file reads to the datadog state file.
+
+```
+root@staging:/tmp# sysdig -r test-salt.scap "fd.name contains /var/cache/salt/minion/files/base/data" -c spy_file                                      
+13:53:08.707891082 salt-minion(29261) R 1.21KB /var/cache/salt/minion/files/base/datadog/init.sls 
+datadog-repo:
+  pkgrepo:
+    - managed
+    - humanname: \"Datadog Agent\"
+    {% i
+13:53:08.707894299 salt-minion(29261) R 0B /var/cache/salt/minion/files/base/datadog/init.sls 
+13:53:08.707903798 salt-minion(29261) R 0B /var/cache/salt/minion/files/base/datadog/init.sls 
+13:53:08.747595500 salt-minion(29261) R 1.21KB /var/cache/salt/minion/files/base/datadog/init.sls 
+datadog-repo:
+  pkgrepo:
+    - managed
+    - humanname: \"Datadog Agent\"
+    {% i
+13:53:08.747691095 salt-minion(29261) R 1.21KB /var/cache/salt/minion/files/base/datadog/init.sls 
+datadog-repo:
+  pkgrepo:
+    - managed
+    - humanname: \"Datadog Agent\"
+    {% i
+13:53:08.747694448 salt-minion(29261) R 0B /var/cache/salt/minion/files/base/datadog/init.sls 
+13:53:08.747711677 salt-minion(29261) R 0B /var/cache/salt/minion/files/base/datadog/init.sls 
+```
+
+I've tried to clear the gitfs cache with `salt-run fileserver.clear_cache backend=git` and re fetch everything with `salt-run fileserver.update` without any success.
+
+Salt version:
+
+```
+                  Salt: 2014.7.4
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2014.7.4+ds-1trusty1
+```

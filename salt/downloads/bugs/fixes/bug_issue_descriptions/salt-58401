@@ -1,0 +1,293 @@
+**Description**
+I'm actually testing 3001.1 in order to perform the migration from 2019.2.5 and I'm experiencing shuffled states that trigger changes every time the minion execute a `state.apply`.
+Since we are still using LTS identified distros that ships only python35 (ie. we are mainly operating Debian Stretch and Ubuntu Xenial), I don't think I am alone with this behaviour (... or maybe i'm wrong and everyone has already switched on python3.7+ ).
+
+**Setup**
+For the convenience, [i've pushed a branch on my fork with a rough docker setup that reproduce this issue](https://github.com/kiniou/salt/tree/test-issue-with-shuffled-keys-with-python35).
+It also contains a buster that shows this distro is not affected.
+You should be able to use `docker-compose up` and run twice the `state.apply` inside each minions to see the issue:
+```
+$ docker-compose up -d
+$ for distro in stretch xenial buster; do echo "===> ${distro} highstate <==="; docker-compose exec ${distro}-minion sh -c "salt-call state.apply"; done
+```
+Anyway, here are details about the basic setup i've been using:
+```
+pillars
+ test.sls
+ top.sls
+states
+ test.d
+    test.txt
+ test.sls
+ top.sls
+```
+
+* `pillars/top.sls`
+```yaml
+base:
+  '*':
+    - test
+```
+ 
+* `pillars/test.sls`
+```yaml
+dummy:
+  all: "*"
+  foo: "I@roles:foo"
+  bar: "I@roles:bar"
+  foobar: "I@roles:foo and I@roles:bar"
+  0: 'test0'
+  1: 'test1'
+  2: 'test2'
+```
+
+* `states/top.sls`
+```yaml
+base:
+  '*':
+    - test
+```
+
+* `states/test.sls`
+```yaml
+/opt/test:
+  file.managed:
+    - source: salt://test.d/test.txt
+    - template: jinja
+```
+
+* `states/test.d/test.txt`
+```sls
+{% set dummy = pillar.get('dummy', {}) %}
+dummy:
+  {%- for k,v in dummy.items() %}
+  {{ k }}: "{{ v }}"
+  {%- endfor %}
+```
+
+**Steps to Reproduce the behavior**
+Run `state.apply` twice and you should observe diff changes on the second execution.
+
+**Expected behavior**
+There should be no changes at all after running successive `state.apply`.
+
+**Screenshots**
+
+* stretch highstate
+```
+local:
+----------
+          ID: /opt/test
+    Function: file.managed
+      Result: True
+     Comment: File /opt/test updated
+     Started: 15:50:03.628162
+    Duration: 36.26 ms
+     Changes:   
+              ----------                                                                                                      
+              diff:
+                  --- 
+                  +++ 
+                  @@ -3,8 +3,8 @@
+                   dummy:
+                     0: "test0"
+                     1: "test1"
+                  -  2: "test2"
+                  -  all: "*"
+                     bar: "I@roles:bar"
+                     foobar: "I@roles:foo and I@roles:bar"
+                     foo: "I@roles:foo"
+                  +  all: "*"
+                  +  2: "test2"
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  36.260 ms
+```
+
+* xenial highstate
+```
+local:
+----------
+          ID: /opt/test
+    Function: file.managed
+      Result: True
+     Comment: File /opt/test updated
+     Started: 15:50:05.474830
+    Duration: 30.942 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -2,9 +2,9 @@
+                   
+                   dummy:
+                     0: "test0"
+                  +  1: "test1"
+                  +  2: "test2"
+                  +  bar: "I@roles:bar"
+                     all: "*"
+                  -  2: "test2"
+                     foo: "I@roles:foo"
+                  -  bar: "I@roles:bar"
+                  -  1: "test1"
+                     foobar: "I@roles:foo and I@roles:bar"
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  30.942 ms
+```
+* buster highstate
+```
+local:
+----------
+          ID: /opt/test
+    Function: file.managed
+      Result: True
+     Comment: File /opt/test is in the correct state
+     Started: 15:50:07.166412
+    Duration: 23.65 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:  23.650 ms
+```
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+===> stretch <===
+Salt Version:
+           Salt: 3001.1-366-ge54503d265
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.2
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 1.0.0
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: 3.9.8
+         pygit2: Not Installed
+         Python: 3.5.3 (default, Jul  9 2020, 13:00:10)
+   python-gnupg: Not Installed
+         PyYAML: 5.3.1
+          PyZMQ: 19.0.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+ 
+System Versions:
+           dist: debian 9 stretch
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 5.4.0-45-generic
+         system: Linux
+        version: Debian GNU/Linux 9 stretch
+ 
+===> xenial <===
+Salt Version:
+           Salt: 3001.1-366-ga63df5e
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.2
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 1.0.0
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: 3.9.8
+         pygit2: Not Installed
+         Python: 3.5.2 (default, Jul 17 2020, 14:04:10)
+   python-gnupg: Not Installed
+         PyYAML: 5.3.1
+          PyZMQ: 19.0.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+ 
+System Versions:
+           dist: ubuntu 16.04 xenial
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 5.4.0-45-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+ 
+===> buster <===
+Salt Version:
+           Salt: 3001.1-366-ga63df5e801
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.2
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 1.0.0
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: 3.9.8
+         pygit2: Not Installed
+         Python: 3.7.3 (default, Jul 25 2020, 13:03:44)
+   python-gnupg: Not Installed
+         PyYAML: 5.3.1
+          PyZMQ: 19.0.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+ 
+System Versions:
+           dist: debian 10 buster
+         locale: utf-8
+        machine: x86_64
+        release: 5.4.0-45-generic
+         system: Linux
+        version: Debian GNU/Linux 10 buster
+
+```
+</details>
+

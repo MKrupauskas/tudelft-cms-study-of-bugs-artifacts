@@ -1,0 +1,93 @@
+### Description of Issue/Question
+
+``rvm.installed`` is meant to install a specific version of ruby, installing RVM along the way if it is not present on the system.
+
+RVM supports wildcard ruby versions.  ``ruby-2.4`` will install the latest bug fix release i.e. ``ruby-2.4.1``, ``ruby-2`` will install the latest bugfix release of the latest minor release, ``ruby`` will install the latest ruby release.
+
+When ``rvm.installed`` runs it calls ``rvm list`` to list installed rubies.  Unfortunately it doesn't implement the correct matching logic, so doesn't detect that the specified ruby version is installed (even if it is). The state then calls ``rvm install <ruby>`` at which point RVM complains that version of ruby is already installed.
+
+The state emits the error ``Could not install ruby`` which is entirely unhelpful.  The debug log tells the whole story however:
+
+```
+[INFO    ] Executing state rvm.installed for [ruby]
+[INFO    ] Executing command ['/usr/local/rvm/bin/rvm', 'list'] in directory '/root'
+[DEBUG   ] stdout: 
+rvm rubies
+
+   ruby-2.4.1 [ x86_64 ]
+
+# Default ruby not set. Try 'rvm alias create default <ruby>'.
+
+# => - current
+# =* - current && default
+#  * - default
+[INFO    ] Executing command ['/usr/local/rvm/bin/rvm', 'install', 'ruby'] in directory '/root'
+[DEBUG   ] stderr: Already installed ruby-2.4.1.
+To reinstall use:
+
+    rvm reinstall ruby-2.4.1
+[ERROR   ] Could not install ruby.
+[INFO    ] Completed state [ruby] at time 05:19:57.103816 duration_in_ms=2780.75
+[INFO    ] Running state [redis_cluster_utils_install] at time 05:19:57.105852
+```
+
+It seems like the only way to really fix this is to attempt an ``rvm install`` and catch the ``already installed`` error, as there doesn't appear to be a way to resolve a wildcard ruby to an actual ruby version.
+
+### Setup
+```
+install_latest_rvm_ruby:
+  rvm.installed:
+    - name: ruby
+```
+
+### Steps to Reproduce Issue
+Run the above state twice.  You may need to import the signing keys for installation to succeed.
+
+```bash
+gpg --keyserver hkp://keys.gnupg.net --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3 7D2BAF1CF37B13E2069D6956105BD0E739499BDB
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, May  3 2017, 07:55:04)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: redhat 7.3 Maipo
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-514.el7.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 7.3 Maipo
+ ```
+

@@ -1,0 +1,55 @@
+In some cases nested gitfs_remotes options are read as non-string values from the master config.
+
+**Example**
+
+``` yaml
+gitfs_remotes:
+  - git@github.com:Vye/gitfstest.git:
+    - base: 2014.7
+```
+
+The above config will not work because YAML converts `2014.7` to a float which will get you a nasty exception on the master every time it tries to retrieve that revision.
+
+```
+[ERROR   ] Exception 'float' object has no attribute 'startswith' occurred in file server update
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/daemons/masterapi.py", line 216, in fileserver_update
+    fileserver.update()
+  File "/usr/lib/python2.6/site-packages/salt/fileserver/__init__.py", line 312, in update
+    self.servers[fstr]()
+  File "/usr/lib/python2.6/site-packages/salt/fileserver/gitfs.py", line 993, in update
+    find_file
+  File "/usr/lib/python2.6/site-packages/salt/fileserver/__init__.py", line 237, in reap_fileserver_cache_dir
+    ret = find_func(filename, saltenv=saltenv)
+  File "/usr/lib/python2.6/site-packages/salt/fileserver/gitfs.py", line 1153, in find_file
+    tree = _get_tree_gitpython(repo, tgt_env)
+  File "/usr/lib/python2.6/site-packages/salt/fileserver/gitfs.py", line 359, in _get_tree_gitpython
+    commit = repo['repo'].rev_parse(tgt_env)
+  File "/usr/lib/python2.6/site-packages/git/repo/fun.py", line 124, in rev_parse
+    if rev.startswith(':/'):
+AttributeError: 'float' object has no attribute 'startswith'
+```
+
+A simple work around I've used is to wrap the value in single quotes to force YAML to return a string.
+
+When troubleshooting I noticed that nested gitfs config options are not being type checked. gitfs_remotes is verified to be `list` but other values within like gitfs_base and gitfs_mountpoint are not verified.
+
+It may make sense to add type checking to these nested options so that a sane error is produced. It may also be appropriate for salt to force these values to be strings?
+
+**salt version report**
+
+```
+           Salt: 2014.7.0-378-g0780ba4
+         Python: 2.7.5 (default, Jun 17 2014, 18:11:42)
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 4.0.4
+```

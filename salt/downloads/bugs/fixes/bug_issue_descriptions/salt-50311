@@ -1,0 +1,147 @@
+### Description of Issue/Question
+The state `pkg.installed` works as expected and installs package from external source, but it returns true which prevents depending states from being executed.
+
+This issue has just popped out on our older code base, which was not changed last days and used to work with previous releases of saltstack.
+
+### Setup
+State: 
+```
+jenkins:
+  pkg.installed:
+    - hold: True
+    - sources:
+      - jenkins: https://jenkins.korekontrol.net/get/package/jenkins_1.651.3_all.deb
+
+disable-jenkins-service:
+  service.dead:
+    - name: jenkins
+    - enable: False
+    - require:
+      - pkg: jenkins
+```
+
+### Steps to Reproduce Issue
+1. Run the state as above
+2. See in debug logs that package jenkins was fetched and installed correctly, but state anyway returned ERROR:
+```
+[DEBUG   ] Could not LazyLoad pkg.normalize_name: 'pkg.normalize_name' is not available.
+[DEBUG   ] Could not LazyLoad pkg.normalize_name: 'pkg.normalize_name' is not available.
+[DEBUG   ] Requesting URL https://jenkins.korekontrol.net/get/package/jenkins_1.651.3_all.deb using GET method
+[DEBUG   ] Using backend: tornado
+[INFO    ] Executing command [u'dpkg', u'-I', u'/var/cache/salt/minion/extrn_files/dev/jenkins.korekontrol.net/get/package/jenkins_1.651.3_all.deb'] in directory '/root'
+[INFO    ] Executing command [u'apt-get', u'-q', u'-y', u'-o', u'DPkg::Options::=--force-confold', u'-o', u'DPkg::Options::=--force-confdef', u'install', 'daemon', 'net-tools'] in directory '/root'
+[DEBUG   ] stdout: Reading package lists...
+Building dependency tree...
+Reading state information...
+The following NEW packages will be installed:
+  daemon net-tools
+0 upgraded, 2 newly installed, 0 to remove and 67 not upgraded.
+Need to get 344 kB of archives.
+After this operation, 1244 kB of additional disk space will be used.
+Get:1 http://cloudfront.debian.net/debian stretch/main amd64 daemon amd64 0.6.4-1+b2 [96.0 kB]
+Get:2 http://cloudfront.debian.net/debian stretch/main amd64 net-tools amd64 1.60+git20161116.90da8a0-1 [248 kB]
+Fetched 344 kB in 0s (773 kB/s)
+Selecting previously unselected package daemon.
+(...)
+(Reading database ... 74092 files and directories currently installed.)
+Preparing to unpack .../daemon_0.6.4-1+b2_amd64.deb ...
+Unpacking daemon (0.6.4-1+b2) ...
+Selecting previously unselected package net-tools.
+Preparing to unpack .../net-tools_1.60+git20161116.90da8a0-1_amd64.deb ...
+Unpacking net-tools (1.60+git20161116.90da8a0-1) ...
+Processing triggers for man-db (2.7.6.1-2) ...
+Setting up daemon (0.6.4-1+b2) ...
+Setting up net-tools (1.60+git20161116.90da8a0-1) ...
+[INFO    ] Executing command [u'apt-mark', u'auto', 'daemon', 'net-tools'] in directory '/root'
+[DEBUG   ] stdout: daemon set to automatically installed.
+net-tools set to automatically installed.
+[DEBUG   ] output: daemon set to automatically installed.
+net-tools set to automatically installed.
+[INFO    ] Executing command [u'dpkg', u'--get-selections', u'*'] in directory '/root'
+[INFO    ] Executing command [u'systemd-run', u'--scope', u'dpkg', u'-i', u'--force-confold', u'/var/cache/salt/minion/extrn_files/dev/jenkins.korekontrol.net/get/package/jenkins_1.651.3_all.deb'] in directory '/root'
+[INFO    ] Executing command [u'dpkg-query', u'--showformat', u'${Status} ${Package} ${Version} ${Architecture}', u'-W'] in directory '/root'
+[ERROR   ] {u'installed': {u'jenkins': {u'new': u'1.651.3', u'old': u''}, u'daemon': {u'new': u'0.6.4-1+b2', u'old': u''}, u'net-tools': {u'new': u'1.60+git20161116.90da8a0-1', u'old': u''}}}
+```
+
+3. In salt output we see that state `jenkins` failed and other states, which depend on it, were not executed:
+```
+          ID: jenkins
+    Function: pkg.installed
+      Result: False
+     Comment: Only one of pkgs or sources can be specified.
+     Started: 13:31:27.502811
+    Duration: 13049.857 ms
+     Changes:   
+              ----------
+              installed:
+                  ----------
+                  daemon:
+                      ----------
+                      new:
+                          0.6.4-1+b2
+                      old:
+                  jenkins:
+                      ----------
+                      new:
+                          1.651.3
+                      old:
+                  net-tools:
+                      ----------
+                      new:
+                          1.60+git20161116.90da8a0-1
+                      old:
+----------
+          ID: disable-jenkins-service
+    Function: service.dead
+        Name: jenkins
+      Result: False
+     Comment: One or more requisite failed: jenkins.install.jenkins
+     Started: 13:31:41.965941
+    Duration: 0.047 ms
+     Changes:  
+```
+
+### Versions Report
+Masterless setup
+Salt Version: 2018.3.3
+
+```
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Nov 24 2017, 17:33:09)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+
+System Versions:
+           dist: debian 9.5
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-7-amd64
+         system: Linux
+        version: debian 9.5
+```
+

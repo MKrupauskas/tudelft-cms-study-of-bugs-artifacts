@@ -1,0 +1,30 @@
+I've been going through this code pretty thoroughly the past few days and I noticed this pattern in a few places.
+
+```
+    try:
+        int(minor)
+    except Exception:
+        raise CommandExecutionError(
+            'Invalid minor number passed to partition.set_id'
+        )
+```
+
+I believe the intent here is to validate that the input is an integer. However the way the code is currently written it fails to throw an error on a negative integer which would be invalid input in many of the cases where this check is used. Additionally the underlying commands that are being called should be expected to do some sanity checking on their input AND catch many other classes of bad input that simply verifying that it can be cast to an int. For example, in the "rm" function an integer passed as the minor number will pass this validation even if there is no partition with the given number on the specified device. This will result in some cases where an error is raised by the module and other cases where an error is raised from 'cmd.run' when a non-zero return results.
+
+Similarly checks which attempt to enumerate the various valid argument values to parted commands mask parted's own ability to know which values are valid.
+
+```
+    if label_type not in set(['aix', 'amiga', 'bsd', 'dvh', 'gpt', 'loop', 'mac',
+        'msdos', 'pc98', 'sun']):
+        raise CommandExecutionError(
+            'Invalid label_type passed to partition.mklabel'
+          )
+```
+
+Which is fine until the underlying parted command supports a value not enumerated in the module code OR drops support for one that is enumerated. If you pass a bad value to parted it does a fine job of notifying you already
+
+```
+$ sudo parted -s /tmp/block mklabel gooooo      
+parted: invalid token: gooooo
+Error: Expecting a disk label type.
+```

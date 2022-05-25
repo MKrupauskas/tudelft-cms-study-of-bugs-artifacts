@@ -1,0 +1,58 @@
+It appears that even when I define the default hash_type on the master and the minion, salt continues to use md5 for its hash.
+
+```
+[root@master-fips ~]# cat /etc/salt/master.d/master.conf 
+hash_type: sha256
+```
+
+```
+[root@minion-fips ~]# cat /etc/salt/minion.d/master.conf 
+hash_type: sha256
+master: 10.100.128.149
+id: minion-fips
+```
+
+here is the results when trying to run a 'salt-call state.sls'
+
+```
+[root@minion-fips ~]# salt-call state.sls httpd
+[INFO    ] Loading fresh modules for state activity
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+ValueError: error:060800A3:digital envelope routines:EVP_DigestInit_ex:disabled for fips
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.6/site-packages/salt/scripts.py", line 82, in salt_call
+    client.run()
+  File "/usr/lib/python2.6/site-packages/salt/cli/__init__.py", line 314, in run
+    caller.run()
+  File "/usr/lib/python2.6/site-packages/salt/cli/caller.py", line 142, in run
+    ret = self.call()
+  File "/usr/lib/python2.6/site-packages/salt/cli/caller.py", line 80, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/modules/state.py", line 372, in sls
+    high_, errors = st_.render_highstate({saltenv: mods})
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 2375, in render_highstate
+    state, errors = self.render_state(sls, saltenv, mods, matches)
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 2084, in render_state
+    state_data = self.client.get_state(sls, saltenv)
+  File "/usr/lib/python2.6/site-packages/salt/fileclient.py", line 413, in get_state
+    dest = self.cache_file(path, saltenv)
+  File "/usr/lib/python2.6/site-packages/salt/fileclient.py", line 143, in cache_file
+    return self.get_url(path, '', True, saltenv)
+  File "/usr/lib/python2.6/site-packages/salt/fileclient.py", line 503, in get_url
+    return self.get_file(url, dest, makedirs, saltenv)
+  File "/usr/lib/python2.6/site-packages/salt/fileclient.py", line 894, in get_file
+    hash_local = self.hash_file(dest2check, saltenv)
+  File "/usr/lib/python2.6/site-packages/salt/fileclient.py", line 1100, in hash_file
+    path, form='md5', chunk_size=4096)
+  File "/usr/lib/python2.6/site-packages/salt/utils/__init__.py", line 1437, in get_hash
+    hash_obj = hash_type()
+ValueError: error:060800A3:digital envelope routines:EVP_DigestInit_ex:disabled for fips
+```
+
+Another example is in the salt/utils/event.py (line 141)
+
+```
+id_hash = hashlib.md5(kwargs.get('id', '')).hexdigest()
+```

@@ -1,0 +1,17 @@
+Specifically, the scenario @Whissi has reported in #24875 is reproducible with the following when you have a good amount of minions.
+
+```
+salt -l all -t 60 --batch 5 '*' cmd.run $'sleep $(( $(dd if=/dev/urandom count=1 bs=1 2>/dev/null | hexdump -e \'"%.1d"\') / 30 )); echo Hello world from $(hostname -f)'
+```
+
+This randomises a sleep between roughly 1 and 8 seconds which in most cases will result in a gradual return of minions. Because of the way batch works it ensures at any one time 5 are outstanding. At the start there will be a single command iterator for 5 minions, as gradual returns happen, single minion iterators will start to keep the batch at 5, eventually you'll have 4 or 5 iterators running at the same time.
+
+These iterators all use `get_event_nonblock` eventually which discards unrelated JID, meaning you'll start to get events destined for one iterator getting received by another iterator, and getting discarded. After the first few returns nearly every minion thereafter times out.
+
+Running `salt-master -l debug` shows the returns returning within 10 seconds. So we know they arrive. Also adding debug outputs to `get_event_nonblock` prove the responses are getting dropped because it was expecting another JID.
+
+Proposal:
+#8961 appears to attempt to resolve a similar issue when using nested `get_event`. However, it removes the `subscribe` and `unsubscribe` pretty much and forces the caller to handle unrelated events - it makes the caller say to the event subsystem (oh by the way don't discard X). This seems arduous on the caller. Maybe it is better for `subscribe` to be reimplemented and anything subscribed to remembered in `pending_events` rather than the caller having to ask for it. This could even report memory leaks at the end somehow by dumping anything that wasn't `unsubscribed` (and unsubscribing can clear the memory for those events)
+
+Seems a fairly big, deep and complex problem needing some TLC. Thoughts?
+#25937 may be related

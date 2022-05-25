@@ -1,0 +1,94 @@
+### Description of Issue/Question
+Using rc1 schedule.present always triggers a change for me!
+
+```
+----------
+          ID: salt.minion::schedule-apply
+    Function: schedule.present
+      Result: True
+     Comment: Modifying job salt.minion::schedule-apply in schedule
+     Started: 13:10:13.388629
+    Duration: 31.368 ms
+     Changes:
+              ----------
+              diff:
+                  ---
+                  +++
+                  @@ -4,4 +4,5 @@
+                   maxrunning:1
+                   minutes:15
+                   name:salt.minion::schedule-apply
+                  -splay:{'start': 1, 'end': 225}
+                  +run_on_start:True
+                  +splay:OrderedDict([(u'start', 1), (u'end', 225)])
+```
+
+It is probably because OrderedDict != Dict... something probably got changed in 2018.3
+
+### Setup
+saltcfg is a dict holding atleast 'schedule_apply' which is the interval in minutes to run schedule state.apply at.
+```
+salt.minion::schedule-apply:  ## schedule apply
+{% if saltcfg['schedule_apply'] > 0 %}
+  schedule.present:
+    - function: state.apply
+    - maxrunning: 1
+    - run_on_start: true
+    - minutes: {{ saltcfg['schedule_apply'] }}
+    - splay: ## 25% spread
+        start: 1
+        end: {{ (saltcfg['schedule_apply'] * 60 / 100 * 25)|round|int }}
+{% else %}
+  schedule.absent
+{% endif %}
+```
+
+### Steps to Reproduce Issue
+See above SLS snippet.
+
+### Versions Report
+```
+[root@cronos /salt]# salt --versions-report
+Salt Version:
+           Salt: 2018.3.0rc1
+
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: unknown
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+          ioflo: 1.7.4
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: 1.6.1
+       M2Crypto: 0.22
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Jan 26 2017, 18:07:59)
+   python-gnupg: 2.3.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: 0.6.8
+          smmap: 0.9.0
+        timelib: 0.2.4
+        Tornado: 4.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist:
+         locale: 646
+        machine: i86pc
+        release: 5.11
+         system: SunOS
+        version: Not Installed
+```
+
+This does have the x509 and nacl fixes applied on top of rc1, but those should not effect this.

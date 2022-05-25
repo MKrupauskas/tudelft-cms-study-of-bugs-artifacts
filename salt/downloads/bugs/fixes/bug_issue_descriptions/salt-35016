@@ -1,0 +1,242 @@
+### Description of Issue/Question
+
+Execute command on top master, which has 4 syndic node, the targeting of salt command is one minion attached to one syndic node,the result is ok,but the log file (/var/log/salt/master) on the top master occur TypeError.
+
+I modify the code, restart the salt-master on top master,the error disappear.
+### Setup
+
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+*. top master configuration
+
+```
+more /etc/salt/master.d/eauth.conf | egrep -v '^#|^$'
+external_auth:
+  ldap:
+    kangxiaoning495:
+      - 'SYNDIC*':
+        - .*
+        - '@wheel'
+        - '@runner'
+        - '@jobs'       
+auth.ldap.server: ldap.xxxx.xxxx
+auth.ldap.port: 389
+auth.ldap.basedn: cn=users,cn=accounts,dc=xxxx,dc=xxxx
+auth.ldap.binddn: uid=admin,cn=users,cn=accounts,dc=xxxx,dc=xxxx
+auth.ldap.bindpw: xxxx
+auth.ldap.filter: uid={{ username }}
+```
+
+```
+more /etc/salt/master | egrep -v '^#|^$'
+interface: 0.0.0.0
+publish_port: 4505
+ret_port: 4506
+gather_job_timeout: 15
+timeout: 5
+worker_threads: 5
+file_roots:
+  base:
+    - /srv/salt
+hash_type: sha256
+pillar_roots:
+  base:
+    - /srv/pillar
+order_masters: True
+syndic_wait: 20
+master_job_cache: mysql
+mysql.host: 'xxxx'
+mysql.user: 'salt'
+mysql.pass: 'salt'
+mysql.db: 'salt'
+mysql.port: 3306
+mysql.ssl_ca: None
+mysql.ssl_cert: None
+mysql.ssl_key: None
+```
+
+*. syndic configuration
+
+```
+[root@CNSZ045494 salt]# more master | grep -E -v '^#|^$'
+interface: 10.20.177.72
+file_roots:
+  base:
+    - /srv/salt/
+hash_type: sha256
+pillar_roots:
+  base:
+    - /srv/pillar
+order_masters: False
+syndic_master: 30.16.226.57
+master_job_cache: mysql
+mysql.host: 'localhost'
+mysql.user: 'salt'
+mysql.pass: 'salt'
+mysql.db: 'salt'
+mysql.port: 3306
+mysql.ssl_ca: None
+mysql.ssl_cert: None
+mysql.ssl_key: None
+[root@CNSZ045494 salt]#
+[root@CNSZ045494 salt]# more minion | grep -E -v '^#|^$'
+master: 30.16.226.57
+id: SYNDIC-SZB
+hash_type: sha256
+[root@CNSZ045494 salt]#
+```
+### Steps to Reproduce Issue
+
+(Include debug logs if possible and relevant.)
+1. salt 'xxx' test.ping (xxx is attached one syndic node)
+2. The log of top master report the error
+3. modify salt.returners.mysql.py, the error disappear
+
+```
+    line: 309
+    old:
+        def save_minions(jid, minions): # pylint: disable=unused-argument
+    new:
+        def save_minions(jid, minions, syndic_id=None):  # pylint: disable=unused-argument
+```
+
+```
+2016-07-27 10:52:08,135 [salt.utils.event                                     ][DEBUG   ][53630] Sending event - data = {'id': 'SYNDIC-SZB', '_stamp': '2016-07-27T02:52:08.134410', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsg+3x8NN9vDh0ytXtCAV\nlgNhXk8mHFe8nQGPseuwoeIiV0rpAws2JqnU8gw9gryb60lD+HI1KE/9ruHQnveB\nZQrROIPm0x+jKGHHjjait06rKES9t6tkvSoCVAKm2ku2l8r2CCAdD76A6/UovzM/\nsGxP3k388w1Q7b27ZRDPHsgn+OC0yufl2IVDFQbZNvSsyDE4R3EXPcuba71rAnMw\nAae+6FrnVUVDuXzhXYVOQ+DZvI8kjDioS7hPhvh5NjmY5e7elfHMqvxS4At07PI/\n8dt/7GzL01fM/+AqdNEnw17hxjzov1E9e4RKL0cc5KFCPaBijNMfXMIuYOZ8cZ38\n9QIDAQAB\n-----END PUBLIC KEY-----', 'act': 'accept'}
+2016-07-27 10:52:08,135 [salt.transport.mixins.auth                           ][INFO    ][53630] Authentication request from SYNDIC-LFA
+2016-07-27 10:52:08,136 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag salt/auth
+2016-07-27 10:52:08,136 [salt.transport.mixins.auth                           ][INFO    ][53630] Authentication accepted from SYNDIC-LFA
+2016-07-27 10:52:08,136 [salt.utils.event                                     ][DEBUG   ][53631] Sending event - data = {'id': 'SYNDIC-SZC', '_stamp': '2016-07-27T02:52:08.136095', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2mlWKwsSdrkWprj+IDLR\nzQNw+ROJfBZMEhrBm9D7UaXtfPH0hR+O7oZjk1hL3S1i5fOfvV6wtR5oDK2Ta2gA\nv6HOA3ASwoC2QD6/nW5JeMOmm2+FFBjcFs+lv5c+j1zIrzbDJQ+z0WcCBbi89Yto\nPL2HV+3H5zvIdkFEHChlf24MKAO5WiswpW9HPGcvX3INttkaG7y2GB56X3znPtY+\n5kUKsSVRlON7OZ98WR6J8Wy/Xadeq9u9zbjnO/ZB5FwTDdzIYqx90gcvkTVEYKXj\n4zgBKw23GfuJgiwf/uCPFvKCy3MIqt7BI65F2X5oLF1F9EXPrK7qRARVb32GVZvN\n4wIDAQAB\n-----END PUBLIC KEY-----', 'act': 'accept'}
+2016-07-27 10:52:08,137 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag salt/auth
+2016-07-27 10:52:08,138 [salt.transport.mixins.auth                           ][INFO    ][53631] Authentication request from SYNDIC-SHA
+2016-07-27 10:52:08,138 [salt.transport.mixins.auth                           ][INFO    ][53631] Authentication accepted from SYNDIC-SHA
+2016-07-27 10:52:08,181 [salt.utils.event                                     ][DEBUG   ][53635] Sending event - data = {'id': 'SYNDIC-LFA', '_stamp': '2016-07-27T02:52:08.181010', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw++D6K0+Gy57A6H5c6BX\nyhpx8x214V/EDWgUTIbcdu0tE8aOlCbu8gVlS2pHtdoD3iW4h1P396QK+IuLoYCH\nimgqDMRkntaRW+2TZAIk2HUoeG2MeID+n92Z0ixIbmzbQC9CLKcHW04Ra/4nfFmE\nwPqVW0RyyYrzgGgB6ZYBa6AHA/0lhlbW85MDTBFE52z9j2Yl5KaEaklbVqZtXEpj\n7xvUcskfA1F/GfEybLzIut6JBL/WERKwzqynbJjNH9JJrFOdnRW/V9mlo893R8m8\n0ZzYEvVirXuTa8DonlC1Qt3Q5aCjQDVZFf/kpDl/lNLFUS5GLPZBkX3zoY6wutI2\nYwIDAQAB\n-----END PUBLIC KEY-----', 'act': 'accept'}
+2016-07-27 10:52:08,182 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag salt/auth
+2016-07-27 10:52:08,201 [salt.transport.ipc                                   ][DEBUG   ][53636] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+2016-07-27 10:52:08,202 [salt.utils.event                                     ][DEBUG   ][53636] Sending event - data = {'id': 'SYNDIC-SHA', '_stamp': '2016-07-27T02:52:08.201462', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4XcWsJHUPHMyQc7JTw1g\nbWhPlvgJCvBSgPuQjhNPWENTwnrjqUGoFt8KU5xazPaTzMe/KKwp7ne08DTKCoa0\noG+3VqDxJmTWxIdYZXSq0/doc9zFHBJN/ux6MCCWeV0u0N9dSRnSqIDFKmaYusyr\nhNi0oi5DDykKhgiUYZBcj3uCQDClt02sKR0S0t1XRCaoJofR/NMt/+eANS96ZWc8\nxryYfsccX5sTv2pTkxQAGp+A1zI96KHITQOVENPui/Wvk9G0xY9ZQtPp1VzYWkaU\nVZDD4yAHtnAoFO9H34IqR2G1kA3OiOvMJWi23qxJqfWZfWbiTW43ln18+gi3qsoB\nqwIDAQAB\n-----END PUBLIC KEY-----', 'act': 'accept'}
+2016-07-27 10:52:08,203 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag salt/auth
+2016-07-27 10:52:08,246 [salt.utils.event                                     ][DEBUG   ][53631] Sending event - data = {'id': 'SYNDIC-SHA', '_stamp': '2016-07-27T02:52:08.245433', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4XcWsJHUPHMyQc7JTw1g\nbWhPlvgJCvBSgPuQjhNPWENTwnrjqUGoFt8KU5xazPaTzMe/KKwp7ne08DTKCoa0\noG+3VqDxJmTWxIdYZXSq0/doc9zFHBJN/ux6MCCWeV0u0N9dSRnSqIDFKmaYusyr\nhNi0oi5DDykKhgiUYZBcj3uCQDClt02sKR0S0t1XRCaoJofR/NMt/+eANS96ZWc8\nxryYfsccX5sTv2pTkxQAGp+A1zI96KHITQOVENPui/Wvk9G0xY9ZQtPp1VzYWkaU\nVZDD4yAHtnAoFO9H34IqR2G1kA3OiOvMJWi23qxJqfWZfWbiTW43ln18+gi3qsoB\nqwIDAQAB\n-----END PUBLIC KEY-----', 'act': 'accept'}
+2016-07-27 10:52:08,246 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag salt/auth
+2016-07-27 10:52:08,257 [salt.utils.event                                     ][DEBUG   ][53630] Sending event - data = {'id': 'SYNDIC-LFA', '_stamp': '2016-07-27T02:52:08.256915', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw++D6K0+Gy57A6H5c6BX\nyhpx8x214V/EDWgUTIbcdu0tE8aOlCbu8gVlS2pHtdoD3iW4h1P396QK+IuLoYCH\nimgqDMRkntaRW+2TZAIk2HUoeG2MeID+n92Z0ixIbmzbQC9CLKcHW04Ra/4nfFmE\nwPqVW0RyyYrzgGgB6ZYBa6AHA/0lhlbW85MDTBFE52z9j2Yl5KaEaklbVqZtXEpj\n7xvUcskfA1F/GfEybLzIut6JBL/WERKwzqynbJjNH9JJrFOdnRW/V9mlo893R8m8\n0ZzYEvVirXuTa8DonlC1Qt3Q5aCjQDVZFf/kpDl/lNLFUS5GLPZBkX3zoY6wutI2\nYwIDAQAB\n-----END PUBLIC KEY-----', 'act': 'accept'}
+2016-07-27 10:52:08,258 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag salt/auth
+2016-07-27 10:52:08,532 [salt.transport.ipc                                   ][DEBUG   ][53620] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+2016-07-27 10:52:08,534 [salt.utils.event                                     ][DEBUG   ][53620] Sending event - data = {'_stamp': '2016-07-27T02:52:08.533900', 'tag': '20160727105152763685', 'data': {'_stamp': '2016-07-27T02:53:11.918956', 'minions': ['CNSZ160205']}}
+2016-07-27 10:52:08,536 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag 20160727105152763685
+2016-07-27 10:52:08,536 [salt.utils.event                                     ][DEBUG   ][53620] Sending event - data = {'_stamp': '2016-07-27T02:52:08.535627', 'minions': ['CNSZ160205']}
+2016-07-27 10:52:08,537 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag syndic/SYNDIC-SZB/20160727105152763685
+2016-07-27 10:52:08,537 [salt.utils.event                                     ][DEBUG   ][53620] Sending event - data = {'_stamp': '2016-07-27T02:52:08.537174', 'tag': 'salt/job/20160727105152763685/new', 'data': {'tgt_type': 'glob', 'jid': '20160727105152763685', 'tgt': 'CNSZ160205', '_stamp': '2016-07-27T02:53:11.920196', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'minions': ['CNSZ160205']}}
+2016-07-27 10:52:08,539 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag salt/job/20160727105152763685/new
+2016-07-27 10:52:08,539 [salt.utils.event                                     ][DEBUG   ][53620] Sending event - data = {'tgt_type': 'glob', 'jid': '20160727105152763685', 'tgt': 'CNSZ160205', '_stamp': '2016-07-27T02:52:08.538921', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'minions': ['CNSZ160205']}
+2016-07-27 10:52:08,540 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag syndic/SYNDIC-SZB/salt/job/20160727105152763685/new
+2016-07-27 10:52:08,548 [salt.utils.lazy                                      ][DEBUG   ][53620] LazyLoaded mysql.save_minions
+2016-07-27 10:52:08,549 [salt.master                                          ][ERROR   ][53620] Error in function _minion_event:
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 1540, in run_func
+    ret = getattr(self, func)(load)
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 1308, in _minion_event
+    self._handle_minion_event(load)
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 1334, in _handle_minion_event
+    syndic_id=id_)
+  File "/usr/lib/python2.6/site-packages/salt/utils/job.py", line 114, in store_minions
+    mminion.returners[minions_fstr](jid, minions, syndic_id=syndic_id)
+TypeError: save_minions() got an unexpected keyword argument 'syndic_id'
+2016-07-27 10:52:08,760 [salt.config                                          ][DEBUG   ][53525] Reading configuration from /etc/salt/master
+2016-07-27 10:52:08,896 [salt.config                                          ][DEBUG   ][53525] Guessing ID. The id can be explicitly set in /etc/salt/minion
+2016-07-27 10:52:09,035 [salt.utils.lazy                                      ][DEBUG   ][53636] LazyLoaded mysql.save_load
+2016-07-27 10:52:09,037 [salt.utils.lazy                                      ][DEBUG   ][53636] LazyLoaded config.option
+2016-07-27 10:52:09,037 [salt.loaded.int.returner.mysql                       ][DEBUG   ][53636] Generating new MySQL connection pool
+2016-07-27 10:52:09,244 [salt.config                                          ][INFO    ][53525] Found minion id from generate_minion_id(): CNSZ045490
+2016-07-27 10:52:09,246 [salt.config                                          ][DEBUG   ][53525] Reading configuration from /etc/salt/master
+2016-07-27 10:52:09,382 [salt.config                                          ][DEBUG   ][53525] Including configuration from '/etc/salt/master.d/eauth.conf'
+2016-07-27 10:52:09,383 [salt.config                                          ][DEBUG   ][53525] Reading configuration from /etc/salt/master.d/eauth.conf
+2016-07-27 10:52:09,397 [salt.config                                          ][DEBUG   ][53525] Including configuration from '/etc/salt/master.d/rest_api.conf'
+2016-07-27 10:52:09,397 [salt.config                                          ][DEBUG   ][53525] Reading configuration from /etc/salt/master.d/rest_api.conf
+2016-07-27 10:52:12,281 [salt.loaded.int.returner.postgres_local_cache        ][INFO    ][53525] Could not import psycopg2, postgres_local_cache disabled.
+2016-07-27 10:52:12,283 [salt.utils.lazy                                      ][DEBUG   ][53525] Could not LazyLoad mysql.clean_old_jobs
+2016-07-27 10:52:12,284 [salt.utils.lazy                                      ][DEBUG   ][53525] Could not LazyLoad config.merge
+2016-07-27 10:52:12,285 [salt.fileserver                                      ][DEBUG   ][53525] Updating roots fileserver cache
+2016-07-27 10:52:12,286 [salt.utils.verify                                    ][DEBUG   ][53525] This salt-master instance has accepted 4 minion keys.
+2016-07-27 10:52:22,820 [salt.utils.job                                       ][INFO    ][53636] Got return from CNSZ160205 for job 20160727105152763685
+2016-07-27 10:52:22,821 [salt.transport.ipc                                   ][DEBUG   ][53636] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+2016-07-27 10:52:22,823 [salt.utils.event                                     ][DEBUG   ][53636] Sending event - data = {'fun_args': None, 'jid': '20160727105152763685', 'return': True, '_stamp': '2016-07-27T02:52:22.822403', 'fun': 'test.ping', 'id': 'CNSZ160205'}
+2016-07-27 10:52:22,824 [salt.client      ][DEBUG   ][54583] get_iter_returns for jid 20160727105152763685 sent to set([]) will timeout at 10:52:27.824173
+2016-07-27 10:52:22,825 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag salt/job/20160727105152763685/ret/CNSZ160205
+2016-07-27 10:52:22,826 [salt.loaded.int.returner.mysql                       ][DEBUG   ][53636] Trying to reuse MySQL connection pool
+2016-07-27 10:52:22,934 [salt.client      ][DEBUG   ][54583] jid 20160727105152763685 return from CNSZ160205
+2016-07-27 10:52:22,937 [salt.utils.lazy  ][DEBUG   ][54583] LazyLoaded nested.output
+2016-07-27 10:52:27,913 [salt.client      ][DEBUG   ][54583] Checking whether jid 20160727105152763685 is still running
+2016-07-27 10:52:27,916 [salt.transport.zeromq][DEBUG   ][54583] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/master', 'CNSZ045490_master', 'tcp://127.0.0.1:4506', 'clear')
+2016-07-27 10:52:27,929 [salt.utils.lazy                                      ][DEBUG   ][53631] LazyLoaded mysql.prep_jid
+2016-07-27 10:52:27,930 [salt.transport.ipc                                   ][DEBUG   ][53631] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+2016-07-27 10:52:27,932 [salt.utils.event                                     ][DEBUG   ][53631] Sending event - data = {'_stamp': '2016-07-27T02:52:27.932021', 'minions': []}
+2016-07-27 10:52:27,934 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag 20160727105227929308
+2016-07-27 10:52:27,933 [salt.utils.event                                     ][DEBUG   ][53631] Sending event - data = {'tgt_type': 'glob', 'jid': '20160727105227929308', 'tgt': 'CNSZ160205', '_stamp': '2016-07-27T02:52:27.933039', 'user': 'root', 'arg': ['20160727105152763685'], 'fun': 'saltutil.find_job', 'minions': []}
+2016-07-27 10:52:27,936 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag salt/job/20160727105227929308/new
+2016-07-27 10:52:27,946 [salt.utils.lazy                                      ][DEBUG   ][53631] LazyLoaded config.option
+2016-07-27 10:52:27,947 [salt.loaded.int.returner.mysql                       ][DEBUG   ][53631] Generating new MySQL connection pool
+2016-07-27 10:52:42,927 [salt.transport.zeromq][DEBUG   ][54583] SaltReqTimeoutError, retrying. (1/3)
+2016-07-27 10:52:42,977 [salt.master                                          ][INFO    ][53631] User root Published command saltutil.find_job with jid 20160727105227929308
+2016-07-27 10:52:42,978 [salt.master                                          ][DEBUG   ][53631] Published command details {'tgt_type': 'glob', 'jid': '20160727105227929308', 'tgt': 'CNSZ160205', 'ret': '', 'to': 15, 'user': 'root', 'arg': ['20160727105152763685'], 'fun': 'saltutil.find_job'}
+2016-07-27 10:52:43,033 [salt.transport.ipc                                   ][DEBUG   ][53635] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+2016-07-27 10:52:43,036 [salt.utils.event                                     ][DEBUG   ][53635] Sending event - data = {'_stamp': '2016-07-27T02:52:43.035735', 'tag': '20160727105227929308', 'data': {'_stamp': '2016-07-27T02:53:46.432065', 'minions': ['CNSZ160205']}}
+2016-07-27 10:52:43,038 [salt.utils.event                                     ][DEBUG   ][53635] Sending event - data = {'_stamp': '2016-07-27T02:52:43.037465', 'minions': ['CNSZ160205']}
+2016-07-27 10:52:43,038 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag 20160727105227929308
+2016-07-27 10:52:43,039 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag syndic/SYNDIC-SZB/20160727105227929308
+2016-07-27 10:52:43,039 [salt.utils.event                                     ][DEBUG   ][53635] Sending event - data = {'_stamp': '2016-07-27T02:52:43.039191', 'tag': 'salt/job/20160727105227929308/new', 'data': {'tgt_type': 'glob', 'jid': '20160727105227929308', 'tgt': 'CNSZ160205', '_stamp': '2016-07-27T02:53:46.436508', 'user': 'root', 'arg': ['20160727105152763685'], 'fun': 'saltutil.find_job', 'minions': ['CNSZ160205']}}
+2016-07-27 10:52:43,041 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag salt/job/20160727105227929308/new
+2016-07-27 10:52:43,041 [salt.utils.event                                     ][DEBUG   ][53635] Sending event - data = {'tgt_type': 'glob', 'jid': '20160727105227929308', 'tgt': 'CNSZ160205', '_stamp': '2016-07-27T02:52:43.041027', 'user': 'root', 'arg': ['20160727105152763685'], 'fun': 'saltutil.find_job', 'minions': ['CNSZ160205']}
+2016-07-27 10:52:43,043 [salt.utils.reactor                                   ][DEBUG   ][53617] Gathering reactors for tag syndic/SYNDIC-SZB/salt/job/20160727105227929308/new
+2016-07-27 10:52:43,051 [salt.utils.lazy                                      ][DEBUG   ][53635] LazyLoaded mysql.save_minions
+2016-07-27 10:52:43,051 [salt.master                                          ][ERROR   ][53635] Error in function _minion_event:
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 1540, in run_func
+    ret = getattr(self, func)(load)
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 1308, in _minion_event
+    self._handle_minion_event(load)
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 1334, in _handle_minion_event
+    syndic_id=id_)
+  File "/usr/lib/python2.6/site-packages/salt/utils/job.py", line 114, in store_minions
+    mminion.returners[minions_fstr](jid, minions, syndic_id=syndic_id)
+TypeError: save_minions() got an unexpected keyword argument 'syndic_id'
+2016-07-27 10:52:43,540 [salt.utils.lazy                                      ][DEBUG   ][53630] LazyLoaded mysql.save_load
+```
+### Versions Report
+
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+```
+Salt Version:
+           Salt: 2016.3.0
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 1.4.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+msgpack-python: 0.4.6
+   mysql-python: 1.2.3c1
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 05:13:40)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+System Versions:
+           dist: oracle 6.7
+        machine: x86_64
+        release: 2.6.32-573.el6.x86_64
+         system: Linux
+        version: Oracle Linux Server 6.7
+```

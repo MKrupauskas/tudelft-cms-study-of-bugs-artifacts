@@ -1,0 +1,50 @@
+I encountered a surprising (to me) recursive requisite:
+
+```
+pip:
+  pip.installed:
+    - upgrade: true
+
+virtualenv:
+  pip.installed:
+    - upgrade: true
+    - require:
+      - pip: pip
+
+my-env:
+  virtualenv.managed:
+    - name: /opt/my-env
+    - cwd: /opt/my-env
+    - require:
+      - pip: virtualenv
+
+pip-local:
+  pip.installed:
+    - name: pip
+    - upgrade: true
+    - bin_env: /opt/my-env
+    - cwd: /opt/my-env
+    - require:
+      - virtualenv: my-env
+```
+
+The situation is: I'm ensuring that the global pip installation is upgraded to the latest version. Then, later, I'm ensuring that a local pip installation inside a virtualenv is at the latest version.
+
+This results in:
+
+```
+==> web:           ID: my-env
+==> web:     Function: virtualenv.managed
+==> web:         Name: /opt/my-env
+==> web:       Result: False
+==> web:      Comment: Recursive requisite found
+==> web:      Started:
+==> web:     Duration:
+==> web:      Changes:
+```
+
+The problem seems to be that the `pip: pip` requirement checks the `name` first, rather than the `ID`. Maybe this is "as designed", but I found it surprising. I would have assumed that the differing IDs were enough. 
+
+I've worked around the problem by renaming the global pip state `pip-global` and changing the requirement to match, but I thought it worthy of a bug report.
+
+I've created [a gist reproducing the situation on a vagrant VM](https://gist.github.com/eykd/2fc7bb012290ed4fbec8).

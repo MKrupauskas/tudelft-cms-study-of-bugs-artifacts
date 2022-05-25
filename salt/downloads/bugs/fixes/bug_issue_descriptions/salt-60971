@@ -1,0 +1,133 @@
+@ch3ll Once the [pipeline started working](https://gitlab.com/saltstack/open/salt-pkg/-/pipelines/377751575), I rebuilt one of our (Formulas team) pre-salted images to test this out with a formula that was failing.  Hit a problem with the implementation.
+
+https://gitlab.com/myii/apt-formula/-/jobs/1627139912#L1289 (you may need to scroll to line 1289 manually):
+
+```python
+                 ID: deb multimedia-stable
+           Function: pkgrepo.managed
+               Name: deb [arch=amd64  ] http://www.deb-multimedia.org stable main
+             Result: False
+            Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/opt/saltstack/salt/run/salt/modules/aptpkg.py", line 186, in _parse_sources
+                  repo_line.pop(repo_line.index(opt))
+              ValueError: 'arch=amd64' is not in list
+              
+              During handling of the above exception, another exception occurred:
+              
+              Traceback (most recent call last):
+                File "salt/state.py", line 2180, in call
+                  *cdata["args"], **cdata["kwargs"]
+                File "salt/loader/lazy.py", line 149, in __call__
+                  return self.loader.run(run_func, *args, **kwargs)
+                File "salt/loader/lazy.py", line 1201, in run
+                  return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+                File "salt/loader/lazy.py", line 1216, in _run_as
+                  return _func_or_method(*args, **kwargs)
+                File "salt/loader/lazy.py", line 1249, in wrapper
+                  return f(*args, **kwargs)
+                File "/opt/saltstack/salt/run/salt/states/pkgrepo.py", line 411, in managed
+                  sanitizedkwargs = __salt__["pkg.expand_repo_def"](repo=repo, **kwargs)
+                File "salt/loader/lazy.py", line 149, in __call__
+                  return self.loader.run(run_func, *args, **kwargs)
+                File "salt/loader/lazy.py", line 1201, in run
+                  return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+                File "salt/loader/lazy.py", line 1216, in _run_as
+                  return _func_or_method(*args, **kwargs)
+                File "/opt/saltstack/salt/run/salt/modules/aptpkg.py", line 2660, in expand_repo_def
+                  source_entry = SourceEntry(repo)
+                File "/opt/saltstack/salt/run/salt/modules/aptpkg.py", line 141, in __init__
+                  self._parse_sources(line)
+                File "/opt/saltstack/salt/run/salt/modules/aptpkg.py", line 188, in _parse_sources
+                  repo_line.pop(repo_line.index("[" + opt + "]"))
+              ValueError: '[arch=amd64]' is not in list
+```
+
+So it appears that the extra spaces in `deb [arch=amd64  ] http://www.deb-multimedia.org stable main` are causing this error.  Note, that this formula has been tested with the `master`-branch pre-salted images for years now, without problems (even with the extra spaces).
+
+I was able to confirm this in the tests as well.  Funnily enough, I hit a problem with the existing tests first, which may not be running properly in the Jenkins CI:
+
+```python
+$ python -m pytest -v tests/pytests/unit/modules/test_aptpkg.py::test_expand_repo_def
+...
+
+tests/pytests/unit/modules/test_aptpkg.py::test_expand_repo_def FAILED                                                                                                   [100%]
+        """
+        Checks results from expand_repo_def   
+        """
+        source_type = "deb"
+        source_uri = "http://cdn-aws.deb.debian.org/debian/"
+        source_line = "deb http://cdn-aws.deb.debian.org/debian/ stretch main\n"
+        source_file = "/etc/apt/sources.list" 
+
+        # Valid source
+        repo = "deb http://cdn-aws.deb.debian.org/debian/ stretch main\n"
+        sanitized = aptpkg.expand_repo_def(repo=repo, file=source_file)
+
+        assert isinstance(sanitized, dict)
+        assert "uri" in sanitized
+
+        # Make sure last character in of the URI is still a /
+        assert sanitized["uri"][-1] == "/"
+
+        # Pass the architecture and make sure it is added the the line attribute
+        # repo = "deb http://cdn-aws.deb.debian.org/debian/ stretch main\n"
+        repo = "deb [arch=amd64] http://cdn-aws.deb.debian.org/debian/ stretch main\n"
+        sanitized = aptpkg.expand_repo_def(
+            repo=repo, file=source_file, architectures="amd64"
+        )   
+
+        # Make sure line is in the dict
+        assert isinstance(sanitized, dict)
+        assert "line" in sanitized
+
+        # Make sure the architecture is in line
+>       assert (
+            sanitized["line"]
+            == "deb [arch=amd64] http://cdn-aws.deb.debian.org/debian/ stretch main"
+        )   
+E       AssertionError: assert 'deb  [arch=a... stretch main' == 'deb [arch=am... stretch main'
+E         - deb [arch=amd64] http://cdn-aws.deb.debian.org/debian/ stretch main
+E         + deb  [arch=amd64]  http://cdn-aws.deb.debian.org/debian/ stretch main
+E         ?    +             +
+
+tests/pytests/unit/modules/test_aptpkg.py:871: AssertionError
+```
+
+Moving past this, reproduced the error when adding the extra spaces:
+
+```python
+$ python -m pytest -v tests/pytests/unit/modules/test_aptpkg.py::test_expand_repo_def
+...
+
+_____________________________________________________________________________ test_expand_repo_def _____________________________________________________________________________
+
+self = <salt.modules.aptpkg.SourceEntry object at 0x7f8e28204e48>, line = 'deb [arch=amd64  ] http://cdn-aws.deb.debian.org/debian/ stretch main\n'
+
+    def _parse_sources(self, line):
+        """
+        Parse lines from sources files
+        """
+        self.disabled = False
+        repo_line = self.line.strip().split() 
+        if not repo_line:
+            self.invalid = True
+            return False
+        if repo_line[0].startswith("#"):
+            repo_line.pop(0)
+            self.disabled = True
+        if repo_line[0] not in ["deb", "deb-src", "rpm", "rpm-src"]:
+            self.invalid = True
+            return False
+        self.architectures = []
+        if repo_line[1].startswith("["):
+            opts = re.search(r"\[.*\]", self.line).group(0).strip("[]")
+            repo_line = [x for x in repo_line if x.strip("[]")]
+            for opt in opts.split():
+                if opt.startswith("arch"):
+                    self.architectures = opt.split("=", 1)[1]
+                try:
+>                   repo_line.pop(repo_line.index(opt))
+E                   ValueError: 'arch=amd64' is not in list
+
+salt/modules/aptpkg.py:186: ValueError
+```

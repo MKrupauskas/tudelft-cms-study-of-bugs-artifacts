@@ -1,0 +1,136 @@
+### Description of Issue/Question
+I am trying to use the ldap state to update the userPassword attribute for an user in the LDAP, and it would succeed the first time but would fail with the following exception the next time I ran salt-call again:
+
+```
+2018-07-23 14:08:24,712 [ERROR   ] failed to modify entry cn=user1,ou=People,dc=cmpoc
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/states/ldap.py", line 324, in managed
+    __salt__['ldap3.change'](l, dn, o, n)
+  File "/usr/lib/python2.7/site-packages/salt/modules/ldap3.py", line 581, in change
+    _convert_exception(e)
+  File "/usr/lib/python2.7/site-packages/salt/modules/ldap3.py", line 55, in _convert_exception
+    six.reraise(LDAPError, args, sys.exc_info()[2])
+  File "/usr/lib/python2.7/site-packages/salt/modules/ldap3.py", line 579, in change
+    l.c.modify_s(dn, modlist)
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 629, in modify_s
+    return self.modify_ext_s(dn,modlist,None,None)
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 602, in modify_ext_s
+    resp_type, resp_data, resp_msgid, resp_ctrls = self.result3(msgid,all=1,timeout=self.timeout)
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 749, in result3
+    resp_ctrl_classes=resp_ctrl_classes
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 756, in result4
+    ldap_result = self._ldap_call(self._l.result4,msgid,all,timeout,add_ctrls,add_intermediates,add_extop)
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 329, in _ldap_call
+    reraise(exc_type, exc_value, exc_traceback)
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 313, in _ldap_call
+    result = func(*args,**kwargs)
+LDAPError: exception in ldap backend: CONSTRAINT_VIOLATION({'info': u'Password is not being changed from existing value', 'desc': u'Constraint violation'},)
+```
+This tells me that the ldap state doesn't check the existing value of an attribute before it tries to update it.
+
+Is there any way to instruct the ldap state to update the value only if it's different than what's to be set?
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+We are running in masterless mode and using the following redacted SLS:
+
+```salt
+ldap-db_config:
+  ldap.managed:
+    - connect_spec:
+        backend: ldap
+        url: ldapi:///
+        mechanism: EXTERNAL
+        bind:
+          method: sasl
+    - entries:
+      - 'cn=user1,ou=People,dc=cmpoc':
+        - delete_others: True
+        - replace:
+            objectClass:
+              - inetOrgPerson
+            cn: user1
+            sn: user1
+            ou: People
+            uid: user1
+            description: The test user
+            userPassword: {{ pillar.user1_pass }}
+```
+
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+
+```
+2018-07-23 14:08:24,712 [ERROR   ] failed to modify entry cn=user1,ou=People,dc=cmpoc
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/states/ldap.py", line 324, in managed
+    __salt__['ldap3.change'](l, dn, o, n)
+  File "/usr/lib/python2.7/site-packages/salt/modules/ldap3.py", line 581, in change
+    _convert_exception(e)
+  File "/usr/lib/python2.7/site-packages/salt/modules/ldap3.py", line 55, in _convert_exception
+    six.reraise(LDAPError, args, sys.exc_info()[2])
+  File "/usr/lib/python2.7/site-packages/salt/modules/ldap3.py", line 579, in change
+    l.c.modify_s(dn, modlist)
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 629, in modify_s
+    return self.modify_ext_s(dn,modlist,None,None)
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 602, in modify_ext_s
+    resp_type, resp_data, resp_msgid, resp_ctrls = self.result3(msgid,all=1,timeout=self.timeout)
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 749, in result3
+    resp_ctrl_classes=resp_ctrl_classes
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 756, in result4
+    ldap_result = self._ldap_call(self._l.result4,msgid,all,timeout,add_ctrls,add_intermediates,add_extop)
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 329, in _ldap_call
+    reraise(exc_type, exc_value, exc_traceback)
+  File "/usr/lib64/python2.7/site-packages/ldap/ldapobject.py", line 313, in _ldap_call
+    result = func(*args,**kwargs)
+LDAPError: exception in ldap backend: CONSTRAINT_VIOLATION({'info': u'Password is not being changed from existing value', 'desc': u'Constraint violation'},)
+```
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+```
+# salt-call -V
+Salt Version:
+           Salt: 2017.7.5
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8.1
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.14 (default, Jan 31 2018, 02:12:13)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 6.9 Final
+         locale: UTF-8
+        machine: x86_64
+        release: 2.6.32-696.23.1.el6.x86_64
+         system: Linux
+        version: CentOS 6.9 Final
+```

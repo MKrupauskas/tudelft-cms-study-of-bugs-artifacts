@@ -1,0 +1,72 @@
+### Description of Issue/Question
+After some debugging today, I am 100% sure what's still making my deploy slow
+(...after fixing lots of other things like loader, slow formulas rendering time etc.)
+The time is wasted in fileclient.py:get_file.
+Lots of it.
+
+Basically what I added as a workaround for debugging is that at get_file, I return the file if it exists in the cache without checking if it's up-to-date or using hash_and_stat_file.
+
+get_file is used mostly for retrieving the .sls files, but also for files used in file.managed - the .sls part is much bigger slowdown here
+
+The master-side functions are executing in a fraction of a second(in the master log file), so they are not the problem in my opinion.
+(_file_hash etc.)
+
+At this point I think zeromq polling or connection caching could be to blame, but I am going to investigate further - if anyone on the core team would have an idea already, that would be great!
+The next thing I am going to check is hash_and_stat, but the files are just small formula files that aren't expensive to hash locally.
+
+Other ideas:
+1. Add a master function that returns a map of file<->hash.
+This would eliminate the need to call master for each requested file.
+
+Without workaround(+ one sample file.managed task from the output, but there are around 80 states run):
+
+```
+----------
+          ID: nginx_xx_vhost
+    Function: file.managed
+        Name: /etc/nginx/sites-enabled/xx
+      Result: True
+     Comment: File /etc/nginx/sites-enabled/xx is in the correct state
+     Started: 03:49:19.688364
+    Duration: 94.819 ms
+     Changes:   
+
+Total run time:    9.573 s
+[TRACE   ] _get_event() waited 0 seconds and received nothing
+[DEBUG   ] jid 20170212033150376035 found all minions {'xx'}
+ERROR: Minions returned with non-zero exit code
+salt xx state.highstate -l all  1.10s user 0.08s system 5% cpu 21.912 total
+```
+
+With workaround:
+
+```
+
+          ID: nginx_xx_vhost
+    Function: file.managed
+        Name: /etc/nginx/sites-enabled/xx
+      Result: True
+     Comment: File /etc/nginx/sites-enabled/xx is in the correct state
+     Started: 03:51:30.080166
+    Duration: 38.033 ms
+     Changes:   
+
+
+Total run time:    6.351 s
+[TRACE   ] _get_event() waited 0 seconds and received nothing
+[DEBUG   ] jid 20170212032842315286 found all minions {'xx'}
+ERROR: Minions returned with non-zero exit code
+salt xx state.highstate -l all  1.04s user 0.07s system 9% cpu 12.247 total
+```
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+Typical minion-master setup.
+Latency between minion and master is 10ms ping.
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+2016.11.1, python3

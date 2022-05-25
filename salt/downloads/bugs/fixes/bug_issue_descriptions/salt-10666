@@ -1,0 +1,46 @@
+It seems that the Salt package that's in the Arch community repo is using a custom PID file path (e.g. /run/salt/salt-minion.pid vs /run/salt-minion.pid). See the [PKGBUILD](https://projects.archlinux.org/svntogit/community.git/tree/trunk/PKGBUILD?h=packages/salt#n52)
+
+This causes salt-cloud to fail during salt bootstrap on an Arch guest.
+
+```
+installing salt...
+warning: directory permissions differ on /etc/salt/
+filesystem: 755  package: 750
+warning: /etc/salt/minion saved as /etc/salt/minion.pacorig
+Optional dependencies for salt
+    dmidecode: decode SMBIOS/DMI tables
+ *  INFO: Running install_arch_linux_post()
+ *  INFO: Running install_arch_linux_post()
+ *  INFO: Running install_arch_linux_restart_daemons()
+
+
+Job for salt-minion.service failed. See 'systemctl status salt-minion.service' and 'journalctl -xn' for details.
+ *  INFO: Running daemons_running()
+ * ERROR: salt-minion was not found running
+ * ERROR: Failed to run daemons_running()!!!
+ * ERROR: salt-minion was not found running. Pass '-D' to bootstrap-salt.sh when bootstrapping for additional debugging information...
+Error: There was a profile error: Executing the command '/tmp/.saltcloud/deploy.sh -c /tmp/.saltcloud' failed
+```
+
+And the output from `journalctl`:
+
+```
+Feb 22 04:16:05 demoinstance systemd[1]: Starting Salt Minion Daemon...
+-- Subject: Unit salt-minion.service has begun with start-up
+-- Defined-By: systemd
+-- Support: http://lists.freedesktop.org/mailman/listinfo/systemd-devel
+-- 
+-- Unit salt-minion.service has begun starting up.
+Feb 22 04:16:05 demoinstance systemd[1]: PID 10024 read from file /run/salt/salt-minion.pid does not exist.
+Feb 22 04:17:35 demoinstance systemd[1]: salt-minion.service operation timed out. Terminating.
+Feb 22 04:17:35 demoinstance systemd[1]: Failed to start Salt Minion Daemon.
+```
+
+I've verified that the `/etc/salt/minion` copied into the created VM includes the incorrect `pidfile` for this Arch package (ignoring the `/var/run`, since that's just a symlink to `/run` in Arch these days).
+
+```
+[root@demoinstance ~]# grep pidfile /etc/salt/minion.pacorig 
+pidfile: /var/run/salt-minion.pid
+```
+
+I'm not sure whether this is a "bug" here or in the Arch package. I'm inclined to agree with the use of `/run/salt/salt-minion.pid` vs `/run/salt-minion.pid`, personally.

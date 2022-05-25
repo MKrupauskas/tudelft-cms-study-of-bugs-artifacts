@@ -1,0 +1,112 @@
+We just updated to 2015.8.5 last night, and are seeing this issue on a few of the minions. 
+
+``` python-traceback
+2016-02-12 16:10:15,703 [salt.utils.schedule][ERROR   ][15897] Unhandled exception running status.master
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/utils/schedule.py", line 678, in handle_func
+    ret['return'] = self.functions[func](*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/status.py", line 824, in master
+    event.fire_event({'master': master}, '__master_disconnected')
+  File "/usr/lib/python2.7/site-packages/salt/utils/event.py", line 580, in fire_event
+    self.serial.dumps(data),
+  File "/usr/lib/python2.7/site-packages/salt/payload.py", line 140, in dumps
+    return msgpack.dumps(msg)
+  File "/usr/lib64/python2.7/site-packages/msgpack/__init__.py", line 47, in packb
+    return Packer(**kwargs).pack(o)
+  File "msgpack/_packer.pyx", line 223, in msgpack._packer.Packer.pack (msgpack/_packer.cpp:223)
+  File "msgpack/_packer.pyx", line 225, in msgpack._packer.Packer.pack (msgpack/_packer.cpp:225)
+  File "msgpack/_packer.pyx", line 184, in msgpack._packer.Packer._pack (msgpack/_packer.cpp:184)
+  File "msgpack/_packer.pyx", line 220, in msgpack._packer.Packer._pack (msgpack/_packer.cpp:220)
+TypeError: can't serialize <tornado.concurrent.Future object at 0x23b2a90>
+```
+
+``` yaml
+salt-minion --versions-report
+Salt Version:
+           Salt: 2015.8.5
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.3.1
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 3.2.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-123.20.1.el7.x86_64
+         system: CentOS Linux 7.2.1511 Core
+```
+
+When running a highstate manually, the following error occurs:
+
+```
+sudo salt-call state.highstate
+[ERROR   ] Error parsing configuration file: /etc/salt/minion.d/_schedule.conf - could not determine a constructor for the tag 'tag:yaml.org,2002:python/object:tornado.concurrent.Future'
+  in "<string>", line 7, column 15:
+          master: !!python/object:tornado.concurre ...
+                  ^
+[ERROR   ] Error parsing configuration file: /etc/salt/minion.d/_schedule.conf - could not determine a constructor for the tag 'tag:yaml.org,2002:python/object:tornado.concurrent.Future'
+  in "<string>", line 7, column 15:
+          master: !!python/object:tornado.concurre ...
+```
+
+When I look at _schedule.conf, it is different that my other minion's _scheudle.conf for some reason.
+
+broken _schedule.conf
+
+``` yaml
+sudo cat /etc/salt/minion.d/_schedule.conf
+schedule:
+  __master_alive:
+    function: status.master
+    jid_include: true
+    kwargs:
+      connected: true
+      master: !!python/object:tornado.concurrent.Future
+        _callbacks: []
+        _done: false
+        _exc_info: null
+        _log_traceback: false
+        _result: null
+        _tb_logger: null
+    maxrunning: 2
+    seconds: 120
+  __mine_interval: {function: mine.update, jid_include: true, maxrunning: 2, minutes: 60,
+    name: __mine_interval}
+```
+
+good _schedule.confsudo cat /etc/salt/minion.d/_schedule.conf
+
+``` sls
+schedule:
+  __master_alive:
+    function: status.master
+    jid_include: true
+    kwargs: {connected: true, master: saltmaster.local.com}
+    maxrunning: 1
+    seconds: 120
+  __mine_interval: {function: mine.update, jid_include: true, maxrunning: 2, minutes: 60}
+```

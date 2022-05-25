@@ -1,0 +1,181 @@
+I've encountered several problems with cron jobs managed by Salt on SmartOS. I've seen these problems in both 2014.1 and 0.17.5.
+
+_Summary_
+- New accounts without passwords are created in the locked state which means they can't run cronjobs. 
+- cron.present doesn't work correctly with more than one cron entry
+- cron.file doesn't work at all
+
+_Details_
+
+**1**) Salt creates user accounts which are locked by default. An account created in the locked (LK) state can't run cron jobs. 
+
+On SmartOS and Solaris, there are four states an account can be in. See this except from 'man passwd':
+
+```
+     status
+                 The password status of name.
+
+                 The status field can take the following values:
+
+                 LK
+                       This account is locked account. See Security.
+
+
+                 NL
+                       This account is a no login account.  See  Secu-
+                       rity.
+
+
+                 NP
+                       This account has no password and  is  therefore
+                       open without authentication.
+
+
+                 PS
+                       This account has a password.
+```
+
+This leads to entries like this in /etc/shadow
+
+```
+root:NP:16119::::::
+daemon:NP:6445::::::
+bin:NP:6445::::::
+sys:NP:6445::::::
+adm:NP:6445::::::
+uucp:NP:6445::::::
+nuucp:NP:6445::::::
+dladm:*LK*:::::::
+netadm:*LK*:::::::
+netcfg:*LK*:::::::
+smmsp:NP:6445::::::
+listen:*LK*:::::::
+zfssnap:NP:::::::
+upnp:NP:::::::
+xvm:*LK*:6445::::::
+svctag:*LK*:6445::::::
+unknown:*LK*:::::::
+nobody:*LK*:6445::::::
+noaccess:*LK*:6445::::::
+nobody4:*LK*:6445::::::
+cyrus:NP:16059::::::
+postfix:NP:16059::::::
+admin:NP:16119::::::
+www:NP:16119::::::
+foo:*LK*:::::::
+```
+
+You can see that many system account get created in then 'NP' state. However, 'foo' was created by Salt and is in the locked state. It seems that there are several possible solutions here. You could: 
+
+a) Unlock the account right after it gets created ('passwd -N foo')
+b) Add a flag to user.present for this functionality which only works on SmartOS/Solaris
+c) Check when adding a cron job if the account is locked, and if so, unlock it then
+
+**2**) cron.present doesn't work when multiple entries are present. (This is after the account has been unlocked per issue 1.)
+
+For example, take this sample cron state. 
+
+```
+/foo/bar:
+    cron.present:
+        - user: foo
+        - minute: 1
+
+/foo/baz:
+    cron.present:
+        - user: foo
+        - hour: 1
+
+/foo/buz:
+    cron.present:
+        - user: foo
+        - daymonth: 1
+```
+
+Generates this output:
+
+```
+ Name: /foo/bar - Function: cron.present - Result: True
+ Name: /foo/baz - Function: cron.present - Result: True
+ Name: /foo/buz - Function: cron.present - Result: True
+```
+
+However, on the command line:
+
+```
+[root@bar ~]# crontab -l foo
+# Lines below here are managed by Salt, do not edit
+* * 1 * * /foo/buz
+```
+
+As you can see, only one of the three cronjobs is present. 
+
+**3**) cron.file is broken. 
+
+See this example state:
+
+```
+test_cron:
+    cron.file:
+        - name: salt://crontest
+        - user: foo
+```
+
+And this crontab:
+
+```
+* * 1 * * /foo/bar
+* * * 1 * /foo/baz
+* * * * 1 /foo/buz
+```
+
+Generates this highstate output:
+
+```
+----------
+    State: - cron
+    Name:      salt://crontest
+    Function:  file
+        Result:    False
+        Comment:   Unable to update user foo crontab /tmp/tmpqaKlRq. Error: crontab: can't open your crontab file.
+        Changes:   diff: --- 
++++ 
+@@ -0,0 +1,3 @@
++* * 1 * * /foo/bar
++* * * 1 * /foo/baz
++* * * * 1 /foo/buz
+```
+
+```
+[INFO    ] Executing state cron.file for salt://crontest
+[INFO    ] Executing command 'crontab -l foo' in directory '/root'
+[DEBUG   ] stdout: # Lines below here are managed by Salt, do not edit
+[INFO    ] Fetching file ** skipped **, latest already in cache 'salt://crontest'
+[INFO    ] Executing command 'su - foo -c "crontab /tmp/tmp5_vHJl"' in directory '/root'
+[ERROR   ] Command 'su - foo -c "crontab /tmp/tmp5_vHJl"' failed with return code: 1
+[ERROR   ] stderr: crontab: can't open your crontab file.
+[ERROR   ] File changed:
+--- 
++++ 
+@@ -1 +1,3 @@
+-# Lines below here are managed by Salt, do not edit
++* * 1 * * /foo/bar
++* * * 1 * /foo/baz
++* * * * 1 /foo/buz
+```
+
+All of the above output is from a minion with these versions:
+
+```
+# /opt/salt/bin/salt --versions
+           Salt: 0.17.5
+         Python: 2.7.6 (default, Feb 19 2014, 13:37:36)
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.4
+```

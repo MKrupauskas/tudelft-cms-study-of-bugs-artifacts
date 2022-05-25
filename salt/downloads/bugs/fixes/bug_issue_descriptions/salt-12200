@@ -1,0 +1,38 @@
+According to [AWS guidelines for bucket naming](http://docs.aws.amazon.com/AmazonS3/latest/dev/BucketRestrictions.html), buckets with periods in them are valid and even recommended as a way to separate labels: 
+
+"Bucket names must be a series of one or more labels. Adjacent labels are separated by a single period (.). Bucket names can contain lowercase letters, numbers, and hyphens. Each label must start and end with a lowercase letter or a number."
+
+It appears that with the move from urllib2 to requests, the SSL certs are actually checked for validity by default (I believe the urllib2 does not check as a default). This means these multi-label buckets trigger an SSLError like this:
+
+```
+Traceback (most recent call last):
+  File "/root/salt/salt/utils/templates.py", line 356, in py
+    data = mod.run()
+  File "/opt/salt/var/cache/salt/minion/files/base/node/get_latest_build_from_s3.sls", line 11, in run
+    __salt__['s3.get'](bucket='my.fancy.bucket', path='current', local_file='/tmp/current', service_url='s3-us-west-2.amazonaws.com')
+  File "/root/salt/salt/modules/s3.py", line 141, in get
+    service_url=service_url)
+  File "/root/salt/salt/utils/s3.py", line 143, in query
+    result = requests.request(method, requesturl, headers=headers)
+  File "/opt/salt/local/lib/python2.7/site-packages/requests/api.py", line 44, in request
+    return session.request(method=method, url=url, **kwargs)
+  File "/opt/salt/local/lib/python2.7/site-packages/requests/sessions.py", line 383, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/opt/salt/local/lib/python2.7/site-packages/requests/sessions.py", line 486, in send
+    r = adapter.send(request, **kwargs)
+  File "/opt/salt/local/lib/python2.7/site-packages/requests/adapters.py", line 385, in send
+    raise SSLError(e)
+SSLError: hostname 'my.fancy.bucket.s3-us-west-2.amazonaws.com' doesn't match either of 's3-us-west-2.amazonaws.com', '*.s3-us-west-2.amazonaws.com'
+```
+
+The bucket and S3 endpoint are concatenated to create the target URL and this "full" hostname does not match Amazon's wildcard certificate. 
+
+The easy fix is to turn off verification for all requests by modifying [line 143 of s3.py](https://github.com/saltstack/salt/blob/develop/salt/utils/s3.py#L143) like this:
+
+```
+    result = requests.request(method, requesturl, headers=headers, verify=False)
+```
+
+Of course this means no URLs will be checked. Not sure what the cleanest way to handle this is. I could create a patch to add a new option to turn of certificate validation, but this will surely catch a lot of users out and that option would have to be at the config level in order to work with states like file.managed. 
+
+Thoughts?

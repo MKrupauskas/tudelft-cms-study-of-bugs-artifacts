@@ -1,0 +1,51 @@
+Given the following:
+
+```
+demo cron:
+  cron.present:
+    - name: /bin/echo 'Spooky!'
+    - user: mp
+    - minute: 0
+    - hour: 0
+    - comment: 'Once upon a midnight dreary, while I pondered weak and weary'
+```
+
+This error is produced:
+
+```
+local:
+----------
+          ID: demo cron
+    Function: cron.present
+        Name: /bin/echo
+      Result: False
+     Comment: Cron /bin/echo for user mp failed to commit with error 
+              /tmp/tmpR9WFWz: Permission denied
+     Started: 00:17:05.341055
+    Duration: 27.531 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+```
+
+This seems to be due to the tmp file being created without perms for the intended user to then read it and install in his/her crontab. A diff like the following fixes it, but probably isn't the right fix:
+
+```
+diff --git a/salt/modules/cron.py b/salt/modules/cron.py
+index 555843d..1ac3c84 100644
+--- a/salt/modules/cron.py
++++ b/salt/modules/cron.py
+@@ -186,7 +186,7 @@ def _write_cron_lines(user, lines):
+     path = salt.utils.mkstemp()
+     with salt.utils.fopen(path, 'w+') as fp_:
+         fp_.writelines(lines)
+-    if __grains__.get('os_family') in ('Solaris', 'AIX') and user != "root":
++    if __grains__.get('os_family') in ('Solaris', 'AIX', 'Arch') and user != "root":
+         __salt__['cmd.run']('chown {0} {1}'.format(user, path),
+                             python_shell=False)
+     ret = __salt__['cmd.run_all'](_get_cron_cmdstr(path),
+```

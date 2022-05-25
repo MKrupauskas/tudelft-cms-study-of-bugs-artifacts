@@ -1,0 +1,86 @@
+### Description of Issue/Question
+Based on issue #47322, there seems to be another unicode issue in the salt/module/lxc.py on line 870.  The LooseVersion object seems to require comparison to another LooseVersion object, instead of a unicode string.  This was based on comparing line 870 to line 2080.
+
+Oddly enough, this only seems to occur when provisioning the last lxc container (I loop through three containers).  I am also submitting a PR that fixes this on my system.
+
+### Setup
+Ubuntu 16.04.4 (Xenial), SaltStack version 2018.3.  
+
+### Steps to Reproduce Issue
+I am executing this state with `salt-call state.apply`
+```
+{% for name in pillar['containers'].keys() %}
+{% set container = pillar['containers'][name] %}
+{{ name }}:
+  lxc.present:
+    - template: download
+    - profile: {{ container['profile'] }}
+    - network_profile: {{ container['network_profile'] }}
+    - options:
+        dist: ubuntu
+        release: xenial
+        arch: amd64
+
+{{ name }} settings:
+  lxc.edited_conf:
+    - name: {{ name }}
+    - lxc_conf:
+        - lxc.network.ipv4: {{ container['ip'] }}
+        - lxc.network.ipv4.gateway: {{ container['gateway'] }}
+
+start {{ name }}:
+  lxc.running:
+    - name: {{ name }}
+{% endfor %}
+```
+This is the pillar file that the state is referencing:
+
+```
+containers:
+  apache:
+    ip: "10.3.2.211/24"
+    gateway: "10.3.2.1"
+    profile: xenial
+    network_profile: xenial
+  postfix:
+    ip: "10.3.2.212/24"
+    gateway: "10.3.2.1"
+    profile: xenial
+    network_profile: xenial
+  postgres:
+    ip: "10.3.2.213/24"
+    gateway: "10.3.2.1"
+    profile: xenial
+    network_profile: xenial
+```
+This is the output:
+
+```
+[INFO    ] Executing command 'lxc-info --version' in directory '/root'
+[DEBUG   ] stdout: 2.0.8
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1878, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1823, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/states/lxc.py", line 255, in present
+    thinpool=thinpool)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/lxc.py", line 1984, in create
+    nic_opts)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/lxc.py", line 1749, in _after_ignition_network_profile
+    nic_opts=nic_opts)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/lxc.py", line 4648, in apply_network_profile
+    lxcconfig = _LXCConfig(name=name, path=path)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/lxc.py", line 1024, in __init__
+    net_datas = _network_conf(conf_tuples=old_net, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/lxc.py", line 870, in _network_conf
+    if _LooseVersion(version()) <= '1.0.7' and \
+  File "/usr/lib/python2.7/distutils/version.py", line 296, in __cmp__
+    return cmp(self.version, other.version)
+AttributeError: 'unicode' object has no attribute 'version'
+```
+### Versions Report
+root@windsor:~# salt --version
+salt 2018.3.0 (Oxygen)
+root@windsor:~# salt-minion --version
+salt-minion 2018.3.0 (Oxygen)

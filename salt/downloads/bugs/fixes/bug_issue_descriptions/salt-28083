@@ -1,0 +1,69 @@
+I had this weird issue where git.latest would not work while running: salt '*' state.sls something.sls:
+
+```
+Oct 19 10:37:32 ip-10-111-163-155 salt-minion: return _git_run(cmd, cwd=cwd, runas=user, identity=identity)
+ 176368 Oct 19 10:37:32 ip-10-111-163-155 salt-minion: File "/usr/lib/python2.7/site-packages/salt/modules/git.py", line 57, in _git_run
+ 176369 Oct 19 10:37:32 ip-10-111-163-155 salt-minion: utils.files.copyfile(ssh_id_wrapper, tmp_file)
+ 176370 Oct 19 10:37:32 ip-10-111-163-155 salt-minion: AttributeError: 'module' object has no attribute 'files'
+ 176371 Oct 19 10:37:32 ip-10-111-163-155 salt-minion: [ERROR   ] 'module' object has no attribute 'files'
+```
+
+What's strange is that it works properly if the git.latest is not the first thing in something.sls.
+
+Basically this is not working:
+
+```
+{{ pillar.git.www.repo }}:
+ git.latest:
+  - target: /var/www/{{ pillar.domain }}
+  - identity: /root/.ssh/github.key
+  - force_checkout: True,
+  - force_reset: True,
+  - rev: {{ pillar.git.www.rev }}
+ cmd.wait:
+  - name: chown deploy:nginx /var/www/{{ pillar.domain }} -R && chmod 0750 /var/www/{{ pillar.domain }}
+  - watch:
+    - git: {{pillar.git.www.repo }}
+```
+
+while this is working:
+
+```
+/var/www/{{ pillar.domain }}:
+ file.directory:
+  - makedirs: True
+
+{{ pillar.git.www.repo }}:
+ git.latest:
+  - target: /var/www/{{ pillar.domain }}
+  - identity: /root/.ssh/github.key
+  - force_checkout: True,
+  - force_reset: True,
+  - rev: {{ pillar.git.www.rev }}
+ cmd.wait:
+  - name: chown deploy:nginx /var/www/{{ pillar.domain }} -R && chmod 0750 /var/www/{{ pillar.domain }}
+  - watch:
+    - git: {{pillar.git.www.repo }}
+```
+
+Version report:
+
+```
+           Salt: 2015.5.5
+             Python: 2.7.5 (default, Jun 24 2015, 00:41:19)
+             Jinja2: 2.7.2
+           M2Crypto: 0.21.1
+     msgpack-python: 0.4.6
+       msgpack-pure: Not Installed
+           pycrypto: 2.6.1
+            libnacl: Not Installed
+             PyYAML: 3.10
+              ioflo: Not Installed
+              PyZMQ: 14.3.1
+               RAET: Not Installed
+                ZMQ: 3.2.5
+               Mako: 0.8.1
+            Tornado: Not Installed
+            timelib: Not Installed
+           dateutil: Not Installed
+```

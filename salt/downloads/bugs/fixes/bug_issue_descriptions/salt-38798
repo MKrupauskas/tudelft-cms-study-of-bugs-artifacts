@@ -1,0 +1,118 @@
+### Description of Issue
+
+The `compound` function in the `match` module does not work when the target contains pillar matchers.
+
+### Setup
+
+A minion "docker-01.dev" has the following in its /etc/salt/grains:
+
+```
+tier: dev
+```
+
+and has been assigned the following pillar:
+
+```
+roles:
+  - docker
+  - test
+```
+
+### Steps to Reproduce Issue
+
+Using the aforementioned setup, the following commands return the correct output:
+
+```
+ripta@salt-01.dev% sudo salt docker-01.dev pillar.get roles
+docker-01.dev:
+    - docker
+    - test
+
+ripta@salt-01.dev% sudo salt docker-01.dev grains.get tier
+docker-01.dev:
+    dev
+```
+
+Furthermore, I can verify that selecting a minion using compound matchers work correctly:
+
+```
+ripta@salt-01.dev% sudo salt -C 'I@roles:docker' test.ping
+docker-01.dev:
+    True
+```
+
+and so do the `match.grain` and `match.pillar` module functions:
+
+```
+ripta@salt-01.dev% sudo salt docker-01.dev match.grain tier:dev
+docker-01.dev:
+    True
+
+ripta@salt-01.dev% sudo salt docker-01.dev match.pillar roles:docker
+docker-01.dev:
+    True
+```
+
+However, attempts to use `match.compound` does not work as expected. Any matchers only using `G@` (the grain matcher) works correctly, but anything involving `I@` (the pillar matcher) does not. I would have expected ALL of the commands below to succeed:
+
+```
+ripta@salt-01.dev% sudo salt docker-01.dev match.compound 'G@tier:dev'
+docker-01.dev:
+    True
+
+ripta@salt-01.dev% sudo salt docker-01.dev match.compound 'I@roles:docker'
+docker-01.dev:
+    False
+
+ripta@salt-01.dev% sudo salt docker-01.dev match.compound 'G@id:docker-01.dev and G@tier:dev'
+docker-01.dev:
+    True
+
+ripta@salt-01.dev% sudo salt docker-01.dev match.compound 'G@tier:dev and I@roles:docker'
+docker-01.dev:
+    False
+```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.11.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 2.5.3
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: 1.4.3
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.5
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Oct 26 2016, 20:30:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-87-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```
+
+Minion is on the same version.

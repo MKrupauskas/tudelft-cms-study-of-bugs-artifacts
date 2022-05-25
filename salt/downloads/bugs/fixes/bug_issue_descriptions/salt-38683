@@ -1,0 +1,121 @@
+### Description of Issue/Question
+
+Specific combination of require/order/failhard causes the following error:
+
+```
+m1-linux:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1332, in _thread_return
+        return_data = executor.execute()
+      File "/usr/lib/python2.6/site-packages/salt/executors/direct_call.py", line 28, in execute
+        return self.func(*self.args, **self.kwargs)
+      File "/usr/lib/python2.6/site-packages/salt/modules/state.py", line 455, in apply_
+        return sls(mods, **kwargs)
+      File "/usr/lib/python2.6/site-packages/salt/modules/state.py", line 942, in sls
+        ret = st_.state.call_high(high_)
+      File "/usr/lib/python2.6/site-packages/salt/state.py", line 2279, in call_high
+        ret = dict(list(disabled.items()) + list(self.call_chunks(chunks).items()))
+      File "/usr/lib/python2.6/site-packages/salt/state.py", line 1800, in call_chunks
+        if self.check_failhard(low, running):
+      File "/usr/lib/python2.6/site-packages/salt/state.py", line 1812, in check_failhard
+        return not running[tag]['result']
+    KeyError: 'test_|-a_|-a_|-show_notification'
+```
+
+The correct output should be:
+
+```
+m1-linux:
+----------
+          ID: b
+    Function: test.fail_with_changes
+      Result: False
+     Comment: Failure!
+     Started: 13:49:33.248056
+    Duration: 2.024 ms
+     Changes:
+              ----------
+              testing:
+                  ----------
+                  new:
+                      Something pretended to change
+                  old:
+                      Unchanged
+```
+
+I noticed that after removing order, error is not thrown.
+
+### Setup
+File a.sls
+
+```
+include:
+  - b
+
+a:
+  test.show_notification:
+    - name: a
+    - text: message
+    - require:
+        - sls: b
+    - order: 1
+    - failhard: True
+```
+
+File b.sls
+
+```
+b:
+  test.fail_with_changes:
+    - name: b
+    - failhard: True
+```
+
+### Steps to Reproduce Issue
+
+execute:
+
+```
+salt '*' state.apply a
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 6.6 Final
+        machine: x86_64
+        release: 2.6.32-504.el6.x86_64
+         system: Linux
+        version: CentOS 6.6 Final
+```

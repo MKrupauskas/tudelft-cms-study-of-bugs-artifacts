@@ -1,0 +1,114 @@
+### Description of Issue
+
+Due to a bug [on this line](https://github.com/saltstack/salt/pull/55540/files#diff-51f5a9819bcf2919b421cb7fccd2c42bR490), introduced by #55540 if you use `reload: whatever, True or False` on `service.running` states, you get a stacktrace and state fails.
+
+### Steps to Reproduce Issue
+1. Disable a service (say cron.service for example)
+`systemctl disable cron.service`
+2. Stop service
+`systemctl stop cron.service`
+3. Apply following state:
+```
+cron:
+  service.running:
+    - enable: True
+    - reload: False
+```
+
+**Expected behaviour (like salt 2019.2)**
+```
+       ----------
+                 ID: cron
+           Function: service.running
+             Result: True
+            Comment: Service cron has been enabled, and is running
+            Started: 16:10:32.264708
+           Duration: 749.571 ms
+            Changes:   
+              ----------
+              cron:
+                  True
+```
+On the minion:
+```
+* cron.service - Regular background program processing daemon
+   Loaded: loaded (/lib/systemd/system/cron.service; enabled; vendor preset: enabled)
+   Active: active (running) since Fri 2020-02-14 16:10:32 UTC; 15min ago
+```
+Service is running and enabled.
+
+**Observed behaviour:**
+```
+       [ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+         File "/usr/lib/python3/dist-packages/salt/state.py", line 1981, in call
+           **cdata['kwargs'])
+         File "/usr/lib/python3/dist-packages/salt/loader.py", line 1977, in wrapper
+           return f(*args, **kwargs)
+         File "/usr/lib/python3/dist-packages/salt/states/service.py", line 490, in running
+           after_toggle_status = __salt__['service.status'](name, sig, **kwargs)
+       TypeError: status() got an unexpected keyword argument 'reload'
+       ----------
+                 ID: bender
+           Function: service.running
+             Result: True
+            Comment: Service bender has been enabled, and is running
+            Started: 16:10:32.264708
+           Duration: 749.571 ms
+            Changes:   
+              ----------
+              bender:
+                  True
+```
+On the minion:
+```
+* cron.service - Regular background program processing daemon
+   Loaded: loaded (/lib/systemd/system/cron.service; disabled; vendor preset: enabled)
+   Active: active (running) since Fri 2020-02-14 16:10:32 UTC; 15min ago
+```
+Service is running, but not enabled despite summary say it has been enabled
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 3000
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.7.3 (default, Dec 20 2019, 18:57:59)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: debian 10.3 
+         locale: utf-8
+        machine: x86_64
+        release: 4.15.0-76-generic
+         system: Linux
+        version: debian 10.3 
+```
+
+## How tests can be improved to avoid future regression
+
+Add a `service.running` test with `enable: True` and `reload: True`

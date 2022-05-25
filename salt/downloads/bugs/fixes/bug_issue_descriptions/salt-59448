@@ -1,0 +1,170 @@
+**Description**
+The Napalm documentation says that the default transport is https.  However, if "transport" is not defined as an optional_arg in the pillar then the pyeapi_nxos_api_args() function in napalm_mod.py will set the transport kwarg to None which breaks commands like "salt my_router napalm.nxos_api_config 'ntp server 1.1.1.1'"
+
+ValueError: Unsupported url scheme: None://my_router:4000/ins
+
+I see three options for fixing this:
+1.  Add transport: https as an optional_arg
+2. Have pyeapi_nxos_api_args set the value to 'https' if its not found in the pillar in napalm_mod.py
+3. Have _prepare_connection() in /usr/lib/python3.6/site-packages/salt/utils/nxos_api.py change None to 'https'
+
+My opinions:
+Option 1 seems like a hack to me.  If there is a default in Napalm, the Salt napalm module should not require a value if the default is fine.
+
+Option 2 seems like a good choice as this is where Salt first learns the transport
+
+**Setup**
+proxy minion pillar:
+```
+    proxy:
+        ----------
+        connection:
+            nxapi
+        driver:
+            nxos
+        host:
+            my_router
+        key_accept:
+            True
+        multiprocessing:
+            True
+        no_save_config:
+            True
+        optional_args:
+            ----------
+            port:
+                4000
+            ssl_verify:
+                /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+            transport:
+                https
+        password:
+            the_clown
+        prompt:
+            my_router
+        prompt_name:
+            my_router
+        proxytype:
+            napalm
+        ssh_args:
+            -o PubkeyAuthentication=no
+        ssh_private_key_file:
+            /root/.ssh/id_rsa
+        username:
+            bozo
+
+```
+**Steps to Reproduce the behavior**
+Execute the module:  salt my_router napalm.nxos_api_config 'ntp server 1.1.1.1'
+
+**Expected behavior**
+it should add a configuration line:
+[root@my_master _modules]# salt my_router napalm.nxos_api_config 'ntp server 1.1.1.1'
+my_router:
+    ---
+    +++
+    @@ -79,6 +79,7 @@
+     snmp-server community xxxx group vdc-operator
+     snmp-server community xxxx group vdc-admin
+     snmp-server community xxxx group vdc-operator
+    +ntp server 1.1.1.1
+
+     ip pim ssm range 232.0.0.0/8
+     system vlan long-name
+
+**Screenshots**
+here is the traceback
+
+`[root@my_master _modules]# salt my_router napalm.nxos_api_config 'ntp server 1.1.1.1'
+my_router:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python3.6/site-packages/salt/metaproxy/proxy.py", line 480, in thread_return
+        opts, data, func, args, kwargs
+      File "/usr/lib/python3.6/site-packages/salt/executors/direct_call.py", line 12, in execute
+        return func(*args, **kwargs)
+      File "/usr/local/lib/python3.6/site-packages/salt/utils/napalm.py", line 515, in func_wrapper
+        ret = func(*args, **kwargs)
+      File "/usr/lib/python3.6/site-packages/salt/modules/napalm_mod.py", line 1270, in nxos_api_config
+        **nxos_api_kwargs
+      File "/usr/lib/python3.6/site-packages/salt/modules/nxos_api.py", line 416, in config
+        initial_config = show("show running-config", **kwargs)[0]
+      File "/usr/lib/python3.6/site-packages/salt/modules/nxos_api.py", line 317, in show
+        response_list = _cli_command(commands, method=method, **kwargs)
+      File "/usr/lib/python3.6/site-packages/salt/modules/nxos_api.py", line 183, in _cli_command
+        rpc_responses = rpc(commands, method=method, **kwargs)
+      File "/usr/lib/python3.6/site-packages/salt/modules/nxos_api.py", line 260, in rpc
+        return __utils__["nxos_api.rpc"](commands, method=method, **nxos_api_kwargs)
+      File "/usr/lib/python3.6/site-packages/salt/utils/nxos_api.py", line 127, in rpc
+        **init_args
+      File "/usr/local/lib/python3.6/site-packages/salt/utils/http.py", line 629, in query
+        result = download_client.fetch(url_full, **req_kwargs)
+      File "/usr/local/lib/python3.6/site-packages/salt/ext/tornado/httpclient.py", line 103, in fetch
+        self._async_client.fetch, request, **kwargs))
+      File "/usr/local/lib/python3.6/site-packages/salt/ext/tornado/ioloop.py", line 459, in run_sync
+        return future_cell[0].result()
+      File "/usr/local/lib/python3.6/site-packages/salt/ext/tornado/concurrent.py", line 249, in result
+        raise_exc_info(self._exc_info)
+      File "<string>", line 4, in raise_exc_info
+      File "/usr/local/lib/python3.6/site-packages/salt/ext/tornado/simple_httpclient.py", line 218, in __init__
+        self.request.url)
+    ValueError: Unsupported url scheme: None://my_router:4000/ins
+ERROR: Minions returned with non-zero exit code`
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 3001.5
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: 4.0.2
+      gitpython: Not Installed
+         Jinja2: 2.10.1
+        libgit2: 0.99.0
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 3.8.2
+   pycryptodome: 3.9.8
+         pygit2: 1.1.1
+         Python: 3.6.8 (default, Apr  2 2020, 13:34:55)
+   python-gnupg: Not Installed
+         PyYAML: 5.3.1
+          PyZMQ: 17.0.0
+          smmap: 3.0.1
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1127.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7 Core
+```
+</details>
+
+**Additional context**
+I validated option 1 by adding transport: https as an optional_arg
+
+I also validated option 2 by modifying pyeapi_nxos_api_args in napalm_mod.py
+
+`# diff napalm_mod.py napalm_mod.py-
+1019,1020d1018
+<     #if optional_args.get("transport") == None:
+<     #    optional_args["transport"] = 'https'`
+
+
+
+

@@ -1,0 +1,164 @@
+**Description**
+While trying to run scheduled jobs for NAPALM salt-proxy minion, it fails to execute more then 999 times with these error:
+```
+ 2020-07-03 14:24:42,089 [salt.utils.schedule:854 ][ERROR   ][15730] Unhandled exception running <function.name>
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/utils/schedule.py", line 762, in handle_func
+    ret["fun_args"].append(copy.deepcopy(kwargs))
+  File "/usr/lib64/python3.6/copy.py", line 150, in deepcopy
+    y = copier(x, memo)
+  File "/usr/lib64/python3.6/copy.py", line 240, in _deepcopy_dict
+... long output here ...
+RecursionError: maximum recursion depth exceeded
+```
+
+scheduler stops working after that until salt-proxy process restarted
+
+**Setup**
+<function.name> in above logs is any function from proxy-minion pillar scheduler configuration:
+```
+schedule:
+  intf_counters:
+    function: <function.name>
+    seconds: 30
+    return_job: False
+    kwargs:
+      <kwargs here>
+    args: 
+      - <args here>
+```
+
+**Steps to Reproduce the behavior**
+configure NAPALM salt-proxy scheduler and wait until it runs 999 times
+
+**Expected behavior**
+Scheduler should continue working even beyond 999 executions
+
+
+**Versions Report**
+having this problem in salt 3000.3 and 3001 version
+
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 3001
+ 
+Dependency Versions:
+           cffi: 1.12.3
+       cherrypy: unknown
+       dateutil: 2.8.0
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.1
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Apr  2 2020, 13:34:55)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1127.13.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7 Core</summary>
+```
+</details>
+
+<details><summary>Host is Cent OS</summary>
+(salt master and minions running on different VMs)
+
+```
+[@lt-~]#   hostnamectl
+   Static hostname: localhost.localdomain
+Transient hostname: lt-pf0yakdx.tpg.local
+         Icon name: computer-vm
+           Chassis: vm
+        Machine ID: 2a26648f68764152a772fc20c9a3ddb3
+           Boot ID: 8fafe2c73ba34317b56fa9ece01faaa4
+    Virtualization: vmware
+  Operating System: CentOS Linux 7 (Core)
+       CPE OS Name: cpe:/o:centos:centos:7
+            Kernel: Linux 3.10.0-957.21.2.el7.x86_64
+      Architecture: x86-64
+[@lt-~]# 
+```
+</details>
+
+**Additional context**
+Made some debugging by adding log.error line in "/usr/lib/python3.6/site-packages/salt/utils/schedule.py" file:
+```
+...
+            kwargs = {}
+            if "kwargs" in data:
+                log.error("doing deepcopy for data 'kwargs' - '{}'".format(data))
+                kwargs =data["kwargs"]
+                ret["fun_args"].append(copy.deepcopy(kwargs))
+...
+```
+
+after that logs showed that "data" item keeps growing in size, e.g.:
+<details><summary>logs when problem exists</summary>
+
+```
+... first log entry ...
+2020-07-06 10:13:09,772 [salt.utils.schedule:710 ][ERROR   ][7577] doing deepcopy for data 'kwargs' - '{'function': 'net.cli', 'seconds': 30, 'return_job': False, 'args': ['show clock'], 
+'kwargs': {'saltenv': 'base'}, 
+'name': 'intf_counters', '_next_fire_time': datetime.datetime(2020, 7, 6, 10, 13, 39, 720955), '_splay': None, '_seconds': 30, '_next_scheduled_fire_time': datetime.datetime(2020, 7, 6, 10, 13, 9, 720512), 'splay': None, 'jid_include': True, 'maxrunning': 1, 'run': True, '_last_run': datetime.datetime(2020, 7, 6, 10, 13, 9, 720955)}'
+
+... second log entry ...
+2020-07-06 10:13:39,790 [salt.utils.schedule:710 ][ERROR   ][7577] doing deepcopy for data 'kwargs' - '{'function': 'net.cli', 'seconds': 30, 'return_job': False, 'args': ['show clock'], 
+'kwargs': {'saltenv': 'base', '__pub_id': '<proxy-minion ID>', '__pub_fun': 'net.cli', '__pub_fun_args': ['show clock', {'saltenv': 'base'}], '__pub_schedule': 'intf_counters', '__pub_jid': '20200706001309771845', '__pub_pid': 7577}, 
+'name': 'intf_counters', '_next_fire_time': datetime.datetime(2020, 7, 6, 10, 14, 9, 720228), '_splay': None, '_seconds': 30, '_next_scheduled_fire_time': datetime.datetime(2020, 7, 6, 10, 13, 9, 720512), 'splay': None, 'jid_include': True, 'maxrunning': 1, 'run': True, '_last_run': datetime.datetime(2020, 7, 6, 10, 13, 39, 720228)}'
+
+... a while after ...
+2020-07-06 10:19:39,791 [salt.utils.schedule:710 ][ERROR   ][7577] doing deepcopy for data 'kwargs' - '{'function': 'net.cli', 'seconds': 30, 'return_job': False, 'args': ['show clock'], 
+'kwargs': {'saltenv': 'base', '__pub_id': '<proxy-minion ID>', '__pub_fun': 'net.cli', '__pub_fun_args': ['show clock', {'saltenv': 'base', '__pub_id': '<proxy-minion ID>', '__pub_fun': 'net.cli', '__pub_fun_args': ['show clock', {'saltenv': 'base', '__pub_id': '<proxy-minion ID>', '__pub_fun': 'net.cli', '__pub_fun_args': ['show clock', {'saltenv': 'base', '__pub_id': '<proxy-minion ID>', '__pub_fun': 'net.cli', '__pub_fun_args': ['show clock', {'saltenv': 'base', '__pub_id': '<proxy-minion ID>', '__pub_fun': 'net.cli', '__pub_fun_args': ['show clock', {'saltenv': 'base', '__pub_id': '<proxy-minion ID>', '__pub_fun': 'net.cli', '__pub_fun_args': ['show clock', {'saltenv': 'base', '__pub_id': '<proxy-minion ID>', '__pub_fun': 'net.cli', '__pub_fun_args': ['show clock', {'saltenv': 'base', '__pub_id': '<proxy-minion ID>', '__pub_fun': 'net.cli', '__pub_fun_args': ['show clock', {'saltenv': 'base', '__pub_id': '<proxy-minion ID>', '__pub_fun': 'net.cli', '__pub_fun_args': ['show clock', {'saltenv': 'base', '__pub_id': '<proxy-minion ID>', '__pub_fun': 'net.cli', '__pub_fun_args': ['show clock', {'saltenv': 'base', '__pub_id': '<proxy-minion ID>', '__pub_fun': 'net.cli', '__pub_fun_args': ['show clock', {'saltenv': 'base', '__pub_id': '<proxy-minion ID>', '__pub_fun': 'net.cli', '__pub_fun_args': ['show clock', {'saltenv': 'base', '__pub_id': '<proxy-minion ID>', '__pub_fun': 'net.cli', '__pub_fun_args': ['show clock', {'saltenv': 'base'}], '__pub_schedule': 'intf_counters', '__pub_jid': '20200706001309771845', '__pub_pid': 7577}], '__pub_schedule': 'intf_counters', '__pub_jid': '20200706001339790082', '__pub_pid': 7577}], '__pub_schedule': 'intf_counters', '__pub_jid': '20200706001409766818', '__pub_pid': 7577}], '__pub_schedule': 'intf_counters', '__pub_jid': '20200706001439815371', '__pub_pid': 7577}], '__pub_schedule': 'intf_counters', '__pub_jid': '20200706001509770269', '__pub_pid': 7577}], '__pub_schedule': 'intf_counters', '__pub_jid': '20200706001539790316', '__pub_pid': 7577}], '__pub_schedule': 'intf_counters', '__pub_jid': '20200706001609774130', '__pub_pid': 7577}], '__pub_schedule': 'intf_counters', '__pub_jid': '20200706001639792683', '__pub_pid': 7577}], '__pub_schedule': 'intf_counters', '__pub_jid': '20200706001709768931', '__pub_pid': 7577}], '__pub_schedule': 'intf_counters', '__pub_jid': '20200706001739791728', '__pub_pid': 7577}], '__pub_schedule': 'intf_counters', '__pub_jid': '20200706001809774002', '__pub_pid': 7577}], '__pub_schedule': 'intf_counters', '__pub_jid': '20200706001840116871', '__pub_pid': 7577}], '__pub_schedule': 'intf_counters', '__pub_jid': '20200706001909767356', '__pub_pid': 7577}, 
+'name': 'intf_counters', '_next_fire_time': datetime.datetime(2020, 7, 6, 10, 20, 9, 720927), '_splay': None, '_seconds': 30, '_next_scheduled_fire_time': datetime.datetime(2020, 7, 6, 10, 13, 9, 720512), 'splay': None, 'jid_include': True, 'maxrunning': 1, 'run': True, '_last_run': datetime.datetime(2020, 7, 6, 10, 19, 39, 720927)}'
+```
+</details>
+
+
+as you can see "kwargs" portion of data keeps increasing after first schedule execution growing until it reaches maximum default depth that deepcopy can handle.
+
+Was able to fix it using this:
+```
+...
+            kwargs = {}
+            if "kwargs" in data:
+                log.error("doing deepcopy for data 'kwargs' - '{}'".format(data))
+-               kwargs =data["kwargs"]
++               kwargs = copy.deepcopy(data["kwargs"])
+                ret["fun_args"].append(copy.deepcopy(kwargs))
+...
+```
+
+
+<details><summary>logs with above fix</summary>
+
+```
+-bash-4.2$ sudo tail -f  /var/log/salt/proxy 
+2020-07-06 11:24:42,360 [salt.utils.schedule:710 ][ERROR   ][17730] doing deepcopy for data 'kwargs' - '{'function': 'net.cli', 'seconds': 30, 'return_job': False, 'args': ['show clock'], 'kwargs': {'saltenv': 'base'}, 'name': 'intf_counters', '_next_fire_time': datetime.datetime(2020, 7, 6, 11, 25, 12, 312060), '_splay': None, '_seconds': 30, '_next_scheduled_fire_time': datetime.datetime(2020, 7, 6, 11, 23, 42, 312297), 'splay': None, 'jid_include': True, 'maxrunning': 1, 'run': True, '_last_run': datetime.datetime(2020, 7, 6, 11, 24, 42, 312060)}'
+2020-07-06 11:25:03,360 [salt.utils.schedule:710 ][ERROR   ][17730] doing deepcopy for data 'kwargs' - '{'function': 'status.proxy_reconnect', 'minutes': 1, 'jid_include': True, 'maxrunning': 1, 'return_job': False, 'kwargs': {'proxy_name': 'napalm'}, 'enabled': True, 'name': '__proxy_keepalive', '_next_fire_time': datetime.datetime(2020, 7, 6, 11, 26, 3, 312060), '_splay': None, '_seconds': 60, '_next_scheduled_fire_time': datetime.datetime(2020, 7, 6, 11, 24, 3, 98840), 'splay': None, 'run': True, '_last_run': datetime.datetime(2020, 7, 6, 11, 25, 3, 312060)}'
+2020-07-06 11:25:12,391 [salt.utils.schedule:710 ][ERROR   ][17730] doing deepcopy for data 'kwargs' - '{'function': 'net.cli', 'seconds': 30, 'return_job': False, 'args': ['show clock'], 'kwargs': {'saltenv': 'base'}, 'name': 'intf_counters', '_next_fire_time': datetime.datetime(2020, 7, 6, 11, 25, 42, 312131), '_splay': None, '_seconds': 30, '_next_scheduled_fire_time': datetime.datetime(2020, 7, 6, 11, 23, 42, 312297), 'splay': None, 'jid_include': True, 'maxrunning': 1, 'run': True, '_last_run': datetime.datetime(2020, 7, 6, 11, 25, 12, 312131)}'
+```
+</details>
+
+Not sure if above fix is an appropriate way of solving this problem. Would be good to have it fixed in future releases.

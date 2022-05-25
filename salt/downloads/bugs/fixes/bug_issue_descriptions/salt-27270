@@ -1,0 +1,134 @@
+## Version
+
+Affected version is the release **2015.8**
+## Problem
+
+Using Salt-API, you will not be able to perform anything in the Salt, if you passing the token ID, once you've got it from the Login.
+## Workaround
+
+You can still do everything, if you do not use token, but always username/password or any other initial way to authenticate via configured authentication mechanism
+## Steps to reproduce
+1. Install Salt 2015.8
+2. Start Salt Master
+3. Start Salt-API
+4. Run the following command (host, port and other parameters may differ):
+   
+   ``` bash
+   curl -si your-host:0000/login -H "Accept: application/json" -d username='admin' -d password='t35t' -d eauth='auto'
+   ```
+5. It should return you a token, something like this:
+   
+   ``` bash
+   HTTP/1.1 200 OK
+   ...
+   X-Auth-Token: 25d4055929e3dab9b1932bc74c4eee516fb9e473
+   Content-Type: application/json
+   ...
+   ```
+6. Now use this token to do something, say `test.ping` (note, your host and port and other information may differ):
+   
+   ``` bash
+   curl -sS your-host:0000/ -H 'X-Auth-Token: 25d4055929e3dab9b1932bc74c4eee516fb9e473' -H 'Accept: application/x-yaml' -d client='local' -d tgt='m*' -d fun='test.ping'
+   ```
+## Result
+
+The response is faulty:
+
+```
+return: An unexpected error occurred
+status: 500
+```
+
+The traceback is visible from the Salt-Master:
+
+```
+[ERROR   ] Some exception handling a payload from minion
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/transport/zeromq.py", line 511, in handle_message
+    ret, req_opts = yield self.payload_handler(payload)
+  File "/usr/lib64/python2.7/site-packages/tornado/gen.py", line 870, in run
+    value = future.result()
+  File "/usr/lib64/python2.7/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib64/python2.7/site-packages/tornado/gen.py", line 215, in wrapper
+    result = func(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/master.py", line 721, in _handle_payload
+    'clear': self._handle_clear}[key](load)
+  File "/usr/lib/python2.7/site-packages/salt/master.py", line 735, in _handle_clear
+    return getattr(self.clear_funcs, load['cmd'])(load), {'fun': 'send_clear'}
+  File "/usr/lib/python2.7/site-packages/salt/master.py", line 1782, in publish
+    for group in token['groups']:
+TypeError: 'bool' object is not iterable
+```
+
+The following traceback is visible from the Salt-API:
+
+```
+[ERROR   ] Uncaught exception, closing connection.
+Traceback (most recent call last):
+  File "/usr/lib64/python2.7/site-packages/zmq/eventloop/zmqstream.py", line 407, in _run_callback
+    callback(*args, **kwargs)
+  File "/usr/lib64/python2.7/site-packages/tornado/stack_context.py", line 274, in null_wrapper
+    return fn(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/transport/zeromq.py", line 790, in mark_future
+    future.set_result(self.serial.loads(msg[0]))
+  File "/usr/lib/python2.7/site-packages/salt/payload.py", line 117, in loads
+    return msgpack.loads(msg, use_list=True)
+  File "_unpacker.pyx", line 123, in msgpack._unpacker.unpackb (msgpack/_unpacker.cpp:123)
+ExtraData: unpack(b) received extra data.
+[ERROR   ] Uncaught exception, closing connection.
+Traceback (most recent call last):
+  File "/usr/lib64/python2.7/site-packages/zmq/eventloop/zmqstream.py", line 433, in _handle_events
+    self._handle_recv()
+  File "/usr/lib64/python2.7/site-packages/zmq/eventloop/zmqstream.py", line 465, in _handle_recv
+    self._run_callback(callback, msg)
+  File "/usr/lib64/python2.7/site-packages/zmq/eventloop/zmqstream.py", line 407, in _run_callback
+    callback(*args, **kwargs)
+  File "/usr/lib64/python2.7/site-packages/tornado/stack_context.py", line 274, in null_wrapper
+    return fn(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/transport/zeromq.py", line 790, in mark_future
+    future.set_result(self.serial.loads(msg[0]))
+  File "/usr/lib/python2.7/site-packages/salt/payload.py", line 117, in loads
+    return msgpack.loads(msg, use_list=True)
+  File "_unpacker.pyx", line 123, in msgpack._unpacker.unpackb (msgpack/_unpacker.cpp:123)
+ExtraData: unpack(b) received extra data.
+[ERROR   ] Exception in callback None
+Traceback (most recent call last):
+  File "/usr/lib64/python2.7/site-packages/tornado/ioloop.py", line 865, in start
+    handler_func(fd_obj, events)
+  File "/usr/lib64/python2.7/site-packages/tornado/stack_context.py", line 274, in null_wrapper
+    return fn(*args, **kwargs)
+  File "/usr/lib64/python2.7/site-packages/zmq/eventloop/zmqstream.py", line 433, in _handle_events
+    self._handle_recv()
+  File "/usr/lib64/python2.7/site-packages/zmq/eventloop/zmqstream.py", line 465, in _handle_recv
+    self._run_callback(callback, msg)
+  File "/usr/lib64/python2.7/site-packages/zmq/eventloop/zmqstream.py", line 407, in _run_callback
+    callback(*args, **kwargs)
+  File "/usr/lib64/python2.7/site-packages/tornado/stack_context.py", line 274, in null_wrapper
+    return fn(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/transport/zeromq.py", line 790, in mark_future
+    future.set_result(self.serial.loads(msg[0]))
+  File "/usr/lib/python2.7/site-packages/salt/payload.py", line 117, in loads
+    return msgpack.loads(msg, use_list=True)
+  File "_unpacker.pyx", line 123, in msgpack._unpacker.unpackb (msgpack/_unpacker.cpp:123)
+ExtraData: unpack(b) received extra data.
+[DEBUG   ] Error while processing request for: /
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/netapi/rest_cherrypy/app.py", line 506, in hypermedia_handler
+    ret = cherrypy.serving.request._hypermedia_inner_handler(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/cherrypy/_cpdispatch.py", line 61, in __call__
+    return self.callable(*self.args, **self.kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/netapi/rest_cherrypy/app.py", line 928, in POST
+    token=cherrypy.session.get('token')))
+  File "/usr/lib/python2.7/site-packages/salt/netapi/rest_cherrypy/app.py", line 770, in exec_lowstate
+    ret = self.api.run(chunk)
+  File "/usr/lib/python2.7/site-packages/salt/netapi/__init__.py", line 66, in run
+    return l_fun(*f_call.get('args', ()), **f_call.get('kwargs', {}))
+  File "/usr/lib/python2.7/site-packages/salt/netapi/__init__.py", line 94, in local
+    return local.cmd(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/client/__init__.py", line 542, in cmd
+    **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/client/__init__.py", line 297, in run_job
+    raise SaltClientError(general_exception)
+SaltClientError: Salt request timed out. The master is not responding. If this error persists after verifying the master is up, worker_threads may need to be increased.
+```

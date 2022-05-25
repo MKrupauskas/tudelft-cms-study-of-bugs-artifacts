@@ -1,0 +1,191 @@
+### Description of Issue/Question
+
+state file.line with mode=insert doesn't seem to work for this use-case. I just get `No changes needed to be made` 
+
+I can use mode=ensure, but that ends up only allowing me to manage a single line and subsequent file.line states with mode=ensure replace the previous line that was managed.
+
+I attempted escaping the various "special" characters in the `match` strings for `insert_line_one` and `insert_line_six` but that didn't help. 
+
+If I switch `after` to `'.*'` for `insert_line_one` and `insert_line_six` then the lines will be inserted but not where I wanted them. 
+
+I think it has something to do with a check that is trying to match a line in the similar location to where I'm attempting to insert `<testing type="some">onetwothree</testing>` and returning a false positive which leads to it skipping the insert. If I remove `<testing type="that">threefourfive</testing>` from between `<one>` and `</one>` lines then `insert_line_one` will work, but `insert_line_six` will still say `No changes needed to be made` because now its getting another false positive match and skipping the insert.
+
+`insert_line_simple` and `insert_line_simple_again` show that it has no problem inserting a line without the xml attribute ` type="xxxx"` in the `content` or `match`
+
+I'm at a loss to submit a PR for this, it's preventing me from using `file.line`, so I've resorted to a hacky workaround with `file.replace` as it's less hastle than attempting a fix.
+
+Any clues @isbm ?
+
+### Setup
+/root/testfile:
+```xml
+<test>
+  <one>
+    <testing type="that">threefourfive</testing>
+  </one>
+</test>
+```
+
+### Steps to Reproduce Issue
+sls:
+```sls
+insert_line_one:
+  file.line:
+    - name   : /root/testfile
+    - content: <testing type="some">onetwothree</testing>
+    - mode   : insert
+    - after  : <one>
+    - match  : '<testing type="some">.*</testing>'
+    - indent : True
+
+insert_line_six:
+  file.line:
+    - name   : /root/testfile
+    - content: <testing type="thing">sixseveneight</testing>
+    - mode   : insert
+    - after  : <one>
+    - match  : '<testing type="thing">.*</testing>'
+    - indent : True
+
+insert_line_simple:
+  file.line:
+    - name   : /root/testfile
+    - content: <testing>simple</testing>
+    - mode   : insert
+    - before : <one>
+    - match  : '<testing>.*</testing>'
+    - indent : True
+
+insert_line_simple_again:
+  file.line:
+    - name   : /root/testfile
+    - content: <testing>simple</testing>
+    - mode   : insert
+    - after  : <one>
+    - match  : '<testing>.*</testing>'
+    - indent : True
+```
+
+### Expected result
+```xml
+<test>
+  <testing>simple</testing>
+  <one>
+  <testing>simple again</testing>
+    <testing type="thing">sixseveneight</testing>
+    <testing type="some">onetwothree</testing>
+    <testing type="that">threefourfive</testing>
+  </one>
+</test>
+```
+
+### Actual result
+```xml
+<test>
+  <testing>simple</testing>
+  <one>
+  <testing>simple again</testing>
+    <testing type="that">threefourfive</testing>
+  </one>
+</test>
+```
+```
+local:
+----------
+          ID: insert_line_one
+    Function: file.line
+        Name: /root/testfile
+      Result: True
+     Comment: No changes needed to be made
+     Started: 16:58:29.081017
+    Duration: 4.982 ms
+     Changes:
+----------
+          ID: insert_line_six
+    Function: file.line
+        Name: /root/testfile
+      Result: True
+     Comment: No changes needed to be made
+     Started: 16:58:29.086139
+    Duration: 0.722 ms
+     Changes:
+----------
+          ID: insert_line_simple
+    Function: file.line
+        Name: /root/testfile
+      Result: True
+     Comment: Changes were made
+     Started: 16:58:29.086999
+    Duration: 1.157 ms
+     Changes:
+              ----------
+              diff:
+                  ---
+                  +++
+                  @@ -1,4 +1,5 @@
+                   <test>+  <testing>simple</testing>   <one>     <testing type="that">threefourfive</testing>   </one>
+----------
+          ID: insert_line_simple_again
+    Function: file.line
+        Name: /root/testfile
+      Result: True
+     Comment: Changes were made
+     Started: 16:58:29.088301
+    Duration: 0.87 ms
+     Changes:
+              ----------
+              diff:
+                  ---
+                  +++
+                  @@ -1,6 +1,7 @@
+                   <test>   <testing>simple</testing>   <one>+  <testing>simple</testing>     <testing type="that">threefourfive</testing>   </one> </test>
+
+Summary for local
+------------
+Succeeded: 4 (changed=2)
+Failed:    0
+------------
+Total states run:     4
+Total run time:   7.731 ms
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.1
+
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.3.1611 Core
+        machine: x86_64
+        release: 3.10.0-514.2.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```

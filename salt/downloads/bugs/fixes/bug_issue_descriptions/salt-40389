@@ -1,0 +1,109 @@
+### Description of Issue/Question
+When trying to start a new container via the state dockerng.running, the state fails with the error message: `Failed to create new container: create_host_config() got multiple values for keyword argument 'self'`
+
+### Setup
+
+#### SLS File to test this with
+```
+nginx image:
+  dockerng.image_present:
+    - name: 'nginx'
+
+nginx-proxy docker:
+  dockerng.running:
+    - name: 'ye_olde_kraken'
+    - force: true
+    - hostname: 'www'
+    - domainname: 'example.com'
+    - image: 'nginx'
+    - port_bindings:
+      - '80:80'
+      - '443:443'
+    - memory: 1G
+    - binds:
+      - '/srv/dockers/loadbalancer/htpasswd:/etc/nginx/htpasswd:ro'
+    - volumes:
+      - /etc/nginx/
+    - watch:
+      - dockerng: 'nginx image'
+```
+
+#### Salt command to run
+`salt-call -l all --local state.sls dockers.loadbalancer`
+
+### Steps to Reproduce Issue
+Run the above state with the above salt-call command.
+
+Error messages with `-l all` and slightly adjusted dockerng module for more debug info
+```
+# diff /usr/lib/python2.7/site-packages/salt/modules/dockerng.py /usr/lib/python2.7/site-packages/salt/modules/dockerng.py.old
+3142,3146d3141
+<         log.debug(
+<                 'dockerng.create is using the following kwargs to create '
+<                 'container \'{0}\' from image \'{1}\': {2}, Argument dict to docker.client is {3}, hostconfigargs are {4}'
+<                 .format(name, image, create_kwargs, dict((arg, create_kwargs.pop(arg, None)) for arg in host_config_args if arg != 'version'), host_config_args)
+<                 )
+```
+```
+[INFO    ] Running state [ye_olde_kraken] at time 14:23:20.721418
+[INFO    ] Executing state dockerng.running for ye_olde_kraken
+[DEBUG   ] http://localhost:None "GET /v1.27/images/nginx:latest/json HTTP/1.1" 200 None
+[DEBUG   ] http://localhost:None "GET /v1.27/containers/json?all=1&limit=-1&trunc_cmd=0&size=0 HTTP/1.1" 200 3
+[DEBUG   ] http://localhost:None "GET /v1.27/version HTTP/1.1" 200 225
+[DEBUG   ] http://localhost:None "GET /v1.27/images/nginx:latest/json HTTP/1.1" 200 None
+[DEBUG   ] http://localhost:None "GET /v1.27/version HTTP/1.1" 200 225
+[DEBUG   ] dockerng.create is using the following kwargs to create container 'ye_olde_kraken' from image 'nginx:latest': {'domainname': 'example.com', 'hostname': 'www', 'binds': {'/srv/dockers/loadbalancer/htpasswd': {'bind': '/etc/nginx/htpasswd', 'ro': True}}, 'volumes': ['/etc/nginx/', '/etc/nginx/htpasswd'], 'mem_limit': 1073741824, 'port_bindings': {80: [80], 443: [443]}, 'ports': [80, 443]}, Argument dict to docker.client is {'self': None}, hostconfigargs are ['self']                                                              
+[ERROR   ] Failed to create new container: create_host_config() got multiple values for keyword argument 'self'
+[INFO    ] Completed state [ye_olde_kraken] at time 14:23:20.749723 duration_in_ms=28.304
+```
+
+#### Additional docker version info:
+```
+[I] dev-python/docker-py      Installed versions:  2.1.0(08:22:21 AM 03/29/2017)(doc -test PYTHON_TARGETS="python2_7 -python3_4 -python3_5")
+[I] app-emulation/docker      Installed versions:  17.03.1^si[1](02:22:13 PM 03/29/2017)(container-init device-mapper hardened overlay seccomp -apparmor -aufs -btrfs -pkcs11)
+```
+
+#### Further comments
+
+My hunch is its something related to docker-py and the docker api but I can't debug it properly for now. Will most likely dig into it further this evening.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.3
+
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: 1.5.0
+         Jinja2: 2.9.5
+        libgit2: 0.25.1
+        libnacl: 1.5.0
+       M2Crypto: 0.25.1
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+         pygit2: 0.25.0
+         Python: 2.7.13 (default, Mar 27 2017, 13:51:58)
+   python-gnupg: 0.3.8
+         PyYAML: 3.12
+          PyZMQ: 15.2.0
+           RAET: 0.6.7
+          smmap: Not Installed
+        timelib: 0.2.4
+        Tornado: 4.4.2
+            ZMQ: 4.2.2
+
+System Versions:
+           dist: gentoo 2.3
+        machine: x86_64
+        release: 4.8.17-hardened-r2
+         system: Linux
+        version: Gentoo Base System 2.3
+```

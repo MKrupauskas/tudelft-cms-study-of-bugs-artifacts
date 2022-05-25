@@ -1,0 +1,116 @@
+### Description of Issue
+<!-- Note: Please direct questions to the salt-users google group. Only post issues and feature requests here -->
+When creating a user with Salt in RabbitMQ 3.8.0 I receive the following error:
+
+```
+2019-11-20 10:56:30,492 [salt.state       :322 ][ERROR   ][28696] Error: RabbitMQ command failed: Error:
+{:undef, [{:rabbit_auth_backend_internal, :check_user_login, ["admin", [password: "adminPassword1"]], []}, {:erl_eval, :do_apply, 6, [file: 'erl_eval.erl', line: 680]}, {:rpc, :"-handle_call_call/6-fun-0-", 5, [file: 'rpc.erl', line: 197]}]}
+```
+
+This issue is partly because `rabbit_auth_backend` was renamed in 3.5.7 but it is being used in 3.8 because of an output format change.
+
+The test for version is here: https://github.com/saltstack/salt/blob/master/salt/modules/rabbitmq.py#L459 (But it fails for 3.8)
+
+
+This looks like one of the problems, as the format of `rabbitmqctl status` changed in 3.8 so this regex no longer works:
+https://github.com/saltstack/salt/blob/master/salt/modules/rabbitmq.py#L445
+
+And it falls back to https://github.com/saltstack/salt/blob/master/salt/modules/rabbitmq.py#L486
+
+Rabbitmq Status before 3.8
+```
+$ rabbitmqctl status
+[{pid,305}, {running_applications,
+    [{rabbit,"RabbitMQ","3.7.21"},
+```
+
+RabbitMQ status in 3.8
+```
+$ rabbitmqctl status
+Status of node rabbit ...
+Runtime
+
+OS PID: 4712
+OS: Linux
+Uptime (seconds): 3294202
+RabbitMQ version: 3.8.0
+Node name: rabbit@dev-g-rbt1-01
+Erlang configuration: Erlang/OTP 22 [erts-10.5.2] [source] [64-bit] [smp:2:2] [ds:2:2:10] [async-threads:64] [hipe]
+Erlang processes: 539 used, 1048576 limit
+Scheduler run queue: 1
+Cluster heartbeat timeout (net_ticktime): 60
+```
+
+One thing that works is:
+```
+rabbitmqctl eval 'rabbit_access_control:check_user_login(<<"admin">>, [{password, <<"adminPassword1">>}]).'
+```
+
+### Setup
+
+```sls
+rabbitadminUser:
+  rabbitmq_user.present:
+    - name: admin
+    - password: "adminPassword1"
+    - tags:
+      - administrator
+    - perms:
+      - '/':
+        - ".*"
+        - ".*"
+        - ".*"
+```
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+
+Run a RabbitMQ 3.8 and try to create a user with Salt RabbitMQ user provider.
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+```
+$ salt-minion -V
+/usr/lib/python2.7/site-packages/salt/scripts.py:198: DeprecationWarning: Python 2.7 will reach the end of its life on January 1st, 2020. Please upgrade your Python as Python 2.7 won't be maintained after that date.  Salt will drop support for Python 2.7 in the Sodium release or later.
+Salt Version:
+           Salt: 2019.2.0
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: 2.6.0
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.16 (default, Sep 13 2019, 20:28:21)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 4.14.146-119.123.amzn2.x86_64
+         system: Linux
+        version: Not Installed
+```

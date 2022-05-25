@@ -1,0 +1,124 @@
+### Description of Issue/Question
+When using `salt.state.file.retention_schedule` without using strptime, relative directory `.` and `..` are processed like regular file.
+As such, they can be marked for deletion or counted as file to be retained.
+
+
+### Steps to Reproduce Issue
+With this state:
+```
+# cat /srv/salt/test.sls 
+test_retention:
+  file.retention_schedule:
+    - name: /tmp/test
+    - retain:
+        most_recent: 2
+```
+
+Having these files 
+```
+# ls -al /tmp/test/
+total 0
+drwxr-xr-x 2 root root 120 juil. 18 00:28 .
+drwxrwxrwt 8 root root 160 juil. 18 00:28 ..
+-rw-r--r-- 1 root root   0 avril 17 01:00 foo-1.0.0.jar
+-rw-r--r-- 1 root root   0 mai   17 01:00 foo-1.0.1.jar
+-rw-r--r-- 1 root root   0 juin  17 01:00 foo-1.1.0.jar
+-rw-r--r-- 1 root root   0 juil. 17 01:00 foo-1.1.1.jar
+```
+It results to 
+```
+# salt host1 state.apply test 
+host1:
+----------
+          ID: test_retention
+    Function: file.retention_schedule
+        Name: /tmp/test
+      Result: True
+     Comment: 4 backups were removed from /tmp/test.
+     Started: 00:31:55.600693
+    Duration: 16.172 ms
+     Changes:   
+              ----------
+              deleted:
+                  - foo-1.1.1.jar
+                  - foo-1.1.0.jar
+                  - foo-1.0.1.jar
+                  - foo-1.0.0.jar
+              ignored:
+              retained:
+                  - ..
+                  - .
+
+Summary for host1
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  16.172 ms
+```
+
+
+However using `strptime_format` this problem does not happen because `.` and `..` do not match the provided format.
+
+A straightforward fix would be to add a test in `get_file_time_from_mtime` (https://github.com/saltstack/salt/blob/v2018.3.2/salt/states/file.py#L3675)
+```
+def get_file_time_from_mtime(f):
+    if f == '.' or f == '..':
+       return (None, None)
+   lstat = __salt__['file.lstat'](os.path.join(name, f))
+   if lstat:
+       mtime = lstat['st_mtime']
+       return (datetime.fromtimestamp(mtime, timezone), mtime)
+   else:   # maybe it was deleted since we did the readdir?
+       return (None, None)
+
+```
+Probably not the most elegant though..
+
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2018.3.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 8.11 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-0.bpo.6-amd64
+         system: Linux
+        version: debian 8.11 
+```

@@ -1,0 +1,174 @@
+**Description**
+
+When doing a state.highstate (test, or non-test) on a libvirt VM server, after upgrading both salt-master and salt-minion to 3002.5, the `virt.running` states show as always changed, with the comment "Domain {} exists and is running" -- which is true, the domain was running before, and is running now, but that is not a change, and shouldn't show as a change.  No matter how often it is run, it always shows as changed, even if the VM is running before/after.
+
+**Setup**
+
+The VM definitions are in a pillar, with the obvious values in each key (ie, number of CPUs, RAM, disks -- as logical volumes, and nics -- as bridges).
+
+```
+{{vm_name}}:
+    virt.running:
+      - cpu: {{vm.get('cpus', 1)}}
+      - mem: {{vm['ram_mb']}}
+      - vm_type: kvm
+      - disk_profile: default
+      - disks:
+{%         for disk in vm['disks']|sort %}
+          - name: {{disk}}
+            source_file: {{vm['disks'][disk]['lv']}}
+            format: raw
+            model: virtio
+            device: disk
+{%         endfor %}
+      - nic_profile: default
+      - install: False
+      - interfaces:
+{%         for nic in vm['net']|sort %}
+          - name: {{nic}}
+            type: bridge
+            source: {{vm['net'][nic]['bridge']}}
+            mac: {{vm['net'][nic]['mac_address']}}
+            model: virtio
+{%         endfor %}
+```
+
+**Steps to Reproduce the behavior**
+
+```
+sudo salt "VM_HOST" state.highstate test=True --state-output=changes --output-diff
+```
+
+observe that on each run the VM appears in the output as "changed", but with nothing in the differences.
+
+**Expected behavior**
+
+If the VM is running and the VM definition is unchanged, then `virt.running` should not show as changed.
+
+**Screenshots**
+
+Example output of the fault condition:
+
+```
+----------
+          ID: debian_unstable
+    Function: virt.running
+      Result: True
+     Comment: Domain debian_unstable exists and is running
+     Started: 15:15:28.970428
+    Duration: 19.974 ms
+     Changes:   
+              ----------
+              debian_unstable:
+                  ----------
+```
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+ewen@salt:~$ salt --versions-report
+Salt Version:
+          Salt: 3002.5
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.5
+     gitpython: 2.1.11
+        Jinja2: 2.10
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.5.6
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: Not Installed
+        Python: 3.7.3 (default, Jul 25 2020, 13:03:44)
+  python-gnupg: Not Installed
+        PyYAML: 3.13
+         PyZMQ: 17.1.2
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.1
+ 
+System Versions:
+          dist: debian 10 buster
+        locale: UTF-8
+       machine: x86_64
+       release: 4.19.0-14-amd64
+        system: Linux
+       version: Debian GNU/Linux 10 buster
+ 
+ewen@salt:~$ 
+```
+</details>
+
+Minion is Ubuntu 18.04 LTS in this case, but also Salt 3002.5 on Python 3.6, installed from the Salt Stack repo.
+
+**Additional context**
+
+Ironically this similar symptoms to an [issue in 2019.2 and earlier](https://github.com/saltstack/salt/issues/53107), but I've verified that specific cause is fixed in 3002.5 as per the closed issue (and that earlier issue caused "always fails" instead of "always succeeds, with changes" here).
+
+From digging in the JSON output, I believe the problem is that the `changes` value being returned is nested under the VM name:
+
+```
+        "virt_|-debian_unstable_|-debian_unstable_|-running": {
+            "name": "debian_unstable",
+            "changes": {
+                "debian_unstable": {}
+            },
+            "result": true,
+            "comment": "Domain debian_unstable exists and is running",
+            "__sls__": "host/naosr620/virtualisation",
+            "__run_num__": 130,
+            "start_time": "15:19:33.216295",
+            "duration": 19.206,
+            "__id__": "debian_unstable"
+        },
+```
+
+and thus changes is implicitly True rather than implicitly False.
+
+This in turn seems to happen because `virt.running` calls `virt.defined` and `virt.defined` always returns its value nested under the name of the VM:
+
+https://github.com/saltstack/salt/blob/c13593b89b0645717c65947eed9b3bf9070d436d/salt/states/virt.py#L671-L674
+
+and in the "happy path" (nothing got changed), `ret["changes"]` does not get reset, resulting in: `ret["changes"] = { name: {} }` which is *not* an empty dictionary; see:
+
+https://github.com/saltstack/salt/blob/c13593b89b0645717c65947eed9b3bf9070d436d/salt/states/virt.py#L1045-L1048
+
+For now I've worked around this locally with a kludge that turns exactly that "nothing happened" result into an empty dictionary in just that happy path.  But there's probably a more concise way of expressing "nothing changed, so `ret["changes"] = {}`" if someone verifies the rest of the context.  I went with this as it was not clear to me why the result was ever nested under the VM name, at least for the changes, so I wanted to make the smallest possible change to the result output.
+
+Relevant context:
+
+```
+            elif not changed:
+                ret["comment"] = "Domain {} exists and is running".format(name)
+
+                # 2021-03-08 - work around always showing changes even if
+                # nothing changed, due to defined() returning changes nested
+                # under the domain name for non obvious reasons.
+                #
+                if (ret["changes"] and (type(ret["changes"]) is dict) and 
+                    (name in ret["changes"]) and (len(ret["changes"]) == 1) and
+                    not ret["changes"][name]):
+                    # There's an empty changes return dictionary, so nothing
+                    # actually changed AFAICT; override it
+                    #
+                    ret["changes"] = {}
+
+        except libvirt.libvirtError as err:
+            # Something bad happened when starting / updating the VM, report it
+```
+
+(not a patch at present, because I still have to patch `states/virt.py` for other earlier features request issues -- https://github.com/saltstack/salt/issues/53081 -- so the patch line numbers would be off anyway.)
+
+Ewen

@@ -1,0 +1,236 @@
+### Description of Issue/Question
+I'd like to report to you that I found bug in artifactory state. We had test deploys working on our test environment, and suddenly today I was getting lots of errors. After investigation I found out that we have some connection problems today and there are timeouts during connecting to artifactory. Timeout exception is not captured and Salt returns very long unspecific error (I pasted it at end of this post). Connection errors should be captured and returned as other errors. This allows user to instantly know what is the problem. Currently I had to analyse minion logs.
+
+Timout (and other connection related errors) should be returned in something like this:
+```
+ "artifactory_|-download_from_artifactory_|-download_from_artifactory_|-downloaded": {
+    "comment": "Timeout while connecting to artifactory: http://some.url.that.i.removed",
+    "name": "download_from_artifactory",
+    "start_time": "12:32:24.908676",
+    "result": false,
+    "duration": 6874.265,
+    "__run_num__": 6.0,
+    "changes": {},
+    "__id__": "download_from_artifactory"
+  }
+
+```
+### Setup
+Salt state that was executed:
+```
+download_from_artifactory:
+  artifactory.downloaded:
+    - artifact:
+        artifactory_url: http://some.url.that.i.removed
+        repository: 'libs-snapshots'
+        group_id: 'com.example.webapp'
+        artifact_id: 'webapp'
+        packaging: 'war'
+        version: '1.0-SNAPSHOT'
+        classifier: ''
+    - target_file: /tmp/webapp.war
+```
+
+### Steps to Reproduce Issue
+Difficult to reproduce, since it related to network issues.
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 1.4.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Nov 21 2013, 10:50:32)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: redhat 6.6 Santiago
+        machine: x86_64
+        release: 2.6.32-504.12.2.el6.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 6.6 Santiago
+
+```
+
+### Logs
+Logs with error:
+```
+2016-11-07 14:21:40,871 [salt.state                                           ][ERROR   ][24142] <urlopen error [Errno 110] Connection timed out>
+2016-11-07 14:21:40,890 [salt.state                                           ][INFO    ][24142] Completed state [download_from_artifactory] at time 14:21:40.884651 duration_in_ms=70625.378
+2016-11-07 14:21:41,009 [salt.minion                                          ][WARNING ][24142] Passed invalid arguments to state.apply: can't serialize URLError(error(110, 'Connection timed out'),)
+```
+
+Long unspecific error that is logged and also returned to user instaed of proper result. Stacktrace at the end is only logged. It is not visible to user on screen.
+
+```
+    .. versionadded:: 2015.5.0
+
+    This function will call :mod:`state.highstate
+    <salt.modules.state.highstate>` or :mod:`state.sls
+    <salt.modules.state.sls>` based on the arguments passed to this function.
+    It exists as a more intuitive way of applying states.
+
+    .. rubric:: APPLYING ALL STATES CONFIGURED IN TOP.SLS (A.K.A. :ref:`HIGHSTATE <running-highstate>`)
+
+    To apply all configured states, simply run ``state.apply``:
+
+    .. code-block:: bash
+
+        salt '*' state.apply
+
+    The following additional arguments are also accepted when applying all
+    states configured in top.sls:
+
+    test
+        Run states in test-only (dry-run) mode
+
+    pillar
+        Custom Pillar values, passed as a dictionary of key-value pairs
+
+        .. code-block:: bash
+
+            salt '*' state.apply test pillar='{"foo": "bar"}'
+
+        .. note::
+            Values passed this way will override Pillar values set via
+            ``pillar_roots`` or an external Pillar source.
+
+    queue : False
+        Instead of failing immediately when another state run is in progress,
+        queue the new state run to begin running once the other has finished.
+
+        This option starts a new thread for each queued state run, so use this
+        option sparingly.
+
+    localconfig
+        Optionally, instead of using the minion config, load minion opts from
+        the file specified by this argument, and then merge them with the
+        options from the minion config. This functionality allows for specific
+        states to be run with their own custom minion configuration, including
+        different pillars, file_roots, etc.
+
+        .. code-block:: bash
+
+            salt '*' state.apply localconfig=/path/to/minion.yml
+
+
+    .. rubric:: APPLYING INDIVIDUAL SLS FILES (A.K.A. :py:func:`STATE.SLS <salt.modules.state.sls>`)
+
+    To apply individual SLS files, pass them as a comma-separated list:
+
+    .. code-block:: bash
+
+        # Run the states configured in salt://test.sls (or salt://test/init.sls)
+        salt '*' state.apply test
+        # Run the states configured in salt://test.sls (or salt://test/init.sls)
+        # and salt://pkgs.sls (or salt://pkgs/init.sls).
+        salt '*' state.apply test,pkgs
+
+    The following additional arguments are also accepted when applying
+    individual SLS files:
+
+    test
+        Run states in test-only (dry-run) mode
+
+    pillar
+        Custom Pillar values, passed as a dictionary of key-value pairs
+
+        .. code-block:: bash
+
+            salt '*' state.apply test pillar='{"foo": "bar"}'
+
+        .. note::
+            Values passed this way will override Pillar values set via
+            ``pillar_roots`` or an external Pillar source.
+
+    queue : False
+        Instead of failing immediately when another state run is in progress,
+        queue the new state run to begin running once the other has finished.
+
+        This option starts a new thread for each queued state run, so use this
+        option sparingly.
+
+    concurrent : False
+        Execute state runs concurrently instead of serially
+
+        .. warning::
+
+            This flag is potentially dangerous. It is designed for use when
+            multiple state runs can safely be run at the same time. Do *not*
+            use this flag for performance optimization.
+
+    saltenv : None
+        Specify a salt fileserver environment to be used when applying states
+
+        .. versionchanged:: 0.17.0
+            Argument name changed from ``env`` to ``saltenv``
+
+        .. versionchanged:: 2014.7.0
+            If no saltenv is specified, the minion config will be checked for a
+            ``saltenv`` parameter and if found, it will be used. If none is
+            found, ``base`` will be used. In prior releases, the minion config
+            was not checked and ``base`` would always be assumed when the
+            saltenv was not explicitly set.
+
+    pillarenv
+        Specify a Pillar environment to be used when applying states. By
+        default, all Pillar environments will be merged together and used.
+
+    localconfig
+        Optionally, instead of using the minion config, load minion opts from
+        the file specified by this argument, and then merge them with the
+        options from the minion config. This functionality allows for specific
+        states to be run with their own custom minion configuration, including
+        different pillars, file_roots, etc.
+
+        .. code-block:: bash
+
+            salt '*' state.apply test localconfig=/path/to/minion.yml
+    
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1332, in _thread_return
+    return_data = executor.execute()
+  File "/usr/lib/python2.6/site-packages/salt/executors/direct_call.py", line 28, in execute
+    return self.func(*self.args, **self.kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/modules/state.py", line 455, in apply_
+    return sls(mods, **kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/modules/state.py", line 954, in sls
+    serial.dump(ret, fp_)
+  File "/usr/lib/python2.6/site-packages/salt/payload.py", line 226, in dump
+    fn_.write(self.dumps(msg))
+  File "/usr/lib/python2.6/site-packages/salt/payload.py", line 141, in dumps
+    return msgpack.dumps(msg)
+  File "/usr/lib64/python2.6/site-packages/msgpack/__init__.py", line 47, in packb
+    return Packer(**kwargs).pack(o)
+  File "msgpack/_packer.pyx", line 223, in msgpack._packer.Packer.pack (msgpack/_packer.cpp:223)
+  File "msgpack/_packer.pyx", line 225, in msgpack._packer.Packer.pack (msgpack/_packer.cpp:225)
+  File "msgpack/_packer.pyx", line 184, in msgpack._packer.Packer._pack (msgpack/_packer.cpp:184)
+  File "msgpack/_packer.pyx", line 184, in msgpack._packer.Packer._pack (msgpack/_packer.cpp:184)
+  File "msgpack/_packer.pyx", line 220, in msgpack._packer.Packer._pack (msgpack/_packer.cpp:220)
+TypeError: can't serialize URLError(error(110, 'Connection timed out'),)
+```

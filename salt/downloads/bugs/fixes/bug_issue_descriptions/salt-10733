@@ -1,0 +1,91 @@
+Okie, so I was trying to implement something and ended up in a position where a `state.sls` call was taking upwards of 15 minutes.  Digging in I found that some 80-90% of the time was being spent in deepcopy and eventually figured out what was wrong.
+
+The setup has ~870 states procedurally generated via a for loop, each state had a non trivial chunk of context passed in.  After trimming the context as much as possible, each chunk looks like this:
+
+``` python
+ {'__env__': 'base',
+  '__id__': 'hosting_web_file863',
+  '__sls__': 'roles.hosting_web',
+  'context': {'aliases': [],
+              'directories': ['/public_html',
+                              '/public_html/cgi-bin/',
+                              '/secure',
+                              '/secure/cgi-bin/'],
+              'domain': 'redacted',
+              'subdomains': ['secure']},
+  'fun': 'managed',
+  'group': 'root',
+  'makedirs': False,
+  'mode': '0644',
+  'name': '/etc/apache2/new/99_redacted.conf',
+  'order': 10864,
+  'source': 'salt://roles/hosting_web/vhost.conf',
+  'state': 'file',
+  'template': 'jinja',
+  'user': 'root'},
+```
+
+The problem is that salt runs in to an O(n^2) style scale on this particular structure.
+
+Using salt-call (cause profiling salt-minion is a pain) the call trace looks like this:
+
+```
+  File "/usr/bin/salt-call", line 54, in <module>
+    exec(data)
+  File "<string>", line 11, in <module>
+  File "/usr/lib64/python2.7/site-packages/salt/scripts.py", line 84, in salt_call
+    client.run()
+  File "/usr/lib64/python2.7/site-packages/salt/cli/__init__.py", line 314, in run
+    caller.run()
+  File "/usr/lib64/python2.7/site-packages/salt/cli/caller.py", line 169, in run
+    ret = self.call()
+  File "/usr/lib64/python2.7/site-packages/salt/cli/caller.py", line 83, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib64/python2.7/site-packages/salt/modules/state.py", line 385, in sls
+    ret = st_.state.call_high(high_)
+  File "/usr/lib64/python2.7/site-packages/salt/state.py", line 1711, in call_high
+    ret = self.call_chunks(chunks)
+  File "/usr/lib64/python2.7/site-packages/salt/state.py", line 1433, in call_chunks
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib64/python2.7/site-packages/salt/state.py", line 1656, in call_chunk
+    running[tag] = self.call(low, chunks, running)
+  File "/usr/lib64/python2.7/site-packages/line_profiler.py", line 92, in f
+    result = func(*args, **kwds)
+  File "/usr/lib64/python2.7/site-packages/salt/state.py", line 1301, in call
+    raise Exception("Bail!")
+```
+
+The two frames I need to draw attention to are `call_chunks` and `call` ... Specifically these lines:
+
+``` python
+    def call_chunks(self, chunks):
+        # [...]
+        for low in chunks:
+            # [...]
+                running = self.call_chunk(low, running, chunks)
+```
+
+``` python
+   def call(self, low, chunks=None, running=None):
+        # [...]
+        inject_globals = {
+            # Pass a copy of the running dictionary, the low state chunks and
+            # the current state dictionaries.
+            # We pass deep copies here because we don't want any misbehaving
+            # state module to change these at runtime.
+            '__low__': copy.deepcopy(low),
+            '__running__': copy.deepcopy(running) if running else {},
+            '__lowstate__': copy.deepcopy(chunks) if chunks else {}
+        }
+```
+
+In isolation both are fine and sensible, no problem.  Together they're a problem.
+For every chunk passed to call_chunks, it does a deepcopy of all the chunks passed in.  Pass in 870 chunks and you get 870 calls to deepcopy and 756,900 calls to deepcopy a dict like the one above.
+Trimming the context helped quite a bit, but that's still a crazy number of calls.  With the non-trivial context I initially passed in it was closer to O(2n*n) performance.
+
+Deepcopy is a rather expensive function and, in vanilla python at least, implemented totally as python an introspection.
+
+Now that I've finished ranting about that... what to do about it.
+After some thinking, it seems the best solution would be to convert chunks in to a set of immutable objects and, if necessary, provide an overlay so that states could alter things and then we just throw away the overlay instead of recloning the underlying data.  Does that seem like a solid approach?
+
+For the moment I'm working around this by writing a custom state module that wraps the calls to file.manage_file so that lowstate sees it as just a single state, but the actual issue probably needs fixing rather than just hacking around.  Unless I'm missing something, this applies a hard limiting factor on how many states you can apply to a single node in a single call.

@@ -1,0 +1,298 @@
+After grasping at straws all day for why I couldn't provision VMs on EC2 and DigitalOcean I finally gave up and decided to just use local VMs. And then ran into, what I think is, the same issue.
+
+Anyhow, I've 'fixed' my issue for the moment as you'll see by the end, but perhaps this might help someone figure out the root cause.
+## Versions
+### Salt Master
+
+``` bash
+$ uname -a
+Darwin jasonrm-mbp.local 13.1.0 Darwin Kernel Version 13.1.0: Thu Jan 16 19:40:37 PST 2014; root:xnu-2422.90.20~2/RELEASE_X86_64 x86_64
+
+$ git rev-parse HEAD
+9d31fc810f1a412825aa38f9c392ef4ae3f6fa66
+
+$ salt --versions-report
+           Salt: 2014.1.0-3321-g9d31fc8
+         Python: 2.7.6 (default, Feb 15 2014, 21:24:43)
+         Jinja2: 2.7.2
+       M2Crypto: 0.22
+ msgpack-python: 0.4.1
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 14.1.0
+            ZMQ: 4.0.4
+```
+### VM - Ubuntu 12.04.04
+
+``` bash
+$ sudo ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oKbdInteractiveAuthentication=no -i /Users/jason/git-local/salt-dev/keys/jasonrm-saltify root@10.10.0.127 uname -a
+Warning: Permanently added '10.10.0.127' (RSA) to the list of known hosts.
+Linux ubuntu 3.11.0-15-generic #25~precise1-Ubuntu SMP Thu Jan 30 17:42:40 UTC 2014 i686 i686 i386 GNU/Linux
+```
+### VM - Arch Linux
+
+``` bash
+$ sudo ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oKbdInteractiveAuthentication=no -i /Users/jason/git-local/salt-dev/keys/jasonrm-saltify root@10.10.0.128 uname -a
+Warning: Permanently added '10.10.0.128' (RSA) to the list of known hosts.
+Linux arch 3.13.6-1-ARCH #1 SMP PREEMPT Fri Mar 7 22:30:23 CET 2014 i686 GNU/Linux
+```
+## Config Files
+### cloud
+
+``` yaml
+minion:
+    master: 10.10.0.104
+```
+### cloud.maps.d/jasonrm-local.conf
+
+``` yaml
+vm-arch:
+    - jasonrm.arch1:
+        ssh_username: root
+        ssh_host: 10.10.0.128
+        minion:
+            pidfile: /var/run/salt/salt-minion.pid
+
+vm-ubuntu:
+    - jasonrm.ubuntu1:
+        ssh_username: root
+        ssh_host: 10.10.0.127
+```
+### cloud.profiles.d/jasonrm-saltify.conf
+
+``` yaml
+vm-arch:
+    provider: jasonrm-saltify
+    key_filename: /Users/jason/git-local/salt-dev/keys/jasonrm-saltify
+    minion:
+        master: 10.10.0.104
+
+vm-ubuntu:
+    provider: jasonrm-saltify
+    key_filename: /Users/jason/git-local/salt-dev/keys/jasonrm-saltify
+    minion:
+        master: 10.10.0.104
+```
+### cloud.providers.d/jasonrm-saltify.conf
+
+``` yaml
+jasonrm-saltify:
+    provider: saltify
+```
+## Output
+### Init
+
+``` bash
+$ sudo salt-cloud -c . -m cloud.maps.d/jasonrm-local.conf -l debug
+[DEBUG   ] Reading configuration from /Users/jason/git-local/salt-dev/cloud
+[DEBUG   ] Reading configuration from /Users/jason/git-local/salt-dev/master
+[DEBUG   ] Missing configuration file: /Users/jason/git-local/salt-dev/cloud.providers
+[DEBUG   ] Including configuration from '/Users/jason/git-local/salt-dev/cloud.providers.d/jasonrm-digitalocean.conf'
+[DEBUG   ] Reading configuration from /Users/jason/git-local/salt-dev/cloud.providers.d/jasonrm-digitalocean.conf
+[DEBUG   ] Including configuration from '/Users/jason/git-local/salt-dev/cloud.providers.d/jasonrm-ec2.conf'
+[DEBUG   ] Reading configuration from /Users/jason/git-local/salt-dev/cloud.providers.d/jasonrm-ec2.conf
+[DEBUG   ] Including configuration from '/Users/jason/git-local/salt-dev/cloud.providers.d/jasonrm-saltify.conf'
+[DEBUG   ] Reading configuration from /Users/jason/git-local/salt-dev/cloud.providers.d/jasonrm-saltify.conf
+[DEBUG   ] Missing configuration file: /Users/jason/git-local/salt-dev/cloud.profiles
+[DEBUG   ] Including configuration from '/Users/jason/git-local/salt-dev/cloud.profiles.d/jasonrm-digitalocean.conf'
+[DEBUG   ] Reading configuration from /Users/jason/git-local/salt-dev/cloud.profiles.d/jasonrm-digitalocean.conf
+[DEBUG   ] Including configuration from '/Users/jason/git-local/salt-dev/cloud.profiles.d/jasonrm-ec2.conf'
+[DEBUG   ] Reading configuration from /Users/jason/git-local/salt-dev/cloud.profiles.d/jasonrm-ec2.conf
+[DEBUG   ] Including configuration from '/Users/jason/git-local/salt-dev/cloud.profiles.d/jasonrm-saltify.conf'
+[DEBUG   ] Reading configuration from /Users/jason/git-local/salt-dev/cloud.profiles.d/jasonrm-saltify.conf
+[DEBUG   ] Configuration file path: /Users/jason/git-local/salt-dev/cloud
+[INFO    ] salt-cloud starting
+[DEBUG   ] There is no Rackspace cloud provider configuration available. Not loading module.
+[DEBUG   ] The SoftLayer Python Library needs to be installed in ordere to use the SoftLayer HW salt.cloud module. See: https://pypi.python.org/pypi/SoftLayer
+[DEBUG   ] There is no Nova cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no GCE cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no Parallels cloud provider configuration available. Not loading module.
+[DEBUG   ] The SoftLayer Python Library needs to be installed in ordere to use the SoftLayer salt.cloud module. See: https://pypi.python.org/pypi/SoftLayer
+[DEBUG   ] There is no Linode cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no Joyent cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no AWS cloud provider configuration available. Not loading module
+[DEBUG   ] There is no CloudStack cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no GoGrid cloud provider configuration available. Not loading module.
+[DEBUG   ] The 'botocore' library is not installed. The libcloud AWS support will be loaded instead.
+[DEBUG   ] There is no Openstack cloud provider configuration available. Not loading module.
+[DEBUG   ] Loading Digital Ocean cloud module
+[DEBUG   ] Loading EC2 cloud compute module
+[DEBUG   ] 'parallels.avail_sizes' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'parallels.avail_locations' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'saltify.destroy' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'saltify.avail_sizes' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'saltify.avail_images' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'saltify.avail_locations' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'rackspace.reboot' has been marked as not supported. Removing from the list of supported cloud functions
+[INFO    ] Applying map from 'cloud.maps.d/jasonrm-local.conf'.
+[DEBUG   ] The 'saltify' cloud driver is unable to be optimized.
+[DEBUG   ] The 'digital_ocean' cloud driver is unable to be optimized.
+[DEBUG   ] There is no Rackspace cloud provider configuration available. Not loading module.
+[DEBUG   ] The SoftLayer Python Library needs to be installed in ordere to use the SoftLayer HW salt.cloud module. See: https://pypi.python.org/pypi/SoftLayer
+[DEBUG   ] There is no Nova cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no GCE cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no Parallels cloud provider configuration available. Not loading module.
+[DEBUG   ] The SoftLayer Python Library needs to be installed in ordere to use the SoftLayer salt.cloud module. See: https://pypi.python.org/pypi/SoftLayer
+[DEBUG   ] There is no Linode cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no Joyent cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no AWS cloud provider configuration available. Not loading module
+[DEBUG   ] There is no CloudStack cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no GoGrid cloud provider configuration available. Not loading module.
+[DEBUG   ] The 'botocore' library is not installed. The libcloud AWS support will be loaded instead.
+[DEBUG   ] There is no Openstack cloud provider configuration available. Not loading module.
+[DEBUG   ] Loading Digital Ocean cloud module
+[DEBUG   ] Loading EC2 cloud compute module
+[DEBUG   ] 'parallels.avail_sizes' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'parallels.avail_locations' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'saltify.destroy' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'saltify.avail_sizes' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'saltify.avail_images' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'saltify.avail_locations' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'rackspace.reboot' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] EC2 Request: https://ec2.us-east-1.amazonaws.com/?SignatureVersion=2&AWSAccessKeyId=[redacted]&Timestamp=2014-03-16T04%3A49%3A48Z&SignatureMethod=HmacSHA256&Version=2013-10-01&Signature=[redacted]&Action=DescribeInstances
+[DEBUG   ] There is no Rackspace cloud provider configuration available. Not loading module.
+[DEBUG   ] The SoftLayer Python Library needs to be installed in ordere to use the SoftLayer HW salt.cloud module. See: https://pypi.python.org/pypi/SoftLayer
+[DEBUG   ] There is no Nova cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no GCE cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no Parallels cloud provider configuration available. Not loading module.
+[DEBUG   ] The SoftLayer Python Library needs to be installed in ordere to use the SoftLayer salt.cloud module. See: https://pypi.python.org/pypi/SoftLayer
+[DEBUG   ] There is no Linode cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no Joyent cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no AWS cloud provider configuration available. Not loading module
+[DEBUG   ] There is no CloudStack cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no GoGrid cloud provider configuration available. Not loading module.
+[DEBUG   ] The 'botocore' library is not installed. The libcloud AWS support will be loaded instead.
+[DEBUG   ] There is no Rackspace cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no Openstack cloud provider configuration available. Not loading module.
+[DEBUG   ] The SoftLayer Python Library needs to be installed in ordere to use the SoftLayer HW salt.cloud module. See: https://pypi.python.org/pypi/SoftLayer
+[DEBUG   ] Loading Digital Ocean cloud module
+[DEBUG   ] There is no Nova cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no GCE cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no Parallels cloud provider configuration available. Not loading module.
+[DEBUG   ] Loading EC2 cloud compute module
+[DEBUG   ] The SoftLayer Python Library needs to be installed in ordere to use the SoftLayer salt.cloud module. See: https://pypi.python.org/pypi/SoftLayer
+[DEBUG   ] There is no Linode cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no Joyent cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no AWS cloud provider configuration available. Not loading module
+[DEBUG   ] There is no CloudStack cloud provider configuration available. Not loading module.
+[DEBUG   ] There is no GoGrid cloud provider configuration available. Not loading module.
+[DEBUG   ] 'parallels.avail_sizes' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'parallels.avail_locations' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] The 'botocore' library is not installed. The libcloud AWS support will be loaded instead.
+[DEBUG   ] 'saltify.destroy' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] There is no Openstack cloud provider configuration available. Not loading module.
+[DEBUG   ] 'saltify.avail_sizes' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'saltify.avail_images' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'saltify.avail_locations' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'rackspace.reboot' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] Loading Digital Ocean cloud module
+[DEBUG   ] Loading EC2 cloud compute module
+[DEBUG   ] 'parallels.avail_sizes' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'parallels.avail_locations' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'saltify.destroy' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'saltify.avail_sizes' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'saltify.avail_images' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'saltify.avail_locations' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] 'rackspace.reboot' has been marked as not supported. Removing from the list of supported cloud functions
+[DEBUG   ] https://api.digitalocean.com/droplets/?api_key=[redacted]&client_id=[redacted]
+[DEBUG   ] EC2 Response Status Code: 200
+The following virtual machines are set to be created:
+  jasonrm.arch1
+  jasonrm.ubuntu1
+
+Proceed? [N/y]
+```
+### Processing
+
+``` bash
+... proceeding
+[INFO    ] Calculating dependencies for jasonrm.arch1
+[DEBUG   ] Got execution order 0 for jasonrm.arch1
+[INFO    ] Calculating dependencies for jasonrm.ubuntu1
+[DEBUG   ] Got execution order 0 for jasonrm.ubuntu1
+[DEBUG   ] No make_master found in map
+[DEBUG   ] Generating minion keys for 'jasonrm.arch1'
+[INFO    ] Provisioning existing machine jasonrm.arch1
+[INFO    ] Rendering deploy script: /Users/jason/git-local/salt-dev/cloud.deploy.d/bootstrap-salt.sh
+[DEBUG   ] SaltEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] SaltEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Deploying 10.10.0.128 at 1394945529.0
+[DEBUG   ] Attempting connection to host 10.10.0.128 on port 22
+[DEBUG   ] SSH port 22 on 10.10.0.128 is available
+[DEBUG   ] Using /Users/jason/git-local/salt-dev/keys/jasonrm-saltify as the key_filename
+[DEBUG   ] Attempting to authenticate as root (try 1 of 15)
+[DEBUG   ] SSH command: 'ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oKbdInteractiveAuthentication=no -i /Users/jason/git-local/salt-dev/keys/jasonrm-saltify root@10.10.0.128 date'
+[DEBUG   ] Child Forked! PID: 91781  STDOUT_FD: 4  STDERR_FD: 7
+[DEBUG   ] Terminal Command: /bin/sh -c ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oKbdInteractiveAuthentication=no -i /Users/jason/git-local/salt-dev/keys/jasonrm-saltify root@10.10.0.128 date
+Warning: Permanently added '10.10.0.128' (RSA) to the list of known hosts.
+[DEBUG   ] Warning: Permanently added '10.10.0.128' (RSA) to the list of known hosts.
+Sun Mar 16 04:52:18 UTC 2014
+[DEBUG   ] Sun Mar 16 04:52:18 UTC 2014
+[DEBUG   ] Logging into 10.10.0.128:22 as root
+[DEBUG   ] Using /Users/jason/git-local/salt-dev/keys/jasonrm-saltify as the key_filename
+[DEBUG   ] SSH command: 'ssh -t -t -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oKbdInteractiveAuthentication=no -i /Users/jason/git-local/salt-dev/keys/jasonrm-saltify root@10.10.0.128 \'test -e \\"/tmp/.saltcloud\\"\''
+[DEBUG   ] Child Forked! PID: 91782  STDOUT_FD: 5  STDERR_FD: 9
+[DEBUG   ] Terminal Command: /bin/sh -c ssh -t -t -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oKbdInteractiveAuthentication=no -i /Users/jason/git-local/salt-dev/keys/jasonrm-saltify root@10.10.0.128 'test -e \"/tmp/.saltcloud\"'
+Warning: Permanently added '10.10.0.128' (RSA) to the list of known hosts.
+Connection to 10.10.0.128 closed.
+[DEBUG   ] Warning: Permanently added '10.10.0.128' (RSA) to the list of known hosts.
+Connection to 10.10.0.128 closed.
+[DEBUG   ] SSH command: 'ssh -t -t -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oKbdInteractiveAuthentication=no -i /Users/jason/git-local/salt-dev/keys/jasonrm-saltify root@10.10.0.128 \'sh -c "( mkdir -p \\"/tmp/.saltcloud\\" && chmod 700 \\"/tmp/.saltcloud\\" )"\''
+[DEBUG   ] Child Forked! PID: 91783  STDOUT_FD: 8  STDERR_FD: 11
+[DEBUG   ] Terminal Command: /bin/sh -c ssh -t -t -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oKbdInteractiveAuthentication=no -i /Users/jason/git-local/salt-dev/keys/jasonrm-saltify root@10.10.0.128 'sh -c "( mkdir -p \"/tmp/.saltcloud\" && chmod 700 \"/tmp/.saltcloud\" )"'
+Warning: Permanently added '10.10.0.128' (RSA) to the list of known hosts.
+Connection to 10.10.0.128 closed.
+[DEBUG   ] Warning: Permanently added '10.10.0.128' (RSA) to the list of known hosts.
+Connection to 10.10.0.128 closed.
+[DEBUG   ] Uploading /tmp/.saltcloud/minion.pem to 10.10.0.128 (scp)
+[DEBUG   ] SCP command: 'scp -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oKbdInteractiveAuthentication=no -i /Users/jason/git-local/salt-dev/keys/jasonrm-saltify /tmp/tmpy5z6ja root@10.10.0.128:/tmp/.saltcloud/minion.pem'
+[DEBUG   ] Child Forked! PID: 91784  STDOUT_FD: 12  STDERR_FD: 14
+[DEBUG   ] Terminal Command: /bin/sh -c scp -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oKbdInteractiveAuthentication=no -i /Users/jason/git-local/salt-dev/keys/jasonrm-saltify /tmp/tmpy5z6ja root@10.10.0.128:/tmp/.saltcloud/minion.pem
+[DEBUG   ] Uploading file(PID 91784): '/tmp/.saltcloud/minion.pem'
+Warning: Permanently added '10.10.0.128' (RSA) to the list of known hosts.
+[DEBUG   ] Warning: Permanently added '10.10.0.128' (RSA) to the list of known hosts.
+```
+### Where it hangs
+
+At this point it just hangs. The scp process (at pid 91784 above) is still running, and the file has been copied to the remote system. So I've really no idea what might be going on. I tried `v2014.1.0` as well, and it hung in a similar fashion, perhaps even sooner on the first SSH command.
+## A horrid "fix"
+
+``` diff
+diff --git a/salt/utils/cloud.py b/salt/utils/cloud.py
+index f8a6c66..1c15c59 100644
+--- a/salt/utils/cloud.py
++++ b/salt/utils/cloud.py
+@@ -1263,7 +1263,7 @@ def scp_file(dest_path, contents, kwargs):
+             )
+         ])
+
+-    cmd = 'scp {0} {1} {2[username]}@{2[hostname]}:{3}'.format(
++    cmd = 'scp -v {0} {1} {2[username]}@{2[hostname]}:{3}'.format(
+         ' '.join(ssh_args), tmppath, kwargs, dest_path
+     )
+     log.debug('SCP command: {0!r}'.format(cmd))
+@@ -1438,7 +1438,7 @@ def root_cmd(command, tty, sudo, **kwargs):
+                 ssh_gateway_user, ssh_gateway, ssh_gateway_port
+             )
+         )
+-    cmd = 'ssh {0} {1[username]}@{1[hostname]} {2}'.format(
++    cmd = 'ssh -v {0} {1[username]}@{1[hostname]} {2}'.format(
+         ' '.join(ssh_args), kwargs, pipes.quote(command)
+     )
+     log.debug('SSH command: {0!r}'.format(cmd))
+```
+## And then it works
+
+With that change, to make the SSH and SCP commands verbose, everything seems to work correctly. So, yeah.
+
+``` yaml
+jasonrm.arch1:
+    ----------
+    deployed:
+        True
+jasonrm.ubuntu1:
+    ----------
+    deployed:
+        True
+```

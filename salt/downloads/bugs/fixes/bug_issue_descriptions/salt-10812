@@ -1,0 +1,139 @@
+I'm pretty tired, so this is more of a brain-dump than anything. 
+
+It would appear that when using salt.state to target a minion with a particular SLS file, that the state can never be applied. 
+
+Imagine the following two SLS files:
+
+```
+/srv/salt/ran.sls
+----------------------------
+testing:
+  salt.state:
+    - sls: dummy-state
+    - tgt: localhost.localdomain
+
+/srv/salt/dummy-state.sls
+--------------------------------
+exit 1:
+  cmd.run
+```
+
+Attempting to run the following command will produce an error output, seen below:
+
+```
+root@silver:/srv/salt# salt-call --local state.sls ran
+[WARNING ] /home/mp/Devel/salt/salt/minion.py:167: DeprecationWarning: This minion received a job where kwargs were passed as string'd args, which has been deprecated. This functionality will be removed in Salt Boron.
+  'This minion received a job where kwargs were passed as '
+
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Running state [testing] at time 22:08:16.190914
+[INFO    ] Executing state salt.state for testing
+{'ret': ['The function "state.sls" is running as PID 15678 and was started at 2014, Feb 26 22:08:15.368758 with jid 20140226220815368758'], 'out': 'highstate'}
+[ERROR   ] Run failed on minions: silver
+Failures:
+    silver:
+        Data failed to compile:
+    ----------
+        The function "state.sls" is running as PID 15678 and was started at 2014, Feb 26 22:08:15.368758 with jid 20140226220815368758
+
+[INFO    ] Completed state [testing] at time 22:08:26.250408
+local:
+----------
+          ID: testing
+    Function: salt.state
+      Result: False
+     Comment: Run failed on minions: silver
+              Failures:
+                  silver:
+                      Data failed to compile:
+                  ----------
+                      The function "state.sls" is running as PID 15678 and was started at 2014, Feb 26 22:08:15.368758 with jid 20140226220815368758
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+```
+
+The problem can be corrected by short-circuiting the `running()` function in `state.py` and simply returning an empty list immediately. This will correct the return to be as expected:
+
+```
+root@silver:/srv/salt# salt-call --local state.sls ran
+[WARNING ] /home/mp/Devel/salt/salt/minion.py:167: DeprecationWarning: This minion received a job where kwargs were passed as string'd args, which has been deprecated. This functionality will be removed in Salt Boron.
+  'This minion received a job where kwargs were passed as '
+
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Running state [testing] at time 22:08:43.288076
+[INFO    ] Executing state salt.state for testing
+{'ret': {'cmd_|-exit 1_|-exit 1_|-run': {'comment': 'Command "exit 1" run', '__run_num__': 0, 'changes': {'pid': 15916, 'retcode': 1, 'stderr': '', 'stdout': ''}, 'name': 'exit 1', 'result': False}}, 'out': 'highstate'}
+[ERROR   ] Run failed on minions: silver
+Failures:
+    silver:
+    ----------
+              ID: exit 1
+        Function: cmd.run
+          Result: False
+         Comment: Command "exit 1" run
+         Changes:   
+                  ----------
+                  pid:
+                      15916
+                  retcode:
+                      1
+                  stderr:
+
+                  stdout:
+
+
+    Summary
+    ------------
+    Succeeded: 0
+    Failed:    1
+    ------------
+    Total:     1
+
+[INFO    ] Completed state [testing] at time 22:08:49.020190
+local:
+----------
+          ID: testing
+    Function: salt.state
+      Result: False
+     Comment: Run failed on minions: silver
+              Failures:
+                  silver:
+                  ----------
+                            ID: exit 1
+                      Function: cmd.run
+                        Result: False
+                       Comment: Command "exit 1" run
+                       Changes:   
+                                ----------
+                                pid:
+                                    15916
+                                retcode:
+                                    1
+                                stderr:
+
+                                stdout:
+
+
+                  Summary
+                  ------------
+                  Succeeded: 0
+                  Failed:    1
+                  ------------
+                  Total:     1
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+```
+
+This came about while researching #7703 is is possibly blocking the resolution of that issue.

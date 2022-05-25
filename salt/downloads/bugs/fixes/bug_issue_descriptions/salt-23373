@@ -1,0 +1,116 @@
+Hi all,
+
+with `2015.2.0rc2`
+
+I have the following reactor sls that calls an orchestrate runner:
+
+``` jinja
+{% set fun = data.get('fun', {}) %}
+{% set id = data.get('id', {}) %}
+{% if fun == "test.ping" %}
+orchestrate_test_{{id}}:
+  runner.state.orchestrate:
+    - mods: orchestration.test
+    - pillar: { target_server: {{id}} }
+{% endif %}
+```
+
+When running test.ping on multiple minions (3 in this case)
+the reactor sls is rendered fine 3 times :
+
+``` yaml
+2015-05-05 15:52:40,038 [salt.template                              ][DEBUG   ][25815] Rendered data from file: /srv/salt/base/reactor/jobs_ret.sls:
+
+
+orchestrate_test_minion1:
+  runner.state.orchestrate:
+    - mods: orchestration.test
+    - pillar: { target_server: minion1 }
+```
+
+``` yaml
+2015-05-05 15:52:40,128 [salt.template                              ][DEBUG   ][25815] Rendered data from file: /srv/salt/base/reactor/jobs_ret.sls:
+
+
+orchestrate_test_minion2:
+  runner.state.orchestrate:
+    - mods: orchestration.test
+    - pillar: { target_server: minion2 }
+```
+
+``` yaml
+2015-05-05 15:52:40,261 [salt.template                              ][DEBUG   ][25815] Rendered data from file: /srv/salt/base/reactor/jobs_ret.sls:
+
+
+orchestrate_test_minion3:
+  runner.state.orchestrate:
+    - mods: orchestration.test
+    - pillar: { target_server: minion3 }
+```
+
+however, the orchestrate runners will not always get the correct pillar data (it will sometimes get an empty value, sometimes an other orchestrate runner's pillar data, sometimes the expected value) :
+
+The orchestrate sls:
+
+``` jinja
+{% set tgs = salt['pillar.get']('target_server') %}
+
+test:
+  salt.function:
+    - name: test.arg
+    - tgt: {{ tgs }}
+```
+
+``` yaml
+2015-05-05 15:52:45,024 [salt.template                              ][DEBUG   ][25815] Rendered data from file: /var/cache/salt/master/files/base/orchestration/test.sls:
+
+
+test:
+  salt.function:
+    - name: test.arg
+    - tgt: minion1
+```
+
+``` yaml
+2015-05-05 15:52:45,025 [salt.template                              ][DEBUG   ][25815] Rendered data from file: /var/cache/salt/master/files/base/orchestration/test.sls:
+
+
+test:
+  salt.function:
+    - name: test.arg
+    - tgt: minion1
+```
+
+``` yaml
+2015-05-05 15:52:45,275 [salt.template                              ][DEBUG   ][25815] Rendered data from file: /var/cache/salt/master/files/base/orchestration/test.sls:
+
+
+test:
+  salt.function:
+    - name: test.arg
+    - tgt: minion3
+```
+
+There are also sometimes some `RuntimeError: Set changed size during iteration` exceptions raised such as:
+
+``` python
+2015-05-05 15:52:48,917 [salt.loader                                ][ERROR   ][25815] Failed to read the virtual function for states: xmpp
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/loader.py", line 1098, in process_virtual
+    virtual = mod.__virtual__()
+  File "/usr/lib/python2.6/site-packages/salt/states/xmpp.py", line 25, in __virtual__
+    return 'xmpp' if 'xmpp.send_msg' in __salt__ else False
+  File "/usr/lib64/python2.6/_abcoll.py", line 342, in __contains__
+    self[key]
+  File "/usr/lib/python2.6/site-packages/salt/utils/lazy.py", line 85, in __getitem__
+    if self._load(key):
+  File "/usr/lib/python2.6/site-packages/salt/loader.py", line 1024, in _load
+    ret = _inner_load(mod_name)
+  File "/usr/lib/python2.6/site-packages/salt/loader.py", line 1013, in _inner_load
+    if self._load_module(name) and key in self._dict:
+  File "/usr/lib/python2.6/site-packages/salt/loader.py", line 990, in _load_module
+    Depends.enforce_dependencies(self._dict, self.tag)
+  File "/usr/lib/python2.6/site-packages/salt/utils/decorators/__init__.py", line 81, in enforce_dependencies
+    for module, func, fallback_function in dependent_set:
+RuntimeError: Set changed size during iteration
+```

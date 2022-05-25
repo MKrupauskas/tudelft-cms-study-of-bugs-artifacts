@@ -1,0 +1,177 @@
+**Description**
+Minions are not permitted to use a signing policy when the `minions` key of the policy is a compound matcher.
+
+**Setup**
+`/etc/salt/master.d/peer.conf`
+
+```yaml
+peer:
+  .*:
+  - x509.sign_remote_certificate
+```
+
+`/etc/salt/minion.d/signing_policies.conf `
+
+```yaml
+x509_signing_policies:
+  mycluster_etcd-peer-ca:
+  - minions: "I@k8s_salt:enabled:True and I@k8s_salt:cluster:mycluster and ( I@k8s_salt:roles:etcd )"
+  - signing_private_key: /etc/kubernetes-authority/mycluster/etcd-peer-ca-key.pem
+  - signing_cert: /etc/kubernetes-authority/mycluster/etcd-peer-ca.pem
+  - basicConstraints: "critical CA:false"
+  - keyUsage: "critical keyEncipherment"
+  - subjectKeyIdentifier: hash
+  - authorityKeyIdentifier: keyid,issuer:always
+  - copypath: /etc/pki/issued_certs/
+```
+
+```
+# salt orangepi3 pillar.get k8s_salt
+orangepi3:
+    ----------
+    cluster:
+        mycluster
+    enabled:
+        True
+    roles:
+        ----------
+        etcd:
+            True
+```
+
+Rendered sls (only relevant state shown):
+```yaml
+# salt orangepi3 state.show_sls k8s_salt.etcd --out yaml
+orangepi3:
+  Etcd X509 management:
+    __env__: base
+    __sls__: k8s_salt.etcd
+    x509:
+    - makedirs: true
+    - names:
+      - /etc/kubernetes/pki/etcd-peer.pem:
+        - CN: localhost
+        - ca_server: vagrant.vm
+        - public_key: /etc/kubernetes/pki/etcd-peer-key.pem
+        - signing_policy: mycluster_etcd-peer-ca
+        - keyUsage: critical Digital Signature, Key Encipherment
+        - extendedKeyUsage: TLS Web Server Authentication, TLS Web Client Authentication
+        - basicConstraints: critical CA:FALSE
+        - subjectAltName: DNS:localhost, DNS:localhost, IP Address:127.0.0.1, IP Address:127.0.0.1
+```
+
+**Steps to Reproduce the behavior**
+
+Running the state (output trimmed):
+
+```
+# salt orangepi3 state.apply k8s_salt.etcd
+----------
+          ID: Etcd X509 management
+    Function: x509.certificate_managed
+        Name: /etc/kubernetes/pki/etcd-peer.pem
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/salt/state.py", line 2171, in call
+                  ret = self.states[cdata["full"]](
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 1235, in __call__
+                  return self.loader.run(run_func, *args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2268, in run
+                  return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2283, in _run_as
+                  return _func_or_method(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2316, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/states/x509.py", line 688, in certificate_managed
+                  contents = __salt__["x509.create_certificate"](text=True, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 1235, in __call__
+                  return self.loader.run(run_func, *args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2268, in run
+                  return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2283, in _run_as
+                  return _func_or_method(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/modules/x509.py", line 1462, in create_certificate
+                  raise salt.exceptions.SaltInvocationError(cert_txt)
+              salt.exceptions.SaltInvocationError: orangepi3 not permitted to use signing policy mycluster_etcd-peer-ca
+     Started: 20:54:42.467288
+    Duration: 621.819 ms
+     Changes:   
+```
+
+**Expected behavior**
+
+Given the pillars and matcher, the SaltInvocationError is clearly false. The certificate should be correctly generated.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+          Salt: 3003
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.6
+     gitpython: 3.0.7
+        Jinja2: 2.10.1
+       libgit2: Not Installed
+      M2Crypto: 0.31.0
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: Not Installed
+        Python: 3.8.5 (default, Jul 28 2020, 12:59:40)
+  python-gnupg: 0.4.5
+        PyYAML: 5.3.1
+         PyZMQ: 18.1.1
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.2
+ 
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 5.4.0-58-generic
+        system: Linux
+       version: Ubuntu 20.04 focal
+```
+</details>
+
+**Additional context**
+
+I have traced this problem to [this function](https://github.com/saltstack/salt/blob/9242a14ebc204044cc585f337591cf85d997501e/salt/modules/x509.py#L433). When a compound matcher is used, for some reason the match is tested via `publish.publish`, resulting in a call like
+
+```
+salt orangepi3 publish.publish orangepi3 match.compound  "I@k8s_salt:enabled:True and I@k8s_salt:cluster:mycluster and ( I@k8s_salt:roles:etcd )"
+```
+
+This, of course, does not work out of the box unless I modify `/etc/salt/master.d/peer.conf` to read
+
+```yaml
+peer:
+  .*:
+  - x509.sign_remote_certificate
+  - match.compound
+```
+
+This is a valid workaround, however there seems to be no reason to make the below mentioned call inside `_match_minions`. After all, the minion making the call and the kwarg `tgt=minion` are one and the same, so this
+
+```python
+__salt__["publish.publish"](tgt=minion, fun="match.compound", arg=test)
+```
+
+can be reduced to this:
+
+```python
+__salt__["match.compound"](test)
+```

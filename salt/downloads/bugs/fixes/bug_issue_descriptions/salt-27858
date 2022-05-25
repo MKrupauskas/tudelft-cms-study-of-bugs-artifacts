@@ -1,0 +1,87 @@
+I was occupied with a strange error when designing our salt files recently.
+
+That's the output:
+
+```
+          ID: checkout_release
+    Function: cmd.run
+        Name: git checkout release
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/tmp/.root_dcdf8c_salt/salt/state.py", line 1591, in call
+                  **cdata['kwargs'])
+                File "/tmp/.root_dcdf8c_salt/salt/states/cmd.py", line 784, in run
+                  if cwd and not os.path.isdir(cwd):
+                File "/usr/lib64/python2.7/genericpath.py", line 41, in isdir
+                  st = os.stat(s)
+              TypeError: coercing to Unicode: need string or buffer, dict found
+     Started: 10:34:34.794163
+    Duration: 1.875 ms
+```
+
+Re-executing the corresponding sls file, yields success.
+
+This was reproducible, so I decided start with a clean minion and see what show_sls gave me:
+
+```
+    checkout_release:
+        ----------
+        __env__:
+            release
+        __sls__:
+            home
+        cmd:
+            |_
+              ----------
+              name:
+                  git checkout release
+            |_
+              ----------
+              user:
+                  my_user
+            |_
+              ----------
+              group:
+                  my_group
+            |_
+              ----------
+              cwd:
+                  ----------
+                  _error:
+                      Failed to return clean data
+                  retcode:
+                      1
+                  stderr:
+                      [CRITICAL] Unable to import msgpack or msgpack_pure python modules
+                      Error running 'virtualenv.get_distribution_path': Path does not appear to be a virtualenv: '/home/my_user/bin/python'
+                  stdout:
+            |_
+              ----------
+              require:
+                  |_
+                    ----------
+                    pip:
+                        create_virtualenv
+            - run
+            |_
+              ----------
+              order:
+                  10005
+```
+
+That helps to understand why `os.stat(s)` receives a dict and not a string. Could we do thing here to make bug-hunting easier?
+
+The original issue results because the Jinja rendering process takes place before the state execution. Unfortunately, the rendering of the state, which looks like this:
+
+```
+checkout_release:
+  cmd.run:
+    - name: git checkout release
+    - user: my_user
+    - group: my_group
+    - cwd: {{ salt['virtualenv.get_distribution_path'](system_home, project_name) }}
+    - require:
+      - virtualenv: create_virtualenv
+```
+
+is dependent on the successful execution of some states prior to `checkout_release` (namely 'create_virtualenv'). What can we do about this?

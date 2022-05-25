@@ -1,0 +1,126 @@
+### Description of Issue/Question
+
+### Setup
+Having the Salt state `dummy/test.sls`
+```
+{%- set logfile = salt['temp.file']() %}
+test:
+  cmd.run:
+    - name: tzutil /l > {{ logfile }}
+    - shell: powershell
+  module.run:
+    - file.contains:
+      - path: {{ logfile }}
+      - text: "(UTC) Coordinated Universal Time"
+    - require:
+      - cmd: test
+```
+
+and applying it
+```
+root@salt:~# salt 'minion' state.apply dummy.test
+```
+
+leads to the exception
+```
+jid: 20190124144146673217
+minion:
+----------
+          ID: test
+    Function: module.run
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "c:\salt\bin\lib\site-packages\salt\state.py", line 1913, in call
+                  **cdata['kwargs'])
+                File "c:\salt\bin\lib\site-packages\salt\loader.py", line 1898, in wrapper
+                  return f(*args, **kwargs)
+                File "c:\salt\bin\lib\site-packages\salt\utils\decorators\__init__.py", line 558, in _decorate
+                  return self._call_function(kwargs)
+                File "c:\salt\bin\lib\site-packages\salt\utils\decorators\__init__.py", line 263, in _call_function
+                  raise error
+                File "c:\salt\bin\lib\site-packages\salt\utils\decorators\__init__.py", line 250, in _call_function
+                  return self._function(*args, **kwargs)
+                File "c:\salt\bin\lib\site-packages\salt\states\module.py", line 293, in run
+                  func_args=kwargs.get(func))
+                File "c:\salt\bin\lib\site-packages\salt\states\module.py", line 357, in _call_function
+                  mret = __salt__[name](*arg_type, **func_kw)
+                File "c:\salt\bin\lib\site-packages\salt\modules\file.py", line 2875, in contains
+                  for chunk in breader:
+                File "c:\salt\bin\lib\site-packages\salt\utils\filebuffer.py", line 91, in next
+                  data = self.__file.read(self.__chunk_size * multiplier).decode(
+              AttributeError: 'str' object has no attribute 'decode'
+     Started: 06:45:21.732349
+    Duration: 19.308 ms
+     Changes:
+
+Summary for minion
+------------
+Succeeded: 1 (changed=1)
+Failed:    1
+------------
+Total states run:     2
+Total run time:   2.697 s
+ERROR: Minions returned with non-zero exit code
+```
+
+The relevant piece of code seems to be in `filebuffer.py`
+
+```
+        if six.PY3:
+            # Data is a byte object in Python 3
+            # Decode it in order to append to self.__buffered str later
+            data = self.__file.read(self.__chunk_size * multiplier).decode(
+                __salt_system_encoding__
+            )
+        else:
+            data = self.__file.read(self.__chunk_size * multiplier)
+```
+and indicates that the return value of method `self.__file.read()` is already decoded. I am not sure how and where to fix this the most beautiful way. 
+
+### Versions Report
+
+The used salt minion is the vanilla salt 2018.3.3 py3 package. 
+
+```
+PS C:\salt> cmd /c salt-call.bat --local --versions-report
+Salt Version:
+           Salt: 2018.3.3
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 10.2.1
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.3
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: 1.6.1
+       M2Crypto: Not Installed
+           Mako: 1.0.6
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.3 (v3.5.3:1880cb95a742, Jan 16 2017, 16:02:32) [MSC v.1900 64 bit (AMD64)]
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.3
+           RAET: Not Installed
+          smmap: 2.0.5
+        timelib: 0.2.4
+        Tornado: 4.5.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+         locale: cp1252
+        machine: AMD64
+        release: 2008ServerR2
+         system: Windows
+        version: 2008ServerR2 6.1.7601 SP1 Multiprocessor Free
+```

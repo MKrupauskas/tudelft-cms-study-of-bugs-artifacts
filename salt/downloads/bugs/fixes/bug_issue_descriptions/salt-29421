@@ -1,0 +1,196 @@
+This is driving me insane.  It would seem that pillar data does not respect environments **at all**.
+
+My minion is getting pillar data from an environment it doesn't belong in. This similar setup seems to work fine with regards to file_roots and states.  This minion is part of the prod environment; however, its getting dev pillar data.
+
+```
+[root@salt pillar]# salt-call pillar.item foosoft
+local:
+    ----------
+    foosoft:
+        ----------
+        version:
+            foo-dev
+```
+
+salt master version report
+
+```
+Salt Version:
+           Salt: 2015.8.1
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Jun 24 2015, 00:41:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.1.1503 Core
+        machine: x86_64
+        release: 3.10.0-123.el7.x86_64
+         system: CentOS Linux 7.1.1503 Core
+```
+
+Pillar directory structure
+
+```
+ base
+ dev
+    foosoft
+       fooconf.sls
+    top.sls
+ prod
+     foosoft
+        fooconf.sls
+     top.sls
+```
+
+top files
+
+```
+[root@salt pillar]# cat dev/top.sls
+dev:
+  '*':
+    - foosoft.fooconf
+[root@salt pillar]# cat prod/top.sls
+prod:
+  '*':
+    - foosoft.fooconf
+```
+
+foo soft contents
+
+```
+[root@salt pillar]# cat dev/foosoft/fooconf.sls
+foosoft:
+  version: foo-dev
+[root@salt pillar]# cat prod/foosoft/fooconf.sls
+foosoft:
+  version: foo-prod
+```
+
+minion config
+
+```
+[root@salt pillar]# cat /etc/salt/minion.d/* | grep -v '^#'
+recon_randomize: True
+rejected_retry: True
+tcp_keepalive_intvl: -1
+state_output_profile: True
+acceptance_wait_time: 30
+recon_default: 1000
+tcp_keepalive_cnt: -1
+autoload_dynamic_modules: True
+tcp_keepalive_idle: 300
+state_output: terse
+tcp_keepalive: True
+renderer: yaml_jinja
+state_verbose: False
+verify_env: True
+random_reauth_delay: 60
+recon_max: 59000
+grains_refresh_every: 10
+multiprocessing: True
+backup_mode: minion
+master: salt
+environment: prod
+append_domain: salt.dom
+log_level: warning
+log_level_logfile: warning
+log_datefmt: '%d%H%MZ%b%Y'
+log_datefmt_logfile: '%d%H%MZ%b%Y'
+log_fmt_console: '%(asctime)s,%(msecs)03.0f [%(name)s/%(levelname)s] %(message)s'
+log_fmt_logfile: '%(asctime)s,%(msecs)03.0f [%(name)s/%(levelname)s] %(message)s'
+
+log_file: /var/log/salt/minion
+log_granular_levels:
+  'salt': 'warning'
+  'salt.modules': 'debug'
+schedule:
+  __mine_interval: {function: mine.update, jid_include: true, maxrunning: 2, minutes: 60}
+```
+
+master config
+
+```
+[root@salt pillar]# cat /etc/salt/master.d/* | grep -v '^#'                                                                                  
+file_ignore_regex:
+  - '/\.git($|/)'
+
+file_ignore_glob:
+  - '*.pyc'
+  - '*.swp'
+
+fileserver_backend:
+  - roots
+fileserver_limit_traversal: True
+
+file_roots:
+  base:
+    - /srv/salt/base
+  prod:
+    - /srv/salt/prod
+    - /srv/salt/base
+  dev:
+    - /srv/salt/dev
+    - /srv/salt/base
+pillar_roots:                                                                                                                                       [9/548]
+  base:
+    - /srv/pillar/base
+  prod:
+    - /srv/pillar/prod
+  dev:
+    - /srv/pillar/dev
+log_level: warning
+log_level_logfile: warning
+log_datefmt: '%d%H%MZ%b%Y'
+log_datefmt_logfile: '%d%H%MZ%b%Y'
+log_fmt_console: '%(asctime)s,%(msecs)03.0f [%(name)s/%(levelname)s] %(message)s'
+log_fmt_logfile: '%(asctime)s,%(msecs)03.0f [%(name)s/%(levelname)s] %(message)s'
+log_file: /var/log/salt/master
+log_granular_levels:
+  'salt': 'warning'
+  'salt.modules': 'debug'
+reactor:
+  - 'minion_start':
+    - /srv/reactor/sync_data.sls
+  - 'salt/auth':
+    - /srv/reactor/auth-pending.sls
+worker_threads: 300
+verify_env: True
+keep_jobs: 24
+timeout: 60
+show_timeout: True
+color: True
+enable_gpu_grains: False
+ping_on_rotate: True
+con_cache: True
+sign_pub_messages: True
+state_verbose: False
+state_output: mixed
+top_file_merging_strategy: same
+env_order: ['base', 'dev', 'prod']
+default_top: base
+hash_type: sha256
+```

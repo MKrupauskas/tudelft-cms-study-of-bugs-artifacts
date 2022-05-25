@@ -1,0 +1,283 @@
+To demonstrate this bug, I am running on:
+
+Master: (sl 6.2)
+root@slprototype:/srv/salt/repositories/win>salt --versions-report
+Salt: 0.17.5
+
+Minion: (sl 6.2)
+(Minion currently _is_ master for ease of reproduction/an attempt to narrow down the problem, but I've reproduced this on separate SL machines as well.)
+Salt: 0.17.5
+
+I will be starting the master + minion, changing a pillar file, demonstrating that pillar.items displays the change while pillar.get does not (expected behavior), but then that refresh_pillar does not in fact cause pillar.get to converge with pillar.items.  I will then show the proper convergence, only brought on by restarting the minion.
+
+This conflicts with the expected behavior described at http://docs.saltstack.com/topics/pillar/index.html in which pillar.raw (which pillar.get accesses) should converge with pillar.items after a refresh_pillar.
+
+Prior to running the following commands, relevant files looked as such:
+
+```
+/srv/pillar/packages.sls:
+packages:
+  {% if grains['os_family'] == 'RedHat' %}
+  - nfs-utils
+  - ipmitool
+  - vim
+  - openssh
+  - ypbind
+  - autofs
+  - nfs
+  {% endif %}
+```
+
+/srv/pillar/top.sls:
+
+```
+base:
+  '*':
+    - packages
+    - users
+    - machines
+    - deployment_state
+    - network_mounts
+    - authorized_keys
+```
+
+Commands in order of calling: (some output elided for sanity)
+
+<SALT MINION TURNED ON HERE.>
+
+<FILE /srv/pillar/packages.sls WAS MUTATED HERE TO: >
+
+```
+packages:
+  {% if grains['os_family'] == 'RedHat' %}
+  - nfs-utils
+  - ipmitool
+  - vim
+  - openssh
+  - ypbind
+  - autofs
+  - nfs
+  - THISISDIFFERENT
+  {% endif %}
+```
+
+```
+root@slprototype:/srv/pillar>salt slprototype pillar.items
+    packages:
+        - nfs-utils
+        - ipmitool
+        - vim
+        - openssh
+        - ypbind
+        - autofs
+        - nfs
+        - THISISDIFFERENT
+```
+
+```
+root@slprototype:/srv/pillar>salt slprototype pillar.get packages
+slprototype:
+    - nfs-utils
+    - ipmitool
+    - vim
+    - openssh
+    - ypbind
+    - autofs
+    - nfs
+```
+
+```
+root@slprototype:/srv/pillar>salt slprototype saltutil.refresh_pillar
+slprototype:
+    None
+```
+
+```
+root@slprototype:/srv/pillar>salt slprototype pillar.get packages
+slprototype:
+    - nfs-utils
+    - ipmitool
+    - vim
+    - openssh
+    - ypbind
+    - autofs
+    - nfs
+```
+
+Salt-minion log from the duration of these commands:
+
+```
+root@slprototype:~>salt-minion -ldebug
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[INFO    ] Using cached minion ID from /etc/salt/minion_id: slprototype
+[DEBUG   ] loading log_handlers in ['/var/cache/salt/minion/extmods/log_handlers', '/usr/lib/python2.6/site-packages/salt/log/handlers']
+[DEBUG   ] Skipping /var/cache/salt/minion/extmods/log_handlers, it is not a directory
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[INFO    ] Setting up the Salt Minion "slprototype"
+[DEBUG   ] Created pidfile: /var/run/salt-minion.pid
+[DEBUG   ] Chowned pidfile: /var/run/salt-minion.pid to user: root
+[DEBUG   ] MultiMinion PUB socket URI: ipc:///var/run/salt/minion/minion_event_6c3b0356c24593ebfa85720eef40c680_pub.ipc
+[DEBUG   ] MultiMinion PULL socket URI: ipc:///var/run/salt/minion/minion_event_6c3b0356c24593ebfa85720eef40c680_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] loading grain in ['/var/cache/salt/minion/extmods/grains', '/usr/lib/python2.6/site-packages/salt/grains']
+[DEBUG   ] Skipping /var/cache/salt/minion/extmods/grains, it is not a directory
+[DEBUG   ] Attempting to authenticate with the Salt Master at 127.0.0.1
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Authentication with master successful!
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] loading grain in ['/var/cache/salt/minion/extmods/grains', '/usr/lib/python2.6/site-packages/salt/grains']
+[DEBUG   ] Skipping /var/cache/salt/minion/extmods/grains, it is not a directory
+[DEBUG   ] loading module in ['/var/cache/salt/minion/extmods/modules', '/usr/lib/python2.6/site-packages/salt/modules']
+[DEBUG   ] Skipping /var/cache/salt/minion/extmods/modules, it is not a directory
+[DEBUG   ] Loaded localemod as virtual locale
+[DEBUG   ] Loaded groupadd as virtual group
+[DEBUG   ] Loaded yumpkg as virtual pkg
+[DEBUG   ] Loaded linux_sysctl as virtual sysctl
+[DEBUG   ] Loaded rh_service as virtual service
+[DEBUG   ] Loaded mdadm as virtual raid
+[DEBUG   ] Loaded linux_acl as virtual acl
+[DEBUG   ] Loaded parted as virtual partition
+[DEBUG   ] Loaded sysmod as virtual sys
+[DEBUG   ] Loaded rpm as virtual lowpkg
+[DEBUG   ] Loaded useradd as virtual user
+[DEBUG   ] Loaded grub_legacy as virtual grub
+[DEBUG   ] Loaded rh_ip as virtual ip
+[DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+[DEBUG   ] Loaded djangomod as virtual django
+[DEBUG   ] Loaded cmdmod as virtual cmd
+[DEBUG   ] Loaded linux_lvm as virtual lvm
+[DEBUG   ] loading returner in ['/var/cache/salt/minion/extmods/returners', '/usr/lib/python2.6/site-packages/salt/returners']
+[DEBUG   ] Skipping /var/cache/salt/minion/extmods/returners, it is not a directory
+[DEBUG   ] Loaded syslog_return as virtual syslog
+[DEBUG   ] Loaded couchdb_return as virtual couchdb
+[DEBUG   ] Loaded carbon_return as virtual carbon
+[DEBUG   ] Loaded sqlite3_return as virtual sqlite3
+/usr/lib/python2.6/site-packages/salt/minion.py:594: DeprecationWarning: Master pub message signing is disabled but we received a signature for this message.  Most likely this means that your masters and minions are not the same version.  After Salt 0.17.6 this situation will throw an exception.
+  salt.utils.warn_until((0, 17, 6), 'Master pub message signing is disabled but we '
+[INFO    ] User root Executing command pillar.items with jid 20140324140627973646
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20140324140627973646', 'tgt': 'slprototype', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'pillar.items'}
+[DEBUG   ] Parsed args: []
+[DEBUG   ] Parsed kwargs: {}
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Returning information for job: 20140324140627973646
+[INFO    ] User root Executing command pillar.get with jid 20140324140638059157
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20140324140638059157', 'tgt': 'slprototype', 'ret': '', 'user': 'root', 'arg': ['packages'], 'fun': 'pillar.get'}
+[DEBUG   ] Parsed args: ['packages']
+[DEBUG   ] Parsed kwargs: {}
+[INFO    ] Returning information for job: 20140324140638059157
+[INFO    ] User root Executing command saltutil.refresh_pillar with jid 20140324140644432907
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20140324140644432907', 'tgt': 'slprototype', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'saltutil.refresh_pillar'}
+[DEBUG   ] Parsed args: []
+[DEBUG   ] Parsed kwargs: {}
+[DEBUG   ] MinionEvent PUB socket URI: ipc:///var/run/salt/minion/minion_event_6c3b0356c24593ebfa85720eef40c680_pub.ipc
+[DEBUG   ] MinionEvent PULL socket URI: ipc:///var/run/salt/minion/minion_event_6c3b0356c24593ebfa85720eef40c680_pull.ipc
+[INFO    ] Returning information for job: 20140324140644432907
+[INFO    ] User root Executing command pillar.get with jid 20140324140647753752
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20140324140647753752', 'tgt': 'slprototype', 'ret': '', 'user': 'root', 'arg': ['packages'], 'fun': 'pillar.get'}
+[DEBUG   ] Parsed args: ['packages']
+[DEBUG   ] Parsed kwargs: {}
+[INFO    ] Returning information for job: 20140324140647753752
+[INFO    ] User root Executing command pillar.get with jid 20140324140728465260
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20140324140728465260', 'tgt': 'slprototype', 'ret': '', 'user': 'root', 'arg': ['packages'], 'fun': 'pillar.get'}
+[DEBUG   ] Parsed args: ['packages']
+[DEBUG   ] Parsed kwargs: {}
+[INFO    ] Returning information for job: 20140324140728465260
+```
+
+To demonstrate proper resolution; observe after a full minion restart:
+
+```
+root@slprototype:/srv/pillar>salt slprototype pillar.get packages
+slprototype:
+    - nfs-utils
+    - ipmitool
+    - vim
+    - openssh
+    - ypbind
+    - autofs
+    - nfs
+    - THISISDIFFERENT
+```
+
+And the minion debug info from the restart and pillar.get: (starting with turning it off from the previous run)
+
+```
+^C[WARNING ] Stopping the Salt Minion
+[WARNING ] Exiting on Ctrl-c
+
+root@slprototype:~>salt-minion -ldebug
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[INFO    ] Using cached minion ID from /etc/salt/minion_id: slprototype
+[DEBUG   ] loading log_handlers in ['/var/cache/salt/minion/extmods/log_handlers', '/usr/lib/python2.6/site-packages/salt/log/handlers']
+[DEBUG   ] Skipping /var/cache/salt/minion/extmods/log_handlers, it is not a directory
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[INFO    ] Setting up the Salt Minion "slprototype"
+[DEBUG   ] Created pidfile: /var/run/salt-minion.pid
+[DEBUG   ] Chowned pidfile: /var/run/salt-minion.pid to user: root
+[DEBUG   ] MultiMinion PUB socket URI: ipc:///var/run/salt/minion/minion_event_6c3b0356c24593ebfa85720eef40c680_pub.ipc
+[DEBUG   ] MultiMinion PULL socket URI: ipc:///var/run/salt/minion/minion_event_6c3b0356c24593ebfa85720eef40c680_pull.ipc
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] loading grain in ['/var/cache/salt/minion/extmods/grains', '/usr/lib/python2.6/site-packages/salt/grains']
+[DEBUG   ] Skipping /var/cache/salt/minion/extmods/grains, it is not a directory
+[DEBUG   ] Attempting to authenticate with the Salt Master at 127.0.0.1
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Authentication with master successful!
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] loading grain in ['/var/cache/salt/minion/extmods/grains', '/usr/lib/python2.6/site-packages/salt/grains']
+[DEBUG   ] Skipping /var/cache/salt/minion/extmods/grains, it is not a directory
+[DEBUG   ] loading module in ['/var/cache/salt/minion/extmods/modules', '/usr/lib/python2.6/site-packages/salt/modules']
+[DEBUG   ] Skipping /var/cache/salt/minion/extmods/modules, it is not a directory
+[DEBUG   ] Loaded localemod as virtual locale
+[DEBUG   ] Loaded groupadd as virtual group
+[DEBUG   ] Loaded yumpkg as virtual pkg
+[DEBUG   ] Loaded linux_sysctl as virtual sysctl
+[DEBUG   ] Loaded rh_service as virtual service
+[DEBUG   ] Loaded mdadm as virtual raid
+[DEBUG   ] Loaded linux_acl as virtual acl
+[DEBUG   ] Loaded parted as virtual partition
+[DEBUG   ] Loaded sysmod as virtual sys
+[DEBUG   ] Loaded rpm as virtual lowpkg
+[DEBUG   ] Loaded useradd as virtual user
+[DEBUG   ] Loaded grub_legacy as virtual grub
+[DEBUG   ] Loaded rh_ip as virtual ip
+[DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+[DEBUG   ] Loaded djangomod as virtual django
+[DEBUG   ] Loaded cmdmod as virtual cmd
+[DEBUG   ] Loaded linux_lvm as virtual lvm
+[DEBUG   ] loading returner in ['/var/cache/salt/minion/extmods/returners', '/usr/lib/python2.6/site-packages/salt/returners']
+[DEBUG   ] Skipping /var/cache/salt/minion/extmods/returners, it is not a directory
+[DEBUG   ] Loaded syslog_return as virtual syslog
+[DEBUG   ] Loaded couchdb_return as virtual couchdb
+[DEBUG   ] Loaded carbon_return as virtual carbon
+[DEBUG   ] Loaded sqlite3_return as virtual sqlite3
+/usr/lib/python2.6/site-packages/salt/minion.py:594: DeprecationWarning: Master pub message signing is disabled but we received a signature for this message.  Most likely this means that your masters and minions are not the same version.  After Salt 0.17.6 this situation will throw an exception.
+  salt.utils.warn_until((0, 17, 6), 'Master pub message signing is disabled but we '
+[INFO    ] User root Executing command pillar.get with jid 20140324141600782839
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20140324141600782839', 'tgt': 'slprototype', 'ret': '', 'user': 'root', 'arg': ['packages'], 'fun': 'pillar.get'}
+[DEBUG   ] Parsed args: ['packages']
+[DEBUG   ] Parsed kwargs: {}
+[INFO    ] Returning information for job: 20140324141600782839
+```
+
+It was requested in an IRC discussion about this that I post the master in -ldebug during this process.  To attempt to avoid having to rebuild the entire report, I simply reproduced the behavior in the exact fashion, please find the master info below.  (if you do in fact need it for the same run, I can certainly reproduce it again.) (additionally, it's rather large, so I pastebinned the lot of it; as well as eliding some unimportant but potentially private bits.)
+
+http://pastebin.com/vE7mu00C
+
+Please let me know if I can provide anything else that would be useful.

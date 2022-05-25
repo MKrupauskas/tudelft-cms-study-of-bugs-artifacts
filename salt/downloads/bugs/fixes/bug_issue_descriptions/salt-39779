@@ -1,0 +1,238 @@
+Currently management of jobs on minion is messy. Here are some cases:
+
+Scenario 1
+----------
+**Summary**: schedule.list returns invalid data
+**Steps to reproduce**:
+- create job in pillar
+```
+# salt 'node1' pillar.get schedule
+node1:
+    ----------
+    test1:
+        ----------
+        args:
+            - dummy
+        function:
+            state.sls
+        jid_include:
+            True
+        maxrunning:
+            1
+        name:
+            test1
+        seconds:
+            10
+```
+- restart minion
+- restart minion one more time
+- modify job config in pillar
+```
+# salt 'node1' pillar.get schedule
+node1:
+    ----------
+    test1:
+        ----------
+        args:
+            - dummy
+        function:
+            state.sls
+        jid_include:
+            True
+        maxrunning:
+            1
+        name:
+            test1
+        minutes:
+            1
+```
+- refresh pillar
+- execute `schedule.list`
+```
+# salt 'node1' schedule.list
+node1:
+    schedule:
+      test1:
+        args:
+        - dummy
+        enabled: true
+        function: state.sls
+        minutest: 1
+
+```
+**Result**: schedule.list returns modified job config, but minion continue to execute old one
+```
+2017-03-02 06:40:14,149 [salt.utils.schedule][INFO    ][30400] Running scheduled job: test1
+2017-03-02 06:40:24,149 [salt.utils.schedule][INFO    ][30400] Running scheduled job: test1
+2017-03-02 06:40:34,149 [salt.utils.schedule][INFO    ][30400] Running scheduled job: test1
+2017-03-02 06:40:44,149 [salt.utils.schedule][INFO    ][30400] Running scheduled job: test1
+2017-03-02 06:40:54,150 [salt.utils.schedule][INFO    ][30400] Running scheduled job: test1
+2017-03-02 06:41:04,149 [salt.utils.schedule][INFO    ][30400] Running scheduled job: test1
+```
+
+Scenario 2
+----------
+(Described in #38523) 
+**Summary**: job modifications in pillar are lost after minion restart
+**Steps to reproduce**:
+- create job in pillar
+```
+# salt 'node1' pillar.get schedule
+node1:
+    ----------
+    test1:
+        ----------
+        args:
+            - dummy
+        function:
+            state.sls
+        jid_include:
+            True
+        maxrunning:
+            1
+        name:
+            test1
+        seconds:
+            10
+```
+- restart minion
+- change job configuration in pillar
+```
+# salt 'node1' pillar.get schedule
+node1:
+    ----------
+    test1:
+        ----------
+        args:
+            - dummy
+        function:
+            state.sls
+        jid_include:
+            True
+        maxrunning:
+            1
+        name:
+            test1
+        minutes:
+            1
+```
+- refresh pillar
+- restart minion
+**Result**: Minion uses old job config
+```
+2017-03-02 06:51:12,180 [salt.utils.schedule][INFO    ][31667] Running scheduled job: test1
+2017-03-02 06:51:22,177 [salt.utils.schedule][INFO    ][31667] Running scheduled job: test1
+2017-03-02 06:51:32,177 [salt.utils.schedule][INFO    ][31667] Running scheduled job: test1
+2017-03-02 06:51:42,177 [salt.utils.schedule][INFO    ][31667] Running scheduled job: test1
+```
+
+Scenario 3
+----------
+**Summary**: Jobs are lost
+**Steps to reproduce**:
+- remove any schedule config from minion (`minion.d/_schedule.conf`)
+- create schedule config in pillar
+```
+# salt 'node1' pillar.get schedule
+node1:
+    ----------
+    test1:
+        ----------
+        args:
+            - dummy
+        function:
+            state.sls
+        jid_include:
+            True
+        maxrunning:
+            1
+        name:
+            test1
+        seconds:
+            10
+```
+- restart minion
+- add new job with `schedule.add`
+```
+# salt 'node1' schedule.add test2 function='test.ping' minutes=1
+node1:
+    ----------
+    comment:
+        Added job: test2 to schedule.
+    result:
+        True
+
+# salt 'node1' schedule.list
+node1:
+    schedule:
+      test1:
+        args:
+        - dummy
+        enabled: true
+        function: state.sls
+        seconds: 10
+      test2:
+        enabled: true
+        function: test.ping
+        jid_include: true
+        maxrunning: 1
+        minutes: 1
+        name: test2
+```
+- change minion pillar
+- refresh pillar
+**Result**: Job created with schedule.add is lost
+```
+salt 'node1' schedule.list
+node1:
+    schedule:
+      test1:
+        args:
+        - dummy
+        enabled: true
+        function: state.sls
+        seconds: 10
+```
+
+Reason for all this problems is in current schedule management. Scheduler (`utils/schedule.py`) merges config from opts and pillar (with `config.merge`) and tries to modify the result. 
+
+```
+Salt Version:
+           Salt: 2016.11.3
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Sep 15 2016, 22:37:39)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 3.2.5
+ 
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+
+```

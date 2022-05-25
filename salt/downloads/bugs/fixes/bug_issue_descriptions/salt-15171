@@ -1,0 +1,85 @@
+I recently upgraded master and minion from 2014.1.0 to 2014.1.10. And now I'm hitting
+
+```
+2014-08-22 11:11:25,697 [salt.minion      ][WARNING ] The minion function caused an exception
+Traceback (most recent call last):
+  File "/usr/lib/pymodules/python2.7/salt/minion.py", line 797, in _thread_return
+    return_data = func(*args, **kwargs)
+  File "/usr/lib/pymodules/python2.7/salt/modules/state.py", line 394, in sls
+    ret = st_.state.call_high(high_)
+  File "/usr/lib/pymodules/python2.7/salt/state.py", line 1715, in call_high
+    ret = self.call_chunks(chunks)
+  File "/usr/lib/pymodules/python2.7/salt/state.py", line 1437, in call_chunks
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/pymodules/python2.7/salt/state.py", line 1652, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/pymodules/python2.7/salt/state.py", line 1652, in call_chunk
+...
+  File "/usr/lib/pymodules/python2.7/salt/state.py", line 1652, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/pymodules/python2.7/salt/state.py", line 1562, in call_chunk
+    status = self.check_requisite(low, running, chunks, True)
+  File "/usr/lib/pymodules/python2.7/salt/state.py", line 1482, in check_requisite
+    req = trim_req(req)
+  File "/usr/lib/pymodules/python2.7/salt/state.py", line 94, in trim_req
+    reqfirst = next(iter(req))
+RuntimeError: maximum recursion depth exceeded while calling a Python object
+```
+
+I've reduced this down to:
+
+``` yml
+my-application:
+  file.touch:
+    - name: /tmp/file-c
+
+graceful-shutdown:
+  file.touch:
+    - name: /tmp/file-a
+    - prereq:
+      - test: configuration-file
+
+configuration-file:
+  test.touch:
+    - name: /tmp/file-b
+    - require:
+      - test: my-application
+```
+
+Exeucting it using `state.sls` module triggers the exception.
+
+I know there have been other instances of `prereq` issues (#8210, #8785), but I don't think neither of them covers this case which I believe is a bug with priority than those (since they define an explicit recursion, and I don't).
+
+In production I seem to be hitting this when a state fails. I have one that sometimes intermittently fails. When it succeeds, I am not getting this stacktrace. I can't really explain why it only triggers on failure, but writing here maybe more for my own sake, don't know.
+
+Master version:
+
+```
+$ salt --versions-report
+           Salt: 2014.1.10
+         Python: 2.7.3 (default, Feb 27 2014, 19:58:35)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```
+
+Minion version:
+
+```
+ salt-minion --versions-report
+           Salt: 2014.1.10
+         Python: 2.7.3 (default, Feb 27 2014, 19:58:35)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```

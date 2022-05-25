@@ -1,0 +1,105 @@
+I configured a multi-master setup using the following documentation: https://docs.saltstack.com/en/latest/topics/tutorials/multimaster.html
+
+When using a non failover multi-master setup.. the first time my minion connects to the masters I get the following error:
+
+```
+2015-12-16 15:43:00,666 [salt.crypt       ][ERROR   ][21494] The master failed to decrypt the random minion token
+2015-12-16 15:43:00,666 [salt.crypt       ][CRITICAL][21494] The Salt Master server's public key did not authenticate!
+The master may need to be updated if it is a version of Salt lower than 2015.8.3, or
+If you are confident that you are connecting to a valid Salt Master, then remove the master public key and restart the Salt Minion.
+The master public key can be found at:
+/etc/salt/pki/minion/minion_master.pub
+2015-12-16 15:43:00,666 [salt.scripts     ][ERROR   ][21494] Minion failed to start:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 81, in minion_process
+    minion.start()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/daemons.py", line 277, in start
+    self.minion.tune_in()
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 663, in tune_in
+    self.io_loop.start()
+  File "/usr/lib/python2.7/dist-packages/zmq/eventloop/ioloop.py", line 151, in start
+    super(ZMQIOLoop, self).start()
+  File "/usr/lib/python2.7/dist-packages/tornado/ioloop.py", line 810, in start
+    self._run_callback(callback)
+  File "/usr/lib/python2.7/dist-packages/tornado/ioloop.py", line 592, in _run_callback
+    ret = callback()
+  File "/usr/lib/python2.7/dist-packages/tornado/stack_context.py", line 275, in null_wrapper
+    return fn(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 963, in <lambda>
+    self.future, lambda f: self.run())
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 879, in run
+    yielded = self.gen.send(value)
+  File "/usr/lib/python2.7/dist-packages/salt/crypt.py", line 553, in sign_in
+    raise SaltSystemExit('Invalid master key')
+SaltSystemExit: Invalid master key
+2015-12-16 15:43:00,668 [salt.scripts     ][WARNING ][21494] ** Restarting minion **
+```
+
+There was no `salt/pki/minion/minion_master.pub` when it initially connected but after I verify that the `salt/pki/minion/minion_master.pub` exists and is the right one. Subsequent restarts of the minion do not result in this error if I leave the minion_master.pub file as-is. If I remove the file I again get the above error.
+
+Connecting to a single master works fine in both scenarios above.. so it would seem that there is some sort of race condition with multi-master authentication when it tries to verify the public key of the master.
+
+Both masters have the same .pem and .pub keys.
+
+I will look into pre-populating that minion_master.pub key to work around this issue.. but it would be great to know if there is a proper fix that I do not know about or a configuration option I can set to help.
+
+My minion config looks like so:
+
+```
+random_reauth_delay: 60
+recon_default: 1000
+recon_max: 5000
+recon_randomize: True
+keysize: 2048
+startup_states: highstate
+master:
+  - smaster1-dusw.downlynk.com
+  - smaster2-dusw.downlynk.com
+grains:
+  ultype: smaster
+  ulsite: downlynk
+id: dusw1-smaster00
+```
+
+I'm using the following version
+
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.22
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.4.0
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-70-generic
+         system: Ubuntu 14.04 trusty
+```
+
+Thank you for the help.

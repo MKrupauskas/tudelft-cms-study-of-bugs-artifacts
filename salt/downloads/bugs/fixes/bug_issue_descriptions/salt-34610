@@ -1,0 +1,234 @@
+### Description of Issue/Question
+
+I am trying to create windows instances in AWS using Salt-Cloud. 
+
+In order to do this, we need to upload a powershell script opening up various ports on the newly created instances, as described by this documentation: https://docs.saltstack.com/en/develop/topics/cloud/windows.html
+
+Before today's upgrade over to the develop branch, we were able to create instances using this profile without any issues. However, as of the upgrade today, we are no longer able to create any windows instances due to the following error being thrown:
+
+```
+
+[DEBUG   ] Generating minion keys for 'wintest3'
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'profile': 'base_windows_2012r2', 'event': 'starting create', '_stamp': '2016-07-12T16:36:13.349456', 'name': 'wintest3', 'provider': 'mredacted-ec2:ec2'}
+[INFO    ] Creating Cloud VM wintest3 in us-east-1
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] compile template: <powershell>
+New-NetFirewallRule -Name "SMB445" -DisplayName "SMB445" -Protocol TCP -LocalPort 445
+New-NetFirewallRule -Name "WINRM5986" -DisplayName "WINRM5986" -Protocol TCP -LocalPort 5986
+New-NetFirewallRule -Name "TEAMCITYUI" -DisplayName "TEAMCITYUI" -Protocol TCP -LocalPort 8111
+New-NetFirewallRule -Name "TEAMCITYBUILD" -DisplayName "Allow TeamCity" -Direction Inbound -Protocol TCP -LocalPort 9090 -Program "c:\program files\java\jre7\bin\java.exe" -Action Allow
+
+winrm quickconfig -q
+winrm set winrm/config/winrs '@{MaxMemoryPerShellMB="300"}'
+winrm set winrm/config '@{MaxTimeoutms="1800000"}'
+winrm set winrm/config/service/auth '@{Basic="true"}'
+
+$SourceStoreScope = 'LocalMachine'
+$SourceStorename = 'Remote Desktop'
+
+$SourceStore = New-Object  -TypeName System.Security.Cryptography.X509Certificates.X509Store  -ArgumentList $SourceStorename, $SourceStoreScope
+$SourceStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+
+$cert = $SourceStore.Certificates | Where-Object  -FilterScript {
+    $_.subject -like '*'
+}
+
+$DestStoreScope = 'LocalMachine'
+$DestStoreName = 'My'
+
+$DestStore = New-Object  -TypeName System.Security.Cryptography.X509Certificates.X509Store  -ArgumentList $DestStoreName, $DestStoreScope
+$DestStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+$DestStore.Add($cert)
+
+$SourceStore.Close()
+$DestStore.Close()
+
+winrm create winrm/config/listener?Address=*+Transport=HTTPS  `@`{Hostname=`"($certId)`"`;CertificateThumbprint=`"($cert.Thumbprint)`"`}
+
+Restart-Service winrm
+</powershell>
+
+[ERROR   ] Template does not exist: <powershell>
+New-NetFirewallRule -Name "SMB445" -DisplayName "SMB445" -Protocol TCP -LocalPort 445
+New-NetFirewallRule -Name "WINRM5986" -DisplayName "WINRM5986" -Protocol TCP -LocalPort 5986
+New-NetFirewallRule -Name "TEAMCITYUI" -DisplayName "TEAMCITYUI" -Protocol TCP -LocalPort 8111
+New-NetFirewallRule -Name "TEAMCITYBUILD" -DisplayName "Allow TeamCity" -Direction Inbound -Protocol TCP -LocalPort 9090 -Program "c:\program files\java\jre7\bin\java.exe" -Action Allow
+
+winrm quickconfig -q
+winrm set winrm/config/winrs '@{MaxMemoryPerShellMB="300"}'
+winrm set winrm/config '@{MaxTimeoutms="1800000"}'
+winrm set winrm/config/service/auth '@{Basic="true"}'
+
+$SourceStoreScope = 'LocalMachine'
+$SourceStorename = 'Remote Desktop'
+
+$SourceStore = New-Object  -TypeName System.Security.Cryptography.X509Certificates.X509Store  -ArgumentList $SourceStorename, $SourceStoreScope
+$SourceStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+
+$cert = $SourceStore.Certificates | Where-Object  -FilterScript {
+    $_.subject -like '*'
+}
+
+$DestStoreScope = 'LocalMachine'
+$DestStoreName = 'My'
+
+$DestStore = New-Object  -TypeName System.Security.Cryptography.X509Certificates.X509Store  -ArgumentList $DestStoreName, $DestStoreScope
+$DestStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+$DestStore.Add($cert)
+
+$SourceStore.Close()
+$DestStore.Close()
+
+winrm create winrm/config/listener?Address=*+Transport=HTTPS  `@`{Hostname=`"($certId)`"`;CertificateThumbprint=`"($cert.Thumbprint)`"`}
+
+Restart-Service winrm
+</powershell>
+
+[ERROR   ] There was a profile error: must be string or buffer, not dict
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/cloud/cli.py", line 284, in run
+    self.config.get('names')
+  File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 1454, in run_profile
+    ret[name] = self.create(vm_)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 1284, in create
+    output = self.clouds[func](vm_)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/ec2.py", line 2501, in create
+    data, vm_ = request_instance(vm_, location)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/ec2.py", line 1708, in request_instance
+    params[spot_prefix + 'UserData'] = base64.b64encode(userdata)
+  File "/usr/lib64/python2.7/base64.py", line 53, in b64encode
+    encoded = binascii.b2a_base64(s)[:-1]
+TypeError: must be string or buffer, not dict
+
+```
+
+Are we supposed to be using a different option now for pushing these powershell scripts up, or is something else new broken that I am unaware of?
+### Setup
+
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+Cloud profile: 
+
+```
+base_windows_2012r2:
+  provider: ec2-provider
+  image: ami-79dc1b14
+  size: t2.micro
+  use_winrm: True
+  userdata_file: /etc/salt/windows-firewall.ps1
+  win_installer: /etc/salt/Salt-Minion-2016.3.1-AMD64-Setup.exe
+  win_username: Administrator
+  win_password: auto
+  win_interface: private_ips
+  smb_port: 445
+  script: bootstrap-salt
+  script_args: -G -H "http://172.30.0.143:3128"
+  subnetid: subnet-redacted
+  securitygroupid:
+    - sg-redacted
+
+```
+
+It is worth pointing out that removing the script_args and script options from the config still result in the same error. 
+
+Powershell script:
+
+```
+
+<powershell>
+New-NetFirewallRule -Name "SMB445" -DisplayName "SMB445" -Protocol TCP -LocalPort 445
+New-NetFirewallRule -Name "WINRM5986" -DisplayName "WINRM5986" -Protocol TCP -LocalPort 5986
+New-NetFirewallRule -Name "TEAMCITYUI" -DisplayName "TEAMCITYUI" -Protocol TCP -LocalPort 8111
+New-NetFirewallRule -Name "TEAMCITYBUILD" -DisplayName "Allow TeamCity" -Direction Inbound -Protocol TCP -LocalPort 9090 -Program "c:\program files\java\jre7\bin\java.exe" -Action Allow
+
+winrm quickconfig -q
+winrm set winrm/config/winrs '@{MaxMemoryPerShellMB="300"}'
+winrm set winrm/config '@{MaxTimeoutms="1800000"}'
+winrm set winrm/config/service/auth '@{Basic="true"}'
+
+$SourceStoreScope = 'LocalMachine'
+$SourceStorename = 'Remote Desktop'
+
+$SourceStore = New-Object  -TypeName System.Security.Cryptography.X509Certificates.X509Store  -ArgumentList $SourceStorename, $SourceStoreScope
+$SourceStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+
+$cert = $SourceStore.Certificates | Where-Object  -FilterScript {
+    $_.subject -like '*'
+}
+
+$DestStoreScope = 'LocalMachine'
+$DestStoreName = 'My'
+
+$DestStore = New-Object  -TypeName System.Security.Cryptography.X509Certificates.X509Store  -ArgumentList $DestStoreName, $DestStoreScope
+$DestStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+$DestStore.Add($cert)
+
+$SourceStore.Close()
+$DestStore.Close()
+
+winrm create winrm/config/listener?Address=*+Transport=HTTPS  `@`{Hostname=`"($certId)`"`;CertificateThumbprint=`"($cert.Thumbprint)`"`}
+
+Restart-Service winrm
+</powershell>
+
+```
+### Steps to Reproduce Issue
+
+Using the aforementioned cloud profile:
+
+`salt-cloud -p base_windows_2012r2 wintest1 -l debug`
+
+salt-cloud will fail before an instance is created, with the previously provided error message.
+
+Specifically the message that is concerning, although I could be looking in the wrong place, is : 
+
+`[ERROR   ] Template does not exist: <powershell>`
+### Versions Report
+
+```
+
+Salt Version:
+           Salt: 2016.3.1-3061-g81d5a7a
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 6.0.2
+       dateutil: 2.5.3
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Oct 11 2015, 17:47:16)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: redhat 7.2 Maipo
+        machine: x86_64
+        release: 3.10.0-327.el7.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 7.2 Maipo
+
+```
+
+Any help or suggestions would be appreciated.

@@ -1,0 +1,108 @@
+### Description of Issue/Question
+
+The `file.line` state function is broken on Windows due to a bug in the `win_file` execution module. When using the `file.line` function, execution fails with `NameError: global name '__opts__' is not defined`.
+
+In my opinion, this is due to the crazy way how the `win_file` module uses functions from the `file` module, while at the same time replacing the `file` module. The `win_file` module selective imports functions from the `file` module, completely bypassing the Salt loader mechanism. This means that the `__opts__` dunder is not inject into the `file` module and thus not available to its functions.
+
+The `win_file` module also imports a lot of internal functions from the `file` module because calling the `file` module’s public functions without these imports would result in `NameError`s as well. This has the crazy effect that internal changes made to the `file` module may actually break the `win_file` module if it is not updated accordingly (e.g. by adding imports for newly added internal functions). I learned this the hard way when writing the patch for #39842.
+
+For this reason, I think that effort should be put into cleaning up the `win_file` module and making it work without all these explicit imports of internal functions.
+
+From an architectural point of view, the cleanest way would be making the `file` module purely virtual and having three implementation modules: A `posix_file` module providing `file` on non-Windows platforms, a `win_file` module providing `file` on Windows platforms, and a utility module that implements the functionality shared by the `posix_file` and `win_file` modules.
+
+However, this would be quite a big change and should most likely not be done in a bugfix release. For this reason, it should be investigated whether using the `salt.loader.raw_mod` function for using the `file` module from the `win_file` module might at least fix this issue (and possibly similar undiscovered issues) caused by the current import scheme.
+
+Such a change would only have to touch the `win_file` module and thus code that essentially is already broken. A larger refactoring of the `file` code should still be considered for a future major release.
+
+### Setup
+`/srv/salt/test/line_test.sls`:
+```
+managed_file:
+  file.line:
+    - name: 'C:\mytest.txt'
+    - match: "Second line"
+    - content: "Other text"
+    - mode: replace
+```
+
+`C:\mytest.txt` (on minion):
+```
+First line
+Second line
+```
+
+### Steps to Reproduce Issue
+Running `salt server.example.com state.apply test.line_test` results in:
+
+```
+server.example.com:
+----------
+          ID: managed_file
+    Function: file.line
+        Name: C:\mytest.txt
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "c:\salt\bin\lib\site-packages\salt\state.py", line 1746, in call
+                  **cdata['kwargs'])
+                File "c:\salt\bin\lib\site-packages\salt\loader.py", line 1703, in wrapper
+                  return f(*args, **kwargs)
+                File "c:\salt\bin\lib\site-packages\salt\states\file.py", line 3191, in line
+                  backup=backup, quiet=quiet, indent=indent)
+                File "c:\salt\bin\lib\site-packages\salt\modules\file.py", line 1819, in line
+                  if __opts__['test'] is False:
+              NameError: global name '__opts__' is not defined
+     Started: 12:20:53.455000
+    Duration: 32.0 ms
+     Changes:   
+
+Summary for server.example.com
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:  32.000 ms
+```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.11.3
+
+Dependency Versions:
+           cffi: 1.7.0
+       cherrypy: unknown
+       dateutil: 2.5.3
+          gitdb: 0.6.4
+      gitpython: 2.0.8
+          ioflo: 1.5.5
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: 1.4.5
+       M2Crypto: Not Installed
+           Mako: 1.0.4
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (v2.7.12:d33e0cf91556, Jun 27 2016, 15:24:40) [MSC v.150
+0 64 bit (AMD64)]
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 16.0.1
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: 0.2.4
+        Tornado: 4.4.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+        machine: AMD64
+        release: 2012ServerR2
+         system: Windows
+        version: 2012ServerR2 6.3.9600  Multiprocessor Free
+```

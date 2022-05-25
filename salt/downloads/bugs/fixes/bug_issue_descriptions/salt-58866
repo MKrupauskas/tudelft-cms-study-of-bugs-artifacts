@@ -1,0 +1,243 @@
+## Description
+The unless condition for `cmd.script` is broken when using the `runas` argument.
+
+## Setup
+On a Windows Server machine, there is a separate user setup that is different to the salt user. In this case I've been testing by using the Administrator account. Here are a couple of scripts essentials named success and error
+
+`success.ps1`
+
+```
+Exit 0
+```
+
+`error.ps1`
+
+```
+Exit 1
+```
+
+**Steps to Reproduce the behavior**
+
+Given the following `.sls` state file which should have alternating states where 
+
+```
+check_powershell_exit_error_in_unless_requisite:
+  cmd.script:
+    - source: salt://files/powershell_exit_successful.ps1
+    - shell: powershell
+    - unless:
+       - fun: cmd.script
+         args:
+           - 'salt://files/powershell_exit_successful.ps1'
+         shell: powershell
+
+check_powershell_exit_success_in_unless_requisite:
+  cmd.script:
+    - source: salt://files/powershell_exit_successful.ps1
+    - shell: powershell
+    - unless:
+       - fun: cmd.script
+         args:
+           - 'salt://files/powershell_exit_error.ps1'
+         shell: powershell
+
+check_powershell_exit_error_in_unless_requisite_runas:
+  cmd.script:
+    - source: salt://files/powershell_exit_successful.ps1
+    - shell: powershell
+    - unless:
+       - fun: cmd.script
+         args:
+           - 'salt://files/powershell_exit_successful.ps1'
+         shell: powershell
+         runas: {{ runas_username | yaml_dquote }}
+         password: {{ runas_password | yaml_dquote }}
+
+check_powershell_exit_success_in_unless_requisite_runas:
+  cmd.script:
+    - source: salt://files/powershell_exit_successful.ps1
+    - shell: powershell
+    - unless:
+       - fun: cmd.script
+         args:
+           - 'salt://files/powershell_exit_error.ps1'
+         shell: powershell
+         runas: {{ runas_username | yaml_dquote }}
+         password: {{ runas_password | yaml_dquote }}
+```
+
+This results in incorrect behaviour in the states.  In particular the `check_powershell_exit_success_in_unless_requisite_runas` says that it would have been executed, but the state should only be executed if a state fails.
+
+```
+----------
+          ID: check_powershell_exit_error_in_unless_requisite
+    Function: cmd.script
+      Result: True
+     Comment: unless condition is true
+     Started: 11:12:13.722582
+    Duration: 7156.238 ms
+     Changes:   
+----------
+          ID: check_powershell_exit_success_in_unless_requisite
+    Function: cmd.script
+      Result: None
+     Comment: Command 'check_powershell_exit_success_in_unless_requisite' would have been executed
+     Started: 11:12:20.878820
+    Duration: 281.233 ms
+     Changes:   
+----------
+          ID: check_powershell_exit_error_in_unless_requisite_runas
+    Function: cmd.script
+      Result: None
+     Comment: Command 'check_powershell_exit_error_in_unless_requisite_runas' would have been executed
+     Started: 11:12:21.160053
+    Duration: 374.996 ms
+     Changes:   
+----------
+          ID: check_powershell_exit_success_in_unless_requisite_runas
+    Function: cmd.script
+      Result: None
+     Comment: Command 'check_powershell_exit_success_in_unless_requisite_runas' would have been executed
+     Started: 11:12:21.535049
+    Duration: 328.123 ms
+     Changes:   
+----------
+```
+
+If I swap the first two states around such that the state that runs before the runas states is successful then all of the runas states also say that the `unless condition is true`.
+
+```
+check_powershell_exit_success_in_unless_requisite:
+  cmd.script:
+    - source: salt://files/powershell_exit_successful.ps1
+    - shell: powershell
+    - unless:
+       - fun: cmd.script
+         args:
+           - 'salt://files/powershell_exit_error.ps1'
+         shell: powershell
+
+check_powershell_exit_error_in_unless_requisite:
+  cmd.script:
+    - source: salt://files/powershell_exit_successful.ps1
+    - shell: powershell
+    - unless:
+       - fun: cmd.script
+         args:
+           - 'salt://files/powershell_exit_successful.ps1'
+         shell: powershell
+
+check_powershell_exit_error_in_unless_requisite_runas:
+  cmd.script:
+    - source: salt://files/powershell_exit_successful.ps1
+    - shell: powershell
+    - unless:
+       - fun: cmd.script
+         args:
+           - 'salt://files/powershell_exit_successful.ps1'
+         shell: powershell
+         runas: {{ runas_username | yaml_dquote }}
+         password: {{ runas_password | yaml_dquote }}
+
+check_powershell_exit_success_in_unless_requisite_runas:
+  cmd.script:
+    - source: salt://files/powershell_exit_successful.ps1
+    - shell: powershell
+    - unless:
+       - fun: cmd.script
+         args:
+           - 'salt://files/powershell_exit_error.ps1'
+         shell: powershell
+         runas: {{ runas_username | yaml_dquote }}
+         password: {{ runas_password | yaml_dquote }}
+```
+
+Gives the following incorrect behaviour:
+
+```
+----------
+          ID: check_powershell_exit_success_in_unless_requisite
+    Function: cmd.script
+      Result: None
+     Comment: Command 'check_powershell_exit_success_in_unless_requisite' would have been executed
+     Started: 11:39:57.972014
+    Duration: 6859.381 ms
+     Changes:   
+----------
+          ID: check_powershell_exit_error_in_unless_requisite
+    Function: cmd.script
+      Result: True
+     Comment: unless condition is true
+     Started: 11:40:04.831395
+    Duration: 265.619 ms
+     Changes:   
+----------
+          ID: check_powershell_exit_error_in_unless_requisite_runas
+    Function: cmd.script
+      Result: True
+     Comment: unless condition is true
+     Started: 11:40:05.097014
+    Duration: 359.376 ms
+     Changes:   
+----------
+          ID: check_powershell_exit_success_in_unless_requisite_runas
+    Function: cmd.script
+      Result: True
+     Comment: unless condition is true
+     Started: 11:40:05.456390
+    Duration: 296.946 ms
+     Changes:   
+----------
+```
+
+## Expected behaviour
+
+For each state that uses `cmd.script` with the `runas` kwarg to be independently evaluated and not linked to a previous states result.
+
+## Versions Report
+
+```
+Salt Version:
+           Salt: 3001.1
+ 
+Dependency Versions:
+           cffi: 1.14.3
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.1
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.20
+       pycrypto: Not Installed
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Apr  2 2020, 13:34:55)
+   python-gnupg: Not Installed
+         PyYAML: 5.3.1
+          PyZMQ: 17.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1127.19.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7 Core
+```
+
+</details>
+
+## Additional context
+
+I've only tested this on Windows (Server 2016) and Powershell.

@@ -1,0 +1,130 @@
+### Description
+When using 'requests' backend for `http.query` state or module, it throws an error if the HTTP code is != 200. Obviously, trying to call the module from jinja2 code fails the entire state file.
+
+'tornado' backend is not affected by this problem.
+
+### Steps to reproduce
+- expecting 200 http response code
+```
+check_if_exists:
+  http.query:
+    - name: 'https://repo.saltstack.com/yum/redhat/7/x86_64/2018.3/'
+    - method: 'GET'
+    - verify_ssl: False
+    - backend: requests
+    - status: 200
+...
+     Started: 10:11:42.495259
+    Duration: 640.151 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time: 640.151 ms
+```
+- expecting any other code != 200 (404 for example)
+```
+should_not_exist:
+  http.query:
+    - name: 'https://repo.saltstack.com/yum/redhat/7/x86_64/2018.3/bla'
+    - method: 'GET'
+    - verify_ssl: False
+    - backend: requests
+    - status: 404
+----------
+          ID: should_not_exist
+    Function: http.query
+        Name: https://repo.saltstack.com/yum/redhat/7/x86_64/2018.3/bla
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/site-packages/salt/state.py", line 1913, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1898, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/states/http.py", line 92, in query
+                  data = __salt__['http.query'](name, **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/modules/http.py", line 38, in query
+                  return salt.utils.http.query(url=url, opts=opts, **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/utils/http.py", line 351, in query
+                  result.raise_for_status()
+                File "/usr/lib/python2.7/site-packages/requests/models.py", line 834, in raise_for_status
+                  raise HTTPError(http_error_msg, response=self)
+              HTTPError: 404 Client Error: Not Found
+     Started: 10:12:37.150543
+    Duration: 484.323 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    1
+------------
+Total states run:     2
+Total run time:   1.081 s
+```
+### Expected results
+Just like the following:
+- `tornado` backend, same query
+```
+----------
+          ID: should_not_exist
+    Function: http.query
+        Name: https://repo.saltstack.com/yum/redhat/7/x86_64/2018.3/bla
+      Result: True
+     Comment: Status 404 was found, as specified.
+		status: 404
+		error: HTTP 404: Not Found
+     Started: 10:24:44.842105
+    Duration: 549.328 ms
+     Changes:
+```
+Suggestion: you may want to change `error` to 'Not Found' since you are already reporting the status.
+
+### Versions Report
+```
+# salt-call --versions-report
+Salt Version:
+           Salt: 2018.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Jul 13 2018, 13:06:57)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.93-linuxkit-aufs
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```

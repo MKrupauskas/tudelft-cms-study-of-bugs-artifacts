@@ -1,0 +1,116 @@
+### Description of Issue/Question
+
+When executing two concurrent `state.apply`es targeting the same SSH minion and with a small delay in between, one of the states is not applied and it returns an empty response.
+
+The `queue=true` doesn't seem to make a difference.
+
+However, without the small delay in between the calls both seem to work fine.
+
+### Setup
+/srv/salt/echo1.sls
+```yaml
+echo1:
+  cmd.run:
+    - name: 'echo "echo1"'
+
+/tmp/file1:
+  file.managed:
+    - source: salt://file1.txt
+```
+/srv/salt/echo2.sls
+```yaml
+echo1:
+  cmd.run:
+    - name: 'echo "echo2"'
+
+/tmp/file2:
+  file.managed:
+    - source: salt://file2.txt
+```
+/srv/salt/file1.txt
+```
+111111111
+```
+
+/srv/salt/file2.txt
+```
+2222222222
+```
+
+/etc/salt/roster2
+```
+test-minssh-sles12sp3.tf.local:
+    host: test-minssh-sles12sp3.tf.local
+    user: root
+    port: 22
+    timeout: 180
+```
+
+test.sh
+```bash
+#!/bin/bash
+
+MINION=test-minssh-sles12sp3.tf.local
+KEY=/path/to/sshkey/or/salt/user
+
+cd /srv/salt
+
+sudo -u salt salt-ssh -linfo --roster-file=/etc/salt/roster2 --priv=$KEY $MINION state.apply echo1 queue=true >echo1.log 2>&1 &
+sleep 0.5
+sudo -u salt salt-ssh -linfo --roster-file=/etc/salt/roster2 --priv=$KEY $MINION state.apply echo2 queue=true >echo2.log 2>&1 &
+
+tail -f --retry /srv/salt/echo1.log /srv/salt/echo2.log
+```
+
+
+### Steps to Reproduce Issue
+
+Make sure `salt-ssh` can call the target minion (ssh key is authorized, etc)
+
+Execute `test.sh`. One of the two calls should return an empty response and the corresponding `/tmp` file is not created on the minion.
+
+Comment the line with `sleep 0.5`. Both calls should succeed. 
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.0
+ 
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: 3.6.0
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Jan 11 2017, 10:56:06) [GCC]
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 14.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+ 
+System Versions:
+           dist: SuSE 12 x86_64
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.73-5-default
+         system: Linux
+        version: SUSE Linux Enterprise Server  12 x86_64
+```

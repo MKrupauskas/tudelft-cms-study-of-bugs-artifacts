@@ -1,0 +1,194 @@
+### Description of Issue
+I am using Salt with a proxy minion to manage network devices. It works when the host inventory is stored in the `top.sls` file, but not when I try to move it to an `ext_pillar` using MariaDB.
+
+### Setup
+
+In the `top.sls` file the host was listed as -
+
+```
+  switch_1:
+    proxy:
+      proxytype: napalm
+      driver: junos
+      host: {{ grains['id'] }}
+      username: juniper
+      passwd: juniper100
+    slack:
+        identifier:
+            notifications: https://hooks.slack.com/services/XXXXX/XXXXX/XXXXX
+```
+
+This is the pillar data I can then see from the `pillar.data` command -
+
+```
+/etc/salt # salt 'switch_1' pillar.data
+switch_1:
+    ----------
+    proxy:
+        ----------
+        driver: junos
+        host: switch_1
+        passwd: juniper100
+        proxytype: napalm
+        username: juniper
+    slack:
+        ----------
+        identifier:
+            ----------
+            notifications: https://hooks.slack.com/services/XXXXX/XXXXX/XXXXX
+```
+
+I've hashed this out and added the below to the `master` file -
+
+```
+mysql:
+  user: 'dbuser'
+  pass: 'dbpass'
+  db: 'db'
+  host: 10.0.0.50
+
+ext_pillar:
+  - mysql:
+      fromdb:
+        query: 'SELECT minion_id, proxy, host, proxytype, driver, username, passwd FROM salt_pillars WHERE minion_id LIKE %s'
+        depth: 2
+        as_list: True
+
+ext_pillar_first: True
+```
+
+Here is a query directly from on MariaDB -
+
+```
+MariaDB [netdb]> SELECT minion_id, proxy, host, proxytype, driver, username, passwd FROM salt_pillars WHERE minion_id LIKE "switch_1";
++-----------------------+-------+-----------------------+-----------+--------+----------------+------------+
+| minion_id             | proxy | host                  | proxytype | driver | username       | passwd     |
++-----------------------+-------+-----------------------+-----------+--------+----------------+------------+
+| switch_1              | proxy | switch_1              | napalm    | junos  | juniper        | juniper100 |
++-----------------------+-------+-----------------------+-----------+--------+----------------+------------+
+```
+
+### Steps to Reproduce Issue
+
+When I now try to start the proxy minion it fails to load.
+
+On the proxy minion -
+
+```
+/etc/salt # salt-proxy --daemon --proxyid=switch_1 -l debug
+[DEBUG   ] Reading configuration from /etc/salt/proxy
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/deprecations.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/deprecations.conf
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/mysql.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/mysql.conf
+[DEBUG   ] Configuration file path: /etc/salt/proxy
+
+/etc/salt # tail -f /var/log/salt/proxy
+2020-01-20 16:25:34,902 [salt.cli.daemons                         :543 ][ERROR   ][756] No proxy key found in pillar or opts for id switch_1. Check your pillar/opts configuration and contents.  Salt-proxy aborted.
+```
+
+On the salt master -
+
+```
+2020-01-20 16:25:34,763 [salt.utils.lazy  :104 ][DEBUG   ][22] LazyLoaded mysql.ext_pillar
+2020-01-20 16:25:34,764 [salt.pillar.sql_base:427 ][INFO    ][22] Querying MySQL for information for switch_1
+2020-01-20 16:25:34,764 [salt.loaded.int.pillar.mysql:107 ][DEBUG   ][22] Using default for MySQL port
+2020-01-20 16:25:34,764 [salt.loaded.int.pillar.mysql:107 ][DEBUG   ][22] Using default for MySQL ssl
+2020-01-20 16:25:34,766 [salt.pillar.sql_base:450 ][DEBUG   ][22] ext_pillar MySQL: Return data: <salt.loaded.int.pillar.mysql.MySQLExtPillar object at 0x7f532a6245f8>
+```
+
+### Versions Report
+
+Master
+
+```
+/etc/salt # salt --versions-report
+Salt Version:
+           Salt: 2019.2.2
+
+Dependency Versions:
+           cffi: 1.13.2
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.9 (default, Oct 17 2019, 11:10:22)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 18.1.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.el7.x86_64
+         system: Linux
+        version: Not Installed
+```
+
+Proxy Minion
+
+```
+/etc/salt # salt --versions-report
+Salt Version:
+           Salt: 2019.2.2
+
+Dependency Versions:
+           cffi: 1.13.1
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.9 (default, Oct 17 2019, 11:10:22)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 18.1.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.el7.x86_64
+         system: Linux
+        version: Not Installed
+```

@@ -1,0 +1,123 @@
+### Description of Issue/Question
+
+[`salt.states.virt.running` calls `virt.vm_state`](https://github.com/saltstack/salt/blob/develop/salt/states/virt.py#L405) to determine if the VM is already running, and if the result is anything other than the literal string `running`, it then updates it (if `update: True` is set in the state), and then [tries to start the VM](https://github.com/saltstack/salt/blob/develop/salt/states/virt.py#L422).
+
+But [`salt.states.modules.vm_state`](https://github.com/saltstack/salt/blob/4573c01ebf24bf99b53cacc81cb0851ed15309d3/salt/modules/virt.py#L2203-L2243) *always* [returns a `dict`](https://github.com/saltstack/salt/blob/4573c01ebf24bf99b53cacc81cb0851ed15309d3/salt/modules/virt.py#L2235), whch means the return value will *never* be the literal string `running`.  (Possibly this once worked, but the definition of `vm_state` was changed?)
+
+This `dict` return can also be seen testing `virt.vm_state` from the command line:
+
+```
+ewen@noc:/etc/salt/pillar$ sudo salt 'naosr620.naos.co.nz' virt.vm_state debian_unstable
+naosr620.naos.co.nz:
+    ----------
+    debian_unstable:
+        running
+ewen@noc:/etc/salt/pillar$ 
+```
+
+From a quick glance it appears that `salt.states.virt.running` needs to index into the `dict` it gets back to get the state it is looking for (at https://github.com/saltstack/salt/blob/develop/salt/states/virt.py#L405; I'm unclear what the purpose of the [call on the previous line](https://github.com/saltstack/salt/blob/develop/salt/states/virt.py#L404) is, since it seems like it would happen a second time on line 405 anyway, and the result from the call in line 404 is ignored?!).
+
+### Setup
+
+Create a simple `libvirt` VM with `virt.running`:
+
+```
+debian_unstable:
+    virt.running:
+      - cpu: 1
+      - mem: 512
+      - vm_type: kvm
+      - disk_profile: 
+      - disks:
+          - name: vda
+            source_file: /dev/ssd/debian_unstable_vda
+            format: raw
+            model: virtio
+      - install: False
+      - nic_profile: 
+      - interfaces:
+          - name: eth0
+            type: bridge
+            source: virbr0
+            mac: 00:01:02:03:04:05
+            model: virtio
+```
+
+### Steps to Reproduce Issue
+
+Define a VM with the config above, do `state.highstate` which results in it running again.  Do `state.highstate` a second time, and get the report:
+
+```
+ewen@noc:/etc/salt/pillar$ ths naosr620.naos.co.nz
+naosr620.naos.co.nz:
+----------
+          ID: debian_unstable
+    Function: virt.running
+      Result: False
+     Comment: Requested operation is not valid: domain is already running
+     Started: 17:04:23.748135
+    Duration: 15.583 ms
+     Changes:   
+
+Summary for naosr620.naos.co.nz
+--------------
+Succeeded: 105
+Failed:      1
+--------------
+Total states run:     106
+Total run time:     5.662 s
+ERROR: Minions returned with non-zero exit code
+ewen@noc:/etc/salt/pillar$ 
+```
+
+(`ths` is a shell script that does `sudo salt "$@" state.highstate test=True --state-output=changes --output-diff`, because that's a lot to type :-)   Note that `salt.states.virt.running` happens even in `test=True` mode, which seems like a separate bug.)
+
+### Versions Report
+
+salt master is currently on Debian Jessie (8), with Salt 2019.2.0 on Python 2.7; salt minions are all Salt 2019.2.0, and in the case of the minion where I ran into this issue the salt minion is on Ubuntu 18.04 LTS with Salt 20.19.2.0 on Python 2.7.
+
+```
+ewen@noc:~$ salt --versions-report
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+      docker-py: Not Installed
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Sep 25 2018, 23:32:58)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 8.11 
+         locale: ANSI_X3.4-1968
+        machine: i686
+        release: 4.9.0-0.bpo.9-686-pae
+         system: Linux
+        version: debian 8.11 
+ 
+ewen@noc:~$ 
+```

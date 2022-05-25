@@ -1,0 +1,103 @@
+I know there are lots of already open issues about syndic return problems (#9733, #8908, #9777, #8701, #6207 possibly to name but a few) I've just done a bit of investigation and I believe I've come up with 3 potential causes of these kind of problems.
+- gather_job_info returning early when only syndicated minions are targeted
+- new_job events from the syndic masters some times take a long time to be returned
+- saltutil.find_job commands sometimes take a long time to propagate through the syndic to the syndic minions.
+
+The first one is due to the fact that the get_returns function used to gather the results for gather_job_info doesn't wait for new_job events from syndic_masters. I propose that it should be passed a list of known minions from the main result gathering routine.
+
+The second two problems have similar root causes and therefore solution. The syndic main loop can get trapped processing incoming events and cause a long delay before it forwards them or checks for new commands. I propose a shared polling loop which aggregates events for a finite length of time.
+
+I plan to try and put together pull requests for my proposed solutions either today or tomorrow. 
+
+Example timings in the second two problems for those that are interested. Unfortunately I've lost the logs of the first problem (I've been running with hack in place for that). 
+
+Here's a new job event from eventlisten.py on the master of masters:
+
+```
+Event fired at Tue Feb  4 11:22:57 2014
+*************************
+Tag: new_job
+Data:
+{'_stamp': '2014-02-04_11:22:13.068064',
+ 'data': {'_stamp': '2014-02-04_11:21:52.373484',
+          'arg': [],
+          'fun': 'state.highstate',
+          'jid': '20140204112151573878',
+          'minions': ['portal-1.dev.dev-colo',
+                      'config-1.dev.dev-colo',
+                      'dns.dev.dev-colo',
+                      'backup-checker.dev.dev-colo',
+                      'db-2.dev.dev-colo',
+                      'db-1.dev.dev-colo',
+                      'portal-2.dev.dev-colo'],
+          'tgt': '* and not overseer.* and not deploy.*',
+          'tgt_type': 'compound',
+          'user': 'root'},
+ 'tag': 'new_job'}
+```
+
+That's a pretty unfortunate 1 minute and 5 seconds between the new_job event being fired by the syndic and being processed by event listen.
+
+The logs on the syndic (with extra trace from me)
+
+```
+W 2014-02-04 11:21:52 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Handling payload
+D 2014-02-04 11:21:52 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][DEBUG   ] User root Executing syndic command sta
+te.highstate with jid 20140204112151573878
+D 2014-02-04 11:21:52 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][DEBUG   ] Command details: {'tgt_type': 'compoun
+d', 'jid': '20140204112151573878', 'tgt': '* and not overseer.* and not deploy.*', 'ret': {}, 'to': 9, 'user': 'root', 'arg': 
+[], 'fun': 'state.highstate'}
+W 2014-02-04 11:21:52 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Checking events
+W 2014-02-04 11:21:52 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Got event 20140204112151573878
+W 2014-02-04 11:21:52 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Got event new_job
+W 2014-02-04 11:21:52 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Got event salt/job/2014020411215157387
+8/new
+W 2014-02-04 11:21:53 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Got event salt/auth
+W 2014-02-04 11:21:53 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Got event salt/auth
+... skipping lots of events ...
+W 2014-02-04 11:22:11 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Got event salt/auth
+W 2014-02-04 11:22:12 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Got event salt/auth
+W 2014-02-04 11:22:12 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Got event salt/job/20140204112151573878/prog/portal-2.dev.dev-colo.starleaf.com/6
+W 2014-02-04 11:22:13 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Forwarding events
+W 2014-02-04 11:22:13 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Forwarding job returns
+I 2014-02-04 11:22:13 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][INFO    ] Returning information for job: 20140204112151573878
+W 2014-02-04 11:22:13 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Polling
+W 2014-02-04 11:22:13 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Handling payload
+D 2014-02-04 11:22:13 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][DEBUG   ] User root Executing syndic command saltutil.find_job with jid 20140204112205064064
+D 2014-02-04 11:22:13 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][DEBUG   ] Command details: {'tgt_type': 'compound', 'jid': '20140204112205064064', 'tgt': '* and not overseer.* and not deploy.*', 'ret': '', 'to': 14, 'user': 'root', 'arg': ['20140204112151573878'], 'fun': 'saltutil.find_job'}
+W 2014-02-04 11:22:13 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Checking events
+W 2014-02-04 11:22:13 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Got event 20140204112205064064
+W 2014-02-04 11:22:13 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Got event new_job
+W 2014-02-04 11:22:13 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Got event salt/job/20140204112205064064/new
+W 2014-02-04 11:22:13 overseer <U+FEFF>salt-minion[7045]: [salt.minion      ][TRACE   ] Got event salt/auth
+```
+
+Combine this with the logs from salt-run
+
+```
+11:21:51 [INFO    ] Running state [minion_state] at time 11:21:51.529571
+11:21:51 [INFO    ] Executing state salt.state for minion_state
+11:21:51 [DEBUG   ] Reading configuration from /etc/salt/master
+11:21:51 [DEBUG   ] Missing configuration file: /root/.salt
+11:21:51 [DEBUG   ] LocalClientEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+11:21:51 [DEBUG   ] LocalClientEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+11:21:51 [DEBUG   ] get_iter_returns for jid 20140204112151573878 sent to set([]) will timeout at 11:22:01
+11:22:05 [DEBUG   ] Checking whether jid 20140204112151573878 is still running
+11:22:05 [DEBUG   ] get_returns for jid 20140204112205064064 sent to set(['mon.test-colo', 'config-1.test.test-colo', 'portal-1.test.test-colo', 'db-1.test.test-colo', 'dns.test.test-colo']) will timeout at 11:22:20
+11:22:06 [DEBUG   ] jid 20140204112205064064 found all minions
+11:22:06 [DEBUG   ] jid 20140204112151573878 not running on any minions last time
+11:22:06 [DEBUG   ] jid 20140204112151573878 return from portal-1.test.test-colo
+11:22:06 [DEBUG   ] jid 20140204112151573878 return from config-1.test.test-colo
+11:22:06 [DEBUG   ] jid 20140204112151573878 return from dns.test.test-colo
+11:22:06 [DEBUG   ] jid 20140204112151573878 return from db-1.test.test-colo
+11:22:06 [DEBUG   ] jid 20140204112151573878 return from mon.test-colo.starleaf.com
+11:22:06 [DEBUG   ] jid 20140204112151573878 found all minions set(['config-1.test.test-colo', 'portal-1.test.test-colo', 'dns.test.test-colo', 'db-1.test.test-colo', 'mon.test-colo'])
+11:22:06 [DEBUG   ] jid 20140204112151573878 syndic_wait 1 will now timeout at 11:22:07
+11:22:08 [DEBUG   ] jid 20140204112151573878 found all minions set(['config-1.test.test-colom', 'portal-1.test.test-colo', 'dns.test.test-colo', 'db-1.test.test-colo', 'mon.test-colo'])
+```
+
+We can see that the new_job event was forwarded back to the master and the find_job command forwarded to minions well after we had stopped looking for either of them.
+
+Incidently the vast majority of events are salt/auth events. 
+
+Sorry again for generating yet another issue on this subject but I wanted a place to pull all this stuff together.

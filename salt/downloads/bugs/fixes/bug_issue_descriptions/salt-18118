@@ -1,0 +1,60 @@
+It appears that this has just crept up in the 2014.7 release, which I just upgraded to today as it became available. When specifying volumes to create and attach for an ec2 instance in a cloud profile, volume attachment will _probably_ always fail because you cannot attach a volume to an instance unless the volume is available.
+The cloud.profile.d/mysql.conf I'm using (cloud.provider.d file not included here as it's not necessary for explanation):
+
+```
+ec2_mysql:
+  provider: ec2
+  image: ami-7f67703a
+  size: c3.4xlarge
+  ssh_username: root
+  network_interfaces:
+    - DeviceIndex: 0
+      PrivateIpAddresses:
+        - Primary: True
+      AssociatePublicIpAddress: False
+      SubnetId: subnet-stuff
+      SecurityGroupId: sg-things
+  minion:
+    master: salt-master.mydomain
+  volumes:
+    - { size: 300, device: /dev/sdg, type: io1, iops: 1000 }
+  block_device_mappings:
+    - DeviceName: /dev/sdc
+      VirtualName: ephemeral0
+```
+
+This will create the instance, bootstrap it just fine, and does create the volume but will fail to attach it every time.
+
+```
+salt-cloud -p ec2_mysql mysql-test
+```
+
+Here's the end of the output (IPs changed - tin-foil hat):
+
+```
+ *  INFO: Salt installed!
+Warning: Permanently added '1.2.3.4' (RSA) to the list of known hosts.
+Connection to 1.2.3.4 closed.
+Warning: Permanently added '1.2.3.4' (RSA) to the list of known hosts.
+Connection to 1.2.3.4 closed.
+Warning: Permanently added '1.2.3.4' (RSA) to the list of known hosts.
+Connection to 1.2.3.4 closed.
+Warning: Permanently added '1.2.3.4' (RSA) to the list of known hosts.
+Connection to 1.2.3.4 closed.
+Warning: Permanently added '1.2.3.4' (RSA) to the list of known hosts.
+Connection to 1.2.3.4 closed.
+[INFO    ] Salt installed on mysql-test
+[INFO    ] Created Cloud VM 'mysql-test'
+[INFO    ] Create and attach volumes to node mysql-test
+[INFO    ] Starting new HTTP connection (1): 5.6.7.8
+[INFO    ] Starting new HTTP connection (1): 5.6.7.8
+[ERROR   ] EC2 Response Status Code and Error: [400 400 Client Error: Bad Request] {'Errors': {'Error': {'Message': "vol-cba4a7d1 is not 'available'.", 'Code': 'IncorrectState'}}, 'RequestID': '23740004-b56a-4459-b24d-197e52f53bf6'}
+[INFO    ] Starting new HTTP connection (1): 5.6.7.8
+[INFO    ] Starting new HTTP connection (1): 5.6.7.8
+[ERROR   ] EC2 Response Status Code and Error: [400 400 Client Error: Bad Request] {'Errors': {'Error': {'Message': 'No attributes specified.', 'Code': 'InvalidParameterCombination'}}, 'RequestID': '89b181a3-821c-466e-81f8-0a992f9c41c0'}
+[ERROR   ] There was a profile error: 'NoneType' object has no attribute 'copy'
+```
+
+**"vol-cba4a7d1 is not 'available'."** is the key here. (I'm not sure what's up with the profile error yet either, but will keep that issue separate as I investigate more)
+
+I have a pull request coming which will fix the volume attachment issue. It's rather simple I believe - when creating a new volume and attaching it to an instance, you always want to wait for the volume to be available before attempting to attach it. The code is not built this way in the 2014.7 branch - prior to this it just waited a couple seconds before trying to attach the volume, which appeared to work fine too but... luckily. 

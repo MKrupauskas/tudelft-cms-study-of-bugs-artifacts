@@ -1,0 +1,185 @@
+Example pillar to reproduce (from [postgres-formula](https://github.com/saltstack-formulas/postgres-formula)):
+
+```
+postgres:
+  pg_hba.conf: salt://postgres/pg_hba.conf
+
+  lookup:
+    pkg: 'postgresql-9.3'
+    pg_hba: '/etc/postgresql/9.3/main/pg_hba.conf'
+
+  users:
+    localUser:
+      password: |
+        -----BEGIN PGP MESSAGE-----
+        Version: GnuPG v1
+
+        hQEMA0Axx1x7Air1AQf/YQO6wNtTytUaytenLmmBkpV1WAd5RkC4+f09D6HjlZwd
+        2wr8CtLzrekvYJ7gsSs+73ljOzAYO3uFPA3i7qi2XcYjAxoBCyc89fQX99vfEShh
+        4QtuFlMlsPtbLDJwcpAe0oQ237x2wIjjswiQRSk5+VJwADwECrNXTcXbLfVQliR/
+        AJHEdYZTkIT0SIiQxbUiba7HCyKd/uq4NxMABjLX7+e1H8hfZUt6aQRiy0T3lxDC
+        bjHj8hWNBMe3/ZJkSHu9SwLOQcgVfoSripuwZbMcoNgicFuZNdU+24oYyCkZoT9l
+        wJPDEm4cpR+/UhBS/K4zAlc1xiyOuBbHmiZ+lwhIjNJKATNeiwn8wGB4ueHERf8o
+        O1Zzc3QjeBA0l+ObDYK485TaSeQ3jeE14zdvRGl7vp4GWGdO4U5YyZJDnKBtW0ml
+        UY+wRmxjCtYGBEU=
+        =ihn/
+        -----END PGP MESSAGE-----
+      createdb: False
+
+    remoteUser:
+      password: |
+        -----BEGIN PGP MESSAGE-----
+        Version: GnuPG v1
+
+        hQEMA0Axx1x7Air1AQf9G4QgDKKXhYnzj4SPoE2DZIvarfikkX+OW4pTyJ+YLkAt
+        Z33o6w0P2oc6fwkPrpK5ePBS/A4nOIMIqyLOhSLCHfdkASWTUiLOBQej4R5DIzmY
+        F1x4S4ET9GjL2T9AvG4dyucj32qBvFduHma00M+TBSwDoC7GRbaZRvoM9ntUN9js
+        ei+AQ9DgwyrUz+5fpayQRb/ePD7DGmLnrGme8n7qbnpMpJvDM7p1w4YjYfJ2G+Rc
+        +ppewwuFHeyWNzGy2ycp2mjLh5mr7nl2Ux0yQszqqrYJhblbzrW2EhoF18fQ3NTM
+        UWThtn0zxKbU871rc+tJsA9isr8i918c87jC9WkMR9JKAcs1CuhBTKmV9bkuXrf2
+        sAHEa1GDeYSn1DPel6AZ6WtfNQWJXCShDvH07xgoRQGNPK49om9IM4OiudZ17Stz
+        R6mJArYCUUWGD5Q=
+        =Y1DD
+        -----END PGP MESSAGE-----
+      createdb: False
+
+  # This section cover this ACL management of the pg_hba.conf file.
+  # <type>, <database>, <user>, [host], <method>
+  acls:
+    - ['local', 'db1', 'localUser']
+    - ['host', 'db2', '192.168.0.0/24', 'remoteUser']
+
+  databases:
+    db1:
+      owner: 'localUser'
+      user: 'localUser'
+      template: 'template0'
+      lc_ctype: 'C.UTF-8'
+      lc_collate: 'C.UTF-8'
+
+    db2:
+      owner: 'localUser'
+      user: 'remoteUser'
+      template: 'template0'
+      lc_ctype: 'C.UTF-8'
+      lc_collate: 'C.UTF-8'
+```
+
+Passwords are '3Rn8*@i#f^HB' and 'Ko0gDqg4SVUF'. These are test passwords.
+
+Salt state render output (for `postgres-formula/init.sls`):
+
+```
+[DEBUG   ] Rendered data from file: /srv/formulas/postgres-formula/postgres/init.sls:
+
+
+postgresql:
+
+  pkg:
+    - installed
+    - name: postgresql-9.3
+
+  service:
+    - running
+    - enable: true
+    - name: postgresql
+    - require:
+      - pkg: postgresql-9.3
+
+
+postgresql-server-dev-9.3:
+  pkg.installed
+
+libpq-dev:
+  pkg.installed
+
+python-dev:
+  pkg.installed
+
+
+pg_hba.conf:
+  file.managed:
+    - name: /etc/postgresql/9.3/main/pg_hba.conf
+    - source: salt://postgres/pg_hba.conf
+    - template: jinja
+    - user: postgres
+    - group: postgres
+    - mode: 644
+    - require:
+      - pkg: postgresql-9.3
+    - watch_in:
+      - service: postgresql
+
+
+
+
+postgres-user-localUser:
+  postgres_user.present:
+    - name: localUser
+    - createdb: False
+    - password: -n3Rn8*@i#f^HB
+
+    - runas: postgres
+    - require:
+      - service: postgresql
+
+postgres-user-remoteUser:
+  postgres_user.present:
+    - name: remoteUser
+    - createdb: False
+    - password: -nKo0gDqg4SVUF
+
+    - runas: postgres
+    - require:
+      - service: postgresql
+
+
+
+
+
+postgres-db-db1:
+  postgres_database.present:
+    - name: db1
+    - encoding: UTF8
+    - lc_ctype: C.UTF-8
+    - lc_collate: C.UTF-8
+    - template: template0
+
+    - owner: localUser
+
+    - runas: postgres
+
+    - require:
+        - postgres_user: postgres-user-localUser
+
+
+postgres-db-db2:
+  postgres_database.present:
+    - name: db2
+    - encoding: UTF8
+    - lc_ctype: C.UTF-8
+    - lc_collate: C.UTF-8
+    - template: template0
+
+    - owner: localUser
+
+    - runas: postgres
+
+    - require:
+        - postgres_user: postgres-user-remoteUser
+
+```
+
+Some debug output from the renderer:
+
+```
+[DEBUG   ] [GNUPG:] DECRYPTION_OKAY
+
+[DEBUG   ] [GNUPG:] GOODMDC
+
+[DEBUG   ] chunk: '-n3Rn8*@i#f^HB\n'
+
+[DEBUG   ] [GNUPG:] END_DECRYPTION
+
+[DEBUG   ] decrypt result: '-n3Rn8*@i#f^HB\n'
+```

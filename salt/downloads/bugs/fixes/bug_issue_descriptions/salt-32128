@@ -1,0 +1,83 @@
+### Description of Issue/Question
+
+There is no infra support for clearing/updating file_list caches
+### Setup
+1. Salt 2015.8.7 on master and minions.
+2. Two chained states where the first one runs a script (bash, etc.) to download some content to the Salt master (from some source, e.g. AWS S3), and the second one immediately tries to push that content to minions.
+### Steps to Reproduce Issue
+
+So here is a common scenario we have in our environment, in a multi-step orchestration chain:
+1. A set of files are downloaded from a given source into the Salt master, where they are prepped.
+2. We then push out the files to the target minions. [This is the step where problem happen]
+3. Some secondary setup actions happen with the copied files on the minions to complete the process.
+
+Up until recently, we were on Salt 2014.7.4, and things worked fine, and then we upgraded to 2015.8.7 and the following issue surfaced:
+- From time to time, the 'file.recurse' operation for step #2 of our orchestration will fail with "Recurse failed: none of the specified sources were found".
+
+This was in spite of the fact that we had verified that dependent state in step #1 had completed before #2 was invoked. Further investigation and debugging of the Python code revealed the following to us:
+
+Eventually during the process of doing a 'file.recurse', method 'check_file_list_cache' in salt/fileserver/__ init __.py gets invoked, and checks the freshness of the file_list cache. It will try to read 'fileserver_list_cache_time' from the config file, and if not present, defaults to 30 seconds (our case - our old config file didn't have this setting and I believe it's fairly new).
+
+This means, any file_list cache younger than 30 seconds is considered good. However, if the combined time in steps #1 and #2 is less than 30 seconds, when we try to push the files from the master to the minions it will fail, since it won't find the new content in the supposedly "young" cache!!!
+
+I tried working around this issue by calling "salt-run fileserver.update" and "salt-run fileserver.clear_cache", but that was of no use because:
+1. Update method in ROOTS FS updates a different cache, and not the file_list cache.
+2. Clear_cache method is not even implemented for ROOTS FS.
+
+At the same time, setting 'fileserver_list_cache_time' to a really low value is not wise, because it will force all file management scenarios across the board to bypass the caching mechanism, while we only need it for this particular scenario.
+
+Possible solutions could be:
+1. Implement a "clear_cache" for ROOTS FS, and make sure to include the file_list cache as well.
+2. Change the implementation of "update" for ROOTS FS to also include file_list cache.
+3. Add some retry logic in the file management pipeline that if something like 'file.recurse' failed due to "resource not found", it will try to refresh the file_list cache once to try to find it before completely bailing out.
+4. Adding a new flag to the file module, that would allow the caller of the state to indicate "this operation needs a cache refresh", eg:
+
+```
+/var/conf/copied_conf:
+    file.recurse:
+        - tgt: my_minion
+        - source: salt://my_salt_root/master_conf
+        - refresh_cache: True
+
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-62-generic
+         system: Ubuntu 14.04 trusty
+
+```

@@ -1,0 +1,134 @@
+### Description of Issue/Question
+
+- Hi, when requesting a VM via salt-cloud, on my openstack provider, I get : 
+```bash
+/usr/bin/salt-cloud --profile=my-salt-cloud-profile my-vm-name
+...
+Error: There was a profile error: There are no more floating IP addresses available, please create some more
+```
+
+- But, if I bypass this exception (with `ssh_interface: private_ips` in my profile) I can see the public IPv4 in `'public_ips'` : 
+
+```bash
+/usr/bin/salt-cloud -l debug --profile=my-salt-cloud-profile my-vm-name
+...
+[DEBUG   ] Loaded node data for my-vm-name:
+{'_uuid': None,
+ 'created_at': datetime.datetime(2017, 7, 19, 15, 14, 10, tzinfo=<libcloud.utils.iso8601.Utc object at 0x7ff9bf44e410>),
+ 'extra': {'access_ip': u'',
+           'access_ipv6': u'',
+           'addresses': {'Ext-Net': [{'OS-EXT-IPS-MAC:mac_addr': 'MAC:address:of:IP:v4',
+                                      'OS-EXT-IPS:type': 'fixed',
+                                      'addr': 'public::NOT::mounted::IP::v6',
+                                      'version': 6},
+                                     {'OS-EXT-IPS-MAC:mac_addr': 'MAC:address:of:IP:v4',
+                                      'OS-EXT-IPS:type': 'fixed',
+                                      'addr': 'public.IP.v4.I.want',
+                                      'version': 4}]},
+           'availability_zone': 'nova',
+           'config_drive': u'',
+           'created': '2017-07-19T15:14:10Z',
+           'disk_config': 'MANUAL',
+           'fault': None,
+           'flavorId': 'the-flavor-id',
+           'hostId': 'theHostId',
+           'imageId': 'the-image-id',
+           'key_name': 'mykeyname',
+           'metadata': {'profile': 'my-salt-cloud-profile'},
+           'password': None,
+           'power_state': 1,
+           'progress': 0,
+           'service_name': 'nova',
+           'task_state': None,
+           'tenantId': 'theTeantId',
+           'updated': '2017-07-19T15:14:58Z',
+           'uri': 'https://my-openstack-provider/v2/theTeantId/servers/the-vm-openstack-id',
+           'userId': 'myUserId',
+           'vm_state': 'active',
+           'volumes_attached': []},
+ 'id': 'the-vm-openstack-id',
+ 'image': None,
+ 'name': 'my-vm-name',
+ 'private_ips': ['public::NOT::mounted::IP::v6'],
+ 'public_ips': ['public.IP.v4.I.want'],
+ 'size': None,
+ 'state': 'running'}
+[DEBUG   ] result = ['public::NOT::mounted::IP::v6']
+[DEBUG   ] VM is now running
+[DEBUG   ] Using IP address False
+[INFO    ] Salt interface set to: False
+Error: There was a profile error: A valid IP address was not found
+```
+- => in my 1st run (with**out** `ssh_interface: private_ips`), salt-cloud should choose _"public.IP.v4.I.want"_ from `node['public_ips']`.
+- => in  [/salt/cloud/clouds/openstack.py](https://github.com/saltstack/salt/blob/develop/salt/cloud/clouds/openstack.py) : 
+  - `_assign_floating_ips()` should not raise `SaltCloudSystemExit()` just yet ?
+  - Instead, it should let `_query_node_data()` a chance to get the IP from `node['public_ips']` dont you think ?
+
+- I _"dirty patched"_ it  (with**out** `ssh_interface: private_ips`)  in [/salt/cloud/clouds/openstack.py](https://github.com/saltstack/salt/blob/develop/salt/cloud/clouds/openstack.py) by replacing : 
+```python
+                    try:
+                        floating.append(pool.create_floating_ip())
+                    except Exception as e:
+                        raise SaltCloudSystemExit(
+                            'There are no more floating IP addresses '
+                            'available, please create some more'
+                        )
+```
+with : 
+```python
+                    try:
+                        floating.append(pool.create_floating_ip())
+                    except Exception as e:
+                        logging.warning(
+                            'There are no more floating IP addresses '
+                            'available, please create some more if necessary'
+                        )
+```
+
+### Versions Report
+```bash
+/usr/bin/salt-cloud --versions-report
+Salt Version:
+            Salt: 2017.7.0
+
+Dependency Versions:
+ Apache Libcloud: 1.5.0
+            cffi: 1.7.0
+        cherrypy: Not Installed
+        dateutil: 2.2
+       docker-py: 1.9.0
+           gitdb: 0.5.4
+       gitpython: 0.3.2 RC1
+           ioflo: Not Installed
+          Jinja2: 2.9.4
+         libgit2: 0.21.0
+         libnacl: Not Installed
+        M2Crypto: Not Installed
+            Mako: Not Installed
+    msgpack-pure: Not Installed
+  msgpack-python: 0.4.2
+    mysql-python: 1.2.3
+       pycparser: 2.14
+        pycrypto: 2.6.1
+    pycryptodome: Not Installed
+          pygit2: 0.21.4
+          Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+    python-gnupg: Not Installed
+          PyYAML: 3.11
+           PyZMQ: 14.4.0
+            RAET: Not Installed
+           smmap: 0.8.2
+         timelib: Not Installed
+         Tornado: 4.2.1
+             ZMQ: 4.0.5
+
+System Versions:
+            dist: debian 8.8
+          locale: UTF-8
+         machine: x86_64
+         release: 3.16.0-4-amd64
+          system: Linux
+         version: debian 8.8
+```
+
+Thanks

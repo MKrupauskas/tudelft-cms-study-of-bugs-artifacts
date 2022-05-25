@@ -1,0 +1,71 @@
+### Description of Issue
+
+Authentication error occurred when using salt-cli on multi-master if masters share cache dir. 
+
+I have 2 salt-masters which are multi-master (active-active). Recently i updated my salt-master's version from `2017.7.8` to `2019.2.0`.
+Everything worked fine, but the salt command run from the command line causes an authentication error on the master that was started first.
+
+Then I found this [commit](https://github.com/saltstack/salt/commit/dc910550596e6bf90c09d565eea27e013bbcc8cf). This commit change the directory where authentication key for local communication located. `key_dir` -> `cache_dir`. The authentication key is generated when salt restarted and is used to authenticate when the local user publishes the job.
+
+Because my salt-masters share cache dir(using nfs) to share the gitfs filesystem backend, so the location of authentication key will be same and shared between masters.
+since the late started master deletes the existing key`/var/cache/salt/master/.root_key`, the first started master loses the key, causing an authentication error.
+
+is there any workaround to avoid authentication error in this situation?
+can i seperate cache dir and key dir as in `2017.7.8`? 
+or is it possible the master load an existing key rather than generate one each time it is restarted(this maybe not good for security)?
+or sharing cache dir is not recommended usage for multi master?
+
+
+### Setup
+1. install and run multi master
+   - share cache dir with nfs
+2. connect minions to multi master
+
+
+### Steps to Reproduce Issue
+1. run command on shell `sudo salt 'minion1' test.ping`
+2. `Authentication error occurred.` is occured only the master started first, the late started master works fine
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2019.2.0-53-g67a5b39
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.0
+      docker-py: Not Installed
+          gitdb: 2.0.0
+      gitpython: 2.1.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Dec 28 2016, 15:44:14)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 18.0.1
+           RAET: Not Installed
+          smmap: 2.0.1
+        timelib: Not Installed
+        Tornado: 5.1.1
+            ZMQ: 4.3.1
+
+System Versions:
+           dist: centos 6.7 Final
+         locale: UTF-8
+        machine: x86_64
+        release: 2.6.32-696.3.2.el6.x86_64
+         system: Linux
+        version: CentOS 6.7 Final
+```

@@ -1,0 +1,201 @@
+**Description**
+Master running 2019.2.4 or 3000.2 unable to synchronize files using saltutil.sync_all to 2017.7.1 minion due to CVE fix.
+
+**Setup**
+Master version (from Centos 7 py2 package):
+```
+# salt-master --version
+/usr/lib/python2.7/site-packages/salt/scripts.py:109: DeprecationWarning: Python 2.7 will reach the end of its life on January 1st, 2020. Please upgrade your Python as Python 2.7 won't be maintained after that date.  Salt will drop support for Python 2.7 in the Sodium release or later.
+salt-master 3000.2
+```
+Master config
+```
+fileserver_backend:
+  - roots
+
+file_roots:
+  base:
+    - /srv/salt
+
+pillar_roots:
+  base:
+    - /srv/pillar
+```
+
+Minion version (from Centos 7 public repos):
+```
+# salt-minion --version
+salt-minion 2017.7.1 (Nitrogen)
+```
+
+Minion config:
+```
+log_level: debug
+
+grains:
+  node-ip: 192.168.1.13
+log_level_logfile: debug
+master:
+- 192.168.1.9
+```
+
+**Steps to Reproduce the behavior**
+
+Setup a minion with 2017.7.1 communicating with a master running 2019.2.4 or 3000.2 with the recent CVE vulnerability fixes. Accept the key on the master and then issue a "saltutil.sync_all":
+```
+[root@t149-dut1 ~]# salt-key -A
+The following keys are going to be accepted:
+Unaccepted Keys:
+t149-dut2.openstacklocal
+[root@t149-dut1 ~]# salt-key -L
+Accepted Keys:
+t149-dut2.openstacklocal
+Denied Keys:
+Unaccepted Keys:
+Rejected Keys:
+[root@t149-dut1 ~]# salt * saltutil.sync_all
+No minions matched the target. No command was sent, no jid was assigned.
+ERROR: No return received
+[root@t149-dut1 ~]# salt "*" saltutil.sync_all
+t149-dut2.openstacklocal:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.7/site-packages/salt/minion.py", line 1468, in _thread_return
+        return_data = executor.execute()
+      File "/usr/lib/python2.7/site-packages/salt/executors/direct_call.py", line 28, in execute
+        return self.func(*self.args, **self.kwargs)
+      File "/usr/lib/python2.7/site-packages/salt/modules/saltutil.py", line 850, in sync_all
+        ret['clouds'] = sync_clouds(saltenv, False, extmod_whitelist, extmod_blacklist)
+      File "/usr/lib/python2.7/site-packages/salt/modules/saltutil.py", line 652, in sync_clouds
+        ret = _sync('clouds', saltenv, extmod_whitelist, extmod_blacklist)
+      File "/usr/lib/python2.7/site-packages/salt/modules/saltutil.py", line 99, in _sync
+        saltenv = _get_top_file_envs()
+      File "/usr/lib/python2.7/site-packages/salt/modules/saltutil.py", line 81, in _get_top_file_envs
+        top = st_.get_top()
+      File "/usr/lib/python2.7/site-packages/salt/state.py", line 3089, in get_top
+        tops = self.get_tops()
+      File "/usr/lib/python2.7/site-packages/salt/state.py", line 2787, in get_tops
+        saltenv
+      File "/usr/lib/python2.7/site-packages/salt/fileclient.py", line 189, in cache_file
+        return self.get_url(path, '', True, saltenv, cachedir=cachedir)
+      File "/usr/lib/python2.7/site-packages/salt/fileclient.py", line 495, in get_url
+        result = self.get_file(url, dest, makedirs, saltenv, cachedir=cachedir)
+      File "/usr/lib/python2.7/site-packages/salt/fileclient.py", line 1044, in get_file
+        hash_server, stat_server = self.hash_and_stat_file(path, saltenv)
+    ValueError: need more than 0 values to unpack
+```
+
+Master logs inidicated the issue:
+```
+2020-04-30 19:51:58,435 [salt.master      :1167][ERROR   ][14140] Requested method not exposed: _file_hash_and_stat
+2020-04-30 19:51:58,455 [salt.master      :1611][ERROR   ][14139] Received minion error from [t149-dut2.openstacklocal]: The minion function caused an exception
+```
+
+**Expected behavior**
+The file synchronization mechanism should be able to work for masters communicating with older minions.
+
+**Screenshots**
+n/a
+
+**Versions Report**
+```
+[root@t149-dut1 ~]# salt --versions-report
+Salt Version:
+           Salt: 3000.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Apr  9 2019, 14:30:50)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 15.3.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.3.1611 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-514.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+ 
+
+```
+
+```
+[root@t149-dut2 ~]# salt-minion --versions-report
+Salt Version:
+           Salt: 2017.7.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.3.1611 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-514.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```
+</details>
+
+**Additional context**
+After discussing on Slack Dwoz suggested the following patch which was able to resolve this for us when patched locally:
+```
+--- /usr/lib/python2.7/site-packages/salt/master.py.orig	2020-04-30 19:54:08.260953710 +0000
++++ /usr/lib/python2.7/site-packages/salt/master.py	2020-04-30 19:54:55.954067419 +0000
+@@ -1181,6 +1181,7 @@
+         'minion_publish', 'revoke_auth', 'run_func', '_serve_file',
+         '_file_find', '_file_hash', '_file_find_and_stat', '_file_list',
+         '_file_list_emptydirs', '_dir_list', '_symlink_list', '_file_envs',
++        '_file_hash_and_stat',
+     )
+ 
+     def __init__(self, opts):
+```

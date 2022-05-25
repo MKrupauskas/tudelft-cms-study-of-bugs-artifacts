@@ -1,0 +1,94 @@
+I've been using Salt to provision a basic dev vm with vagrant and virtualbox.
+
+Host:
+
+```
+AJs-MacBook-Air:~ AJ$ sw_vers
+ProductName:    Mac OS X
+ProductVersion: 10.8.5
+BuildVersion:   12F45
+
+AJs-MacBook-Air:~ AJ$ uname -a
+Darwin AJs-MacBook-Air.local 12.5.0 Darwin Kernel Version 12.5.0: Sun Sep 29 13:33:47 PDT 2013; root:xnu-2050.48.12~1/RELEASE_X86_64 x86_64
+```
+
+Guest: https://cloud-images.ubuntu.com/vagrant/precise/20131014/precise-server-cloudimg-amd64-vagrant-disk1.box
+
+```
+vagrant@dev-vm:~$ lsb_release -a
+No LSB modules are available.
+Distributor ID: Ubuntu
+Description:    Ubuntu 12.04.3 LTS
+Release:    12.04
+Codename:   precise
+
+vagrant@dev-vm:~$ uname -a
+Linux dev-vm 3.2.0-54-generic #82-Ubuntu SMP Tue Sep 10 20:08:42 UTC 2013 x86_64 x86_64 x86_64 GNU/Linux
+```
+
+I am not using salty-vagrant, just a basic shell script to bootstrap the vm with salt and set it up to use github for the fileserver and pillar. The setup for the vm can be found here: https://github.com/ajw0100/dev-vm.git. Basically, bootstrap.sh is used to:
+1. Install a specific version of salt minion and master using salt-bootstrap
+2. Preseed the minion keys
+3. Edit the minion config to look for the master on localhost
+4. Restart the minion
+5. Run state.highstate to install install git, pip, and GitPython and update the master config to use github for the fileserver and pillar
+6. Restart the master
+7. Run state.highstate to apply the state tree from github.
+
+This all works as expected on 0.17.0 which is the version I have forced salt-bootstrap to download.
+
+```
+wget -O - http://bootstrap.saltstack.org | sudo sh -s -- -M -P git v0.17.0
+```
+
+If I change this to install 0.17.1 everything works fine until step 7 which returns the following (with debug enabled):
+
+```
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Missing configuration file: /root/.salt
+[DEBUG   ] loading log_handlers in ['/var/cache/salt/master/extmods/log_handlers', '/usr/lib/python2.7/dist-packages/salt/log/handlers']
+[DEBUG   ] Skipping /var/cache/salt/master/extmods/log_handlers, it is not a directory
+[DEBUG   ] None of the required configuration sections, 'logstash_udp_handler' and 'logstash_zmq_handler', were found the in the configuration. Not loading the Logstash logging handlers module.
+[DEBUG   ] Configuration file path: /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Missing configuration file: /root/.salt
+[DEBUG   ] LocalClientEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] LocalClientEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] loading output in ['/var/cache/salt/master/extmods/output', '/usr/lib/python2.7/dist-packages/salt/output']
+[DEBUG   ] Skipping /var/cache/salt/master/extmods/output, it is not a directory
+[DEBUG   ] Loaded no_out as virtual quiet
+[DEBUG   ] Loaded json_out as virtual json
+[DEBUG   ] Loaded yaml_out as virtual yaml
+[DEBUG   ] Loaded pprint_out as virtual pprint
+dev-vm:
+----------
+    State: - no
+    Name:      states
+    Function:  None
+        Result:    False
+        Comment:   No Top file or external nodes data matches found
+        Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+```
+
+If I vagrant ssh into the machine and run salt -l debug '*' state.highstate again I get the same result. Eventually, if I give it some time (like a minute or two) and run it a few more times it finally finds the remote top.sls. There doesn't seem to be any real consistency in how long it takes and it always takes way longer than the 15 seconds of sleep time that is more than enough on 0.17.0.
+
+```
+vagrant@dev-vm:~$ salt --versions-report
+           Salt: 0.17.1
+         Python: 2.7.3 (default, Sep 26 2013, 20:03:06)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```

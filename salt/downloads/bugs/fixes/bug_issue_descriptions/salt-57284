@@ -1,0 +1,96 @@
+**Description**
+The minion when an improper or invalid hostname is put into the master set of the minion will cause a minion to spin wildly and log a traceback at an incredibly fast speed. This also pins the CPU at 100% as the minion is in a tight loop trying to connect. This can cause the minion to also fill the drive with logs in a very fast manner. Which if not caught can bring down a minion with a full drive in a short time.
+
+**Setup**
+
+Normal minion trying to connect to an invalid master setup.
+ 
+only minion config needed to be set to cause the spinning. 
+```
+master:
+  - this is not a valid master
+```
+
+**Steps to Reproduce the behavior**
+
+Take the above config file, and restart the minion as normal.  Observe the CPU being pegged as the minion attempts to connect and since the 
+
+View the quickly growing minion log that includes. the following Traceback
+
+<details><summary>Traceback generated 100s times a second</summary>
+
+```
+2020-05-14 10:01:43,091 [salt.minion      :1060][CRITICAL][17591] Unexpected error while connecting to this is not a valid master
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 1037, in _connect_minion
+    yield minion.connect_master(failed=failed)
+  File "/usr/lib/python2.7/site-packages/salt/ext/tornado/gen.py", line 1056, in run
+    value = future.result()
+  File "/usr/lib/python2.7/site-packages/salt/ext/tornado/concurrent.py", line 239, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib/python2.7/site-packages/salt/ext/tornado/gen.py", line 1064, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 1235, in connect_master
+    master, self.pub_channel = yield self.eval_master(self.opts, self.timeout, self.safe, failed)
+  File "/usr/lib/python2.7/site-packages/salt/ext/tornado/gen.py", line 1056, in run
+    value = future.result()
+  File "/usr/lib/python2.7/site-packages/salt/ext/tornado/concurrent.py", line 239, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib/python2.7/site-packages/salt/ext/tornado/gen.py", line 309, in wrapper
+    yielded = next(result)
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 739, in eval_master
+    opts.update(prep_ip_port(opts))
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 256, in prep_ip_port
+    host, port = parse_host_port(opts['master'])
+  File "/usr/lib/python2.7/site-packages/salt/utils/network.py", line 1958, in parse_host_port
+    raise ValueError('bad hostname: "{}"'.format(host))
+ValueError: bad hostname: "this is not a valid master"
+```
+</details>
+
+**Expected behavior**
+The minion, if finding an invalid config should, esp one such as above that can cause massive tight loops, log the error once, normally, and then the minion stops running. 
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+```
+[root@salt00 salt]# salt-call --versions-report
+Salt Version:
+           Salt: 3000.2
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: 5.6.0
+       dateutil: 2.8.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10.1
+        libgit2: 0.26.3
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, Apr  2 2020, 13:16:51)
+   python-gnupg: 0.4.3
+         PyYAML: 3.13
+          PyZMQ: 15.3.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.8.2003 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1127.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.8.2003 Core
+```
+</details>

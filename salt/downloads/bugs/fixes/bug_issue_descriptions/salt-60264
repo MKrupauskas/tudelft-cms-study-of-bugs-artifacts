@@ -1,0 +1,132 @@
+It appears that mysql_user.present does not handle password_hash correctly, at least in MySQL 8.0.25.
+
+The user is created/updated to use the hashed password supplied to salt as the actual password. Ie. if I supply salt with password_hash: *2470C0C06DEE42FD1618BB99005ADCA2EC9D1E19 then I can login to the mysql server using that as the actual password.
+
+I *think* the problem could be the way salt builds the actual sql command. If I run the following sql, the problem is fixed and the user can login with the expected password:
+`ALTER USER 'testuser'@'%' IDENTIFIED WITH mysql_native_password AS '*2470C0C06DEE42FD1618BB99005ADCA2EC9D1E19';`
+
+If I read the source code correctly, salt will try to use this command to update the user: `ALTER USER %(user)s@%(host)s IDENTIFIED BY %(password)s;` which would indeed set the password to the hash itself.
+
+Once the user is fixed with the first command, salt also no longer will try to update the password on every run. So it seems the method to check whether the password is set correctly IS working, but the password update method isn't.
+
+**Setup**
+Pillar data looks like this:
+```yaml
+mysqlusers:
+  testuser:
+    password: *2470C0C06DEE42FD1618BB99005ADCA2EC9D1E19
+    hosts:
+      - '%'
+```
+
+And the state file like this:
+```yaml
+{% for user, args in pillar.get('mysqlusers', {}).items() %}
+{% for host in args.hosts %}
+{{user}}_{{host}}_present:
+  mysql_user.present:
+    - name: {{user}}
+    - host: {{host}}
+    - password_hash: '{{args.password}}'
+{% endfor %}
+{% endfor %}
+```
+
+**Steps to Reproduce the behavior**
+Create a password hash using this command on MySQL8: `SELECT CONCAT('*', UPPER(SHA1(UNHEX(SHA1('password')))));` and use this in the password_hash setting of the state.
+
+Now attempt to login using "password" as the password, it should fail. Then try using "*2470C0C06DEE42FD1618BB99005ADCA2EC9D1E19" as the password, which should succeed.
+
+**Expected behavior**
+The user on mysql should be able to login to the server using the password, not the hash of the password.
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Master:
+`Salt Version:
+Salt: 3000.9
+
+Dependency Versions:
+cffi: 1.5.2
+cherrypy: unknown
+dateutil: 2.4.2
+docker-py: Not Installed
+gitdb: 0.6.4
+gitpython: 1.0.1
+Jinja2: 2.8
+libgit2: 0.24.0
+M2Crypto: Not Installed
+Mako: 1.0.3
+msgpack-pure: Not Installed
+msgpack-python: 0.6.2
+mysql-python: Not Installed
+pycparser: 2.14
+pycrypto: 2.6.1
+pycryptodome: Not Installed
+pygit2: 0.24.0
+Python: 2.7.12 (default, Mar  1 2021, 11:38:31)
+python-gnupg: 0.3.8
+PyYAML: 3.11
+PyZMQ: 15.2.0
+smmap: 0.9.0
+timelib: Not Installed
+Tornado: 4.5.3
+ZMQ: 4.1.4
+
+System Versions:
+dist: Ubuntu 16.04 xenial
+locale: UTF-8
+machine: x86_64
+release: 4.4.0-187-generic
+system: Linux
+version: Ubuntu 16.04 xenial`
+
+Minion:
+Salt Version:
+Salt: 3003
+
+Dependency Versions:
+cffi: Not Installed
+cherrypy: Not Installed
+dateutil: 2.7.3
+docker-py: Not Installed
+gitdb: Not Installed
+gitpython: Not Installed
+Jinja2: 2.10.1
+libgit2: Not Installed
+M2Crypto: Not Installed
+Mako: Not Installed
+msgpack: 0.6.2
+msgpack-pure: Not Installed
+mysql-python: 1.4.4
+pycparser: Not Installed
+pycrypto: Not Installed
+pycryptodome: 3.6.1
+pygit2: Not Installed
+Python: 3.8.5 (default, Jan 27 2021, 15:41:15)
+python-gnupg: 0.4.5
+PyYAML: 5.3.1
+PyZMQ: 18.1.1
+smmap: Not Installed
+timelib: Not Installed
+Tornado: 4.5.3
+ZMQ: 4.3.2
+
+System Versions:
+dist: ubuntu 20.04 focal
+locale: utf-8
+machine: x86_64
+release: 5.4.0-72-generic
+system: Linux
+version: Ubuntu 20.04 focal`
+```
+</details>
+
+**Additional context**
+Add any other context about the problem here.

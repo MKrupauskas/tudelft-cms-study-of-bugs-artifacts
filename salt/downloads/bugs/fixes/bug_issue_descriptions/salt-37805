@@ -1,0 +1,188 @@
+### Description of Issue/Question
+mysql_grants.present fails to manage separate user grants, see below:
+
+### Setup
+/srv/salt/mysqluser/init.sls:
+```
+mysql_user_monitoring_creds:
+  mysql_user.present:
+    - name: monitoring
+    - password: mon_pass
+    - host: "localhost"
+    - connection_user: root
+    - connection_pass: root_pass
+
+mysql_user_monitoring_creds_grant_repl_grants:
+  mysql_grants.present:
+    - grant: REPLICATION CLIENT
+    - database: "*.*"
+    - user: monitoring
+    - host: "localhost"
+    - connection_user: root
+    - connection_pass: root_pass
+    - require:
+      - mysql_user: mysql_user_monitoring_creds
+
+mysql_user_monitoring_creds_grant_proc_grants:
+  mysql_grants.present:
+    - grant: PROCESS
+    - database: "*.*"
+    - user: monitoring
+    - host: "localhost"
+    - connection_user: root
+    - connection_pass: root_pass
+    - require:
+      - mysql_user: mysql_user_monitoring_creds
+```
+
+### Steps to Reproduce Issue
+mysql user `root` with password `root_pass`
+create file: `/srv/salt/mysqluser/init.sls`
+run: `salt-call --local state.sls mysqluser -l debug`
+
+### Errors:
+```
+local:
+----------
+          ID: mysql_user_monitoring_creds
+    Function: mysql_user.present
+        Name: monitoring
+      Result: True
+     Comment: User monitoring@localhost is already present with the desired password
+     Started: 15:16:33.230301
+    Duration: 5.177 ms
+     Changes:   
+----------
+          ID: mysql_user_monitoring_creds_grant_repl_grants
+    Function: mysql_grants.present
+      Result: False
+     Comment: Failed to execute: "GRANT REPLICATION CLIENT ON *.* TO monitoring@localhost"
+     Started: 15:16:33.236197
+    Duration: 48.951 ms
+     Changes:   
+----------
+          ID: mysql_user_monitoring_creds_grant_proc_grants
+    Function: mysql_grants.present
+      Result: False
+     Comment: Failed to execute: "GRANT PROCESS ON *.* TO monitoring@localhost"
+     Started: 15:16:33.285400
+    Duration: 20.736 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    2
+------------
+Total states run:     3
+Total run time:  74.864 ms
+```
+
+### Debug
+```
+[INFO    ] Running state [mysql_user_monitoring_creds_grant_repl_grants] at time 15:16:33.236197
+[INFO    ] Executing state mysql_grants.present for mysql_user_monitoring_creds_grant_repl_grants
+[DEBUG   ] Grant Query generated: GRANT REPLICATION CLIENT ON *.* TO %(user)s@%(host)s args {'host': 'localhost', 'user': 'monitoring'}
+[DEBUG   ] Doing query: SELECT column_name from information_schema.COLUMNS WHERE table_schema=%(schema)s and table_name=%(table)s and column_name=%(column)s args: {'column': 'Password', 'table': 'user', 'schema': 'mysql'} 
+[DEBUG   ] Doing query: SELECT User,Host FROM mysql.user WHERE User = %(user)s AND Host = %(host)s args: {'host': 'localhost', 'user': 'monitoring'} 
+[DEBUG   ] Doing query: SHOW GRANTS FOR %(user)s@%(host)s args: {'host': 'localhost', 'user': 'monitoring'} 
+[DEBUG   ] ["GRANT PROCESS, REPLICATION CLIENT ON *.* TO 'monitoring'@'localhost'"]
+[DEBUG   ] _grant_to_tokens entry '{'qry': 'GRANT REPLICATION CLIENT ON *.* TO %(user)s@%(host)s', 'args': {'host': 'localhost', 'user': 'monitoring'}}'
+[DEBUG   ] grant to token 'monitoring'::'localhost'::'['REPLICATION CLIENT']'::'*.*'
+[DEBUG   ] _grant_to_tokens entry 'GRANT PROCESS, REPLICATION CLIENT ON *.* TO 'monitoring'@'localhost''
+[DEBUG   ] grant to token 'monitoring'::'localhost'::'['PROCESS', 'REPLICATION CLIENT']'::'*.*'
+[DEBUG   ] grants mismatch '{'host': 'localhost', 'database': '*.*', 'user': 'monitoring', 'grant': ['PROCESS', 'REPLICATION CLIENT']}'<>'{'host': 'localhost', 'database': '*.*', 'user': 'monitoring', 'grant': ['REPLICATION CLIENT']}'
+[DEBUG   ] Grant does not exist, or is perhaps not ordered properly?
+[DEBUG   ] LazyLoaded test.ping
+[DEBUG   ] Grant Query generated: GRANT REPLICATION CLIENT ON *.* TO %(user)s@%(host)s args {'host': 'localhost', 'user': 'monitoring'}
+[DEBUG   ] Doing query: GRANT REPLICATION CLIENT ON *.* TO %(user)s@%(host)s args: {'host': 'localhost', 'user': 'monitoring'} 
+[DEBUG   ] Grant Query generated: GRANT REPLICATION CLIENT ON *.* TO %(user)s@%(host)s args {'host': 'localhost', 'user': 'monitoring'}
+[DEBUG   ] Doing query: SELECT column_name from information_schema.COLUMNS WHERE table_schema=%(schema)s and table_name=%(table)s and column_name=%(column)s args: {'column': 'Password', 'table': 'user', 'schema': 'mysql'} 
+[DEBUG   ] Doing query: SELECT User,Host FROM mysql.user WHERE User = %(user)s AND Host = %(host)s args: {'host': 'localhost', 'user': 'monitoring'} 
+[DEBUG   ] Doing query: SHOW GRANTS FOR %(user)s@%(host)s args: {'host': 'localhost', 'user': 'monitoring'} 
+[DEBUG   ] ["GRANT PROCESS, REPLICATION CLIENT ON *.* TO 'monitoring'@'localhost'"]
+[DEBUG   ] _grant_to_tokens entry '{'qry': 'GRANT REPLICATION CLIENT ON *.* TO %(user)s@%(host)s', 'args': {'host': 'localhost', 'user': 'monitoring'}}'
+[DEBUG   ] grant to token 'monitoring'::'localhost'::'['REPLICATION CLIENT']'::'*.*'
+[DEBUG   ] _grant_to_tokens entry 'GRANT PROCESS, REPLICATION CLIENT ON *.* TO 'monitoring'@'localhost''
+[DEBUG   ] grant to token 'monitoring'::'localhost'::'['PROCESS', 'REPLICATION CLIENT']'::'*.*'
+[DEBUG   ] grants mismatch '{'host': 'localhost', 'database': '*.*', 'user': 'monitoring', 'grant': ['PROCESS', 'REPLICATION CLIENT']}'<>'{'host': 'localhost', 'database': '*.*', 'user': 'monitoring', 'grant': ['REPLICATION CLIENT']}'
+[DEBUG   ] Grant does not exist, or is perhaps not ordered properly?
+[INFO    ] Grant 'REPLICATION CLIENT' on '*.*' for user 'monitoring' has NOT been added
+[ERROR   ] Failed to execute: "GRANT REPLICATION CLIENT ON *.* TO monitoring@localhost"
+[INFO    ] Completed state [mysql_user_monitoring_creds_grant_repl_grants] at time 15:16:33.285148 duration_in_ms=48.951
+[INFO    ] Running state [mysql_user_monitoring_creds_grant_proc_grants] at time 15:16:33.285400
+[INFO    ] Executing state mysql_grants.present for mysql_user_monitoring_creds_grant_proc_grants
+[DEBUG   ] Grant Query generated: GRANT PROCESS ON *.* TO %(user)s@%(host)s args {'host': 'localhost', 'user': 'monitoring'}
+[DEBUG   ] Doing query: SELECT column_name from information_schema.COLUMNS WHERE table_schema=%(schema)s and table_name=%(table)s and column_name=%(column)s args: {'column': 'Password', 'table': 'user', 'schema': 'mysql'} 
+[DEBUG   ] Doing query: SELECT User,Host FROM mysql.user WHERE User = %(user)s AND Host = %(host)s args: {'host': 'localhost', 'user': 'monitoring'} 
+[DEBUG   ] Doing query: SHOW GRANTS FOR %(user)s@%(host)s args: {'host': 'localhost', 'user': 'monitoring'} 
+[DEBUG   ] ["GRANT PROCESS, REPLICATION CLIENT ON *.* TO 'monitoring'@'localhost'"]
+[DEBUG   ] _grant_to_tokens entry '{'qry': 'GRANT PROCESS ON *.* TO %(user)s@%(host)s', 'args': {'host': 'localhost', 'user': 'monitoring'}}'
+[DEBUG   ] grant to token 'monitoring'::'localhost'::'['PROCESS']'::'*.*'
+[DEBUG   ] _grant_to_tokens entry 'GRANT PROCESS, REPLICATION CLIENT ON *.* TO 'monitoring'@'localhost''
+[DEBUG   ] grant to token 'monitoring'::'localhost'::'['PROCESS', 'REPLICATION CLIENT']'::'*.*'
+[DEBUG   ] grants mismatch '{'host': 'localhost', 'database': '*.*', 'user': 'monitoring', 'grant': ['PROCESS', 'REPLICATION CLIENT']}'<>'{'host': 'localhost', 'database': '*.*', 'user': 'monitoring', 'grant': ['PROCESS']}'
+[DEBUG   ] Grant does not exist, or is perhaps not ordered properly?
+[DEBUG   ] Grant Query generated: GRANT PROCESS ON *.* TO %(user)s@%(host)s args {'host': 'localhost', 'user': 'monitoring'}
+[DEBUG   ] Doing query: GRANT PROCESS ON *.* TO %(user)s@%(host)s args: {'host': 'localhost', 'user': 'monitoring'} 
+[DEBUG   ] Grant Query generated: GRANT PROCESS ON *.* TO %(user)s@%(host)s args {'host': 'localhost', 'user': 'monitoring'}
+[DEBUG   ] Doing query: SELECT column_name from information_schema.COLUMNS WHERE table_schema=%(schema)s and table_name=%(table)s and column_name=%(column)s args: {'column': 'Password', 'table': 'user', 'schema': 'mysql'} 
+[DEBUG   ] Doing query: SELECT User,Host FROM mysql.user WHERE User = %(user)s AND Host = %(host)s args: {'host': 'localhost', 'user': 'monitoring'} 
+[DEBUG   ] Doing query: SHOW GRANTS FOR %(user)s@%(host)s args: {'host': 'localhost', 'user': 'monitoring'} 
+[DEBUG   ] ["GRANT PROCESS, REPLICATION CLIENT ON *.* TO 'monitoring'@'localhost'"]
+[DEBUG   ] _grant_to_tokens entry '{'qry': 'GRANT PROCESS ON *.* TO %(user)s@%(host)s', 'args': {'host': 'localhost', 'user': 'monitoring'}}'
+[DEBUG   ] grant to token 'monitoring'::'localhost'::'['PROCESS']'::'*.*'
+[DEBUG   ] _grant_to_tokens entry 'GRANT PROCESS, REPLICATION CLIENT ON *.* TO 'monitoring'@'localhost''
+[DEBUG   ] grant to token 'monitoring'::'localhost'::'['PROCESS', 'REPLICATION CLIENT']'::'*.*'
+[DEBUG   ] grants mismatch '{'host': 'localhost', 'database': '*.*', 'user': 'monitoring', 'grant': ['PROCESS', 'REPLICATION CLIENT']}'<>'{'host': 'localhost', 'database': '*.*', 'user': 'monitoring', 'grant': ['PROCESS']}'
+[DEBUG   ] Grant does not exist, or is perhaps not ordered properly?
+[INFO    ] Grant 'PROCESS' on '*.*' for user 'monitoring' has NOT been added
+[ERROR   ] Failed to execute: "GRANT PROCESS ON *.* TO monitoring@localhost"
+[INFO    ] Completed state [mysql_user_monitoring_creds_grant_proc_grants] at time 15:16:33.306136 duration_in_ms=20.736
+[DEBUG   ] File /var/cache/salt/minion/accumulator/140071231825744 does not exist, no need to cleanup.
+[DEBUG   ] LazyLoaded config.option
+[DEBUG   ] LazyLoaded highstate.output
+```
+
+### Versions Report
+```
+# salt-call --versions-report
+Salt Version:
+           Salt: 2016.3.4
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 4.4.0-34-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```
+

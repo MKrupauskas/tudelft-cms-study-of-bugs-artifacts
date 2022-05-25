@@ -1,0 +1,55 @@
+### Description of Issue/Question
+When upgrading salt-api from 2017.7.0 to 7.1 with rest_cherrypy it does not restart the salt-api processes correct and one of the processes becomes defunct.
+
+### Setup
+/etc/salt/master:
+
+```
+rest_cherrypy:
+  port: 8000
+  disable_ssl: True # Don't do this in production
+  debug: True
+  host: 0.0.0.0
+  webhook_url: /hook
+  webhook_disable_auth: True
+external_auth:
+  pam:
+    saltdev:
+      - .*
+      - '@runner'
+      - '@wheel'
+      - '@jobs'
+```
+
+### Steps to Reproduce Issue
+1. Setup a working 2017.7.0 instance of salt-api
+2. run `ps aux | grep -i salt-api` to check the process ids of the current running process
+
+```
+root      1930  7.6  0.8 309204 31080 ?        S    20:52   0:00 /usr/bin/python2.7 /usr/bin/salt-api -d                                                                                              
+root      1933  9.5  0.9 1890416 35000 ?       Sl   20:52   0:00 /usr/bin/python2.7 /usr/bin/salt-api -d                                                                                              
+root      2038  0.0  0.0 103244   880 pts/0    S+   20:52   0:00 grep -i salt-api  
+```
+
+3. upgrade salt-api `yum install salt-api -y` and restart salt-api service `service salt-api restart`
+4. run curl command and everything works correctly
+5. but when checking the process list again you can see the old processes are still in that list alongside a defunct process.
+
+```
+[root@ip-10-216-237-58 ~]# ps uax | grep -i salt-api                                                                                                                                                  
+root      1930  0.2  0.8 309204 31088 ?        S    20:52   0:00 /usr/bin/python2.7 /usr/bin/salt-api -d                                                                                              
+root      2081  0.2  0.8 309208 31096 ?        S    20:53   0:00 /usr/bin/python2.7 /usr/bin/salt-api -d                                                                                              
+root      2294  0.2  0.8 309208 31088 ?        S    20:53   0:00 /usr/bin/python2.7 /usr/bin/salt-api -d                                                                                              
+root      2403  0.3  0.8 309212 31092 ?        S    20:53   0:00 /usr/bin/python2.7 /usr/bin/salt-api -d                                                                                              
+root      2515  0.1  0.8 309208 31080 ?        S    20:53   0:00 /usr/bin/python2.7 /usr/bin/salt-api -d                                                                                              
+root      2654  0.2  0.8 309208 31092 ?        S    20:53   0:00 /usr/bin/python2.7 /usr/bin/salt-api -d                                                                                              
+root      2802  2.6  0.9 1912448 38144 ?       Sl   20:53   0:04 /usr/bin/python2.7 /usr/bin/salt-api -d                                                                                              
+root      4420  2.4  0.0      0     0 ?        Z    20:56   0:00 [salt-api] <defunct>                                                                                                                 
+root      4429  4.2  0.8 462048 32900 ?        Sl   20:56   0:00 /usr/bin/python2.7 /usr/bin/salt-api -d                                                                                              
+root      4432  6.0  0.8 462052 32896 ?        Sl   20:56   0:00 /usr/bin/python2.7 /usr/bin/salt-api -d  
+```
+
+Note: once I kill all those processes everything works correct and a `service salt-api restart` works fine going forward.
+
+
+This was tested on Centos 6.

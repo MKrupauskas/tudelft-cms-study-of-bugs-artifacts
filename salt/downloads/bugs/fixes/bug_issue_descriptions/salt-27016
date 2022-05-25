@@ -1,0 +1,127 @@
+Hi,
+
+It looks like trying to install rabbitmq and then setting up some plugin/user/vhost/etc. against it inside the same highstate pass will fail miserably, even if 'reload_modules: True' is used.
+
+This is a sample 'sample.sls' file which reproduces the issue using salt 2015.05.03 on CentOS-6.x.
+
+``` yaml
+rabbitmq_plugin_rabbitmq_management:
+  rabbitmq_plugin:
+    - name: rabbitmq_management
+    - enabled
+    - runas: root
+    - require:
+      - pkg: rabbitmq-server
+      - file: rabbitmq-env-link
+      - file: rabbitmq-plugins-link
+      - service: rabbitmq-server
+
+rabbitmq-server:
+  pkg:
+    - latest
+    - reload_modules: True
+  service:
+    - running
+    - enable: True
+    - require:
+      - pkg: rabbitmq-server
+    - watch:
+      - pkg: rabbitmq-server
+
+rabbitmq-env-link:
+  file.symlink:
+    - name: /usr/local/bin/rabbitmq-env
+    - target: /usr/lib/rabbitmq/bin/rabbitmq-env
+    - require:
+      - pkg: rabbitmq-server
+
+rabbitmq-plugins-link:
+  file.symlink:
+    - name: /usr/local/bin/rabbitmq-plugins
+    - target: /usr/lib/rabbitmq/bin/rabbitmq-plugins
+    - require:
+      - pkg: rabbitmq-server
+      - file: rabbitmq-env-link
+```
+
+Running this sls file using "salt-call -l debug state.template sample.sls" against a server _not_ having rabbitmq-server installed, throws the following output/error:
+
+```
+[DEBUG   ] Could not LazyLoad rabbitmq_plugin.enabled
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+KeyError: 'rabbitmq_plugin.enabled'
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.6/site-packages/salt/scripts.py", line 227, in salt_call
+    client.run()
+  File "/usr/lib/python2.6/site-packages/salt/cli/call.py", line 69, in run
+    caller.run()
+  File "/usr/lib/python2.6/site-packages/salt/cli/caller.py", line 236, in run
+    ret = self.call()
+  File "/usr/lib/python2.6/site-packages/salt/cli/caller.py", line 138, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/modules/state.py", line 254, in template
+    ret = st_.state.call_high(high_state)
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 2067, in call_high
+    ret = dict(list(disabled.items()) + list(self.call_chunks(chunks).items()))
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 1623, in call_chunks
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 1769, in call_chunk
+    self._mod_init(low)
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 612, in _mod_init
+    self.states['{0}.{1}'.format(low['state'], low['fun'])]  # pylint: disable=W0106
+  File "/usr/lib/python2.6/site-packages/salt/utils/lazy.py", line 90, in __getitem__
+    raise KeyError(key)
+KeyError: 'rabbitmq_plugin.enabled'
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.6/site-packages/salt/scripts.py", line 227, in salt_call
+    client.run()
+  File "/usr/lib/python2.6/site-packages/salt/cli/call.py", line 69, in run
+    caller.run()
+  File "/usr/lib/python2.6/site-packages/salt/cli/caller.py", line 236, in run
+    ret = self.call()
+  File "/usr/lib/python2.6/site-packages/salt/cli/caller.py", line 138, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/modules/state.py", line 254, in template
+    ret = st_.state.call_high(high_state)
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 2067, in call_high
+    ret = dict(list(disabled.items()) + list(self.call_chunks(chunks).items()))
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 1623, in call_chunks
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 1769, in call_chunk
+    self._mod_init(low)
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 612, in _mod_init
+    self.states['{0}.{1}'.format(low['state'], low['fun'])]  # pylint: disable=W0106
+  File "/usr/lib/python2.6/site-packages/salt/utils/lazy.py", line 90, in __getitem__
+    raise KeyError(key)
+KeyError: 'rabbitmq_plugin.enabled'
+```
+
+However, moving state 'rabbitmq_plugin_rabbitmq_management' to the end of sample.sls, worksaround the issue.. Something weird, as requirements should (IMHO) produce always the same resulting states ordering.
+
+Here are the details from running environment:
+
+```
+[root@herma-test-01 ~]# cat /etc/redhat-release
+CentOS release 6.3 (Final)
+
+[root@herma-test-01 ~]# salt-call --versions-report
+           Salt: 2015.5.3
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+        Tornado: Not Installed
+```

@@ -1,0 +1,97 @@
+Hi !
+### Description of Issue/Question
+
+It seems that since #32865, salt-cloud wait_for_port can't successfully establish a connection to an ipv4-only host.
+
+The following code is run:
+
+```
+while True:
+        trycount += 1
+        try:
+            if socket.inet_pton(socket.AF_INET6, host):
+                sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            else:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(30)
+            sock.connect((test_ssh_host, int(test_ssh_port)))
+            # Stop any remaining reads/writes on the socket
+            sock.shutdown(socket.SHUT_RDWR)
+            # Close it!
+            sock.close()
+            break
+        except socket.error as exc:
+            log.debug('Caught exception in wait_for_port: {0}'.format(exc))
+            time.sleep(1)
+            if time.time() - start > timeout:
+                log.error('Port connection timed out: {0}'.format(timeout))
+                return False
+            if not gateway:
+                log.debug(
+                    'Retrying connection to host {0} on port {1} '
+                    '(try {2})'.format(
+                        test_ssh_host, test_ssh_port, trycount
+                    )
+                )
+            else:
+                log.debug(
+                    'Retrying connection to Gateway {0} on port {1} '
+                    '(try {2})'.format(
+                        test_ssh_host, test_ssh_port, trycount
+                    )
+                )
+
+```
+
+The "except" block assumes that socket.error exception was raised by a timeout, but when connecting to an ipv4 host, "if socket.inet_pton(socket.AF_INET6, host)" also raise a socket.error exception.
+As a result, wait_for_port assumes that the connection timed out, without trying to establish the connection, and deployment is blocked.
+
+I will try to address this issue with a PR.
+### Setup
+
+Standard salt-cloud + openstack setup, talking to an Openstack platform, using SSH and ssh-keys authentication for bootstraping.
+
+This setup works with Salt 2015.8 version.
+### Steps to Reproduce Issue
+
+Run a salt-cloud deployment using SSH as authentication method.
+### Versions Report
+
+> salt --versions-report
+> Salt Version:
+>            Salt: 2016.3.0rc2-2111-gbc8f010
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.2
+
+System Versions:
+           dist: centos 7.0.1406 Core
+        machine: x86_64
+        release: 3.10.0-123.6.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.0.1406 Core

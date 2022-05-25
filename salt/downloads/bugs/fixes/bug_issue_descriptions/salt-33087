@@ -1,0 +1,89 @@
+### Description of Issue/Question
+
+In a state file, if I try to clone a git repo (using `git.latest` state function) passing in a specific tag or commit sha1 I'll get incorrect behavior from the git state module. If a clone is required, it will call `git clone` without any `--branch` option, effectively ignoring the `rev` argument (but taking `depth` into account). This should not be a problem if a full clone is made, but if `depth` is given to `git.latest`, the git clone command will use `--depth`, making a shallow clone of the remote's current HEAD (usually master). After shallow cloning the remote HEAD, `git.latest` tries to checkout the given revision and fails because we only have one completely unrelated commit in our local repo, and our local set of tags may also be incomplete.
+
+I suppose this problem goes back to much earlier versions of salt, and I see it's still not correct in 2016.3. I am willing to submit a fix if this bug report gets accepted, but I have no idea which branch I should fork. Please let me know if you're interested in a fix and I can take care of it.
+(btw, over 1K sloc in a single python function?!?)
+### Setup
+
+SLS file "scratch.sls":
+
+```
+clone_specific_rev:
+  git.latest:
+    - name: https://github.com/saltstack/salt.git
+    - target: /home/vagrant/salt
+    - rev: v2015.8.0
+    - depth: 1
+    - user: vagrant
+```
+### Steps to Reproduce Issue
+
+Output:
+
+```
+root@salt:/home/vagrant# salt-ssh remote state.apply scratch
+remote:
+----------
+          ID: clone_specific_rev
+    Function: git.latest
+        Name: https://github.com/saltstack/salt.git
+      Result: False
+     Comment: Revision 'v2015.8.0' does not exist in clone
+
+              Changes already made: https://github.com/saltstack/salt.git cloned to /home/vagrant/salt
+     Started: 10:14:01.263587
+    Duration: 73181.84 ms
+     Changes:   
+              ----------
+              new:
+                  https://github.com/saltstack/salt.git => /home/vagrant/salt
+
+Summary for remote
+------------
+Succeeded: 0 (changed=1)
+Failed:    1
+------------
+Total states run:     1
+```
+### Versions Report
+
+```
+root@salt:/home/vagrant# salt-ssh --versions-report
+Salt Version:
+           Salt: 2015.8.0-n/a-f97b5d5
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-85-generic
+         system: Ubuntu 14.04 trusty
+```

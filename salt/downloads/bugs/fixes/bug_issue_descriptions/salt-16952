@@ -1,0 +1,115 @@
+os: ubuntu14.04 amd64
+salt: 2014.1.11+ds-2trusty1  (use ppa sources)
+
+and i meet a problem now
+
+when a new machine power-on and it starts salt-minion. and here i match the event with reactor beblow:
+
+root@salt-master:~# cat /etc/salt/master
+
+<pre>
+...
+reactor:
+  - 'salt/minion/*/start':
+    - /srv/reactor/minion_start.sls
+...
+</pre>
+
+
+and the `minion_start.sls` is:
+
+root@salt-master:~# cat /srv/reactor/minion_start.sls 
+
+<pre>
+sync_returner:
+  cmd.saltutil.sync_returners:
+    - tgt: {{data['id']}}
+
+minion_start_reactor:
+  cmd.state.sls:
+    - tgt: {{data['id']}}
+    - arg:
+      - get_base_info
+</pre>
+
+
+it doesn't matter the two files, but not all machine are succssful cached the file in their own `/var/cache/salt/minion/files/base`.
+
+root@ironman2:/srv/salt# salt '*' cmd.run 'ls /var/cache/salt/minion/files/base'                                                                                                                                                   
+
+<pre>
+controller.datayes.com:
+    get_base_info.sls
+    get_base_info.slsc
+compute2.datayes.com:
+    _returners
+    get_base_info.sls
+    get_base_info.slsc
+compute1.datayes.com:
+    _returners
+</pre>
+
+it appear like above, `compute`only cached _returners, and `controller` only cached get_base_info.sls, while `compute2` cached all.
+
+and the `compute1`'s /var/log/salt/minion meets an error
+
+<pre>
+    2014-10-29 03:43:03,816 [salt.minion      ][WARNING ] The minion function caused an exception
+    Traceback (most recent call last):
+      File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 809, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/state.py", line 381, in sls
+        high_, errors = st_.render_highstate({saltenv: mods})
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2405, in render_highstate
+        sls, saltenv, mods, matches)
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2104, in render_state
+        state_data = self.client.get_state(sls, saltenv)
+      File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 413, in get_state
+        dest = self.cache_file(path, saltenv)
+      File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 143, in cache_file
+        return self.get_url(path, '', True, saltenv)
+      File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 503, in get_url
+        return self.get_file(url, dest, makedirs, saltenv)
+      File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 872, in get_file
+        with self._cache_loc(rel_path, saltenv) as cache_dest:
+      File "/usr/lib/python2.7/contextlib.py", line 17, in __enter__
+        return self.gen.next()
+      File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 105, in _cache_loc
+        os.makedirs(destdir)
+      File "/usr/lib/python2.7/os.py", line 157, in makedirs
+        mkdir(name, mode)
+    OSError: [Errno 17] File exists: '/var/cache/salt/minion/files/base'
+</pre>
+
+
+in the code `/usr/lib/python2.7/dist-packages/salt/fileclient.py` line 105.
+
+<pre>
+        if not os.path.isdir(destdir):
+            # remove destdir if it is a regular file to avoid an OSError when
+            # running os.makedirs below
+            if os.path.isfile(destdir):
+                os.remove(destdir)
+            os.makedirs(destdir)
+        yield dest
+</pre>
+
+the code ensure not OSError, but it meets an conflict.
+
+so, i think when i trigger more than one actions in the reactor minion_start.sls, it'll meet a conflict.
+
+etc: even i add a require  in the minion_start.sls,  it's the same as before.
+
+<pre>
+sync_returner:
+  cmd.saltutil.sync_returners:
+    - tgt: {{data['id']}}
+
+minion_start_reactor:
+  cmd.state.sls:
+    - tgt: {{data['id']}}
+    - arg:
+      - get_base_info
+    - require:
+      - cmd: sync_returners
+</pre>

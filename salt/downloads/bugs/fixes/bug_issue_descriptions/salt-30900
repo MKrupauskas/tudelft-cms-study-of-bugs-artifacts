@@ -1,0 +1,39 @@
+In testing virt.init with kvm on 2015.8.3 (Beryllium), I ran into a situation where the kvm host never returned. The minion log showed a constant loop of:
+
+```
+cfdisk: cannot open t: No such file or directory
+2016-02-02 10:07:02,882 [salt.loaded.int.module.cmdmod][INFO    ][20103] Executing command 'qemu-nbd -c /dev/nbd9 /srv/salt-images/web2/system.qcow2' in directory '/root'
+2016-02-02 10:07:02,943 [salt.loaded.int.module.cmdmod][ERROR   ][20103] Command 'qemu-nbd -c /dev/nbd9 /srv/salt-images/web2/system.qcow2' failed with return code: 1
+2016-02-02 10:07:02,944 [salt.loaded.int.module.cmdmod][ERROR   ][20103] output: /build/qemu-5HduZn/qemu-2.3+dfsg/nbd.c:nbd_init():L670: Failed to set NBD socket
+/build/qemu-5HduZn/qemu-2.3+dfsg/nbd.c:nbd_receive_request():L804: read failed
+2016-02-02 10:07:02,944 [salt.loaded.int.module.cmdmod][INFO    ][20103] Executing command 'cfdisk -P t /dev/nbd9' in directory '/root'
+2016-02-02 10:07:02,948 [salt.loaded.int.module.cmdmod][ERROR   ][20103] Command 'cfdisk -P t /dev/nbd9' failed with return code: 1
+2016-02-02 10:07:02,949 [salt.loaded.int.module.cmdmod][ERROR   ][20103] output: cfdisk: invalid option -- 'P'
+cfdisk: cannot open t: No such file or directory
+```
+
+I was able to track this down to the seed=True line, or running seed.apply and the problem code seems to be in modules/qemu_nbd.py. I mentioned this bug #12764 
+
+This seems to come from the detection of mounted nbd devices relying on `cfdisk -P` or `fdisk -l`. Unfortunately, on Ubuntu/Debian cfdisk does not have a -P option, and fdisk -l will always return a zero exit code
+
+```
+# fdisk -l /dev/nbd8; echo $?
+Disk /dev/nbd8: 8 GiB, 8589950976 bytes, 16777248 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: dos
+Disk identifier: 0xf1cd44e6
+
+Device      Boot    Start      End  Sectors  Size Id Type
+/dev/nbd8p1 *        2048 15988735 15986688  7.6G 83 Linux
+/dev/nbd8p2      15990782 16775167   784386  383M  5 Extended
+/dev/nbd8p5      15990784 16775167   784384  383M 82 Linux swap / Solaris
+0
+
+# fdisk -l /dev/nbd3; echo $?
+fdisk: cannot open /dev/nbd3: Inappropriate ioctl for device
+0
+```
+
+I was able to quickly hack in the use of `sfdisk -d` in order to get nbd detection going, but don't know if that's a universal solution. 

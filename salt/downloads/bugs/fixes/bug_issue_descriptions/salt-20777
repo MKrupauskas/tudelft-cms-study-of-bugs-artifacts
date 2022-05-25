@@ -1,0 +1,55 @@
+Current "salt --versions":
+
+```
+           Salt: 2014.7.1
+         Python: 2.6.9 (unknown, Sep 13 2014, 00:25:11)
+         Jinja2: 2.7.2
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.4
+           Mako: Not Installed
+```
+
+I use epel6 packages. Over the weekend, the packages were upgraded in the epel6 repo. I have a pkg.latest that installs the salt-master and salt-minions on my fleet.
+
+When the master upgraded, the init script failed to stop the 2014.7.0 master. As a result that 2014.7.0 master was left running after the package was installed (and also after a cronjob that did "service salt-master restart" had run and after a manual attempt to "service salt-master restart").
+
+Simultaneously, some minions were upgraded to 2014.7.0. I don't know if the package restarted them, but they were successfully restarted by a cron job. When the 2014.7.1 minions were attempting to run scheduled highstates, I would see the following in the logs:
+
+```
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/utils/schedule.py", line 437, in handle_func
+    ret['return'] = self.functions[func]()
+  File "/usr/lib/python2.6/site-packages/salt/modules/state.py", line 325, in highstate
+    whitelist=kwargs.get('whitelist')
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 2849, in call_highstate
+    self.load_dynamic(matches)
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 2394, in load_dynamic
+    refresh=False)
+  File "/usr/lib/python2.6/site-packages/salt/modules/saltutil.py", line 388, in sync_all
+    ret['states'] = sync_states(saltenv, False)
+  File "/usr/lib/python2.6/site-packages/salt/modules/saltutil.py", line 269, in sync_states
+    ret = _sync('states', saltenv)
+  File "/usr/lib/python2.6/site-packages/salt/modules/saltutil.py", line 98, in _sync
+    source, sub_env, include_pat=r'E@\.(pyx?|so)$'
+  File "/usr/lib/python2.6/site-packages/salt/modules/cp.py", line 416, in cache_dir
+    path, saltenv, include_empty, include_pat, exclude_pat
+  File "/usr/lib/python2.6/site-packages/salt/fileclient.py", line 224, in cache_dir
+    fn_ = self.cache_file('salt://' + fn_, saltenv)
+  File "/usr/lib/python2.6/site-packages/salt/fileclient.py", line 147, in cache_file
+    return self.get_url(path, '', True, saltenv)
+  File "/usr/lib/python2.6/site-packages/salt/fileclient.py", line 521, in get_url
+    return self.get_file(url, dest, makedirs, saltenv)
+  File "/usr/lib/python2.6/site-packages/salt/fileclient.py", line 991, in get_file
+    if not data['data']:
+TypeError: string indices must be integers, not str
+```
+
+Once I manually killed the old masters (SIGKILL to the pids this time) and restarted the master, the minions started to work. I am sorry, but I don't have any more info.

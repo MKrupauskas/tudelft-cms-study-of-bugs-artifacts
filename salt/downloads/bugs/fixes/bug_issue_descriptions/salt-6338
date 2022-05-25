@@ -1,0 +1,25 @@
+If the password for a rabbitmq_user contains the characters '$$', proper shell escaping is not occurring and $$ is replaced by the shell with the PID of the current process. For example, the password 'wh$$' may become 'wh22456'. rabbitmqctl is actually performing that substitution but salt is preventing us from properly escaping the $$ combination.
+
+Steps to reproduce -
+- add to config --
+  my_user:
+  rabbitmq_user.present:
+  - password: fancypa$$
+  - force: True
+  - runas: root
+- execute the salt state.
+- observe that rabbitmqctl is called
+- try to log in with specified password (failure)
+
+We have tried quoting with ' and '" but salt removes those when executing rabbitmqctl.
+
+We have tried escaping the quotes but they end up double-escaped (i.e. \\'fancypa$$\\', ending up, presumable, with literal ' as part of the password and PID as well
+
+We have tried escaping the $$ but salt further escapes the escapes (i.e. fancypa\$\$ becomes fancypa\\$\\$).
+
+We've tried all combinations of the above both directly in the state definition and in a pillar definition to no avail.
+
+The correct invocation of rabbitmqctl that works is --
+    rabbitmqctl change_password my_user 'fancypa\$\$'
+
+We don't see how we can get salt to achieve this construct.

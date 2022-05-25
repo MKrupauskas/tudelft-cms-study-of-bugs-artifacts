@@ -1,0 +1,187 @@
+### Description of Issue
+Looks like we have some kind of race condition in the reactor system when passing pillar data to orchestration. 
+
+### Setup
+The setup I used to test this was based on `salt-api` webhooks. to send data from the webhook into the reactor and carry that data into orchestration that holds saltify cloud.profile. 
+
+The reactors all rendered 100% correctly. But the orchestrations were all over the place. Some repeating pillar information and in one case no pillar information was rendered.
+
+The orchestration that rendered without any pillar data came from an attempt to mitigate issue using sleep of 1 second in-between sending the webhooks
+
+### Steps to Reproduce Issue
+config files
+
+**/etc/salt/cloud.providers.d/saltify.conf**
+```
+salty:
+  driver: saltify
+```
+**/etc/salt/cloud.profiles.d/saltify_host.conf**
+```
+saltify_host:
+  provider: salty
+  force_minion_config: true
+```
+
+**/etc/salt/master.d/***
+```
+rest_cherrypy:
+  port: 8000
+  webhook_disable_auth: True
+  disable_ssl: True
+log_level_logfile: all
+reactor:
+  - 'salt/netapi/hook/deploy_minion':
+    - /srv/salt/reactor/deploy_minion.sls
+```
+
+**/srv/salt/reactor/deploy_minion.sls**
+```
+
+# {{data}}
+
+
+{% set post_data = data.get('post', {}) %}
+
+#{{post_data}}
+
+{% set host = post_data.get('host', '') %}
+
+#{{host}}
+
+{#
+Initiate the Orchestration State
+#}
+deploy_minion_runner:
+  runner.state.orch:
+    - mods: orch.minion.deploy
+    - pillar:
+        params:
+          host: {{ host }}
+```
+**/srv/salt/orch/minion/deploy.sls**
+```
+{% set errors = [] %}
+{% set params = salt['pillar.get']('params', {}) %}
+
+{% if 'host' not in params %}
+{% do errors.append('Please provide a host') %}
+{% set host = '' %}
+{% else %}
+{% set host = params.get('host') %}
+{% endif %}
+
+{% if errors|length > 0 %}
+preflight_check:
+  test.configurable_test_state:
+    - name: Additional information required
+    - changes: False
+    - result: False
+    - comment: '{{ errors|join(", ") }}'
+{% else %}
+preflight_check:
+  test.succeed_without_changes:
+    - name: 'All parameters accepted'
+{% endif %}
+
+provision_minion:
+  salt.runner:
+    - name: cloud.profile
+    - prof: saltify_host
+    - instances:
+      - {{ host }}
+    - require:
+      - preflight_check
+    - vm_overrides:
+        ssh_host: {{ host }}
+        ssh_username: centos
+        ssh_keyfile: /etc/salt/id_rsa
+        minion:
+          master:
+            - 172.16.22.60
+            - 172.16.22.115
+
+sync_all:
+ salt.function:
+   - tgt: {{ host }}
+   - name: saltutil.sync_all
+
+#execute_highstate:
+# salt.state:
+#   - tgt: {{ host }}
+#   - highstate: True
+```
+
+Command run
+
+`for i in {1..8}; do curl localhost:8000/hook/deploy_minion -d host=test-${i}; done`
+
+[master (3).log](https://github.com/saltstack/salt/files/3440696/master.3.log)
+
+As can be seen from the log. 
+deploy_minion.sls rendered in order
+test-1
+test-2
+test-3
+test-4
+test-5
+test-6
+test-7
+test-8
+
+But deploy.sls 
+rendered in order
+test-8
+test-2
+test-3
+test-1
+test-7
+test-6
+test-6
+test-5
+
+I have not found the cause of the issue yet. 
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2019.2.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Jun 20 2019, 20:27:34)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.6.1810 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.14.4.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.6.1810 Core
+```

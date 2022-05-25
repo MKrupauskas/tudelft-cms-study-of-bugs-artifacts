@@ -1,0 +1,118 @@
+When using salt with vagrant the pyobjects renderer doesn't seem to behave the same when bootstrapping as when running regularly.
+
+I do a bunch of things in salt states but the final file contains these:
+
+```
+...
+# use pip to reinstall pip with the very latest version
+Pip.installed(
+    'pip',
+    bin_env='/opt/myproject/env',
+    user='myproject',
+    upgrade=True,
+    require=[
+        Virtualenv('virtualenv-myproject')
+    ]
+)
+
+Pip.installed(
+    'pip install requirements.txt',
+    bin_env='/opt/myproject/env',
+    requirements='/opt/myproject/requirements.txt',
+    user='myproject',
+    upgrade=True,
+    require=[
+        Git('poswald/myproject'),
+        Virtualenv('virtualenv-myproject'),
+        Pip('pip'),
+        Pkg('libsqlite3-dev'),
+    ]
+)
+```
+
+I get this error when running `vagrant up` with a fresh vm and using the vagrant/salt bootstrap mechanism in the Vagrantfile basically [as described in their docs](http://docs.vagrantup.com/v2/provisioning/salt.html):
+
+```
+[CRITICAL] Rendering SLS myproject failed, render error: name 'Pip' is not defined
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2465, in render_state
+    sls, rendered_sls=mods
+  File "/usr/lib/python2.7/dist-packages/salt/template.py", line 84, in compile_template
+    ret = render(input_data, saltenv, sls, **render_kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/renderers/pyobjects.py", line 449, in render
+    exec final_template in _globals
+  File "<string>", line 79, in <module>
+NameError: name 'Pip' is not defined
+```
+
+I can then `vagrant ssh` into the vm and run `sudo salt-call state.highstate` which gives me this:
+
+```
+local:
+    Data failed to compile:
+----------
+    Rendering SLS myproject failed, render error: name 'Pip' is not defined
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2465, in render_state
+    sls, rendered_sls=mods
+  File "/usr/lib/python2.7/dist-packages/salt/template.py", line 84, in compile_template
+    ret = render(input_data, saltenv, sls, **render_kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/renderers/pyobjects.py", line 449, in render
+    exec final_template in _globals
+  File "<string>", line 79, in <module>
+NameError: name 'Pip' is not defined
+
+```
+
+So it seems like the syntax is wrong. But... if I then comment out those two `Pip` objects, run highstate to get set up and then un-comment them back in, it works:
+
+```
+...
+----------
+          ID: pip
+    Function: pip.installed
+      Result: True
+     Comment: Package was successfully installed
+     Started: 14:52:18.097536
+    Duration: 2636.291 ms
+     Changes:
+              ----------
+              pip==6.1.1:
+                  Installed
+----------
+          ID: pip install requirements.txt
+    Function: pip.installed
+      Result: True
+     Comment: Successfully processed requirements file /opt/myproject/requirements.txt.
+     Started: 14:52:20.734973
+    Duration: 4035.676 ms
+     Changes:
+              ----------
+              requirements:
+                  True
+
+Summary
+-------------
+Succeeded: 21 (changed=2)
+Failed:     0
+-------------
+Total states run:     21
+```
+
+So, it seems that something is not set up in the bootstrapped environment that is set up once it has successfully run. Any idea what is going on here?
+
+I also tried doing it with the state object name as `PipState` (as that's how it is documented) which seemed to work for the bootstrapping step but then later failed to run. Not sure if that is somehow related or not.
+
+More info from my vagrant/virtualbox vm and the host machine:
+
+```
+vagrant@precise64:~$ salt-call --version
+salt-call 2014.7.5 (Helium)
+vagrant@precise64:~$ uname -a
+Linux precise64 3.2.0-23-generic #36-Ubuntu SMP Tue Apr 10 20:39:51 UTC 2012 x86_64 x86_64 x86_64 GNU/Linux
+
+$ vagrant --version
+Vagrant 1.7.2
+$ uname -a
+Darwin amity.local 14.3.0 Darwin Kernel Version 14.3.0: Mon Mar 23 11:59:05 PDT 2015; root:xnu-2782.20.48~5/RELEASE_X86_64 x86_64
+```

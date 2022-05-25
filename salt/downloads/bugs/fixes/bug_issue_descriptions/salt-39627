@@ -1,0 +1,49 @@
+The docs state that
+```
+Pillar data can be set on the command line when running state.apply <salt.modules.state.apply_() like so:
+
+salt '*' state.apply pillar='{"foo": "bar"}'
+salt '*' state.apply my_sls_file pillar='{"hello": "world"}'
+
+Nested pillar values can also be set via the command line:
+
+salt '*' state.sls my_sls_file pillar='{"foo": {"bar": "baz"}}'
+```
+It appears this DOES work for SOME invocations (e.g. 'pillar.items', 'state.show_sls') but flatly fails if invoked in the style in the docs.  None of the values passed in the pillar dict are available during the state run, even though an IDENTICAL call substituting 'state.show_sls' for 'state.sls' works perfectly and produces the expected behavior and output.
+
+In particular I have a mako file with the following:
+```
+<%!
+  from salt.exceptions import SaltInvocationError
+%>\
+<%
+  bootstrap_vpc = pillar.get('bootstrap_vpc')
+  try:
+    product, environment, loc = bootstrap_vpc.split('-')
+    role = 'salt-master'
+  except:
+    msg = ("Invalid value for bootstrap_vpc passed ('%s').  When bootstrapping a new environment, "
+           "bootstrap_vpc must be of the form 'product-env-location' where 'product' is the 3 letter "
+           "product identifier, 'env' is the 2-3 char environment type, and 'location' is the 4-5 "
+           "char provider / region specifier." % bootstrap_vpc)
+    raise SaltInvocationError(msg)
+    return ''
+%>
+...more stuff here...
+```
+
+This works perfectly when I run e.g. 
+```
+salt-call pillar.items pillar='{bootstrap_vpc: plt-prd-aue1}'
+```
+or even
+```
+salt-call state.show_sls classes.aws.contents pillar='{bootstrap_vpc: plt-prd-aue1}'
+```
+but if I then attempt to run
+```
+salt-call state.sls classes.aws.contents pillar='{bootstrap_vpc: plt-prd-aue1}'
+```
+'pillar.get('bootstrap_vpc')' suddenly becomes 'None' and the except clause is called.
+
+This is putting a BIG dent in a big implementation I'm on tap to deliver, so any thoughts or workarounds would be mucho appreciated

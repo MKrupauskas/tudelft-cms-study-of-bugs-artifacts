@@ -1,0 +1,96 @@
+We have built custom package `parted` and modified it's `Release` to be different from one in CentOS-Base repo. Package is installed inside kickstart script, so it is not available in any repo.
+`pkg.installed` state fails for this package with following error:
+
+``` yaml
+local:
+----------
+          ID: common-pkgs
+    Function: pkg.installed
+      Result: False
+     Comment: The following package(s) were not found, and no possible matches were found in the package db: parted
+     Started: 07:20:46.394947
+    Duration: 7352.118 ms
+     Changes:   
+```
+
+After little digging I localized problem to `pkg.check_db` function, which fails to find it in repo db:
+
+``` bash
+$ salt node pkg.check_db parted
+node:
+    ----------
+    parted:
+        ----------
+        found:
+            False
+        suggestions:
+```
+
+Here is details on this package:
+
+``` bash
+$ yum info parted
+Loaded plugins: fastestmirror, security, versionlock
+Loading mirror speeds from cached hostfile
+ * base: ftpmirror.your.org
+ * epel: linux.mirrors.es.net
+ * extras: mirrors.syringanetworks.net
+ * updates: linux.mirrors.es.net
+Installed Packages
+Name        : parted
+Arch        : x86_64
+Version     : 2.1
+Release     : 25.1.el6.xxx
+Size        : 2.2 M
+Repo        : installed
+From repo   : anaconda-xxx-201503111313.x86_64
+Summary     : The GNU disk partition manipulation program
+URL         : http://www.gnu.org/software/parted
+License     : GPLv3+
+Description : The GNU Parted program allows you to create, destroy, resize, move,
+            : and copy hard disk partitions. Parted can be used for creating space
+            : for new operating systems, reorganizing disk usage, and copying data
+            : to new hard disks.
+```
+
+And `pkg.list_pkgs` finds this package:
+
+``` bash
+$ salt node pkg.list_pkgs | grep parted -A1
+    parted:
+        2.1-25.1.el6.ddn
+```
+
+Here is versions report:
+
+``` bash
+$ salt --versions-report
+           Salt: 2015.5.3
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+        Tornado: Not Installed
+$ uname -a
+Linux gs-ccm-demo 2.6.32-504.23.4.el6.x86_64 #1 SMP Tue Jun 9 20:57:37 UTC 2015 x86_64 x86_64 x86_64 GNU/Linux
+$ cat /etc/redhat-release 
+CentOS release 6.6 (Final)
+```
+
+Here is how we locked it's version:
+
+``` bash
+$ grep parted /etc/yum/pluginconf.d/versionlock.list 
+0:parted-2.1-25.1.el6.xxx.*
+```
+
+Note: I replaced company name with xxx, please don't be confused.

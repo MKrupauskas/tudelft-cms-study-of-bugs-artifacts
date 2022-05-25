@@ -1,0 +1,63 @@
+Custom compiled deb using tag of 0.17.2 (upgraded master, and 1 minion)
+
+```
+root@saltmaster01:~# salt 'minion' state.highstate test=True
+Failed to authenticate, is this user permitted to execute commands?
+```
+
+So I can't run ANY salt commands at this point?
+
+Before upgrading master (still was on 0.17.1), and minion @ 0.17.2 I get massive failures concerning repos:
+
+```
+    State: - pkgrepo
+    Name:      deb http://apt.newrelic.com/debian newrelic non-free
+    Function:  managed
+        Result:    False
+        Comment:   An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/pymodules/python2.7/salt/state.py", line 1278, in call
+    *cdata['args'], **cdata['kwargs'])
+  File "/usr/lib/pymodules/python2.7/salt/states/pkgrepo.py", line 233, in managed
+    sanitizedkwargs = __salt__['pkg.expand_repo_def'](kwargs)
+  File "/usr/lib/pymodules/python2.7/salt/modules/apt.py", line 1294, in expand_repo_def
+    repo = _strip_uri(repokwargs['repo'])
+KeyError: 'repo'
+```
+
+```
+root@saltmaster01:/opt/salt/base/states/newrelic# cat init.sls
+newrelic-repo:
+  pkgrepo.managed:
+    - humanname: Newrelic Monitoring
+    - name: deb http://apt.newrelic.com/debian newrelic non-free
+    - file: /etc/apt/sources.list.d/newrelic-sysmond.list
+    - keyurl: 'http://download.newrelic.com/548C16BF.gpg'
+
+newrelic-sysmond:
+  pkg:
+    - installed
+    - skip_verify: True
+    - require:
+      - pkgrepo: newrelic-repo
+
+newrelic-sysmond-service:
+  service:
+    - running
+    - name: newrelic-sysmond
+    - require:
+      - pkg: newrelic-sysmond
+      - cmd.run: install_lic
+
+install_lic:
+  cmd.run:
+    - name : nrsysmond-config --set license_key={{ pillar['newrelic.lic'] }}
+    - require:
+      - pkg: newrelic-sysmond
+```
+
+After downgrading master to 0.17.1 I still can't get salt commands to run:
+
+```
+root@saltmaster01:~# salt 'minion' state.highstate test=True
+Failed to authenticate, is this user permitted to execute commands?
+```

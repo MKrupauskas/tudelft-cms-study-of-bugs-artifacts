@@ -1,0 +1,89 @@
+I've got 8 salt masters running in pairs for redundancy. So 4 groups handling roughly 500-600 servers each. Every few days the masters will hang. They both hang at the same time and requires a restart to help clear things up.
+
+I have the minions run a highstate every 30 min. If I used the documented highstate schedule (https://docs.saltstack.com/en/latest/topics/jobs/schedule.html#highstates) things would blow up so I'm using a simple schedule cmd.run. I'm also running a cleanup script from the masters every 30 minutes to clean out stale minions.
+
+The command I'm running to clear out stale minions is:
+
+```
+salt --out txt "*" test.ping | grep "Not connected" | cut -d ":" -f 1 | xargs -I dead_minion salt-key -y -d dead_minion
+```
+
+I did test out `salt-run manage.down removekeys=True` but it didn't seem to work as well.
+
+I'm not seeing any issues with minions being removed per se.. but I am seeing salt master hanging. So when new boxes come online they aren't provisioned properly.
+
+I"m seeing errors in the that seem to suggest that an internal minion check is failing miserably. The log is below.
+
+A log section:
+
+```
+2015-12-13 06:53:53,199 [salt.master      ][ERROR   ][17378] Error in function _mine:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 1379, in run_func
+    ret = getattr(self, func)(load)
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 1007, in _mine
+    load = self.__verify_load(load, ('id', 'data', 'tok'))
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 924, in __verify_load
+    if not self.__verify_minion(load['id'], load['tok']):
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 824, in __verify_minion
+    with salt.utils.fopen(pub_path, 'r') as fp_:
+  File "/usr/lib/python2.7/dist-packages/salt/utils/__init__.py", line 1204, in fopen
+    fhandle = open(*args, **kwargs)
+IOError: [Errno 2] No such file or directory: '/etc/salt/pki/master/minions/ause1-encoder546'
+2015-12-13 06:54:25,104 [salt.transport.zeromq][ERROR   ][17378] Bad load from minion
+2015-12-13 06:54:35,228 [salt.transport.zeromq][ERROR   ][17370] Bad load from minion
+2015-12-13 06:54:46,744 [salt.transport.zeromq][ERROR   ][17398] Bad load from minion
+2015-12-13 06:54:53,352 [salt.master      ][ERROR   ][17317] Error in function _mine:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 1379, in run_func
+    ret = getattr(self, func)(load)
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 1007, in _mine
+    load = self.__verify_load(load, ('id', 'data', 'tok'))
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 924, in __verify_load
+    if not self.__verify_minion(load['id'], load['tok']):
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 824, in __verify_minion
+    with salt.utils.fopen(pub_path, 'r') as fp_:
+  File "/usr/lib/python2.7/dist-packages/salt/utils/__init__.py", line 1204, in fopen
+    fhandle = open(*args, **kwargs)
+IOError: [Errno 2] No such file or directory: '/etc/salt/pki/master/minions/ause1-encoder546'
+2015-12-13 06:55:00,814 [salt.master      ][ERROR   ][17343] Error in function _mine:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 1379, in run_func
+    ret = getattr(self, func)(load)
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 1007, in _mine
+    load = self.__verify_load(load, ('id', 'data', 'tok'))
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 924, in __verify_load
+    if not self.__verify_minion(load['id'], load['tok']):
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 824, in __verify_minion
+    with salt.utils.fopen(pub_path, 'r') as fp_:
+  File "/usr/lib/python2.7/dist-packages/salt/utils/__init__.py", line 1204, in fopen
+    fhandle = open(*args, **kwargs)
+IOError: [Errno 2] No such file or directory: '/etc/salt/pki/master/minions/ause1-encoder646'
+2015-12-13 06:55:17,444 [salt.master      ][ERROR   ][17443] Error in function _mine:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 1379, in run_func
+    ret = getattr(self, func)(load)
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 1007, in _mine
+    load = self.__verify_load(load, ('id', 'data', 'tok'))
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 924, in __verify_load
+    if not self.__verify_minion(load['id'], load['tok']):
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 824, in __verify_minion
+    with salt.utils.fopen(pub_path, 'r') as fp_:
+  File "/usr/lib/python2.7/dist-packages/salt/utils/__init__.py", line 1204, in fopen
+    fhandle = open(*args, **kwargs)
+IOError: [Errno 2] No such file or directory: '/etc/salt/pki/master/minions/ause1-encoder66'
+```
+
+I'm also seeing endless logs about the "bad load from minion" even after I ping out to all the minions.
+
+The multi-master setup I'm using is:
+https://docs.saltstack.com/en/latest/topics/tutorials/multimaster.html
+
+Would this be better?
+https://docs.saltstack.com/en/latest/topics/tutorials/multimaster_pki.html
+
+Ideally having two hot is great but if it causes issues then obviously I'll back off of it.
+
+Any help in determining the core issue would be much appreciated.
+
+Thanks!

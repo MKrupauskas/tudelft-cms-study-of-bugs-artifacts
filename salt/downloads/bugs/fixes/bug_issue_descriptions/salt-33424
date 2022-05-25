@@ -1,0 +1,67 @@
+### Description of Issue/Question
+
+I was seeing error logs from all minions when running `highstate` of the form `[ERROR   ] Template was specified incorrectly: False` when using a gitfs-backed master. The error was logged once for each non-master branch in the gitfs repo, which I wasn't using as environments and thus didn't have a topfile (topfile is in roots, only states are loaded over gitfs), which I believe was the cause of the logging. Setting `gitfs_env_whitelist` to only accept `base` fixes it, but only after clearing the cached environments in `/var/cache/salt/master/gitfs/envs.p`.
+
+I see two potential solutions to two slightly different issues here, the first being that something is logged with severity error when it doesn't really matter much, it's only erroneous if no topfile is found at all. Also related, the error message doesn't give any indication to what the problem is or how it can be remedied. The other issue is that cached data persists across master restarts, and might not be valid for the new config. This can be approached either as always clearing out cached data on restarts, assuming restarts are rare. This will probably also solve other issues where config settings seemingly have no effect due to cached data. The other approach is associating cached data with a config, thus clearing out the cache on start if the config has changed since it was written, assuming that restarts are more frequent than config changes.
+
+Iggy suggested on IRC that https://github.com/saltstack/salt/issues/30434 might be related.
+### Setup
+
+```
+# /etc/salt/master
+fileserver_backend:
+    - roots
+    - git
+gitfs_remotes:
+    - https://github.com/thusoy/salt-states
+# Uncommenting these lines, restarting master and clearing cache solves the issue
+#gitfs_env_whitelist:
+#    - base
+gitfs_root: salt
+gitfs_ssl_verify: True
+```
+### Steps to Reproduce Issue
+
+Serve topfile over roots and have a gitfs repo with a non-master branch without a topfile.
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: 2.5.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: 2.0.2
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.3 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 8.3 
+```
+
+Also confirmed that the same error occurs in 2016.3.

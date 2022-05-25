@@ -1,0 +1,116 @@
+The following steps was reproduced on Fedora 20 but can be similarly done on any other OS.
+### Setup
+
+Create a simple state file which installs any uninstalled package (here: `bind`):
+
+```
+# path: /srv/salt/deleteme.sls
+install_dns_server:
+    pkg.installed:
+        - name: bind
+```
+
+Use this state in [orchestration](http://salt.readthedocs.org/en/latest/topics/tutorials/states_pt5.html#the-orchestrate-runner):
+
+```
+# path: /srv/salt/deleteme_orchestration.sls
+install_dns_server_with_orchestration:
+    salt.state:
+        - tgt: 'minion_id'
+        - sls: deleteme
+```
+
+Now make sure that `yum` somehow fails to install any package. For example, you may set wrong DNS in `/etc/resolv.conf` or add a non-existing proxy to `/etc/yum.conf` like here:
+
+```
+# Proxy settings
+proxy=http://whatever:8000/
+proxy_username=whatever
+proxy_password=whatever
+```
+
+Try running `yum install bind` manually to confirm it fails.
+### Problem
+
+Run orchestrate runner:
+
+```
+salt-run -l debug state.orchestrate deleteme_orchestration > results.yaml
+```
+
+The debug output does not produce any `[ERROR   ]`.
+Check results:
+
+```
+# results.yaml
+control:
+----------
+          ID: install_dns_server_with_orchestration
+    Function: salt.state
+      Result: True
+     Comment: States ran successfully.
+     Changes:
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total:     1
+```
+
+**This is clearly** **_false**_ **because:**
+
+```
+rpm -qi bind
+package bind is not installed
+```
+
+Moreover, running the initial state using `salt-call` fails perfectly:
+
+```
+salt-call -l debug state.sls deleteme > results.yaml
+...
+[INFO    ] Executing command 'repoquery --queryformat="%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}" --all --pkgnarrow=installed' in directory '/root'
+[ERROR   ] The following packages failed to install/update: bind.
+...
+
+```
+
+Check results:
+
+```
+# results.yaml
+local:
+----------
+          ID: install_dns_server
+    Function: pkg.installed
+        Name: bind
+      Result: False
+     Comment: The following packages failed to install/update: bind.
+     Changes:
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+```
+### Versions
+
+Both master and minion are deployed on the same Fedora 20 x86_64 host.
+
+```
+ salt --versions-report
+           Salt: 2014.1.4
+         Python: 2.7.5 (default, Feb 19 2014, 13:47:28)
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.2
+            ZMQ: 3.2.4
+```

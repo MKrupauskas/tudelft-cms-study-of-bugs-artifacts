@@ -1,0 +1,112 @@
+**Description**
+https://docs.saltstack.com/en/master/topics/development/modules/external_pillars.html#configuration describe 3 methods to pass arguments to external pillar module
+- example A with single positional argument
+- example B with multiple positional arguments
+- example C with multiple named arguments
+
+Example A and example B work just fine but I can't manage to get example C (named arguments) work. Each time, I get one positional arguments of value `None` instead of named arguments
+`ext_pillar` function prototype is documented at https://docs.saltstack.com/en/master/topics/development/modules/external_pillars.html#ext-pillar
+
+**Setup**
+
+in `/etc/salt/master`:
+```
+module_dirs:                                                                                                                                                                                  
+  - /srv/extmods
+
+ext_pillar:
+  - test_ext_pillar:
+    configfile: /etc/myconfig.yml
+    myconfig: myvalue
+```
+
+`/srv/extmods/pillar/test_ext_pillar.py`:
+```
+#!/usr/bin/env python3
+
+import logging
+log = logging.getLogger(__name__)
+
+def __virtual__():
+    return True
+
+
+def ext_pillar(minion_id, pillar, *args, **kwargs):
+    log.critical("args: {}".format(args))
+    if kwargs:
+      log.critical("kwargs: {}".format(kwargs.items()))
+    else:
+      log.critical("No named arguments")
+    return {}
+
+
+if __name__ == "__main__":
+    ext_pillar("minion_id", {}, "p1", "p2", n1="n1", n2="n2")
+```
+
+**Steps to Reproduce the behavior**
+
+- Test manually the ext pillar:
+```
+# ./test_ext_pillar.py 
+args: ('p1', 'p2')
+kwargs: dict_items([('n2', 'n2'), ('n1', 'n1')])
+```
+- Refresh pillar: `salt minion saltutil.pillar_refresh`
+- See in master logs that ext_pillar function received a single positional argument with value `None` and no named argument
+```
+2020-06-01 09:07:36,696 [salt.loaded.ext.pillar.test_ext_pillar:11  ][CRITICAL][7213] args: (None,)
+2020-06-01 09:07:36,697 [salt.loaded.ext.pillar.test_ext_pillar:15  ][CRITICAL][7209] No named arguments
+2020-06-01 09:07:48,563 [salt.pillar      :972 ][CRITICAL][7215] Specified ext_pillar interface configfile is unavailable
+2020-06-01 09:07:48,572 [salt.pillar      :972 ][CRITICAL][7215] Specified ext_pillar interface myconfig is unavailable
+```
+
+**Expected behavior**
+`ext_pillar`  function receives no aditionnal positional argument and receive 2 named arguments
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+Salt Version:
+           Salt: 2019.2.4
+ 
+Dependency Versions:
+           cffi: 1.13.2
+       cherrypy: 3.5.0
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: 2.0.0
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: 0.24.5
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.24.2
+         Python: 3.5.3 (default, Sep 27 2018, 17:25:39)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.1
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.9 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-9-amd64
+         system: Linux
+        version: debian 9.9 
+```
+</details>

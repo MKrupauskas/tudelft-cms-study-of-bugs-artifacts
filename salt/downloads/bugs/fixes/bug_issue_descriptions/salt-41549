@@ -1,0 +1,125 @@
+### Description of Issue/Question
+salt-call salt.highstate aborted with a long stack trace:
+
+```
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 379, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/caller.py", line 134, in run
+    ret = self.call()
+  File "/usr/lib/python2.7/site-packages/salt/cli/caller.py", line 197, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/state.py", line 797, in highstate
+    mocked=kwargs.get('mock', False))
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 3526, in __init__
+    BaseHighState.__init__(self, opts)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2443, in __init__
+    self.avail = self.__gather_avail()
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2453, in __gather_avail
+    avail[saltenv] = self.client.list_states(saltenv)
+  File "/usr/lib/python2.7/site-packages/salt/fileclient.py", line 374, in list_states
+    for path in self.file_list(saltenv):
+  File "/usr/lib/python2.7/site-packages/salt/fileclient.py", line 1233, in file_list
+    return [sdecode(fn_) for fn_ in self.channel.send(load)]
+  File "/usr/lib/python2.7/site-packages/salt/fileserver/__init__.py", line 891, in send
+    return getattr(self.fs, cmd)(load)
+  File "/usr/lib/python2.7/site-packages/salt/fileserver/__init__.py", line 751, in file_list
+    ret.update(self.servers[fstr](load))
+  File "/usr/lib/python2.7/site-packages/salt/fileserver/gitfs.py", line 189, in file_list
+    return gitfs.file_list(load)
+  File "/usr/lib/python2.7/site-packages/salt/utils/gitfs.py", line 2950, in file_list
+    return self._file_lists(load, 'files')
+  File "/usr/lib/python2.7/site-packages/salt/utils/gitfs.py", line 2927, in _file_lists
+    repo_files, repo_symlinks = repo.file_list(load['saltenv'])
+  File "/usr/lib/python2.7/site-packages/salt/utils/gitfs.py", line 1476, in file_list
+    tree = self.get_tree(tgt_env)
+  File "/usr/lib/python2.7/site-packages/salt/utils/gitfs.py", line 1565, in get_tree
+    return commit.tree
+AttributeError: '_pygit2.Tag' object has no attribute 'tree'
+```
+
+### Setup
+It is not clear how to reproduce the error. It occured after we replaced some branches with tags of the same value, e.g., 'feature/xxx' branch deleted and introduces a tag 'feature/xxx'
+
+### Steps to Reproduce Issue
+see above
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.3
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.21.0
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.21.4
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```
+
+### Work around
+Fixed the problem locally:
+   
+```
+diff -bc /usr/lib/python2.7/site-packages/salt/utils/gitfs.py{.orig,}
+*** /usr/lib/python2.7/site-packages/salt/utils/gitfs.py.orig   2017-02-22 22:23:50.000000000 +0100
+--- /usr/lib/python2.7/site-packages/salt/utils/gitfs.py        2017-06-01 15:17:43.463662924 +0200
+***************
+*** 1558,1568 ****
+              return None
+          try:
+              commit = self.repo.revparse_single(tgt_ref)
+          except (KeyError, TypeError, ValueError):
+              # Not a valid commit, likely not a commit SHA
+              pass
+-         else:
+-             return commit.tree
+          return None
+
+      def verify_auth(self):
+--- 1558,1568 ----
+              return None
+          try:
+              commit = self.repo.revparse_single(tgt_ref)
++             if hasattr (commit, 'tree'):
++                 return commit.tree
+          except (KeyError, TypeError, ValueError):
+              # Not a valid commit, likely not a commit SHA
+              pass
+          return None
+
+      def verify_auth(self):
+
+```

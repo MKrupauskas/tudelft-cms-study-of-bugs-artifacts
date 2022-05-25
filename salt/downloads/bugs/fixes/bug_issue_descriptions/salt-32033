@@ -1,0 +1,306 @@
+### Description of Issue/Question
+
+When managing containers, and using `network_mode: host`, docker will implicitly set the domainname property, and dockerng will continually assume that the config was changed.
+### Setup
+
+input formula:
+
+``` yaml
+registrator:
+  dockerng.running:
+    - image: gliderlabs/registrator:latest
+    - network_mode: host
+    - command: consul://127.0.0.1:8500
+    - restart_policy: None
+    - binds:
+        - /var/run/docker.sock:/tmp/docker.sock
+```
+
+I did a json-dump of the `_compare` function call args after the original container was already created, and `dockerng` was deciding whether the current running container config matches the saltstack-specified desired config:
+
+`defaults_from_image`:
+
+``` json
+{
+  "Comment": "",
+  "Container": "a10857e6f5727fa44d215804137d8339c7035a138e40459ea5467f37cdbcac74",
+  "DockerVersion": "1.6.2",
+  "Parent": "",
+  "Created": "2015-08-14T13:55:52.692476857Z",
+  "Config": {
+    "Tty": false,
+    "Cmd": null,
+    "Volumes": null,
+    "Domainname": "",
+    "WorkingDir": "",
+    "Image": "3c46b3f46415a9f8dcb7cd7aae1d1f676024f8f35e55f03adfb65db31513b371",
+    "Hostname": "dcc8924290fe",
+    "StdinOnce": false,
+    "Labels": {},
+    "AttachStdin": false,
+    "User": "",
+    "Env": [
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    ],
+    "Entrypoint": [
+      "/bin/registrator"
+    ],
+    "OnBuild": [],
+    "AttachStderr": false,
+    "AttachStdout": false,
+    "OpenStdin": false
+  },
+  "Author": "",
+  "VirtualSize_Human": "20.0 MiB",
+  "GraphDriver": {
+    "Data": {
+      "DeviceName": "docker-253:0-449439-ee47e2b8eac963e2cb525aeafb290564d9a5064d84432efea75a446225a21271",
+      "DeviceSize": "42949672960",
+      "DeviceId": "138"
+    },
+    "Name": "devicemapper"
+  },
+  "VirtualSize": 20932921,
+  "Size_Human": "20.0 MiB",
+  "Os": "linux",
+  "Architecture": "amd64",
+  "ContainerConfig": {
+    "Tty": false,
+    "Cmd": ["/bin/sh", "-c", "apk-install -t build-deps go git mercurial \t&& cd /go/src/github.com/gliderlabs/registrator \t&& export GOPATH=/go \t&& go get \t&& go build -ldflags \"-X main.Version $(cat VERSION)\" -o /bin/registrator \t&& rm -rf /go \t&& apk del --purge build-deps"],
+    "Volumes": null,
+    "Domainname": "",
+    "WorkingDir": "",
+    "Image": "3c46b3f46415a9f8dcb7cd7aae1d1f676024f8f35e55f03adfb65db31513b371",
+    "Hostname": "dcc8924290fe",
+    "StdinOnce": false,
+    "Labels": {},
+    "AttachStdin": false,
+    "User": "",
+    "Env": ["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"],
+    "Entrypoint": ["/bin/registrator"],
+    "OnBuild": [],
+    "AttachStderr": false,
+    "AttachStdout": false,
+    "OpenStdin": false
+  },
+  "Size": 20932921,
+  "RepoDigests": [],
+  "Id": "sha256:57cbfaed16bf3d2377936a5274b84c5f05dc3fb300f39925e4df0dbf5207260f",
+  "RepoTags": [
+    "gliderlabs/registrator:latest"
+  ]
+}
+```
+
+actual:
+
+``` json
+{
+  "ExecIDs": null,
+  "State": {
+    "Status": "running",
+    "Pid": 32012,
+    "OOMKilled": false,
+    "Dead": false,
+    "Paused": false,
+    "Running": true,
+    "FinishedAt": "0001-01-01T00:00:00Z",
+    "Restarting": false,
+    "Error": "",
+    "StartedAt": "2016-03-21T22:43:14.408782832Z",
+    "ExitCode": 0
+  },
+  "Config": {
+    "Tty": false,
+    "Cmd": ["consul://127.0.0.1:8500"],
+    "Volumes": {"/tmp/docker.sock": {}},
+    "Domainname": "local-domain.com",
+    "WorkingDir": "",
+    "Image": "gliderlabs/registrator:latest",
+    "Hostname": "sw-analytics43",
+    "StdinOnce": false,
+    "Labels": {},
+    "AttachStdin": false,
+    "User": "",
+    "Env": ["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"],
+    "Entrypoint": ["/bin/registrator"],
+    "OnBuild": null,
+    "AttachStderr": true,
+    "AttachStdout": true,
+    "OpenStdin": false
+  },
+  "ResolvConfPath": "/var/lib/docker/containers/8cb88415fc74752b381fd8469aa76241d849776205cea658dca06bf38b03891a/resolv.conf",
+  "HostsPath": "/var/lib/docker/containers/8cb88415fc74752b381fd8469aa76241d849776205cea658dca06bf38b03891a/hosts",
+  "Args": ["consul://127.0.0.1:8500"],
+  "Driver": "devicemapper",
+  "Path": "/bin/registrator",
+  "HostnamePath": "/var/lib/docker/containers/8cb88415fc74752b381fd8469aa76241d849776205cea658dca06bf38b03891a/hostname",
+  "RestartCount": 0,
+  "Name": "/registrator",
+  "Created": "2016-03-21T22:43:09.773123742Z",
+  "GraphDriver": {
+    "Data": {
+      "DeviceName": "docker-253:0-449439-791c7d4069747a8f3180276d401a7e8005a44251084dad9f19f4d617bafbaa1a",
+      "DeviceSize": "42949672960",
+      "DeviceId": "170"
+    },
+    "Name": "devicemapper"
+  },
+  "Mounts": [
+    {
+      "RW": true,
+      "Source": "/var/run/docker.sock",
+      "Destination": "/tmp/docker.sock",
+      "Mode": "rw",
+      "Propagation": "rprivate"
+    }
+  ],
+  "ProcessLabel": "",
+  "NetworkSettings": {
+    "Bridge": "",
+    "Networks": {
+      "host": {
+        "NetworkID": "<redacted>",
+        "MacAddress": "",
+        "GlobalIPv6PrefixLen": 0,
+        "Links": null,
+        "GlobalIPv6Address": "",
+        "IPv6Gateway": "",
+        "IPAMConfig": null,
+        "EndpointID": "<redacted>",
+        "IPPrefixLen": 0,
+        "IPAddress": "",
+        "Gateway": "",
+        "Aliases": null
+      }
+    },
+    "SecondaryIPv6Addresses": null,
+    "LinkLocalIPv6Address": "",
+    "HairpinMode": false,
+    "IPv6Gateway": "",
+    "SecondaryIPAddresses": null,
+    "SandboxID": "<redacted>",
+    "MacAddress": "",
+    "GlobalIPv6Address": "",
+    "Gateway": "",
+    "LinkLocalIPv6PrefixLen": 0,
+    "EndpointID": "",
+    "SandboxKey": "/var/run/docker/netns/default",
+    "GlobalIPv6PrefixLen": 0,
+    "IPPrefixLen": 0,
+    "IPAddress": "",
+    "Ports": {}
+  },
+  "AppArmorProfile": "",
+  "Image": "sha256:<redacted>",
+  "LogPath": "/var/lib/docker/containers/8cb88415fc74752b381fd8469aa76241d849776205cea658dca06bf38b03891a/8cb88415fc74752b381fd8469aa76241d849776205cea658dca06bf38b03891a-json.log",
+  "HostConfig": {
+    "CpuPeriod": 0,
+    "MemorySwappiness": -1,
+    "ContainerIDFile": "",
+    "MemorySwap": 0,
+    "BlkioDeviceReadIOps": null,
+    "CpuQuota": 0,
+    "Dns": null,
+    "ExtraHosts": null,
+    "PidsLimit": 0,
+    "DnsSearch": null,
+    "Privileged": false,
+    "Ulimits": null,
+    "CpusetCpus": "",
+    "CgroupParent": "",
+    "BlkioWeight": 0,
+    "RestartPolicy": {"MaximumRetryCount": 0, "Name": "None"},
+    "OomScoreAdj": 0,
+    "BlkioDeviceReadBps": null,
+    "VolumeDriver": "",
+    "ReadonlyRootfs": false,
+    "CpuShares": 0,
+    "PublishAllPorts": false,
+    "MemoryReservation": 0,
+    "BlkioWeightDevice": null,
+    "ConsoleSize": [0, 0],
+    "NetworkMode": "host",
+    "BlkioDeviceWriteBps": null,
+    "Isolation": "",
+    "GroupAdd": null,
+    "Devices": null,
+    "BlkioDeviceWriteIOps": null,
+    "Binds": ["/var/run/docker.sock:/tmp/docker.sock:rw"],
+    "CpusetMems": "",
+    "KernelMemory": 0,
+    "UTSMode": "",
+    "PidMode": "",
+    "VolumesFrom": null,
+    "CapDrop": null,
+    "DnsOptions": null,
+    "ShmSize": 67108864,
+    "Links": null,
+    "IpcMode": "",
+    "PortBindings": null,
+    "SecurityOpt": null,
+    "CapAdd": null,
+    "Memory": 0,
+    "OomKillDisable": false,
+    "LogConfig": {"Config": {}, "Type": "json-file"}
+  },
+  "Id": "8cb88415fc74752b381fd8469aa76241d849776205cea658dca06bf38b03891a",
+  "MountLabel": ""
+}
+```
+
+`create_kwargs`:
+
+``` json
+{
+  "network_mode": "host",
+  "binds": {
+    "/var/run/docker.sock": {"bind": "/tmp/docker.sock", "ro": false}
+  },
+  "restart_policy": {"MaximumRetryCount": 0, "Name": "None"},
+  "command": ["consul://127.0.0.1:8500"],
+  "volumes": ["/tmp/docker.sock"]
+}
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.4.4.el7.x86_64
+         system: CentOS Linux 7.2.1511 Core
+```
+- dockerng state and module patched with from 553ecac.
+- docker-py 1.6.0

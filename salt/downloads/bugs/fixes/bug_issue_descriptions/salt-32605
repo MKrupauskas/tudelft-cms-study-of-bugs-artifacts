@@ -1,0 +1,114 @@
+### Description of Issue/Question
+
+If one add `comments:` (see [comments](https://docs.saltstack.com/en/latest/ref/states/all/salt.states.pkgrepo.html#salt.states.pkgrepo.managed)) state option later after state has once ran (and .list file is already created), comments are no actually added to the file. If file is deleted and state is run, then new file is created with `comments` present.
+### Setup
+
+Let's say we have initial pgdg.sls state:
+
+```
+{% set codename = grains.get('lsb_distrib_codename')|lower %}
+
+repository_pgdg:
+  pkgrepo.managed:
+    - humanname: {{ codename }}-backports
+    - file: /etc/apt/sources.list.d/pgdg.list
+    - refresh_db: True
+    - clean_file: True
+    - name: deb http://apt.postgresql.org/pub/repos/apt/ {{ codename }}-pgdg main
+    - key_url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    - require:
+        - pkg: ca_certificates
+```
+
+Execute highstate so file with this content is created:
+
+```
+deb http://apt.postgresql.org/pub/repos/apt wheezy-pgdg main
+```
+
+Later, update original pgdg.sls state to look like this:
+
+```
+{% set codename = grains.get('lsb_distrib_codename')|lower %}
+
+repository_pgdg:
+  pkgrepo.managed:
+    - humanname: {{ codename }}-backports
+    - file: /etc/apt/sources.list.d/pgdg.list
+    - refresh_db: True
+    - clean_file: True
+    - name: deb http://apt.postgresql.org/pub/repos/apt/ {{ codename }}-pgdg main
+    - comments: 
+        - 'THIS FILE IS MANAGED BY SALT! DO NOT EDIT MANUALLY!'
+    - key_url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    - require:
+        - pkg: ca_certificates
+```
+
+Note that `comments` option was added. 
+
+Now, after state.highstate, there is _no actual changes are made_ to `/etc/apt/sources.list.d/pgdg.list` file.
+
+If I delete `/etc/apt/sources.list.d/pgdg.list` and run this state again, file is created with comments as it should:
+
+```
+ deb http://apt.postgresql.org/pub/repos/apt wheezy-pgdg main #THIS FILE IS MANAGED BY SALT! DO NOT EDIT MANUALLY!
+```
+### Steps to Reproduce Issue
+
+Repleat state changes in previous section.
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.6
+       M2Crypto: Not Installed
+           Mako: 0.7.0
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 3.2.3
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 7.10 
+        machine: x86_64
+        release: 3.2.0-4-amd64
+         system: debian 7.10 
+```
+
+Both master and minion are the same Debian Wheezy amd64 with same salt versions:
+
+```
+# salt-run manage.versions
+Master:
+    2015.8.8.2
+Up to date:
+    ----------
+    minion:
+        2015.8.8.2
+    master:
+        2015.8.8.2
+
+```

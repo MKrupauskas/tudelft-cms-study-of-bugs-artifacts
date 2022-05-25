@@ -1,0 +1,140 @@
+**Description**
+modules/ipset.py uses reserved keyword 'set' as functions argument name.
+Calling ipset.delete from minion's reactor results in no action being performed.
+
+**Setup**
+Linux Ubuntu 20.04
+salt 3002.5 installed with pip3
+
+**Steps to Reproduce the behavior**
+_/etc/salt/minion.d/custom.conf_ 
+```
+id: noname
+master_type: disable
+file_client: local
+
+engines:
+  - reactor:
+
+# KeyError: 'reactor_niceness' fix
+reactor_niceness: 9
+
+reactor:
+  - 'test_event/*':
+    - salt://reactor/react.sls
+
+```
+
+
+_/srv/salt/reactor/react.sls_
+```
+step1:
+  caller.log.info:
+    - args:
+      - message: react step1
+
+step2:
+  caller.ipset.delete:
+    - args:
+      - setname: blacklist
+      - entry: 10.10.10.10
+
+step3:
+  caller.log.info:
+    - args:
+      - message: react step3
+```
+
+
+Prepare ipset:
+```
+ipset create blacklist hash:net
+ipset add blacklist 10.10.10.10
+ipset list blacklist
+```
+
+Notice 10.10.10.10 in Members list.
+
+Run minion:
+`salt-minion -l debug `
+
+Fire an event
+`salt-call event.fire '{}' 'test_event/a'
+`
+
+Output:
+```
+[INFO    ] react step1
+[DEBUG   ] LazyLoaded ipset.delete
+[INFO    ] react step3
+```
+
+
+**Expected behavior**
+After applying the ipset_delete_3002.5.patch execution performs as expected:
+```
+[INFO    ] react step1
+[DEBUG   ] LazyLoaded ipset.delete
+[DEBUG   ] LazyLoaded cmd.run_all
+[INFO    ] Executing command '/usr/sbin/ipset' in directory '/root'
+[DEBUG   ] stdout: Name: blacklist
+Type: hash:net
+Revision: 6
+Header: family inet hashsize 1024 maxelem 65536
+Size in memory: 512
+References: 0
+Number of entries: 1
+[INFO    ] Executing command '/usr/sbin/ipset' in directory '/root'
+[DEBUG   ] output: 
+[INFO    ] react step3
+
+```
+
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+Salt Version:
+          Salt: 3002.5
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.3
+       libgit2: Not Installed
+      M2Crypto: 0.31.0
+          Mako: Not Installed
+       msgpack: 1.0.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.10.1
+        pygit2: Not Installed
+        Python: 3.8.5 (default, Jan 27 2021, 15:41:15)
+  python-gnupg: Not Installed
+        PyYAML: 5.4.1
+         PyZMQ: 22.0.3
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+ 
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 5.3.0-64-generic
+        system: Linux
+       version: Ubuntu 20.04 focal
+```
+</details>
+
+**Additional context**
+_ipset_all_func_master.patch_ is a patch for current master solving the same issue for all other functions, which still use reserved keyword 'set'.
+

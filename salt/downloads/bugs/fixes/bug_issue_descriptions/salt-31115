@@ -1,0 +1,70 @@
+Hello,
+
+When creating a new node with salt-cloud  (2015.8.5) and nova, i have the following issue :
+
+```
+[DEBUG   ] Waiting for VM IP. Giving up in 00:13:40
+[DEBUG   ] Loaded node data for node-1:
+{'_uuid': None,
+ 'addresses': {u'Private-NTW': [{u'addr': u'192.168.0.35',
+                                              u'version': 4}],
+               u'private': [{u'addr': u'10.209.38.0', u'version': 4}],
+               u'public': [{u'addr': u'104.239.128.0', u'version': 4},
+                           {u'addr': u'2001:cdba:0000:0000:0000:0000:3257:9652',
+                            u'version': 6}]},
+ 'extra': {'access_ip': u'104.239.128.0', 'metadata': {}},
+ 'id': u'bfc550000000000000000000000000000000000',
+ 'image': u'cf100000000000000000000000000000000000000',
+ 'name': u'node-1',
+ 'private_ips': [u'10.209.38.0'],
+ 'public_ips': [u'104.239.128.0', u'2001:cdba:0000:0000:0000:0000:3257:9652'],
+ 'size': u'general1-4',
+ 'state': u'ACTIVE'}
+[DEBUG   ] VM is now running
+[DEBUG   ] Using IP address False
+[DEBUG   ] Salt interface set to: False
+Error: There was a profile error: A valid IP address was not found
+```
+
+This is caused by the call to preferred_ip inside nova.py at line 863.
+
+``` python
+ 856     log.debug('VM is now running')
+ 857 
+ 858     if ssh_interface(vm_) == 'private_ips':
+ 859         ip_address = preferred_ip(vm_, data.private_ips)
+ 860     elif rackconnect(vm_) is True and ssh_interface(vm_) != 'private_ips':
+ 861         ip_address = data.public_ips
+ 862     else:
+ 863         ip_address = preferred_ip(vm_, data.public_ips)
+ 864     log.debug('Using IP address {0}'.format(ip_address))
+```
+
+data.public_ips is not a dict and therefore the loop is failing 
+
+``` python
+ 379     family = socket.AF_INET
+ 380     if proto == 'ipv6':
+ 381         family = socket.AF_INET6
+ 382     for ip in ips:
+ 383         try:
+ 384             socket.inet_pton(family, ip)
+ 385             return ip
+ 386         except Exception:
+ 387             continue
+```
+
+Passing a dict works :
+
+``` python
+ 856     log.debug('VM is now running')
+ 857 
+ 858     if ssh_interface(vm_) == 'private_ips':
+ 859         ip_address = preferred_ip(vm_, data.private_ips)
+ 860     elif rackconnect(vm_) is True and ssh_interface(vm_) != 'private_ips':
+ 861         ip_address = data.public_ips
+ 862     else:
+ 863         data.public_ips = [data.public_ips, ]
+ 864         ip_address = preferred_ip(vm_, data.public_ips)
+ 865     log.debug('Using IP address {0}'.format(ip_address))
+```

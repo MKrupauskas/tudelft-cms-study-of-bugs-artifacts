@@ -1,0 +1,196 @@
+**Description**
+
+Hello guys!
+
+
+I am looking for a solution to a communication problem between our Master -> Syndic -> Minions structure.
+
+We currently have 3 masters, 11 syndics and approximately 6K minions. This structure is still small compared to larger uses of SaltStack's potential, however we are faced with several moments with Timeouts and generating low communication with Minions (We have moments that only 600 minions respond).
+
+
+
+#What is your environment? Production integrations
+#What steps will reproduce the issue? 12 hours or so, the problem happens.
+#What Operating System? Centos 7
+#What would you expect to be the outcome? Normal Operation.
+
+
+I have already checked several bug's reported in Git since much older versions and unfortunately this problem does not appear to be related to a version bug, but I believe that it would be already fixed.
+
+#Related Issues : 43436 ; 55629 ; 53147.
+
+I have already performed the "salt-run state.event pretty = True", 0mq Tunning attempts and have not found a root cause that may be affecting the master.
+
+I did not find any reference to these problems being dealt with in the release notes superior to our Master, which may point out that it is not a real Bug.
+
+
+**Setup**
+
+-  salt-minions versions ranged from 2015 to 3000.2
+
+- salt --versions-report
+Salt Version:
+           Salt: 2019.2.5
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: 1.2.5
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Apr  2 2020, 13:16:51)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+System Versions:
+           dist: centos 7.8.2003 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1062.12.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.8.2003 Core
+
+-  salt master has following HW resource.
+
+16 core CPUs
+64G RAM  and around 8G used
+
+**master.conf**
+
+> yaml_utf8: True
+worker_threads: 32
+show_jid: True
+file_roots:
+  base:
+    - /srv/salt
+pillar_roots:
+  base:
+    - /srv/pillar
+\# Timeout
+key_cache: 'sched'
+timeout: 30
+gather_job_timeout: 60
+\# Allow cp.push from minions
+file_recv: True
+order_masters: True
+sock_pool_size: 15
+max_open_files: 100000
+log_level_logfile: all
+\#Tunning ZMQ Settings - 01072020
+\#salt_event_pub_hwm: 256000
+\#event_publisher_pub_hwm: 128000
+\#http://api.zeromq.org/3-2:zmq-setsockopt - 60 a 70%
+pub_hwm: 120000
+zmq_backlog: 130000
+con_cache: True
+file_buffer_size: 16777216
+max_event_size: 10485760
+reactor_worker_hwm: 100000
+reactor_worker_threads: 16
+reactor_refresh_interval: 3600
+tcp_keepalive_idle: -1
+
+**redis.conf**
+
+> redis.host: <SERVER IP>
+redis.port: <SERVER PORT>
+redis.db: 0
+cache: redis
+cache.redis.host: <SERVER IP>
+cache.redis.port: <SERVER PORT>
+cache.redis.db: 0
+minion_data_cache: True
+master_job_cache: redis
+job_cache_store_endtime: True
+\# Keep jobs in redis in hours
+keep_jobs: 24
+
+**api.conf**
+
+> \######          API  Settings         #####
+> \###########################################
+rest_cherrypy:
+  port: 9080
+  host: 0.0.0.0
+  collect_stats: false
+  disable_ssl: true
+  log_level_logfile: all
+  log_access_file: /var/log/salt/api_access.log
+  log_error_file: /var/log/salt/api_error.log
+  rest_timeout: 120
+
+
+- Python Minions
+Park with some machines in Py2 (in the process of updating) and Py3.
+
+
+**In the Syndics i have the optional installation of Salt Minion looking for performance.**
+
+> ipv6: False
+minion_id_lowercase: True
+random_startup_delay: 10
+acceptance_wait_time: 60
+random_reauth_delay: 300
+recon_default: 5000
+recon_max: 120000
+recon_randomize: True
+master_tops_first: True
+grains_cache: True
+grains_refresh_every: 1440
+grains_deep_merge: True
+#log_level_logfile: debug
+log_level_logfile: info
+log_rotate_max_bytes: 10000000
+log_rotate_backup_count: 5
+zmq_monitor: True
+master_alive_interval: 30
+master_shuffle: True
+
+
+
+**Additional context**
+
+#1 - Syndic Logs
+
+2020-07-24 18:04:59,577 [salt.transport.zeromq:1244][DEBUG   ][29491] SaltReqTimeoutError, retrying. (2/3)
+2020-07-24 18:04:59,578 [salt.transport.zeromq:1244][DEBUG   ][29491] SaltReqTimeoutError, retrying. (2/3)
+2020-07-24 18:04:59,578 [salt.transport.zeromq:1244][DEBUG   ][29491] SaltReqTimeoutError, retrying. (2/3)
+2020-07-24 18:04:59,579 [salt.transport.zeromq:229 ][DEBUG   ][29491] This is not the last AsyncZeroMQReqChannel instance. Not closing yet.
+2020-07-24 18:04:59,579 [salt.minion      :1462][INFO    ][29491] fire_master failed: master could not be contacted. Request timed out.
+2020-07-24 18:04:59,580 [salt.transport.zeromq:1214][DEBUG   ][29491] Re-init ZMQ socket: Message timed out
+2020-07-24 18:04:59,580 [salt.transport.zeromq:1189][DEBUG   ][29491] Trying to connect to: tcp://<SERVERIP>:4506
+
+#2 - Other Sample.
+
+2020-07-27 11:01:46,781 [salt.minion      :2026][INFO    ][30212] Returning information for job: 20200727110001449196
+2020-07-27 11:01:46,781 [salt.minion      :2026][INFO    ][30212] Returning information for job: 20200727110001449196
+2020-07-27 11:01:46,804 [salt.minion      :1462][INFO    ][30212] fire_master failed: master could not be contacted. Request timed out.
+2020-07-27 11:01:47,652 [salt.minion      :1462][INFO    ][30212] fire_master failed: master could not be contacted. Request timed out.
+2020-07-27 11:01:47,654 [salt.minion      :1462][INFO    ][30212] fire_master failed: master could not be contacted. Request timed out.
+2020-07-27 11:01:48,649 [salt.minion      :2026][INFO    ][30212] Returning information for job: 20200727110146303385
+2020-07-27 11:01:48,654 [salt.minion      :1462][INFO    ][30212] fire_master failed: master could not be contacted. Request timed out.
+2020-07-27 11:01:48,657 [salt.minion      :1462][INFO    ][30212] fire_master failed: master could not be contacted. Request timed out.
+
+
+
+
+We have a continuous restart script as a palliative solution.
+Could you support us to find what could be done in my environment?

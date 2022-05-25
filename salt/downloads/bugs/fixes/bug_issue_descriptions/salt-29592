@@ -1,0 +1,144 @@
+Dear all,
+
+using host.present to add an host with alias names to /etc/hosts may break the file format as explained below. 
+
+I am not sure whether this is merely a case of unexpected behavior or wrong usage by me or might indeed qualify as a bug.
+
+The format of a line in /etc/hosts on an unixoid system is fixed as
+`IP_address canonical_hostname [aliases...]`
+so to be more concrete usually `10.10.10.111 test.example.com test`
+please confirm with `man (5) hosts`. The FQDN has to be in front of the short-hand alias.
+
+Naively using host.present to add the whole line `10.10.10.111 test.example.com test` in one call generates instead:
+
+``` sls
+test_input:
+  host.present:
+    - ip: 10.10.10.111
+    - names:
+      - fqdn.domain.com
+      - alias
+```
+
+Generated line in the minions `/etc/hosts`: `10.10.10.111            alias fqdn.domain.com`
+
+``` sls
+test_input:
+  host.present:
+    - ip: 10.10.10.111
+    - names:
+      - alias
+      - fqdn.domain.com
+```
+
+Generated line in the minions `/etc/hosts`: `10.10.10.111            alias fqdn.domain.com`
+
+Both break `/etc/hosts` format, the alias is in front of the FQDN. 
+
+Calling host.present twice can be used to generate the correct order of entries as shown below
+
+``` sls
+input_fqdn:
+  host.present:
+    - ip: 10.10.10.111
+    - names:
+      - fqdn.domain.com
+
+input_alias:
+  host.present:
+    - ip: 10.10.10.111
+    - names:
+      - alias
+```
+
+Generated line in the minions `/etc/hosts`: `10.10.10.111            fqdn.domain.com alias`
+
+but is awkward.
+
+In any case I would suggest to mention this behavior in the salt.states.host documentation. If generating an FQDN and several aliases for one IP with one call of host.present is not the intended use case of the option to pass several names as a list (so in case I am using the features of host.present in a wrong way) it would also be nice to document the intended use. 
+
+Best Regards
+
+Christof
+
+Salt Version information:
+
+Master
+
+``` yaml
+ Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.2 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 8.2
+```
+
+Minion
+
+``` yaml
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-57-generic
+         system: Ubuntu 14.04 trusty
+```

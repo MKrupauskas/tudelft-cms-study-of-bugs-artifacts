@@ -1,0 +1,75 @@
+Problem with Debian Wheezy (and salt-backports): the boto version is too old for 2014.7.0 modules/state for new AWS functions... 
+
+```
+# apt-cache show python-boto | grep Version
+Version: 2.25.0-1~bpo70+1
+Version: 2.3.0-1
+```
+
+a) I tried to use the listed function pip.uptodate
+
+```
+python-pip-update-for-saltstack:
+  pip.uptodate:
+    - require:
+    - pkg: python-pip
+```
+
+http://docs.saltstack.com/en/latest/ref/states/all/salt.states.pip_state.html#salt.states.pip_state.uptodate
+... problem => `Comment: State 'pip.uptodate' found in SLS 'common' is unavailable`
+so I guess thats for version  > 2014.7.0.
+
+b) I setup a manual install with update:
+
+```
+python-boto-update-for-saltstack:
+  pip.installed:
+    - name: boto
+    - upgrade: True
+```
+
+ => problem: every run I got a "changed" status even there is nothing done.
+
+```
+----------
+          ID: python-boto-update-for-saltstack
+    Function: pip.installed
+        Name: boto
+      Result: True
+     Comment: Package was successfully installed
+     Started: 12:16:24.329836
+    Duration: 813.395 ms
+     Changes:   
+              ----------
+              boto==2.34.0:
+                  Installed
+```
+
+c) I setup it with a version check
+
+```
+181 {% if salt['cmd.run']('test ` pip freeze 2>&1 | sed -ne "s/^boto==2\.\([0-9]\+\)\.[0-9]\+/\1/p"` -ge "30"') %}
+python-boto-update-for-saltstack:
+  pip.installed:
+    - name: boto
+    - upgrade: True
+{% endif %}
+```
+
+=> problem:
+
+```
+[INFO    ] Executing command 'test ` pip freeze 2>&1 | sed -ne "s/^boto==2\\.\\([0-9]\\+\\)\\.[0-9]\\+/\x01/p"` -ge "30"' in directory '/root'
+[ERROR   ] Command 'test ` pip freeze 2>&1 | sed -ne "s/^boto==2\\.\\([0-9]\\+\\)\\.[0-9]\\+/\x01/p"` -ge "30"' failed with return code: 2
+[ERROR   ] output: /bin/bash: line 0: test: ^A: integer expression expected
+```
+
+But when I check it manually it works fine:
+
+```
+# salt-call cmd.run 'test ` pip freeze 2>&1 | sed -ne "s/^boto==2\.\([0-9]\+\)\.[0-9]\+/\1/p"` -ge "30"'
+[INFO    ] Executing command 'test ` pip freeze 2>&1 | sed -ne "s/^boto==2\\.\\([0-9]\\+\\)\\.[0-9]\\+/\\1/p"` -ge "34"' in directory '/root'
+local:
+```
+
+Reiner

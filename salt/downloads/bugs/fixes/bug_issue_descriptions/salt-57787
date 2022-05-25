@@ -1,0 +1,88 @@
+**Description**
+When attempting to run salt on macOS Big Sur the following error is produced.
+
+```
+Traceback (most recent call last):
+  File "/opt/local/bin/salt-call", line 11, in <module>
+    load_entry_point('salt==3001', 'console_scripts', 'salt-call')()
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001-py3.7.egg/salt/scripts.py", line 466, in salt_call
+    import salt.cli.call
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001-py3.7.egg/salt/cli/call.py", line 6, in <module>
+    import salt.cli.caller
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001-py3.7.egg/salt/cli/caller.py", line 19, in <module>
+    import salt.minion
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001-py3.7.egg/salt/minion.py", line 30, in <module>
+    import salt.crypt
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001-py3.7.egg/salt/crypt.py", line 39, in <module>
+    import salt.utils.rsax931
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001-py3.7.egg/salt/utils/rsax931.py", line 131, in <module>
+    libcrypto = _init_libcrypto()
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001-py3.7.egg/salt/utils/rsax931.py", line 84, in _init_libcrypto
+    libcrypto = _load_libcrypto()
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001-py3.7.egg/salt/utils/rsax931.py", line 77, in _load_libcrypto
+    return cdll.LoadLibrary(_find_libcrypto())
+  File "/opt/salt/lib/python3.7/site-packages/salt-3001-py3.7.egg/salt/utils/rsax931.py", line 69, in _find_libcrypto
+    raise OSError("Cannot locate OpenSSL libcrypto")
+OSError: Cannot locate OpenSSL libcrypto
+```
+
+This is caused by a change in how dynamic libraries are made available on macOS. [More info in the snippet bellow from the Big Sur Release Notes.](https://developer.apple.com/documentation/macos-release-notes/macos-big-sur-11-beta-release-notes)
+
+```
+New in macOS Big Sur 11 beta, the system ships with a built-in dynamic linker cache of all system-provided libraries.
+As part of this change, copies of dynamic libraries are no longer present on the filesystem.
+Code that attempts to check for dynamic library presence by looking for a file at a path or enumerating a directory will fail.
+Instead, check for library presence by attempting to dlopen() the path, which will correctly check for the library in the cache. (62986286)
+```
+
+The way salt currently works is it's looking for the path of the `libcrypto.dylib` which is missing on Big Sur. Which is why we fail.
+
+My recommendation is to no longer rely on a system provided OpenSSL in `salt/utils/rsax931.py` and move to using the OpenSSL that is provided by the salt installer in #57607. (We can also add needed paths for Homebrew and Macports installations) and only fall back to the System as the last resort. 
+
+**Setup**
+A system running macOS Big Sur
+
+**Steps to Reproduce the behavior**
+run `sudo salt-call --version`
+
+**version report**
+After applying work around.
+```
+Salt Version:
+           Salt: 3001
+ 
+Dependency Versions:
+           cffi: 1.12.2
+       cherrypy: unknown
+       dateutil: 2.8.0
+      docker-py: Not Installed
+          gitdb: 2.0.6
+      gitpython: 2.1.15
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: Not Installed
+   pycryptodome: 3.9.7
+         pygit2: Not Installed
+         Python: 3.7.4 (default, Jun  9 2020, 17:22:20)
+   python-gnupg: 0.4.4
+         PyYAML: 5.1.2
+          PyZMQ: 18.0.1
+          smmap: 3.0.4
+        timelib: 0.2.4
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: darwin 20.0.0 
+         locale: UTF-8
+        machine: x86_64
+        release: 20.0.0
+         system: Darwin
+        version: 10.16 x86_64
+```

@@ -1,0 +1,100 @@
+Our Salt enviroment consists of "production" (base) and "development" (dev). 
+In base there is an include of a base environment setup (on `*`) which installs some stuff including Zabbix Agent (via the "official" Saltstack Formula). This works fine, however... we're faced with duplicate SLS ID's when highstating a machine in the dev environment:
+
+```
+local:
+    Data failed to compile:
+----------
+    No matching sls found for 'monitoring.zabbix.server' in env 'dev'
+----------
+    No matching sls found for 'monitoring.zabbix.server' in env 'dev'
+----------
+    No matching sls found for 'monitoring.zabbix.server' in env 'dev'
+----------
+    Detected conflicting IDs, SLS IDs need to be globally unique.
+    The conflicting ID is "zabbix_repo" and is found in SLS "base:zabbix.repo" and SLS "dev:zabbix.repo"
+----------
+    Detected conflicting IDs, SLS IDs need to be globally unique.
+    The conflicting ID is "zabbix_repo_add_gpg" and is found in SLS "base:zabbix.repo" and SLS "dev:zabbix.repo"
+----------
+    Detected conflicting IDs, SLS IDs need to be globally unique.
+    The conflicting ID is "/var/tmp/zabbix-official-repo.gpg" and is found in SLS "base:zabbix.repo" and SLS "dev:zabbix.repo"
+```
+
+The particular zabbix_repo sls is one that extends. It is only being included once (in base) but things get messed up in "lower" enviroments.
+
+The fileserver is configured to inherit: Dev inherits everything from the higher environments, Test inherits Prod (and has its own env) and then there's Prod which inherits nothing:
+
+```
+file_roots:
+    base:
+        - /srv/salt/environments/prod/states
+        - /srv/salt/environments/prod/templates
+        - /srv/salt/environments/prod/files
+        - /srv/salt/environments/prod/formulas
+    qa:
+        - /srv/salt/environments/qa/states    
+        - /srv/salt/environments/prod/states
+        - /srv/salt/environments/qa/templates  
+        - /srv/salt/environments/prod/templates
+        - /srv/salt/environments/qa/files  
+        - /srv/salt/environments/prod/files
+        - /srv/salt/environments/qa/formulas
+        - /srv/salt/environments/prod/formulas
+    dev:
+        - /srv/salt/environments/dev/states
+        - /srv/salt/environments/qa/states
+        - /srv/salt/environments/prod/states
+        - /srv/salt/environments/dev/templates
+        - /srv/salt/environments/qa/templates
+        - /srv/salt/environments/prod/templates
+        - /srv/salt/environments/dev/files
+        - /srv/salt/environments/qa/files
+        - /srv/salt/environments/prod/files        
+        - /srv/salt/environments/dev/formulas
+        - /srv/salt/environments/qa/formulas
+        - /srv/salt/environments/prod/formulas
+```
+
+Shortened version of `states/top.sls`:
+
+```
+base:
+  '*':
+    - example.base
+  'shared01.example.com':
+    - zendserver
+    - mariadb
+    - postfix
+    - nodes.shared01
+dev:
+  'shared01.dev.example.net':
+    - zendserver
+    - mariadb
+    - postfix
+    - nodes.shared01
+  'monitoring01.dev.example.net':
+    - monitoring.zabbix.server
+```
+
+The `monitoring.zabbix.server` contains:
+
+```
+# Zabbix server config
+include:
+  - postfix
+  - mariadb
+  - php5.fpm.conf
+  - php5.mysql
+  - zabbix.users
+  - zabbix.mysql.conf
+  - zabbix.mysql.schema
+  - zabbix.server.conf
+  - zabbix.frontend.conf
+
+```
+
+Issue with some more background info:
+https://github.com/moreda/zabbix-saltstack-formula/issues/2
+
+It appears that inheritance in combination with `extend` is causing issues. If any more information is needed, please let me know.

@@ -1,0 +1,79 @@
+I've been unable to use a git repo with no sub directories at a mountpoint with `file.recurse`.
+
+My guess is that because mountpoints aren't appearing in `cp.list_master_dirs`, for similar reasons, it also isn't being seen by `file.recurse` as a directory. I should be able to work around this by placing the files in my `sphinx` repo into a sub directory for now, but that shouldn't be required.
+
+``` yaml
+$ salt minion.example.com state.highstate test=True
+[snip]
+----------
+          ID: /etc/sphinx/conf.d
+    Function: file.recurse
+      Result: False
+     Comment: Recurse failed: none of the specified sources were found
+     Started: 22:41:35.437446
+    Duration: 18.539 ms
+     Changes:   
+----------
+[snip]
+```
+
+``` yaml
+$ salt minion.example.com cp.list_master_dirs
+minion.example.com:
+    - zsh
+    - zsh/files
+```
+
+``` yaml
+$ salt minion.example.com cp.list_master
+minion.example.com:
+    - cfg/sphinx/00_core.conf
+    - cfg/sphinx/10_products.conf
+    - cfg/sphinx/20_forums.conf
+    - cfg/sphinx/30_blogs.conf
+    - top.sls
+    - zsh/files/zshrc
+    - zsh/init.sls
+```
+#### /etc/salt/master
+
+``` yaml
+fileserver_backend:
+  - git
+gitfs_remotes:
+  - ssh://git@example.com/salt/states.git
+  - ssh://git@example.com/salt/zsh-formula.git
+  - ssh://git@example.com/cfg/sphinx.git:
+    - mountpoint: salt://cfg/sphinx
+
+```
+#### Salt State
+
+``` yaml
+/etc/sphinx/conf.d:
+  file.recurse:
+    - source: salt://cfg/sphinx
+    - dir_mode: 0755
+    - file_mode: 0644
+```
+#### Versions
+
+``` yaml
+$ uname -a
+Linux energy 3.18.6-1-ARCH #1 SMP PREEMPT Sat Feb 7 08:44:05 CET 2015 x86_64 GNU/Linux
+$ salt --versions                                          
+           Salt: 2014.7.2
+         Python: 2.7.9 (default, Dec 11 2014, 04:42:00)
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+ msgpack-python: 0.4.5
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+```

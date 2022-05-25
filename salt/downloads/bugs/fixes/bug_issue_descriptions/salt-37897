@@ -1,0 +1,186 @@
+### Description of Issue/Question
+
+When running aptpkg.refresh_db with an unreachable http source, refresh_db fails to parse and report the results of `Err` lines. This occurs on 2016.3 as well as develop.
+
+### Setup
+
+To simplify the output:
+```
+root@devmaster01:~# mv /etc/apt/sources.list /etc/apt/sources.list-bak
+root@devmaster01:~# echo -e "deb http://us.archive.ubuntu.com/ubuntu/ trusty main restricted\ndeb-src http://us.archive.ubuntu.com/ubuntu/ trusty main restricted" > /etc/apt/sources.list
+```
+
+Sample output without the issue:
+```
+root@devmaster01:~# salt 'devmaster01' pkg.refresh_db
+devmaster01:
+    ----------
+    http://us.archive.ubuntu.com trusty InRelease:
+        False
+    http://us.archive.ubuntu.com trusty Release:
+        True
+    http://us.archive.ubuntu.com trusty Release.gpg:
+        True
+    http://us.archive.ubuntu.com trusty/main Sources:
+        True
+    http://us.archive.ubuntu.com trusty/main Translation-en:
+        True
+    http://us.archive.ubuntu.com trusty/main amd64 Packages:
+        True
+    http://us.archive.ubuntu.com trusty/main i386 Packages:
+        True
+    http://us.archive.ubuntu.com trusty/restricted Sources:
+        True
+    http://us.archive.ubuntu.com trusty/restricted Translation-en:
+        True
+    http://us.archive.ubuntu.com trusty/restricted amd64 Packages:
+        True
+    http://us.archive.ubuntu.com trusty/restricted i386 Packages:
+        True
+    https://repo.saltstack.com trusty InRelease:
+        None
+    https://repo.saltstack.com trusty/main Translation-en:
+        False
+    https://repo.saltstack.com trusty/main amd64 Packages:
+        None
+    https://repo.saltstack.com trusty/main i386 Packages:
+        None
+```
+
+### Steps to Reproduce Issue
+
+Making one of the sources unreachable:
+```
+root@devmaster01:~# echo "127.0.0.1   us.archive.ubuntu.com" >> /etc/hosts
+```
+
+Now the output of refresh_db afterwards:
+```
+root@devmaster01:~# salt 'devmaster01' pkg.refresh_db
+devmaster01:
+    ----------
+    https://repo.saltstack.com trusty InRelease:
+        None
+    https://repo.saltstack.com trusty/main Translation-en:
+        False
+    https://repo.saltstack.com trusty/main amd64 Packages:
+        None
+    https://repo.saltstack.com trusty/main i386 Packages:
+        None
+```
+
+Contrasted with the output of `apt-get -q update`:
+```
+root@devmaster01:~# apt-get -q update
+Err http://us.archive.ubuntu.com trusty InRelease
+
+Err http://us.archive.ubuntu.com trusty Release.gpg
+  Unable to connect to us.archive.ubuntu.com:http:
+Hit https://repo.saltstack.com trusty InRelease
+Hit https://repo.saltstack.com trusty/main amd64 Packages
+Hit https://repo.saltstack.com trusty/main i386 Packages
+Get:1 https://repo.saltstack.com trusty/main Translation-en_US
+Ign https://repo.saltstack.com trusty/main Translation-en_US
+Ign https://repo.saltstack.com trusty/main Translation-en
+Reading package lists...
+W: Failed to fetch http://us.archive.ubuntu.com/ubuntu/dists/trusty/InRelease
+
+W: Failed to fetch http://us.archive.ubuntu.com/ubuntu/dists/trusty/Release.gpg  Unable to connect to us.archive.ubuntu.com:http:
+
+W: Some index files failed to download. They have been ignored, or old ones used instead.
+root@devmaster01:~# echo $?
+0
+```
+
+
+### Versions Report
+
+On 2016.3.4:
+```
+root@devmaster01:~# salt 'devmaster01' test.versions
+devmaster01:
+    Salt Version:
+               Salt: 2016.3.4
+
+    Dependency Versions:
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: 2.5.3
+              gitdb: 0.5.4
+          gitpython: 0.3.2 RC1
+              ioflo: Not Installed
+             Jinja2: 2.7.2
+            libgit2: Not Installed
+            libnacl: Not Installed
+           M2Crypto: 0.21.1
+               Mako: 0.9.1
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.6
+       mysql-python: 1.2.3
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+             pygit2: Not Installed
+             Python: 2.7.6 (default, Oct 26 2016, 20:30:19)
+       python-gnupg: 0.3.6
+             PyYAML: 3.10
+              PyZMQ: 14.0.1
+               RAET: Not Installed
+              smmap: 0.8.2
+            timelib: Not Installed
+            Tornado: 4.3
+                ZMQ: 4.0.5
+
+    System Versions:
+               dist: Ubuntu 14.04 trusty
+            machine: x86_64
+            release: 4.4.0-47-generic
+             system: Linux
+            version: Ubuntu 14.04 trusty
+```
+
+On develop, which exhibits the same behavior:
+```
+root@devmaster02:~# salt 'devmaster02' test.versions
+[WARNING ] Key 'ssl' with value None has an invalid type of NoneType, a dict is required for this value
+[WARNING ] Key 'ssl' with value None has an invalid type of NoneType, a dict is required for this value
+[WARNING ] Key 'ssl' with value None has an invalid type of NoneType, a dict is required for this value
+[WARNING ] Key 'ssl' with value None has an invalid type of NoneType, a dict is required for this value
+devmaster02:
+    Salt Version:
+               Salt: 2016.11.0-415-g843ceac
+
+    Dependency Versions:
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: 1.5
+              gitdb: 0.5.4
+          gitpython: 0.3.2 RC1
+              ioflo: Not Installed
+             Jinja2: 2.7.2
+            libgit2: Not Installed
+            libnacl: Not Installed
+           M2Crypto: 0.21.1
+               Mako: 0.9.1
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.6
+       mysql-python: 1.2.3
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+             pygit2: Not Installed
+             Python: 2.7.6 (default, Oct 26 2016, 20:30:19)
+       python-gnupg: 0.3.6
+             PyYAML: 3.10
+              PyZMQ: 14.0.1
+               RAET: Not Installed
+              smmap: 0.8.2
+            timelib: Not Installed
+            Tornado: 4.2.1
+                ZMQ: 4.0.5
+
+    System Versions:
+               dist: Ubuntu 14.04 trusty
+            machine: x86_64
+            release: 4.4.0-47-generic
+             system: Linux
+            version: Ubuntu 14.04 trusty
+```

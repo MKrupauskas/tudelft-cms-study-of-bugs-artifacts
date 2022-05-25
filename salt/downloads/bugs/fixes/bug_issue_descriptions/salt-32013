@@ -1,0 +1,318 @@
+### Description of Issue/Question
+
+Applying the following config to state `dockerng.running` never succeeds, because Docker is adding ports.
+### Setup
+
+This is the state I'm applying:
+
+``` yaml
+{% set peers = [{"peer2": "172.168.1.52"}, {"peer3": "172.168.1.53"}, {"peer4": "172.168.1.54"}, {"peer5": "172.168.1.55"}] %}
+consul-data:
+  dockerng.volume_present:
+    - driver: local
+consul:
+  dockerng.running:
+    - image: voxxit/consul:latest
+    - port_bindings:
+      - "8300:8300"
+      - "8301:8301"
+      - "8301:8301/udp"
+      - "8302:8302"
+      - "8302:8302/udp"
+      - "8400:8400"
+      - "8500:8500"
+      - "53:53/udp"
+    - command: agent -data-dir /data -server -advertise {{private_ip}} -bootstrap-expect {{"%i" % ((peers | length) / 2 + 1)}} -retry-interval 10s -node consul{{grains.local_idx}} -domain staging -client 0.0.0.0 -bind 0.0.0.0 -ui
+        {%- for minion_id, ip in peers.items() | sort %}
+        {%- if minion_id != grains.id %} -retry-join {{ip}}
+        {%- endif %}
+        {%- endfor %}
+    - binds:
+        - consul-data:/data
+```
+
+I've added debug code; the create_container call params are as follows (I did some debug output):
+
+``` json
+[
+  "create_container",
+  "consul",
+  "voxxit/consul:latest",
+  {
+    "host_config": {
+      "Binds": ["consul-data:/data:rw"],
+      "PortBindings": {
+        "8301/udp": [{"HostPort": "8301", "HostIp": ""}],
+        "8500/tcp": [{"HostPort": "8500", "HostIp": ""}],
+        "8301/tcp": [{"HostPort": "8301", "HostIp": ""}],
+        "8302/udp": [{"HostPort": "8302", "HostIp": ""}],
+        "8302/tcp": [{"HostPort": "8302", "HostIp": ""}],
+        "8300/tcp": [{"HostPort": "8300", "HostIp": ""}],
+        "8400/tcp": [{"HostPort": "8400", "HostIp": ""}],
+        "53/udp":   [{"HostPort": "53",   "HostIp": ""}
+        ]
+      },
+      "NetworkMode": "default"
+    },
+    "command": ["agent", "-data-dir", "/data", "-server", "-advertise", "172.168.1.51", "-bootstrap-expect", "3", "-retry-interval", "10s", "-node", "consul43", "-domain", "staging", "-client", "0.0.0.0", "-bind", "0.0.0.0", "-ui", "-retry-join", "172.168.1.52", "-retry-join", "172.168.1.53", "-retry-join", "172.168.1.54", "-retry-join", "172.168.1.55"],
+    "volumes": ["/data"],
+    "ports": ["8301/udp", 8300, 8301, 8302, "8302/udp", 8400, 8500, "53/udp"]
+  }
+]
+```
+
+This succeeds. However, the next time around, when we apply the state again, the inspect docker API call returns:
+
+```
+{
+  "ExecIDs": null,
+  "State": {"Status": "running", "Pid": 95269, "OOMKilled": false, "Dead": false, "Paused": false, "Running": true, "FinishedAt": "0001-01-01T00:00:00Z", "Restarting": false, "Error": "", "StartedAt": "2016-03-21T06:27:56.169581031Z", "ExitCode": 0},
+  "Config": {
+    "Tty": false,
+    "Cmd": ["agent", "-data-dir", "/data", "-server", "-advertise", "172.168.1.51", "-bootstrap-expect", "3", "-retry-interval", "10s", "-node", "consul43", "-domain", "staging", "-client", "0.0.0.0", "-bind", "0.0.0.0", "-ui", "-retry-join", "172.168.1.52", "-retry-join", "172.168.1.53", "-retry-join", "172.168.1.54", "-retry-join", "172.168.1.55"],
+    "Volumes": {
+      "/data": {}
+    },
+    "Domainname": "",
+    "WorkingDir": "",
+    "Image": "voxxit/consul:latest",
+    "Hostname": "b4816e144fe5",
+    "StdinOnce": false,
+    "Labels": {},
+    "AttachStdin": false,
+    "User": "",
+    "Env": [
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "CONSUL_VERSION=0.6.3"
+    ],
+    "ExposedPorts": {
+      "8302/udp/tcp": {},
+      "8301/udp": {},
+      "8500/tcp": {},
+      "8600/udp": {},
+      "8301/tcp": {},
+      "8600/tcp": {},
+      "8302/udp": {},
+      "8302/tcp": {},
+      "53/udp/tcp": {},
+      "8300/tcp": {},
+      "8400/tcp": {},
+      "8301/udp/tcp": {}
+    },
+    "OnBuild": null,
+    "AttachStderr": true,
+    "Entrypoint": [
+      "/bin/consul"
+    ],
+    "AttachStdout": true,
+    "OpenStdin": false
+  },
+  "ResolvConfPath": "/var/lib/docker/containers/b4816e144fe515128ba43a850d29924d1ccc7e4e6da2933eb8bb680af0fdad64/resolv.conf",
+  "HostsPath": "/var/lib/docker/containers/b4816e144fe515128ba43a850d29924d1ccc7e4e6da2933eb8bb680af0fdad64/hosts",
+  "Args": ["agent", "-data-dir", "/data", "-server", "-advertise", "172.168.1.51", "-bootstrap-expect", "3", "-retry-interval", "10s", "-node", "consul43", "-domain", "staging", "-client", "0.0.0.0", "-bind", "0.0.0.0", "-ui", "-retry-join", "172.168.1.52", "-retry-join", "172.168.1.53", "-retry-join", "172.168.1.54", "-retry-join", "172.168.1.55"],
+  "Driver": "devicemapper",
+  "Path": "/bin/consul",
+  "HostnamePath": "/var/lib/docker/containers/b4816e144fe515128ba43a850d29924d1ccc7e4e6da2933eb8bb680af0fdad64/hostname",
+  "RestartCount": 0,
+  "Name": "/consul",
+  "Created": "2016-03-21T06:27:47.958868571Z",
+  "GraphDriver": {
+    "Data": {
+      "DeviceName": "docker-xxx:redacted",
+      "DeviceSize": "42949672960",
+      "DeviceId": "117"
+    },
+    "Name": "devicemapper"
+  },
+  "Mounts": [
+    {
+      "RW": true,
+      "Name": "consul-data",
+      "Propagation": "rprivate",
+      "Destination": "/data",
+      "Driver": "local",
+      "Source": "/var/lib/docker/volumes/consul-data/_data",
+      "Mode": "rw"
+    }
+  ],
+  "ProcessLabel": "",
+  "NetworkSettings": {
+    "Bridge": "",
+    "Networks": {
+      "bridge": {
+        "NetworkID": "redacted",
+        "MacAddress": "02:42:ac:11:00:02",
+        "GlobalIPv6PrefixLen": 0,
+        "Links": null,
+        "GlobalIPv6Address": "",
+        "IPv6Gateway": "",
+        "IPAMConfig": null,
+        "EndpointID": "redacted",
+        "IPPrefixLen": 16,
+        "IPAddress": "172.17.0.2",
+        "Gateway": "172.17.0.1",
+        "Aliases": null
+      }
+    },
+    "SecondaryIPv6Addresses": null,
+    "LinkLocalIPv6Address": "",
+    "HairpinMode": false,
+    "IPv6Gateway": "",
+    "SecondaryIPAddresses": null,
+    "SandboxID": "redacted",
+    "MacAddress": "redacted",
+    "GlobalIPv6Address": "",
+    "Gateway": "172.17.0.1",
+    "LinkLocalIPv6PrefixLen": 0,
+    "EndpointID": "redacted",
+    "SandboxKey": "redacted",
+    "GlobalIPv6PrefixLen": 0,
+    "IPPrefixLen": 16,
+    "IPAddress": "172.17.0.2",
+    "Ports": {
+      "8301/tcp": [{"HostPort": "8301", "HostIp": "0.0.0.0"}],
+      "8500/tcp": [{"HostPort": "8500", "HostIp": "0.0.0.0"}],
+      "8600/udp": null,
+      "8301/udp": [{"HostPort": "8301", "HostIp": "0.0.0.0"}],
+      "8600/tcp": null,
+      "8302/udp": [{"HostPort": "8302", "HostIp": "0.0.0.0"}],
+      "8302/tcp": [{"HostPort": "8302", "HostIp": "0.0.0.0"}],
+      "8300/tcp": [{"HostPort": "8300", "HostIp": "0.0.0.0"}],
+      "8400/tcp": [{"HostPort": "8400", "HostIp": "0.0.0.0"}],
+      "53/udp": null
+    }
+  },
+  "AppArmorProfile": "",
+  "Image": "sha256:redacted",
+  "LogPath": "/var/lib/docker/containers/redacted.log",
+  "HostConfig": {
+    "CpuPeriod": 0,
+    "MemorySwappiness": -1,
+    "ContainerIDFile": "",
+    "MemorySwap": 0,
+    "BlkioDeviceReadIOps": null,
+    "CpuQuota": 0,
+    "Dns": null,
+    "ExtraHosts": null,
+    "PidsLimit": 0,
+    "DnsSearch": null,
+    "Privileged": false,
+    "Ulimits": null,
+    "CpusetCpus": "",
+    "CgroupParent": "",
+    "BlkioWeight": 0,
+    "RestartPolicy": {
+      "MaximumRetryCount": 0,
+      "Name": ""
+    },
+    "OomScoreAdj": 0,
+    "BlkioDeviceReadBps": null,
+    "VolumeDriver": "",
+    "ReadonlyRootfs": false,
+    "CpuShares": 0,
+    "PublishAllPorts": false,
+    "MemoryReservation": 0,
+    "BlkioWeightDevice": null,
+    "ConsoleSize": [
+      0,
+      0
+    ],
+    "NetworkMode": "default",
+    "BlkioDeviceWriteBps": null,
+    "Isolation": "",
+    "GroupAdd": null,
+    "Devices": null,
+    "BlkioDeviceWriteIOps": null,
+    "Binds": [
+      "consul-data:/data:rw"
+    ],
+    "CpusetMems": "",
+    "KernelMemory": 0,
+    "UTSMode": "",
+    "PidMode": "",
+    "VolumesFrom": null,
+    "CapDrop": null,
+    "DnsOptions": null,
+    "ShmSize": 67108864,
+    "Links": null,
+    "IpcMode": "",
+    "PortBindings": {
+      "8301/tcp": [{"HostPort": "8301", "HostIp": ""}],
+      "8500/tcp": [{"HostPort": "8500", "HostIp": ""}],
+      "8301/udp": [{"HostPort": "8301", "HostIp": ""}],
+      "8302/udp": [{"HostPort": "8302", "HostIp": ""}],
+      "8302/tcp": [{"HostPort": "8302", "HostIp": ""}],
+      "8300/tcp": [{"HostPort": "8300", "HostIp": ""}],
+      "8400/tcp": [{"HostPort": "8400", "HostIp": ""}],
+      "53/udp": [{"HostPort": "53", "HostIp": ""}]
+    },
+    "SecurityOpt": null,
+    "CapAdd": null,
+    "Memory": 0,
+    "OomKillDisable": false,
+    "LogConfig": {
+      "Config": {},
+      "Type": "json-file"
+    }
+  },
+  "Id": "b4816e144fe515128ba43a850d29924d1ccc7e4e6da2933eb8bb680af0fdad64",
+  "MountLabel": ""
+}
+```
+
+Specifically, note `ExposedPorts` `53/udp/tcp`.
+
+When doing the compare,
+
+```
+actual_ports = [u'53/udp/tcp', u'8300/tcp', u'8301/tcp', u'8301/udp', u'8301/udp/tcp', u'8302/tcp', u'8302/udp', u'8302/udp/tcp', u'8400/tcp', u'8500/tcp', u'8600/tcp', u'8600/udp']
+desired_ports = ['53/udp', '8300/tcp', '8301/tcp', '8301/udp', '8302/tcp', '8302/udp', '8400/tcp', '8500/tcp', u'8600/tcp', u'8600/udp']
+```
+
+The ports match, but the actual ports include more protocols (even though the create call didn't request them) than the desired protocols. This causes the compare config routine to detect that the container needs to be reconfigured. Since, on reconfigure, dockerng checks the configuration again to see if it matches now, the reconfigure fails, detecting the same actual / desired ports discrepancy. 
+
+To work around it, I'm going to modify the port check to accept a subset of protocols. I wanted to post details about what I was experiencing, though, first, before attempting a solution.
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.4.4.el7.x86_64
+         system: CentOS Linux 7.2.1511 Core
+```
+
+However, manually patching `modules/dockerng.py` and `states/dockerng.py` from latest `2015.8`, `c72ab6a073bffb22e8f377d7b5faf872bce3d6ee`
+
+Using `docker-py` `1.6.0`

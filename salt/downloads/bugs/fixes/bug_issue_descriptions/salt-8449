@@ -1,0 +1,70 @@
+I'm having trouble installing a package from a different repo. I'm running a masterless Vagrant VM with Ubuntu 13.10. I've created a simple setup to reproduce this error in [this gist](https://gist.github.com/pkruithof/7436241) (note: replace the colons with slashes as directories are not allowed in gists).
+
+The short version is this: I want to have this state:
+
+``` yaml
+nginx:
+  pkgrepo.managed:
+    - ppa: nginx/stable
+    - require_in:
+      - pkg: nginx
+  pkg.installed:
+    - version: 1.4.3-2~saucy0
+```
+
+Which results in the PPA seemingly being added:
+
+```
+[INFO    ] Executing state pkgrepo.managed for nginx
+[WARNING ] Unable to use functions from "python-software-properties" package, making best guess at ppa format: ppa:nginx/stable
+[INFO    ] Executing command 'apt-key export 8B3981E7A6852F782CC4951600A6F0A3C300EE8C' in directory '/root'
+[DEBUG   ] stdout: 
+[INFO    ] Executing command 'apt-key adv --keyserver keyserver.ubuntu.com --logger-fd 1 --recv-keys 8B3981E7A6852F782CC4951600A6F0A3C300EE8C' in directory '/root'
+[DEBUG   ] stdout: Executing: gpg --ignore-time-conflict --no-options --no-default-keyring --secret-keyring /tmp/tmp.JV3V7Ihn5i --trustdb-name /etc/apt//trustdb.gpg --keyring /etc/apt/trusted.gpg --primary-keyring /etc/apt/trusted.gpg --keyring /etc/apt/trusted.gpg.d//saltstack-salt.gpg --keyserver keyserver.ubuntu.com --logger-fd 1 --recv-keys 8B3981E7A6852F782CC4951600A6F0A3C300EE8C
+gpg: requesting key C300EE8C from hkp server keyserver.ubuntu.com
+gpg: key C300EE8C: public key "Launchpad Stable" imported
+gpg: no ultimately trusted keys found
+gpg: Total number processed: 1
+gpg:               imported: 1
+[INFO    ] Executing command 'apt-get -q update' in directory '/root'
+```
+
+It complains about the python-software-properties package but does import the repo with the key. It also updates the packages after this.
+
+Later on, this happens:
+
+```
+[INFO    ] Executing command ['apt-get', '-q', '-y', '-o', 'DPkg::Options::=--force-confold', '-o', 'DPkg::Options::=--force-confdef', 'install', '"nginx=1.4.3-2~saucy0"'] in directory '/root'
+[ERROR   ] Command '['apt-get', '-q', '-y', '-o', 'DPkg::Options::=--force-confold', '-o', 'DPkg::Options::=--force-confdef', 'install', '"nginx=1.4.3-2~saucy0"']' failed with return code: 100
+[ERROR   ] stdout: Reading package lists...
+Building dependency tree...
+Reading state information...
+[ERROR   ] stderr: E: Unable to locate package "nginx
+```
+
+Now, the package can actually be found if I search it manually:
+
+```
+vagrant@salt-test:~$ sudo apt-cache show nginx | grep Version
+Version: 1.4.3-2~saucy0
+Version: 1.4.1-3ubuntu1
+```
+
+And if I enter the install command manually (removing the `q` and `y` flags so it doesn't proceed), I actually get the prompt I expect:
+
+```
+vagrant@salt-test:~$ sudo apt-get -o 'DPkg::Options::=--force-confold' -o 'DPkg::Options::=--force-confdef' install "nginx=1.4.3-2~saucy0"
+Reading package lists... Done
+Building dependency tree       
+Reading state information... Done
+The following extra packages will be installed:
+[...a list of packages, including nginx...]
+0 upgraded, 15 newly installed, 0 to remove and 0 not upgraded.
+Need to get 2749 kB of archives.
+After this operation, 7971 kB of additional disk space will be used.
+Do you want to continue [Y/n]? 
+```
+
+So based on this I conclude that the repo is imported, with its key. The package list is updated, but somehow salt cannot list packages from it, but the root user can.
+
+Am I doing something wrong here?

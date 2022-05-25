@@ -1,0 +1,100 @@
+**Description**
+Can't use the docker module (specifically `docker.login`) in the same state that installs the python package the module depends on. It seems that when the docker module's `import docker` picks up `salt.util.docker` instead of the newly installed package. Further executions pick up the correct package.
+
+**Setup**
+Brand new Ubuntu xenial box spun from vagrant (yk0/ubuntu-xenial)
+
+```
+#do-the-docker.sls
+pip:
+  pkg.installed:
+    - name: python-pip
+
+docker-python:
+  pip.installed:
+    - name: docker
+
+dockerhub.login:
+   module.run:
+     - name: docker.login
+     - onlyif:
+       - test ! -f .docker/config.json
+```
+
+**Steps to Reproduce the behavior**
+
+```
+# first run, docker module fails to load correctly
+salt-call -l debug state.apply do-the-docker
+
+# second run, docker module loads correctly
+salt-call -l debug state.apply do-the-docker
+```
+
+[first-run.txt](https://github.com/saltstack/salt/files/4489318/first-run.txt)
+[second-run.txt](https://github.com/saltstack/salt/files/4489319/second-run.txt)
+
+
+**Expected behavior**
+State should succeed in one execution.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+root@minion2:~# salt-call --versions-report
+Salt Version:
+           Salt: 3000.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Oct  8 2019, 14:14:10)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-22-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+ 
+```
+</details>
+
+**Additional context**
+* I tried adding `reload_modules: true`, but it didn't help. I don't believe it should be needed in this case.
+* @terminalmage asked that I open this following a convo on slack. https://saltstackcommunity.slack.com/archives/C7K04SEJC/p1587044537240100
+* A log just after [the import](https://github.com/saltstack/salt/blob/f4feef105b3e2de1545f8c30a8328d70ea2f8d4f/salt/modules/dockermod.py#L246) prints
+  * The first execution logs `['/usr/lib/python2.7/dist-packages/salt/utils/docker']`
+  * Further executions log `['/usr/local/lib/python2.7/dist-packages/docker']`  
+* [The error raised here](https://github.com/saltstack/salt/blob/f4feef105b3e2de1545f8c30a8328d70ea2f8d4f/salt/modules/dockermod.py#L363) is:
+```
+Traceback (most recent call last):
+  File "/var/cache/salt/minion/extmods/modules/dockermod.py", line 378, in _get_docker_py_versioninfo
+    return docker.version_info
+AttributeError: 'module' object has no attribute 'version_info'
+```

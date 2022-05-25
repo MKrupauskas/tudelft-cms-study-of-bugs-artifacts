@@ -1,0 +1,64 @@
+### Description of Issue/Question
+
+I tried to call execution functions in state files, because I was told grains may not be accurate when it comes to proxy minions. 
+
+The issue is that the `__proxy__` dunder is not available when invoking execution functions from state files (both in the `2016.3` and in the `develop` branch). 
+
+```
+Running the execution function directly
+
+$ salt cluster vsphere.get_cluster_vsan_data                                                                                                                             
+cluster:
+    ----------
+    datastore_name:
+        vsan:vsan8
+    enabled:
+        True
+```
+
+```
+Invoking the same function in state files
+
+$ salt cluster state.show_highstate
+cluster:
+    - Rendering SLS 'base:esxcluster' failed: Jinja error: 'esxcluster.get_details'
+      Traceback (most recent call last):
+        File "/var/tmp/bleotu/virtual/saltstack/install/common/lib/salt/utils/templates.py", line 368, in render_jinja_tmpl
+          output = template.render(**decoded_context)
+        File ".../jinja2/2.7.3-py27/lib/Jinja2-2.7.3-py2.7.egg/jinja2/environment.py", line 969, in render
+          return self.environment.handle_exception(exc_info, True)
+        File ".../jinja2/2.7.3-py27/lib/Jinja2-2.7.3-py2.7.egg/jinja2/environment.py", line 742, in handle_exception
+          reraise(exc_type, exc_value, tb)
+        File "<template>", line 29, in top-level template code
+        File "/var/tmp/bleotu/virtual/saltstack/install/common/lib/salt/modules/vsphere.py", line 262, in __supports_proxies
+          return fn(*args, **clean_kwargs(**kwargs))
+        File "/var/tmp/bleotu/virtual/saltstack/install/common/lib/salt/modules/vsphere.py", line 295, in _gets_service_instance_via_proxy
+          connection_details = _get_proxy_connection_details()
+        File "/var/tmp/bleotu/virtual/saltstack/install/common/lib/salt/modules/vsphere.py", line 233, in _get_proxy_connection_details
+          details = __salt__['esxcluster.get_details']()
+        File "/var/tmp/bleotu/virtual/saltstack/install/common/lib/salt/modules/esxcluster.py", line 29, in get_details
+          return __proxy__['esxcluster.get_details']()
+        File "/var/tmp/bleotu/virtual/saltstack/install/common/lib/salt/utils/context.py", line 191, in __getitem__
+          return self._dict()[key]
+      KeyError: 'esxcluster.get_details'
+      
+      ; line 29
+      
+      ---
+      [...]
+          esxcluster.cluster_configured:
+              - {{ cluster_config }}
+      {%- endif %}
+      
+      {%- if esxcluster_states_enabled.get('cluster_vsan_datastore') %}
+      {%- if pillar.get('vsan', {}).get('datastore_name') and     <======================
+          **salt['vsphere.get_cluster_vsan_data']()**.get('datastore_name') %}
+      cluster_vsan_datastore:
+          esxcluster.vsan_datastore_configured:
+              - datastore_name : {{ pillar['vsan']['datastore_name'] }}
+      {%- endif %}
+      [...]
+      ---
+
+
+```

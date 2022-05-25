@@ -1,0 +1,60 @@
+I'm not sure exactly what's not working here, but I suspect it's the config parsing system specifically not finding max_event_size in my master config file.  Okie, this is what the docs say (and this is in the [example master config](http://docs.saltstack.com/en/develop/ref/configuration/examples.html#example-master-configuration-file)):
+
+``` yaml
+# Passing very large events can cause the minion to consume large amounts of
+# memory. This value tunes the maximum size of a message allowed onto the
+# master event bus. The value is expressed in bytes.
+#max_event_size: 1048576
+```
+
+So I set my config value...
+
+``` yaml
+max_event_size: 104857600
+```
+
+And it does nothing.  To illustrate I made the following changes:
+
+``` diff
+--- a/salt/minion.py
++++ b/salt/minion.py
+@@ -819,6 +819,7 @@ class Minion(MinionBase):
+         if beacons:
+             self._fire_master(events=beacons)
+             for beacon in beacons:
++                log.debug('mes @ minion: '+self.opts.get('max_event_size', 'missing'))
+                 serialized_data = salt.utils.dicttrim.trim_dict(
+                     self.serial.dumps(beacon['data']),
+                     self.opts.get('max_event_size', 1048576),
+--- a/salt/utils/event.py
++++ b/salt/utils/event.py
+@@ -493,6 +493,7 @@ class SaltEvent(object):
+         data['_stamp'] = datetime.datetime.utcnow().isoformat()
+
+         tagend = TAGEND
++        log.debug('mes @ event: '+self.opts.get('max_event_size', 'missing'))
+         serialized_data = salt.utils.dicttrim.trim_dict(
+             self.serial.dumps(data),
+             self.opts.get('max_event_size', 1048576),
+```
+
+The result.... lots and lots of 
+
+> [DEBUG   ] mes @ event: missing
+
+I don't know nearly enough about the way the config system is setup to be able to fix this, but it's pretty much a show stopper for anyone wanting to exceed that 1M limit ... it's basically nuking my pillar data when it grows past 1M and I've resorted to disabling the trim test completely:
+
+``` diff
+--- a/salt/utils/dicttrim.py
++++ b/salt/utils/dicttrim.py
+@@ -46,7 +46,8 @@ def trim_dict(
+         dict_size = sys.getsizeof(data)
+     else:
+         dict_size = sys.getsizeof(serializer.dumps(data))
+-    if dict_size > max_dict_bytes:
++    if False:
++        #if dict_size > max_dict_bytes:
+         if is_msgpacked:
+             data = serializer.loads(data)
+         while True:
+```

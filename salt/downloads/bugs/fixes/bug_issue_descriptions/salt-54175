@@ -1,0 +1,118 @@
+### Description of Issue
+When starting a state.apply from a LocalClient with run_job() function and waiting for the returns with the get_cli_returns() function an error message from the event modul appears.
+The error happens when the function unsubscribe() in the salt.utils.event modul tries to remove the job from an already empty list.
+<pre><code>
+ def unsubscribe(self, tag, match_type=None):
+        '''
+        Un-subscribe to events matching the passed tag.
+        '''
+       ...
+        self.pending_tags.remove([tag, match_func]) 
+       ....
+/code></pre>
+
+### Setup
+Master and minion on same host.
+State file test.sls:
+<pre><code>
+test1 :
+  test.succeed_with_changes : []
+</code></pre>
+Script: apitest.py
+<pre><code>
+import salt.client
+import json
+
+local = salt.client.LocalClient()
+
+ret = local.run_job('*','state.apply',['test'])
+if ret :
+    returned = local.get_cli_returns(ret['jid'],ret['minions'], verbose=True)
+    for server in returned :
+        print( json.dumps( server, indent=4 ) )
+</code></pre>
+Output:
+<pre><code>
+leap151:/srv/salt # python3 apitest.py 
+Executing job with jid 20190810142659884529
+-------------------------------------------
+
+{
+    "leap151.asteras.cool": {
+        "ret": {
+            "test_|-test1_|-test1_|-succeed_with_changes": {
+                "name": "test1",
+                "changes": {
+                    "testing": {
+                        "old": "Unchanged",
+                        "new": "Something pretended to change"
+                    }
+                },
+                "result": true,
+                "comment": "Success!",
+                "__sls__": "test",
+                "__run_num__": 0,
+                "start_time": "14:27:00.036770",
+                "duration": 0.442,
+                "__id__": "test1"
+            }
+        },
+        "out": "highstate"
+    }
+}
+salt/job/20190810142659884529
+Traceback (most recent call last):
+  File "apitest.py", line 12, in <module>
+    for server in returned :
+  File "/usr/lib/python3.6/site-packages/salt/client/__init__.py", line 987, in get_cli_returns
+    self._clean_up_subscriptions(jid)
+  File "/usr/lib/python3.6/site-packages/salt/client/__init__.py", line 1866, in _clean_up_subscriptions
+    self.event.unsubscribe('salt/job/{0}'.format(job_id))
+  File "/usr/lib/python3.6/site-packages/salt/utils/event.py", line 355, in unsubscribe
+    self.pending_tags.remove([tag, match_func])
+ValueError: list.remove(x): x not in list
+</code></pre>
+
+### Versions Report
+<pre><code>
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: 1.11.2
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10.1
+        libgit2: 0.26.8
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.0
+         Python: 3.6.5 (default, Mar 31 2018, 19:45:04) [GCC]
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.3
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: x86_64
+        release: 4.12.14-lp151.28.10-default
+         system: Linux
+        version: Not Installed
+</code></pre>

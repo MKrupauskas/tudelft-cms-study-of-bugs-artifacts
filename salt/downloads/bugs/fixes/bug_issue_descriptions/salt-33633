@@ -1,0 +1,198 @@
+### Description of Issue/Question
+
+Salt-cloud should not re-generate minion keys? right?
+When I re-run of 'salt-cloud -m /etc/salt/cloud.map'  change minion keys on the master
+I use Ubuntu  and LXC.
+### Setup
+
+My salt-cloud map:
+
+```
+podo-lxc-ubuntu:
+    - miniontwo:
+        minion:
+            grains:
+                roles: appserver
+                omlet: omlet3
+        network_profile:
+            eth0:
+                ipv4: 10.0.3.188/24
+                ipv4.gateway: 10.0.3.1
+```
+
+Profiles:
+
+```
+podo-lxc-ubuntu:
+    provider: podo
+    image: ubuntu
+    minion:
+        master: 192.168.10.17
+    network_profile:
+        eth0:
+            link: lxcbr0
+            type: veth
+            flags: up
+            ipv4.gateway: 10.0.3.1
+    backing: dir
+    sudo: True
+```
+
+Providers:
+
+```
+podo:
+    driver: lxc
+    target: podo14
+
+```
+### Steps to Reproduce Issue
+1. Run 'salt-cloud -m /etc/salt/cloud.map'
+   Container miniontwo created and bootstrapped.
+2. See pub keys /etc/salt/pki/master/minions/miniontwo and  /etc/salt/pki/minion/minion.pub (on minion)
+
+> -----BEGIN PUBLIC KEY-----
+> MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqTxFKU2U5MLmfc3BjqPS
+> iELwSgilQ/kBhGbWrGxGpvTfD+kCjdSKlfAJ5ROHjBqW3HDOww0lCa0uxI0NAAI4
+> gGoebETk9ZQ/PKZGRjL0AUdGe5q2rq3Vzj3NRKN4S+rw+hDl8GniUa2N/ugggEeG
+> blfvpz/N9zI4zICbmhRxOAF4DY8VnJJog/JaaIgEHNkaHKnm3Dh8lLrWlRUkb9YV
+> 52pP8Bl66Tdkh5rKXanREWQtA9wSLt/0sfSgQumjI1Asya03CG8C6BT1B+y10ZT2
+> A7e12nk+MpBeD6+SiY1ApQYWD8hvcNxIlAv8ZOudpXYjPqU12h89I9c0uF7f+BvW
+> EQIDAQAB
+> -----END PUBLIC KEY-----
+
+identical.
+1. Run 'salt-cloud -m /etc/salt/cloud.map' again.
+
+> ```
+>               ----------
+>           comment:
+>               Container 'miniontwo' successfully initialized
+> ```
+1. See pub key on minion  /etc/salt/pki/minion/minion.pub
+
+> -----BEGIN PUBLIC KEY-----
+> MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqTxFKU2U5MLmfc3BjqPS
+> iELwSgilQ/kBhGbWrGxGpvTfD+kCjdSKlfAJ5ROHjBqW3HDOww0lCa0uxI0NAAI4
+> gGoebETk9ZQ/PKZGRjL0AUdGe5q2rq3Vzj3NRKN4S+rw+hDl8GniUa2N/ugggEeG
+> blfvpz/N9zI4zICbmhRxOAF4DY8VnJJog/JaaIgEHNkaHKnm3Dh8lLrWlRUkb9YV
+> 52pP8Bl66Tdkh5rKXanREWQtA9wSLt/0sfSgQumjI1Asya03CG8C6BT1B+y10ZT2
+> A7e12nk+MpBeD6+SiY1ApQYWD8hvcNxIlAv8ZOudpXYjPqU12h89I9c0uF7f+BvW
+> EQIDAQAB
+> -----END PUBLIC KEY-----
+
+**Same**.
+1. See minion pub key on master  /etc/salt/pki/master/minions/miniontwo
+
+> -----BEGIN PUBLIC KEY-----
+> MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt5yhext7oy4MxfQrOjoX
+> Oh2bx/Yorl1Ddn1LsQXDIRVCsFsMCwa3pgke1SBpHRiavkYqrtXnE3nWMbgXBepX
+> oSQnHMZ+ElcJbs+Kh+SrMgDg3qxEsUfHFyaty0AnEXb/Lj6tQwMVKxYraiHonSq+
+> Ui+BEV8jqgcmklTBw/VoHZqPt1u/OMS8qKPHzWegVD80KL2kVz2cqGUmnsu7VsUM
+> 2p5PFBDx+eo92kZAH+S315lm1Xf5H4biRtExv8ixsE7Fzx1PAyY8t4Rar1CcojkO
+> nitrrTexV0+rqNNTojrwzBcsBC2D5eyS67ebFzRxRnjcVB+6iyau4deLgazcWl9C
+> 5QIDAQAB
+> -----END PUBLIC KEY-----
+
+**It is new key!**
+
+6.
+
+Master
+
+>  salt miniontwo test.ping
+> miniontwo:
+>     True
+
+Minion
+
+>  salt-call test.ping
+> [WARNING ] Although 'dmidecode' was found in path, the current user cannot execute it. Grains output might not be accurate.
+> [CRITICAL] The Salt Master has rejected this minion's public key!
+> To repair this issue, delete the public key for this minion on the Salt Master and restart this minion.
+> Or restart the Salt Master in open mode to clean out the keys. The Salt Minion will now exit.
+
+If the restart salt-minion, minion does not start.
+### Versions Report
+
+Master
+
+> Salt Version:
+>            Salt: 2016.3.0
+> 
+> Dependency Versions:
+>            cffi: Not Installed
+>        cherrypy: Not Installed
+>        dateutil: 1.5
+>           gitdb: 0.5.4
+>       gitpython: 0.3.2 RC1
+>           ioflo: Not Installed
+>          Jinja2: 2.7.2
+>         libgit2: Not Installed
+>         libnacl: Not Installed
+>        M2Crypto: 0.21.1
+>            Mako: 0.9.1
+>    msgpack-pure: Not Installed
+>  msgpack-python: 0.3.0
+>    mysql-python: 1.2.3
+>       pycparser: Not Installed
+>        pycrypto: 2.6.1
+>          pygit2: Not Installed
+>          Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+>    python-gnupg: Not Installed
+>          PyYAML: 3.10
+>           PyZMQ: 14.0.1
+>            RAET: Not Installed
+>           smmap: 0.8.2
+>         timelib: Not Installed
+>         Tornado: 4.2.1
+>             ZMQ: 4.0.4
+> 
+> System Versions:
+>            dist: Ubuntu 14.04 trusty
+>         machine: x86_64
+>         release: 3.16.0-30-generic
+>          system: Linux
+>         version: Ubuntu 14.04 trusty
+
+Salt-minion on host podo14
+
+> Salt Version:
+>            Salt: 2016.3.0
+> 
+> Dependency Versions:
+>            cffi: Not Installed
+>        cherrypy: Not Installed
+>        dateutil: 1.5
+>           gitdb: Not Installed
+>       gitpython: Not Installed
+>           ioflo: Not Installed
+>          Jinja2: 2.7.2
+>         libgit2: Not Installed
+>         libnacl: Not Installed
+>        M2Crypto: Not Installed
+>            Mako: 0.9.1
+>    msgpack-pure: Not Installed
+>  msgpack-python: 0.3.0
+>    mysql-python: 1.2.3
+>       pycparser: Not Installed
+>        pycrypto: 2.6.1
+>          pygit2: Not Installed
+>          Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+>    python-gnupg: Not Installed
+>          PyYAML: 3.10
+>           PyZMQ: 14.0.1
+>            RAET: Not Installed
+>           smmap: Not Installed
+>         timelib: Not Installed
+>         Tornado: 4.2.1
+>             ZMQ: 4.0.4
+> 
+> System Versions:
+>            dist: Ubuntu 14.04 trusty
+>         machine: x86_64
+>         release: 3.13.0-86-generic
+>          system: Linux
+>         version: Ubuntu 14.04 trusty
+
+The same behavior and on 2015.8.8.2

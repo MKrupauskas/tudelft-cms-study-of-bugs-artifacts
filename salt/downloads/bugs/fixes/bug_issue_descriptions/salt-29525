@@ -1,0 +1,39 @@
+With this setting as `True`, the master should ping all connected minions after key rotation.  If the minion data cache is disabled in the master then this setting does nothing.  It should be fixed so that it behaves even without that cache.
+
+How to reproduce:
+
+Install 2014.7.5 or later version of salt master and minion on a host, make sure you've accepted the key and you can test.ping the host.
+
+Be sure that the host has a real IP rather than 127.0.0.1 or this test will break for other reasons.
+Set minion_data_cache: False in the master config file
+Set ping_on_rotate: True   in the master config file
+Start up eventlisten.py
+(re)start the master
+(re)start the minion
+test.ping to be sure the minion is happy
+in /etc/salt/pkl/master/minions copy the local key to some other name like myjunk.org
+salt-key -d myjunk.org
+see that no test.ping is sent even though there is a rotate_aes_event in the evenlisten output
+
+Comparing with working behavior:
+You can then repeat the above after changing the file
+salt/utils/master.py in the function ping_all_connected_minions():
+replace the lines
+
+``` py
+    ckminions = salt.utils.minions.CkMinions(opts)
+    client.cmd(list(ckminions.connected_ids()), 'test.ping', expr_form='list')
+```
+
+with
+
+``` py
+    client.cmd('*', 'test.ping')
+```
+
+When you inspect the results of the above test you will see that a test.ping is generated this time right after key rotation, as we expect.
+
+The 2 commits to look at: 
+https://github.com/cachedout/salt/commit/09cab7fb3c43b8b72f479bfff0f8daaf1112da32
+and
+https://github.com/saltstack/salt/commit/f076895365935bb21bda738028c0c2d64d667cc1

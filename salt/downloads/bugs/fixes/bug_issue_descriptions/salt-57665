@@ -1,0 +1,188 @@
+**Description**
+There’s an issue in https://pypi.org/project/salt/3001rc1/  with the `junos.install_config` function. 
+
+Previously, if you called the `junos.install_config` function with a template that used only pillar or grain data, and you omitted the `template_vars` parameter, it would render the template and apply the configuration. Now it’s giving an error. 
+
+The prior behavior was that the it would render the configuration template in all cases, even if `template_vars` wasn’t provided. Now that behavior has changed and breaks with templates that don’t consume `template_vars`.
+
+**Expected behavior**
+When the `template_vars` parameter is omitted for the `junos.install_config` function, the template should still render.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 3001rc1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.9.7
+         pygit2: Not Installed
+         Python: 3.6.9 (default, Apr 18 2020, 01:56:04)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 19.0.1
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+
+System Versions:
+           dist: ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-99-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```
+</details>
+
+**Additional context**
+I omitted the error originally, because it doesn't reflect the real issue. Here it is. It's a Junos OS ConfigLoadError because the template doesn't render correctly when `template_vars` is omitted. In the previous release, the example worked correctly - it rendered the template and loaded the configuration on the device.
+
+```
+user@host:~$ sudo salt 'r*' state.apply
+r1:
+----------
+          ID: Apply BGP configuration
+    Function: junos.install_config
+        Name: salt://configs-master/junos-config-bgp-template.set
+      Result: False
+     Comment:
+     Started: 22:37:58.713002
+    Duration: 525.159 ms
+     Changes:
+              ----------
+              format:
+                  set
+              message:
+                  Could not load configuration due to : "ConfigLoadError(severity: error, bad_element: {%, message: error: unknown command
+                  error: invalid ip address or hostname: {{
+                  error: as_num: '{{': Use format 'x' or 'x.y' to specify number 'x' (Range 1 .. 4294967295) or number with higher 2 bytes 'x' (Range 0 .. 65535) and lower 2 bytes 'y' (Range 0 .. 65535) respectively
+                  error: syntax error, expecting [Enter]
+                  error: invalid ip address or hostname: {{
+                  error: unknown command
+                  error: invalid interface type: {{
+                  error: invalid interface type: {{
+                  error: invalid ip address or hostname: {{
+                  error: invalid interface type: {{
+                  error: statement creation failed
+                  error: unknown command
+                  error: unknown command)"
+              out:
+                  False
+
+Summary for r1
+------------
+Succeeded: 0 (changed=1)
+Failed:    1
+------------
+Total states run:     1
+Total run time: 525.159 ms
+```
+
+Sample template, which worked fine previously:
+```
+{% if pillar.BGP_data %}
+
+set interfaces lo0 unit 0 family inet address {{ pillar.BGP_data.loopback }}/32
+set policy-options policy-statement bgp-ecmp then load-balance per-packet
+set policy-options policy-statement bgp-in then accept
+set policy-options policy-statement bgp-out then next-hop self
+set policy-options policy-statement bgp-out then accept
+set protocols bgp group underlay type external
+set protocols bgp group underlay import bgp-in
+set protocols bgp group underlay export bgp-out
+set protocols bgp group underlay local-as {{ pillar.BGP_data.local_asn }}
+set protocols bgp group underlay multipath multiple-as
+set routing-options router-id {{ pillar.BGP_data.loopback }}
+set routing-options forwarding-table export bgp-ecmp
+
+{% for neighbor in pillar.BGP_data.neighbors %}
+set interfaces {{ neighbor.interface }} unit 0 description {{ neighbor.name }}
+set interfaces {{ neighbor.interface }} unit 0 family inet address {{ neighbor.local_ip }}/30
+set protocols bgp group underlay neighbor {{ neighbor.peer_ip }} peer-as {{ neighbor.asn }}
+set protocols lldp interface {{ neighbor.interface }}
+{% endfor %}
+
+{% endif %}
+```
+
+<details><summary>template sample data</summary>
+
+```
+::::::::::::::
+r1.sls
+::::::::::::::
+BGP_data:
+  loopback: 192.168.0.1
+  local_asn: 64521
+  neighbors:
+     - interface: ge-0/0/0
+       name: to-r2
+       asn: 64522
+       peer_ip: 198.51.100.2
+       local_ip: 198.51.100.1
+       peer_loopback: 192.168.0.2
+     - interface: ge-0/0/1
+       name: to-r3
+       asn: 64523
+       peer_ip: 198.51.100.6
+       local_ip: 198.51.100.5
+       peer_loopback: 192.168.0.3
+::::::::::::::
+r2.sls
+::::::::::::::
+BGP_data:
+  loopback: 192.168.0.2
+  local_asn: 64522
+  neighbors:
+     - interface: ge-0/0/0
+       name: to-r1
+       asn: 64521
+       peer_ip: 198.51.100.1
+       local_ip: 198.51.100.2
+       peer_loopback: 192.168.0.1
+     - interface: ge-0/0/1
+       name: to-r3
+       asn: 64523
+       peer_ip: 198.51.100.10
+       local_ip: 198.51.100.9
+       peer_loopback: 192.168.0.3
+::::::::::::::
+r3.sls
+::::::::::::::
+BGP_data:
+  loopback: 192.168.0.3
+  local_asn: 64523
+  neighbors:
+     - interface: ge-0/0/0
+       name: to-r1
+       asn: 64521
+       peer_ip: 198.51.100.5
+       local_ip: 198.51.100.6
+       peer_loopback: 192.168.0.1
+     - interface: ge-0/0/1
+       name: to-r2
+       asn: 64522
+       peer_ip: 198.51.100.9
+       local_ip: 198.51.100.10
+       peer_loopback: 192.168.0.2
+```
+</details>

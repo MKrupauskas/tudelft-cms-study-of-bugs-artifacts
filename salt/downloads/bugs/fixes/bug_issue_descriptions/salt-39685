@@ -1,0 +1,138 @@
+### Description of Issue/Question
+
+When running `salt-ssh` I expect it to respect the master option `pillar_merge_lists` but it does not. Unless it is set as an explicit minion option in the roster (`minion_opts:`) it will always default to false. This may be a regression but the changes from #32665 (issue #30809) are still in place. 
+
+My debugging led me to the minion-generated [opts_pkg dict](https://github.com/saltstack/salt/blob/v2016.11.2/salt/client/ssh/__init__.py#L880) which is passed as “opts” throughout the code. The `__master_opts__` key (added to the dict by the master a few lines further down) contains the master options but all the code only ever cares about the first level dict, never bothering to check the nested master opts. Since this is not the only option that may affect what pillar data a minion will see I’m uncertain if this is intended, a regression, and/or a bug and how best to resolve it. I would rather not specify this as a `minion_opt` for every minion.
+
+
+### Setup
+
+I used Vagrant with the libvirt provider to set up a test environment for anyone to reproduce. Play around with the `pillar_merge_lists` options in the `minion_opts` and master configuration file.
+
+Create `Vagrantfile`
+```sh
+cd $(mktemp -d) && cat >Vagrantfile <<EOF
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "debian/jessie64"
+  config.vm.provision :salt do |salt|
+    # This sets the official Salt repositories up for us
+    salt.install_master = true
+    salt.no_minion = true
+  end
+end
+EOF
+```
+
+Commands
+```sh
+vagrant up
+vagrant ssh
+# Now continue in the vagrant box
+ssh-add -L >>.ssh/authorized_keys
+sudo -i
+apt update && apt install salt-ssh
+# Add the files below
+# Then continue:
+salt-ssh -i 'castle' test.ping
+salt-ssh -i 'castle' pillar.items
+```
+
+Files inside the Vagrant box:
+```
+==> /etc/salt/roster <==
+castle:
+  host: localhost
+  user: vagrant
+  sudo: True
+#  minion_opts:
+#    pillar_merge_lists: True
+
+==> /etc/salt/master.d/vagrant.conf <==
+ssh_use_home_key: True
+pillar_merge_lists: True
+
+==> /etc/sudoers.d/vagrant-ssh <==
+Defaults    env_keep+=SSH_AUTH_SOCK
+
+==> /srv/pillar/dragons.sls <==
+kill:
+  - knights
+
+==> /srv/pillar/knights.sls <==
+kill:
+  - dragons
+
+==> /srv/pillar/top.sls <==
+base:
+  '*':
+    - dragons
+    - knights
+```
+
+
+### Steps to Reproduce Issue
+
+Fire up the above Vagrant environment and play around with the option.
+
+```sh
+# enable the option only in the master conf
+root@jessie:~% vim /etc/salt/master.d/vagrant.conf
+root@jessie:~% salt-ssh --refresh 'castle' pillar.items
+castle:
+    ----------
+    kill:
+        - dragons
+# Now enable it in minion_opts
+root@jessie:~% vim /etc/salt/roster
+root@jessie:~% salt-ssh --refresh 'castle' pillar.items
+castle:
+    ----------
+    kill:
+        - knights
+        - dragons
+```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.11.2
+ 
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 8.7 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.7 
+```

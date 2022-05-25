@@ -1,0 +1,112 @@
+**Description**
+
+If I run
+`salt minion-01 test.ping --return slack`
+i receive message to configured slack channel as expected
+
+but if i send it from reactor system via orchestrate, than minion don't receive `ret: slack` block
+
+**Setup**
+
+```
+cat /etc/salt/master.d/reactor.conf
+reactor:
+  - bot/*:
+    - /opt/salt/reactor/salt.sls
+
+cat /opt/salt/reactor/salt.sls
+add to scheduler:
+  runner.queue.insert_runner:
+    - arg:
+      - state.orchestrate
+    - kwarg:
+        queue: botqueue
+        backend: pgjsonb
+{% if data['tag'] == 'bot/update' %}
+        args: orch.update
+{% endif %}
+
+cat /etc/salt/master.d/queue.conf
+schedule:
+  runner queue postqresql:
+    function: queue.process_runner
+    minutes: 1
+    kwargs:
+      quantity: 1
+      backend: pgjsonb
+      queue: botqueue
+
+cat /opt/salt/orch/update.sls
+highstate {{ role }}:
+  salt.state:
+    - tgt: '{{ compound }}'
+    - highstate: True
+    - tgt_type: compound
+    - batch: 1
+    - timeout: 1800
+    - queue: True
+    - ret: ["slack"]
+```
+
+**Steps to Reproduce the behavior**
+
+from minion:
+```
+[INFO    ] User root Executing command state.highstate with jid 20200507115446800538
+[DEBUG   ] Command details {'ret': '', 'arg': [{'concurrent': False, '__kwarg__': True, 'queue': False}], 'user': 'root', 'tgt': ['minion-01'], 'tgt_type': 'list', 'fun': 'state.highstate', 'jid': '20200507115446800538'}
+[TRACE   ] Started JIDs: ['20200507115446560259']
+```
+
+**Expected behavior**
+A clear and concise description of what you expected to happen.
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+
+```
+salt --versions-report
+Salt Version:
+           Salt: 3000.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+         Jinja2: 2.8
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.2 (default, Apr 16 2020, 17:47:17)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-23-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+
+```
+
+**Additional context**
+
+very similar to #29161  (?)

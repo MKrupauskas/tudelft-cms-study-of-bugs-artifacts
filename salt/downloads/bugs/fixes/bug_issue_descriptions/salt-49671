@@ -1,0 +1,102 @@
+### Description of Issue/Question
+When using salt minions connected to a master, where the **master does** have access to a vault endpoint, but the **minion does not**, placing a vault.read_secret into a pillar should fail. As of 2018.3, this broke and those lookups now succeed.
+
+
+### Steps to Reproduce Issue
+For the case of vault lookups in a pillar, the master should be running the vault token generation on behalf of the minion and not just connecting to vault to perform the lookup itself, this occurs in the `_get_token_and_url_from_master()` function. It looks like the logic in https://github.com/saltstack/salt/blob/develop/salt/utils/vault.py#L136-L138 broke this flow and the `_get_token_and_url_from_master()` function is never called. 
+
+The problem code is currently
+```
+    if 'vault' in __opts__ and __opts__.get('__role', 'minion') == 'master':
+        # will query vault
+        return _use_local_config()
+    elif any((__opts__['local'], __opts__['file_client'] == 'local', __opts__['master_type'] == 'disable')):
+        # will query vault
+        return _use_local_config()
+    else:
+        log.debug('Contacting master for Vault connection details')
+        # will perform lookup on behalf of the minion
+        return _get_token_and_url_from_master()
+```
+
+but previous version of the code used to read:
+```
+if __opts__.has_key('vault') and not __opts__.get('__role', 'minion') == 'master':
+    log.debug('Using Vault connection details from local config')
+    try:
+      return {
+        'url': __opts__['vault']['url'],
+        'token': __opts__['vault']['auth']['token']
+      }
+    except KeyError as err:
+      errmsg = 'Minion has "vault" config section, but could not find key "{0}" within'.format(err.message)
+      raise salt.exceptions.CommandExecutionError(errmsg)
+  else:
+    log.debug('Contacting master for Vault connection details')
+    return _get_token_and_url_from_master()
+```
+
+
+As you can see, the logic was adjusted to remove the not in the `not __opts__.get('__role', 'minion') == 'master'` lookup. Fixing this just results in the elif erroring out on a missing key with `__opts__['master_type']`. If that is corrected to use \_\_opts__.get('master_type'), then that conditional still succeeds because `__opts__['local']` results to True. 
+
+In the case of a vault in a pillar where the master connects to vault with the vault profile of a minion, the first two conditionals in that if elif should fail. The commit messages state these lines were added to support vault lookups in salt-ssh scenarios, but since we don't have that environment to test I'm not sure of the best way to progress.
+
+Leakages from vault are capable of being catastrophic, so this requires a complete unit test to validate all scenarios. 
+
+
+### Setup
+- Create vault secret which only the salt master can access
+- Create pillar to lookup secret, and assign to salt minion
+```
+{%- set supersecret = salt['vault'].read_secret('secret/master_only') %}
+test:
+  - {{ supersecret}}
+```
+- Perform a vault.read_secret on the minion. This should fail, but actually returns the secret data!
+
+
+
+### Versions Report
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2018.3.0
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: unknown
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.26.3
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: 3.4.3
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, Jul 13 2018, 13:06:57)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.11.6.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```

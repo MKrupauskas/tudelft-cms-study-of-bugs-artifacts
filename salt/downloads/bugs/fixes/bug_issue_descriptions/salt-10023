@@ -1,0 +1,264 @@
+It seems that having your pillar data in git it causing issues with minions and highstates.
+
+Master
+
+```
+root@prduseast-vpcsyndic01:/var/cache/salt/master/pillar_gitfs# salt --versions-report
+           Salt: 0.17.4
+         Python: 2.7.3 (default, Sep 26 2013, 20:03:06)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```
+
+Minion
+
+```
+root@ip-***:/var/log/salt# salt-call --versions-report
+           Salt: 0.17.4
+         Python: 2.7.3 (default, Sep 26 2013, 20:03:06)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```
+
+Master Config (this is also a syndic, if it matters)
+
+```
+# this is required for the use-case - secured by security group
+auto_accept: True
+open_mode: True
+
+fileserver_backend:
+  - git
+
+gitfs_remotes:
+  - git+ssh://git@git.mycompany.com/org/myrepo.git
+  - git+ssh://git@git.mycompany.com/anotherorg/theirrepo.git
+
+# I wasted hours trying every option, and found that only the following works (docs need updated for authenticated github enterprise systems)
+ext_pillar:
+  - git: master git+ssh://git@git.mycompany.com/anotherorg/Their.Pillar.git
+  - git: master git+ssh://git@git.mycompany.com/org/pillar.git
+
+syndic_log_file: /var/log/salt/syndic
+log_file: /var/log/salt/master
+
+log_level_logfile: debug
+
+syndic_master: saltstack.mycompany.com
+syndic_master_port: 4506
+```
+
+Minion Config
+
+```
+root@ip-****:/var/log/salt# cat /etc/salt/minion
+master: prddisyndic01.mycompany.com
+grains:
+  roles:
+    - nginx
+    - passenger
+    - autoscale
+    - vpc
+  app:
+    - myapp
+  env:
+    - qa
+mine_functions:
+  network.interfaces: []
+  test.ping: []
+  grains.item:
+    - app
+    - roles
+    - env
+    - fqdn
+
+log_level_logfile: debug
+```
+
+When running a highstate from the master, it returns data, but the salt-minion process spawned on the minion never ends.  Here's the stack trace:
+
+```
+root@ip-*******:/var/log/salt# strace -fF -p 5980
+Process 5980 attached with 5 threads - interrupt to quit
+[pid  6005] epoll_wait(27,  <unfinished ...>
+[pid  6004] epoll_wait(25,  <unfinished ...>
+[pid  5984] epoll_wait(20,  <unfinished ...>
+[pid  5983] epoll_wait(18,  <unfinished ...>
+[pid  5980] restart_syscall(<... resuming interrupted call ...>
+```
+
+And it seems that something is looping on the master, which causes this in the logs repeating over and over:
+
+```
+2014-01-29 15:32:54,177 [salt.loaded.int.render.yaml][DEBUG   ] Results of YAML rendering:
+OrderedDict(***data removed***)
+2014-01-29 15:33:00,580 [salt.loader      ][DEBUG   ] loading module in ['/var/cache/salt/master/extmods/modules', '/usr/lib/pymodules/python2.7/salt/modules']
+2014-01-29 15:33:00,582 [salt.loader      ][DEBUG   ] Skipping /var/cache/salt/master/extmods/modules, it is not a directory
+2014-01-29 15:33:00,674 [salt.loader      ][DEBUG   ] Loaded localemod as virtual locale
+2014-01-29 15:33:00,675 [salt.loader      ][DEBUG   ] Loaded groupadd as virtual group
+2014-01-29 15:33:00,679 [salt.loader      ][DEBUG   ] Loaded linux_sysctl as virtual sysctl
+2014-01-29 15:33:00,683 [salt.loader      ][DEBUG   ] Loaded parted as virtual partition
+2014-01-29 15:33:00,694 [salt.loader      ][DEBUG   ] Loaded apt as virtual pkg
+2014-01-29 15:33:00,696 [salt.loader      ][DEBUG   ] Loaded sysmod as virtual sys
+2014-01-29 15:33:00,698 [salt.loader      ][DEBUG   ] Loaded upstart as virtual service
+2014-01-29 15:33:00,699 [salt.loader      ][DEBUG   ] Loaded useradd as virtual user
+2014-01-29 15:33:00,702 [salt.loader      ][DEBUG   ] Loaded dpkg as virtual lowpkg
+2014-01-29 15:33:00,702 [salt.loader      ][DEBUG   ] Loaded grub_legacy as virtual grub
+2014-01-29 15:33:00,704 [salt.loader      ][DEBUG   ] Loaded debconfmod as virtual debconf
+2014-01-29 15:33:00,706 [salt.loader      ][DEBUG   ] Loaded cmdmod as virtual cmd
+2014-01-29 15:33:00,713 [salt.loader      ][DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+2014-01-29 15:33:00,714 [salt.loader      ][DEBUG   ] Loaded djangomod as virtual django
+2014-01-29 15:33:00,720 [salt.loader      ][DEBUG   ] loading render in ['/var/cache/salt/master/extmods/renderers', '/usr/lib/pymodules/python2.7/salt/renderers']
+2014-01-29 15:33:00,721 [salt.loader      ][DEBUG   ] Skipping /var/cache/salt/master/extmods/renderers, it is not a directory
+2014-01-29 15:33:00,726 [salt.loader      ][DEBUG   ] loading pillar in ['/var/cache/salt/master/extmods/pillar', '/usr/lib/pymodules/python2.7/salt/pillar']
+2014-01-29 15:33:00,726 [salt.loader      ][DEBUG   ] Skipping /var/cache/salt/master/extmods/pillar, it is not a directory
+2014-01-29 15:33:00,731 [salt.loader      ][DEBUG   ] Loaded git_pillar as virtual git
+2014-01-29 15:33:00,733 [salt.utils.jinja ][DEBUG   ] Jinja search path: '['/var/cache/salt/master/pillar_gitfs/1']'
+2014-01-29 15:33:00,735 [salt.template    ][DEBUG   ] Rendered data from file: /var/cache/salt/master/pillar_gitfs/1/top.sls:
+base:
+  '*':
+    - match: compound
+    - aws
+
+2014-01-29 15:33:00,738 [salt.loaded.int.render.yaml][DEBUG   ] Results of YAML rendering:
+OrderedDict([('base', OrderedDict([('*', [OrderedDict([('match', 'compound')]), 'aws'])]))])
+2014-01-29 15:33:00,739 [salt.utils.jinja ][DEBUG   ] Jinja search path: '['/var/cache/salt/master/pillar_gitfs/1']'
+2014-01-29 15:33:00,740 [salt.template    ][DEBUG   ] Rendered data from file: /var/cache/salt/master/pillar_gitfs/1/aws/init.sls:
+*** removed data ***
+
+2014-01-29 15:33:00,743 [salt.loaded.int.render.yaml][DEBUG   ] Results of YAML rendering:
+OrderedDict(*** removed data ***)
+2014-01-29 15:33:03,889 [salt.loader      ][DEBUG   ] loading module in ['/var/cache/salt/master/extmods/modules', '/usr/lib/pymodules/python2.7/salt/modules']
+2014-01-29 15:33:03,890 [salt.loader      ][DEBUG   ] Skipping /var/cache/salt/master/extmods/modules, it is not a directory
+2014-01-29 15:33:03,980 [salt.loader      ][DEBUG   ] Loaded localemod as virtual locale
+2014-01-29 15:33:03,981 [salt.loader      ][DEBUG   ] Loaded groupadd as virtual group
+2014-01-29 15:33:03,984 [salt.loader      ][DEBUG   ] Loaded linux_sysctl as virtual sysctl
+2014-01-29 15:33:03,989 [salt.loader      ][DEBUG   ] Loaded parted as virtual partition
+2014-01-29 15:33:03,999 [salt.loader      ][DEBUG   ] Loaded apt as virtual pkg
+2014-01-29 15:33:04,001 [salt.loader      ][DEBUG   ] Loaded sysmod as virtual sys
+2014-01-29 15:33:04,003 [salt.loader      ][DEBUG   ] Loaded upstart as virtual service
+2014-01-29 15:33:04,004 [salt.loader      ][DEBUG   ] Loaded useradd as virtual user
+2014-01-29 15:33:04,007 [salt.loader      ][DEBUG   ] Loaded dpkg as virtual lowpkg
+2014-01-29 15:33:04,007 [salt.loader      ][DEBUG   ] Loaded grub_legacy as virtual grub
+2014-01-29 15:33:04,009 [salt.loader      ][DEBUG   ] Loaded debconfmod as virtual debconf
+2014-01-29 15:33:04,011 [salt.loader      ][DEBUG   ] Loaded cmdmod as virtual cmd
+2014-01-29 15:33:04,017 [salt.loader      ][DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+2014-01-29 15:33:04,017 [salt.loader      ][DEBUG   ] Loaded djangomod as virtual django
+2014-01-29 15:33:04,024 [salt.loader      ][DEBUG   ] loading render in ['/var/cache/salt/master/extmods/renderers', '/usr/lib/pymodules/python2.7/salt/renderers']
+2014-01-29 15:33:04,024 [salt.loader      ][DEBUG   ] Skipping /var/cache/salt/master/extmods/renderers, it is not a directory
+2014-01-29 15:33:04,029 [salt.loader      ][DEBUG   ] loading pillar in ['/var/cache/salt/master/extmods/pillar', '/usr/lib/pymodules/python2.7/salt/pillar']
+2014-01-29 15:33:04,029 [salt.loader      ][DEBUG   ] Skipping /var/cache/salt/master/extmods/pillar, it is not a directory
+2014-01-29 15:33:04,033 [salt.loader      ][DEBUG   ] Loaded git_pillar as virtual git
+2014-01-29 15:33:04,036 [salt.utils.jinja ][DEBUG   ] Jinja search path: '['/var/cache/salt/master/pillar_gitfs/0']'
+2014-01-29 15:33:04,038 [salt.template    ][DEBUG   ] Rendered data from file: /var/cache/salt/master/pillar_gitfs/0/top.sls:
+base:
+  'G@app:myapp':
+    - match: compound
+    - myapp
+
+2014-01-29 15:33:04,040 [salt.loaded.int.render.yaml][DEBUG   ] Results of YAML rendering:
+OrderedDict([('base', OrderedDict([('G@app:myapp', [OrderedDict([('match', 'compound')]), 'myapp'])]))])
+2014-01-29 15:33:04,041 [salt.minion      ][DEBUG   ] grains target: app:myapp
+2014-01-29 15:33:04,041 [salt.utils       ][DEBUG   ] Attempting to match 'myapp' in 'app' using delimiter ':'
+2014-01-29 15:33:04,042 [salt.utils.jinja ][DEBUG   ] Jinja search path: '['/var/cache/salt/master/pillar_gitfs/0']'
+2014-01-29 15:33:04,043 [salt.template    ][DEBUG   ] Rendered data from file: /var/cache/salt/master/pillar_gitfs/0/myapp/init.sls:
+include: [myapp.qa, myapp.stg, myapp.prod]
+
+2014-01-29 15:33:04,045 [salt.loaded.int.render.yaml][DEBUG   ] Results of YAML rendering:
+OrderedDict([('include', ['myapp.qa', 'myapp.stg', 'myapp.prod'])])
+2014-01-29 15:33:04,046 [salt.utils.jinja ][DEBUG   ] Jinja search path: '['/var/cache/salt/master/pillar_gitfs/0']'
+2014-01-29 15:33:04,050 [salt.template    ][DEBUG   ] Rendered data from file: /var/cache/salt/master/pillar_gitfs/0/myapp/qa.sls:
+*** data removed ***
+
+2014-01-29 15:33:04,058 [salt.loaded.int.render.yaml][DEBUG   ] Results of YAML rendering:
+OrderedDict(*** data removed ***)
+2014-01-29 15:33:04,059 [salt.utils.jinja ][DEBUG   ] Jinja search path: '['/var/cache/salt/master/pillar_gitfs/0']'
+2014-01-29 15:33:04,062 [salt.template    ][DEBUG   ] Rendered data from file: /var/cache/salt/master/pillar_gitfs/0/myapp/stg.sls:
+*** data removed *** 
+
+2014-01-29 15:33:04,070 [salt.loaded.int.render.yaml][DEBUG   ] Results of YAML rendering:
+OrderedDict(*** data removed ***)
+2014-01-29 15:33:04,071 [salt.utils.jinja ][DEBUG   ] Jinja search path: '['/var/cache/salt/master/pillar_gitfs/0']'
+2014-01-29 15:33:04,074 [salt.template    ][DEBUG   ] Rendered data from file: /var/cache/salt/master/pillar_gitfs/0/myapp/prod.sls:
+*** data removed ***
+
+2014-01-29 15:33:04,082 [salt.loaded.int.render.yaml][DEBUG   ] Results of YAML rendering:
+OrderedDict(*** data removed ***)
+2014-01-29 15:33:05,252 [salt.fileserver  ][DEBUG   ] Updating fileserver cache
+2014-01-29 15:33:07,971 [salt.utils.event ][DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2014-01-29 15:33:07,972 [salt.utils.event ][DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2014-01-29 15:33:10,891 [salt.loader      ][DEBUG   ] loading module in ['/var/cache/salt/master/extmods/modules', '/usr/lib/pymodules/python2.7/salt/modules']
+2014-01-29 15:33:10,897 [salt.loader      ][DEBUG   ] Skipping /var/cache/salt/master/extmods/modules, it is not a directory
+2014-01-29 15:33:11,081 [salt.loader      ][DEBUG   ] Loaded localemod as virtual locale
+2014-01-29 15:33:11,082 [salt.loader      ][DEBUG   ] Loaded groupadd as virtual group
+2014-01-29 15:33:11,089 [salt.loader      ][DEBUG   ] Loaded linux_sysctl as virtual sysctl
+2014-01-29 15:33:11,094 [salt.loader      ][DEBUG   ] Loaded parted as virtual partition
+2014-01-29 15:33:11,119 [salt.loader      ][DEBUG   ] Loaded apt as virtual pkg
+2014-01-29 15:33:11,126 [salt.loader      ][DEBUG   ] Loaded sysmod as virtual sys
+2014-01-29 15:33:11,127 [salt.loader      ][DEBUG   ] Loaded upstart as virtual service
+2014-01-29 15:33:11,129 [salt.loader      ][DEBUG   ] Loaded useradd as virtual user
+2014-01-29 15:33:11,131 [salt.loader      ][DEBUG   ] Loaded dpkg as virtual lowpkg
+2014-01-29 15:33:11,137 [salt.loader      ][DEBUG   ] Loaded grub_legacy as virtual grub
+2014-01-29 15:33:11,139 [salt.loader      ][DEBUG   ] Loaded debconfmod as virtual debconf
+2014-01-29 15:33:11,140 [salt.loader      ][DEBUG   ] Loaded cmdmod as virtual cmd
+2014-01-29 15:33:11,155 [salt.loader      ][DEBUG   ] Loaded virtualenv_mod as virtual virtualenv
+2014-01-29 15:33:11,156 [salt.loader      ][DEBUG   ] Loaded djangomod as virtual django
+2014-01-29 15:33:11,171 [salt.loader      ][DEBUG   ] loading render in ['/var/cache/salt/master/extmods/renderers', '/usr/lib/pymodules/python2.7/salt/renderers']
+2014-01-29 15:33:11,171 [salt.loader      ][DEBUG   ] Skipping /var/cache/salt/master/extmods/renderers, it is not a directory
+2014-01-29 15:33:11,176 [salt.loader      ][DEBUG   ] loading pillar in ['/var/cache/salt/master/extmods/pillar', '/usr/lib/pymodules/python2.7/salt/pillar']
+2014-01-29 15:33:11,185 [salt.loader      ][DEBUG   ] Skipping /var/cache/salt/master/extmods/pillar, it is not a directory
+2014-01-29 15:33:11,190 [salt.loader      ][DEBUG   ] Loaded git_pillar as virtual git
+2014-01-29 15:33:11,195 [salt.utils.jinja ][DEBUG   ] Jinja search path: '['/var/cache/salt/master/pillar_gitfs/1']'
+2014-01-29 15:33:11,198 [salt.template    ][DEBUG   ] Rendered data from file: /var/cache/salt/master/pillar_gitfs/1/top.sls:
+```
+
+This is obviously causing issues as subsequent highstates show this:
+
+```
+root@prduseast-syndic01:/var/cache/salt/master/pillar_gitfs# salt -G 'app:myapp' state.highstate test=True
+ip-****.ec2.internal:
+    Data failed to compile:
+----------
+    The function "state.highstate" is running as PID 5980 and was started at 2014, Jan 29 15:19:35.885728 with jid 20140129151935885728
+```
+
+And any pillar update calls from master just hang...
+
+Minion logs show that the highstate is failing with this (but nothing else interesting in logs):
+
+```
+2014-01-29 15:17:30,686 [salt.state       ][ERROR   ] Jinja variable 'dict object' has no attribute 'qa.bundle.s3.key'; line 12
+
+---
+[...]
+{% elif 'env' in grains and 'qa' in grains['env'] %}
+export AWS_S3_KEY={{ pillar['qa.bundle.s3.key'] }}
+export AWS_S3_SECRET={{ pillar['qa.bundle.s3.secret'] }}
+export AWS_S3_BUCKET={{ pillar['qa.bundle.s3.bucket'] }}
+export BUNDLE_ARCHIVE={{ pillar['qa.bundle.s3.filename'] }}
+export BUNDLE_DIR={{ pillar['qa.bundle.dir'] }}    <======================
+{% elif 'env' in grains and 'stg' in grains['env'] %}
+export AWS_S3_KEY={{ pillar['stg.bundle.s3.key'] }}
+export AWS_S3_SECRET={{ pillar['stg.bundle.s3.secret'] }}
+export AWS_S3_BUCKET={{ pillar['stg.bundle.s3.bucket'] }}
+export BUNDLE_ARCHIVE={{ pillar['stg.bundle.s3.filename'] }}
+[...]
+
+---
+```
+
+The pillar data is successfully being pulled from git, as I see it in /var/cache/salt/master/pillar_gitfs/0/
+
+Any thoughts as to why this is happening?

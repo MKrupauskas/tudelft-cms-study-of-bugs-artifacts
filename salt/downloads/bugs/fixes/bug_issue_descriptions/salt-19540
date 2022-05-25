@@ -1,0 +1,102 @@
+- affected: github 2014.7 branch
+  -  salt-call 2014.7.0-1213-gfd174db (Helium)
+  -  salt-call 2014.7.0-1149-g615921b (Helium)
+- not affected: 2014.7 release
+  - salt-call 2014.7.0 (Helium)
+- use case:
+  - as a devop i want to import some common data into pillar files for reusing them in other pillar files
+- reproduction:
+  - change to a new/empty directory
+  - paste attached file into directory
+  - chmod +x setup_issue.sh
+  - ./setup_issue.sh
+  - ./sc.sh pillar.items -l debug
+
+---
+
+setup_issue.sh
+
+```
+#!/bin/sh
+#
+myprog=`readlink -f $0`
+mydir=`dirname $myprog`
+myesc=`echo "$mydir" | sed -re 's/\\//\\\\\\//g'`
+
+sed -re "s/\\+BASE\\+/$myesc/g" > $mydir/minion <<EOF
+
+root_dir: +BASE+/_run
+
+pidfile: salt-minion.pid
+pki_dir: pki
+cachedir: cache
+sock_dir: run
+
+file_client: local
+
+fileserver_backend:
+  - roots
+
+pillar_roots:
+  base:
+    - +BASE+/pillar
+
+file_roots:
+  base:
+    - +BASE+/salt
+
+EOF
+
+echo "id: pillar_test" >> $mydir/minion
+
+cat > $mydir/sc.sh <<"EOF"
+#!/bin/sh
+myprog=`readlink -f $0`
+mydir=`dirname $myprog`
+sudo salt-call --local --config-dir=$mydir $@
+EOF
+
+chmod +x $mydir/sc.sh
+mkdir $mydir/salt
+mkdir $mydir/pillar
+
+cat > $mydir/salt/top.sls <<EOF
+base:
+  '*':
+    - test_state
+
+EOF
+
+cat > $mydir/salt/test_state.sls <<EOF
+curl:
+  pkg:
+    - installed
+
+EOF
+
+cat > $mydir/pillar/top.sls <<EOF
+base:
+  '*':
+    - included_pillar
+
+EOF
+
+cat > $mydir/pillar/included_pillar.sls <<"EOF"
+
+{% import_yaml "loaded_yaml.sls" as t with context %}
+
+test:
+  me: true
+{%- for a,d in t.iteritems() %}
+  {{ a }}: {{ d }}
+{%- endfor %}
+
+EOF
+
+cat > $mydir/pillar/loaded_yaml.sls <<EOF
+
+another_me: true
+
+EOF
+
+```

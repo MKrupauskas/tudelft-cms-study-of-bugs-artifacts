@@ -1,0 +1,227 @@
+### Description of Issue/Question
+
+I have running `salt-master` in Docker instance.
+
+After I started `salt-master` with **RAET** transport, `salt-api`  eauth request return an error message
+
+ **503 Service Unavailable 
+Salt Master is not available**
+
+When I change `salt-master` transport to `zeromq` or `tcp`, `salt-api` eauth work ok.
+
+
+
+
+### Setup
+
+`salt-master` config 
+
+```
+# sed -e '/^#/d' -e '/^$/d' /etc/salt/master
+default_include: master.d/*.conf
+transport: raet
+master_id: 10.12.16.22
+ipv6: False
+keep_jobs: 1
+auto_accept: True
+hash_type: sha256
+```
+
+`salt-api` config file 
+
+```
+# sed -e '/^#/d' -e '/^$/d' /etc/salt/master.d/salt-api.conf
+external_auth:
+  pam:
+    salt:
+      - .*
+rest_cherrypy:
+  port: 8910
+  host: 0.0.0.0
+  ssl_crt: /etc/pki/tls/certs/localhost.crt
+  ssl_key: /etc/pki/tls/certs/localhost.key
+```
+
+
+### Steps to Reproduce Issue
+
+```
+# curl -ik https://localhost:8910/login/ -H 'Accept: application/x-yaml' -d username=salt -d password=salt_api_passwd -d eauth=pam
+
+HTTP/1.1 503 Service Unavailable
+Content-Length: 736
+Access-Control-Expose-Headers: GET, POST
+Vary: Accept-Encoding
+Server: CherryPy/3.2.2
+Allow: GET, HEAD, POST
+Access-Control-Allow-Credentials: true
+Date: Thu, 12 Jan 2017 06:56:52 GMT
+Access-Control-Allow-Origin: *
+Content-Type: text/html;charset=utf-8
+Set-Cookie: session_id=836556006406320e1598636c1a85aa534463bb94; expires=Thu, 12 Jan 2017 16:56:52 GMT; Path=/
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"></meta>
+    <title>503 Service Unavailable</title>
+    <style type="text/css">
+    #powered_by {
+        margin-top: 20px;
+        border-top: 2px solid black;
+        font-style: italic;
+    }
+
+    #traceback {
+        color: red;
+    }
+    </style>
+</head>
+    <body>
+        <h2>503 Service Unavailable</h2>
+        <p>Salt Master is not available.</p>
+        <pre id="traceback"></pre>
+    <div id="powered_by">
+    <span>Powered by <a href="http://www.cherrypy.org">CherryPy 3.2.2</a></span>
+    </div>
+    </body>
+</html>
+```
+
+`salt-master` DEBUG log 
+
+```
+# salt-master -l debug
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/salt-api.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/salt-api.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: salt-minion-docker
+[DEBUG   ] Configuration file path: /etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[INFO    ] Setting up the Salt Master
+[PROFILE ] Beginning pwd.getpwall() call in masterarpi acess_keys function
+[PROFILE ] End pwd.getpwall() call in masterarpi acess_keys function
+[INFO    ] Preparing the root key for local communication
+[DEBUG   ] Removing stale keyfile: /var/cache/salt/master/.root_key
+[DEBUG   ] Created pidfile: /var/run/salt-master.pid
+[INFO    ] Starting up the Salt Master
+[DEBUG   ] RAETEvent Using Jobber Stack at = /var/run/salt/master/master.event545dff34897e4902a4.uxd
+[DEBUG   ] Started 'salt.daemons.flo.maint.Maintenance' with pid 2016
+[DEBUG   ] Started 'salt.daemons.flo.worker.Worker' with pid 2017
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Started 'salt.daemons.flo.worker.Worker' with pid 2018
+[DEBUG   ] Started 'salt.daemons.flo.worker.Worker' with pid 2019
+[DEBUG   ] Started 'salt.daemons.flo.worker.Worker' with pid 2020
+[DEBUG   ] Started 'salt.daemons.flo.worker.Worker' with pid 2021
+[DEBUG   ] RAETEvent Using Jobber Stack at = /var/run/salt/master/master.event545dff34897e4902a4.uxd
+[DEBUG   ] RAETEvent Using Jobber Stack at = /var/run/salt/master/master.event545dff34897e4902a4.uxd
+[DEBUG   ] RAETEvent Using Jobber Stack at = /var/run/salt/master/master.event545dff34897e4902a4.uxd
+
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/salt-api.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/salt-api.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: salt-minion-docker
+[INFO    ] Could not determine init system from command line: (/usr/local/bin/s6-svscan /etc/s6/)
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+
+[DEBUG   ] Initializing new Schedule
+[DEBUG   ] LazyLoaded timezone.get_offset
+[DEBUG   ] LazyLoaded cmd.run
+[INFO    ] Executing command ['date', '+%z'] in directory '/root'
+[DEBUG   ] Including configuration from '/etc/salt/master.d/salt-api.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/salt-api.conf
+[DEBUG   ] output: +0000
+[DEBUG   ] LazyLoaded config.merge
+[DEBUG   ] LazyLoaded roots.envs
+[DEBUG   ] Updating roots fileserver cache
+
+[INFO    ] Could not determine init system from command line: (/usr/local/bin/s6-svscan /etc/s6/)
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] Updating roots fileserver cache
+
+[DEBUG   ] **** Lane Router rxMsg **** id=salt-minion-docker_master estate=salt-minion-docker_master_master yard=manor
+   msg={u'route': {u'src': ('salt-minion-docker_master_master', u'worker5', None), u'dst': [None, u'manor', u'worker_req']}}
+
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/salt-api.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/salt-api.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: salt-minion-docker
+[INFO    ] Could not determine init system from command line: (/usr/local/bin/s6-svscan /etc/s6/)
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+
+[DEBUG   ] LazyLoaded local_cache.clean_old_jobs
+[DEBUG   ] Updating roots fileserver cache
+```
+
+`salt-api` DEBUG log :
+
+```
+# salt-api -l debug
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/salt-api.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/salt-api.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: salt-minion-docker
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] Configuration file path: /etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[INFO    ] Setting up the Salt API
+[DEBUG   ] Created pidfile: /var/run/salt-api.pid
+[INFO    ] The salt-api is starting up
+[INFO    ] Starting rest_cherrypy.start netapi module
+[DEBUG   ] Started 'salt.loaded.int.netapi.rest_cherrypy.start' with pid 2177
+[DEBUG   ] Process Manager starting!
+[DEBUG   ] RAETEvent Using Jobber Stack at = /var/run/salt/master/master.event545dff39ac2ba4c005.uxd
+[INFO    ] [12/Jan/2017:06:37:30] ENGINE Listening for SIGHUP.
+[INFO    ] [12/Jan/2017:06:37:30] ENGINE Listening for SIGTERM.
+[INFO    ] [12/Jan/2017:06:37:30] ENGINE Listening for SIGUSR1.
+[INFO    ] [12/Jan/2017:06:37:30] ENGINE Bus STARTING
+[INFO    ] [12/Jan/2017:06:37:30] ENGINE Started monitor thread '_TimeoutMonitor'.
+[INFO    ] [12/Jan/2017:06:37:30] ENGINE Serving on 0.0.0.0:8910
+[INFO    ] [12/Jan/2017:06:37:30] ENGINE Bus STARTED
+
+[INFO    ] 127.0.0.1 - - [12/Jan/2017:06:37:41] "POST /login/ HTTP/1.1" 503 736 "" "curl/7.29.0"
+```
+
+### Versions Report
+
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2016.11.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: 1.3.8
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: 1.4.3
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: 0.6.5
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.3.1611 Core
+        machine: x86_64
+        release: 2.6.32-642.6.1.el6.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```

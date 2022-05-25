@@ -1,0 +1,172 @@
+### Description of Issue/Question
+
+It is impossible to cleanly switch vendors for already installed packages with zypper/rpm. My example is that I need to install a package (ffmpeg-4) which depends on packages that are provided both by the 'main' vendor (OpenSUSE) and the 'secondary' vendor (packman). The ffmpeg-4 package requires the packages from the packman vendor, but if these are installed it becomes impossible to switch.
+
+### Setup
+
+OpenSUSE Tumbleweed,  salt installed from packages, running on a masterless setup ( `salt-call --local`).
+
+```
+
+import_packman_gpg_key:
+    cmd.run:
+        - name: rpm --import http://packman.inode.at/gpg-pubkey-1abd1afb.asc
+        - unless: rpm -q gpg-pubkey-1abd1afb-54176598
+
+packman-essentials:
+    pkgrepo.managed:
+        - baseurl: http://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/Essentials/
+        - humanname: Packman (Essentials)
+        - refresh: 1
+    require:
+        - cmd: import_packman_gpg_key
+
+install_packman_multimedia:
+    pkg.installed:
+        - pkgs:
+            - libavcodec56
+            - libavcodec57
+            - libswresample3
+            - libavfilter7
+            - libavcodec58
+            - libavformat58
+            - libswscale5
+            - libavutil56
+            - libpostproc55
+            - libavresample4
+            - ffmpeg-4
+        - fromrepo: packman-essentials
+```
+
+### Steps to Reproduce Issue
+
+Applying the highstate (which includes the above states) results in a zypper error
+
+```
+----------
+          ID: install_packman_multimedia
+    Function: pkg.installed
+      Result: False
+     Comment: An error was encountered while installing package(s): Zypper command failure: Check Zypper's logs.
+     Started: 16:01:36.789479
+    Duration: 1390.71 ms
+     Changes: 
+```
+
+The console shows the following:
+
+```
+[ERROR   ] Command '['zypper', '--non-interactive', '--no-refresh', '--no-refresh', 'install', '--auto-agree-with-licenses', '--name', '--force', '--force-resolution', '--from', 'packman-essentials', 'ffmpeg-4']' failed with return code: 4
+[ERROR   ] stdout: Loading repository data...
+Reading installed packages...
+Forcing installation of 'ffmpeg-4-4.1-5.2.x86_64' from repository 'packman-essentials'.
+Resolving package dependencies...
+
+Problem: ffmpeg-4-4.1-5.2.x86_64 requires libswresample3 = 4.1-5.2, but this requirement cannot be provided
+  not installable providers: libswresample3-4.1-5.2.i586[packman-essentials]
+                   libswresample3-4.1-5.2.x86_64[packman-essentials]
+ Solution 1: install libswresample3-4.1-5.2.x86_64 (with vendor change)
+  openSUSE  -->  http://packman.links2linux.de
+ Solution 2: do not install ffmpeg-4-4.1-5.2.x86_64
+ Solution 3: break ffmpeg-4-4.1-5.2.x86_64 by ignoring some of its dependencies
+
+Choose from above solutions by number or cancel [1/2/3/c] (c): c
+```
+
+Note that salt tries to install only ffmpe4, but I asked for more libraries to be installed. This is because I am using the `--from` switch which in practice would switch packages.
+
+If I manually run a zypper install command with all packages this works:
+
+```
+$ sudo zypper in --allow-vendor-change  --from packman-essentials vlc ffmpeg-4 libswresample3 libavfilter7 libavcodec58 libavformat58 libswscale5 libavutil56 libpostproc55 libavresample4
+```
+
+I am not sure which is the best way here. Some options would be:
+
+- when `pkgs` is used, pass all the packages to the install command, even if already installed.
+- when `fromrepo` is used, always try to install the package since it may lead to switching the package vendor/source
+- add an option to pass all packages to the install command
+
+I have tried setting `reinstall: True` but that has a couple of downsides:
+
+- always reinstalls the packages
+- always logs error messages, such as below
+
+```
+[ERROR   ] Made the following changes:
+'vlc' changed from 'absent' to '3.0.4-4.15'
+'libmad0' changed from 'absent' to '0.15.1b-3.3'
+'libGLEW2_1' changed from 'absent' to '2.1.0-1.3'
+'libxcb-xv0' changed from 'absent' to '1.13-2.1'
+'libcddb2' changed from 'absent' to '1.3.2-25.12'
+'libvlc5' changed from 'absent' to '3.0.4-4.15'
+'libxcb-composite0' changed from 'absent' to '1.13-2.1'
+'libmatroska6' changed from 'absent' to '1.4.9-2.1'
+'gimp-plugin-aa' changed from 'absent' to '2.10.8-1.1'
+'libopencv3_4' changed from 'absent' to '3.4.3-1.2'
+'libcaca0' changed from 'absent' to '0.99.beta19.git20171003-1.2'
+'libupnp13' changed from 'absent' to '1.8.4-2.1'
+'vlc-qt' changed from 'absent' to '3.0.4-4.15'
+'libprojectM-qt5-2' changed from 'absent' to '2.1.0-14.3'
+'libftgl2' changed from 'absent' to '2.1.3~rc5-4.3'
+'libshout3' changed from 'absent' to '2.4.1-2.2'
+'libdvbpsi10' changed from 'absent' to '1.3.2-1.2'
+'vlc-codec-gstreamer' changed from 'absent' to '3.0.4-1.3'
+'libva-wayland2' changed from 'absent' to '2.3.0-1.1'
+'libebml4' changed from 'absent' to '1.3.6-1.1'
+'libvlccore9' changed from 'absent' to '3.0.4-4.15'
+'vlc-noX' changed from 'absent' to '3.0.4-4.15'
+'libaa1' changed from 'absent' to '1.4.0-510.12'
+'libprotobuf-lite17' changed from 'absent' to '3.6.1-2.1'
+'libavc1394-0' changed from 'absent' to '0.5.4-18.10'
+'libtheora0' changed from 'absent' to '1.1.1-29.14'
+'gstreamer-plugins-libav' changed from '1.14.4-1.1' to '1.14.4-38.5'
+'libixml10' changed from 'absent' to '1.8.4-2.1'
+'libSDL_image-1_2-0' changed from 'absent' to '1.2.12-10.12'
+'libtbb2' changed from 'absent' to '2018_20171205-4.1'
+'liblirc_client0' changed from 'absent' to '0.10.1-2.1'
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.2
+ 
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: 3.5.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 3.6.6
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.5 (default, Mar 31 2018, 19:45:04) [GCC]
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: x86_64
+        release: 4.19.11-1-default
+         system: Linux
+        version: Not Installed
+```

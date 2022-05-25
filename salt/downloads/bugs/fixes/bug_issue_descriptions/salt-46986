@@ -1,0 +1,97 @@
+### Description of Issue/Question
+Exactly as https://github.com/saltstack/salt/issues/46004, however the minimal reproduction scenario is slightly different.
+
+### Setup
+master config:
+```
+renderer: jinja | yaml | gpg
+file_roots:
+  base:
+  - /srv/salt/states
+pillar_roots:
+  base:
+  - /srv/salt/pillar/base
+  test:
+  - /srv/salt/pillar/test
+  prod:
+  - /srv/salt/pillar/prod
+```
+
+`/srv/salt/states/main.sls`:
+```
+include:
+- one
+- two
+- three
+```
+
+`/srv/salt/states/one.sls`:
+```
+{%- set foo = salt['saltutil.runner']('pillar.show_pillar', minion='foo') %}
+placeholder_one:
+  test.succeed_without_changes
+```
+
+`/srv/salt/states/two.sls`:
+```
+placeholder_two:
+  test.succeed_without_changes
+```
+
+`/srv/salt/states/three.sls`:
+```
+placeholder_three:
+  test.succeed_without_changes
+```
+
+### Steps to Reproduce Issue
+run `salt-run state.orchestrate main` and notice the error:
+```
+Specified SLS three in saltenv base is not available on the salt master or through a configured fileserver
+```
+
+I've tried to find the issue myself, but I'm stumped...tracing the contents of `__opts__['file_roots']` through the various files (`state.py`, `fileserver/roots.py`, `fileclient.py`, `renderers/jinja.py`, amongst others) seems to indicate that once the `pillar.show_pillar` has been fired, the `__opts__['file_roots']` in `renderers/jinja.py:render` stays filled with the `pillar_roots` instead of being restored to the 'regular' `file_roots`, which causes something to be unable to find `three.sls`.
+I don't know why `two.sls` is unaffected by this.
+
+### Versions Report
+Salt Version:
+           Salt: 2017.7.5
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.11.6.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+

@@ -1,0 +1,104 @@
+Salt master / minion version 2016.3.3
+
+New to salt, do not know the ins and outs yet. But I think I ran into a bug, I cant fix. Maybe someone has ideas to help me out.
+
+Having a not supported linux os (an openembedded build), manual providers are needed, minion config has
+
+```
+providers:
+  service: systemd
+  pkg: aptpkg
+```
+
+This is verified and working as expected from master
+
+```
+salt '16050146' service.available salt-minion
+16050146:
+    True
+```
+
+But when called from a state the module.service falls back to service.py not systemd.py
+
+**salt-service-fails.sls**
+
+```
+salt-minion:
+  pkg.installed: []
+  service.running:
+    - enable: True
+    - restart: True
+    - require:
+      - pkg: salt-minion
+
+----------
+          ID: salt-minion
+    Function: pkg.installed
+      Result: True
+     Comment: Package salt-minion is already installed
+     Started: 14:14:50.035789
+    Duration: 244.358 ms
+     Changes:   
+----------
+          ID: salt-minion
+    Function: service.running
+      Result: False
+     Comment: The named service salt-minion is not available
+     Started: 14:14:50.284966
+    Duration: 4.321 ms
+     Changes:   
+```
+
+Below, the call to [ `avail = __salt__['service.available'](name)` ]
+falls back to /modules/service.py instead of /modules/systemd.py
+
+**salt/states/service.py**
+
+```
+def _available(name, ret): 
+    ''' 
+    Check if the service is available 
+    ''' 
+    avail = False 
+    if 'service.available' in __salt__: 
+        avail = __salt__['service.available'](name) 
+    elif 'service.get_all' in __salt__: 
+        avail = name in __salt__['service.get_all']() 
+    if not avail: 
+        ret['result'] = False 
+        ret['comment'] = 'The named service {0} is not available'.format(name) 
+    return avail
+```
+
+**salt-service.sls**
+
+Added systemd provider to service.running results in what I expected to see.
+
+```
+salt-minion:
+  pkg.installed: []
+  service.running:
+    - enable: True
+    - restart: True
+    - provider: systemd
+    - require:
+      - pkg: salt-minion
+
+----------
+          ID: salt-minion
+    Function: pkg.installed
+      Result: True
+     Comment: Package salt-minion is already installed
+     Started: 14:15:37.522584
+    Duration: 241.383 ms
+     Changes:   
+----------
+          ID: salt-minion
+    Function: service.running
+      Result: True
+     Comment: The service salt-minion is already running
+     Started: 14:15:37.768551
+    Duration: 663.879 ms
+     Changes:   
+
+```

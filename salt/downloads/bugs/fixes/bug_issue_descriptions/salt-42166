@@ -1,0 +1,153 @@
+### Description of Issue/Question
+While playing around for #40320 
+
+I wrote the following state to see if it would handle a IPv6 network.
+```
+/tmp/test:
+  file.managed:
+    - contents: {{ '2001:470:7ee7:30::/64' | network_hosts }}
+```
+
+Which resulted in
+```
+[ERROR   ] Rendering exception occurred: Jinja error: Python int too large to convert to C long
+Traceback (most recent call last):
+  File "/opt/local/lib/python2.7/site-packages/salt/utils/templates.py", line 410, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/opt/local/lib/python2.7/site-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/opt/local/lib/python2.7/site-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 3, in top-level template code
+  File "/opt/local/lib/python2.7/site-packages/salt/utils/network.py", line 461, in network_hosts
+    return _network_hosts(ipaddr_filter_out[0])
+  File "/opt/local/lib/python2.7/site-packages/salt/utils/network.py", line 449, in _network_hosts
+    for host in ipaddress.ip_network(ip_addr_entry, strict=False).hosts()
+  File "/opt/local/lib/python2.7/site-packages/salt/ext/ipaddress.py", line 2262, in hosts
+    for x in range(1, broadcast - network + 1):
+OverflowError: Python int too large to convert to C long
+
+; line 3
+
+---
+/tmp/test:
+  file.managed:
+    - contents: {{ '2001:470:7ee7:30::/64' | network_hosts }}    <======================
+
+Traceback (most recent call last):
+  File "/opt/local/lib/python2.7/site-packages/salt/utils/templates.py", line 410, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/opt/local/lib/python2.7/site-packages/jinja2/environment.py", line 989, in render
+[...]
+---
+[CRITICAL] Rendering SLS 'base:test' failed: Jinja error: Python int too large to convert to C long
+Traceback (most recent call last):
+  File "/opt/local/lib/python2.7/site-packages/salt/utils/templates.py", line 410, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/opt/local/lib/python2.7/site-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/opt/local/lib/python2.7/site-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 3, in top-level template code
+  File "/opt/local/lib/python2.7/site-packages/salt/utils/network.py", line 461, in network_hosts
+    return _network_hosts(ipaddr_filter_out[0])
+  File "/opt/local/lib/python2.7/site-packages/salt/utils/network.py", line 449, in _network_hosts
+    for host in ipaddress.ip_network(ip_addr_entry, strict=False).hosts()
+  File "/opt/local/lib/python2.7/site-packages/salt/ext/ipaddress.py", line 2262, in hosts
+    for x in range(1, broadcast - network + 1):
+OverflowError: Python int too large to convert to C long
+
+; line 3
+
+---
+/tmp/test:
+  file.managed:
+    - contents: {{ '2001:470:7ee7:30::/64' | network_hosts }}    <======================
+
+Traceback (most recent call last):
+  File "/opt/local/lib/python2.7/site-packages/salt/utils/templates.py", line 410, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/opt/local/lib/python2.7/site-packages/jinja2/environment.py", line 989, in render
+[...]
+---
+local:
+    Data failed to compile:
+----------
+    Rendering SLS 'base:test' failed: Jinja error: Python int too large to convert to C long
+Traceback (most recent call last):
+  File "/opt/local/lib/python2.7/site-packages/salt/utils/templates.py", line 410, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/opt/local/lib/python2.7/site-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/opt/local/lib/python2.7/site-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 3, in top-level template code
+  File "/opt/local/lib/python2.7/site-packages/salt/utils/network.py", line 461, in network_hosts
+    return _network_hosts(ipaddr_filter_out[0])
+  File "/opt/local/lib/python2.7/site-packages/salt/utils/network.py", line 449, in _network_hosts
+    for host in ipaddress.ip_network(ip_addr_entry, strict=False).hosts()
+  File "/opt/local/lib/python2.7/site-packages/salt/ext/ipaddress.py", line 2262, in hosts
+    for x in range(1, broadcast - network + 1):
+OverflowError: Python int too large to convert to C long
+
+; line 3
+
+---
+/tmp/test:
+  file.managed:
+    - contents: {{ '2001:470:7ee7:30::/64' | network_hosts }}    <======================
+
+Traceback (most recent call last):
+  File "/opt/local/lib/python2.7/site-packages/salt/utils/templates.py", line 410, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/opt/local/lib/python2.7/site-packages/jinja2/environment.py", line 989, in render
+[...]
+---
+```
+
+Give the massive size of an IPv6 subnet this is not unexpected, but /64 is a common netmask.
+This should be handled better, maybe print a warning if there will be to many entries?
+
+### Versions Report
+```[.]$ salt-call --versions-report
+Salt Version:
+           Salt: 2017.7.0rc1
+ 
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: 8.1.0
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: 2.0.0
+      gitpython: 2.1.1
+          ioflo: 1.6.7
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: 1.5.0
+       M2Crypto: 0.22
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Dec 31 2016, 10:50:46)
+   python-gnupg: 2.2.0
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: 0.6.6
+          smmap: 0.9.0
+        timelib: 0.2.4
+        Tornado: 4.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: i86pc
+        release: 5.11
+         system: SunOS
+        version: Not Installed
+```

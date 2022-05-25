@@ -1,0 +1,270 @@
+**Description**
+
+The value of the cli kwarg `test` is always False in both a state.apply and a runner (publish.runner within a state) while executing the state module via salt-ssh.
+
+**Setup**
+
+To make it easy to demonstrate, I have created a repository with a Vagrantfile, salt-master setup, state and runner. https://github.com/kylehuff/saltstack-57144
+
+The Vagrantfile also supports testing salt version 2019.2 which also exhibits the same issue.
+
+<details><summary>Vagrant commnd for v2019.2</summary>
+
+```
+SALT_VERSION=2019.2 vagrant up buster
+```
+</details>
+
+*Manual Setup*
+<details><summary>/etc/salt/master</summary>
+
+```
+runner_dirs: ["/srv/salt/modules/runners"]
+file_roots:
+  base:
+    - /srv/salt/states
+peer_run:
+  .*:
+    - optargs.*
+```
+</details>
+
+<details><summary>/srv/salt/modules/runners/optargs.py</summary>
+
+```
+#!/usr/bin/enn python
+
+def test_arg(*args, **kwargs):
+  """ test arguments. """
+  ret = {
+    'kwargs': kwargs,
+    '__opts__.test': __opts__.get('test'),
+    '__opts__.argv': __opts__.get('argv'),
+  }
+  return ret
+
+```
+</details>
+
+<details><summary>/srv/salt/states/optargs.sls</summary>
+
+```
+{%- set is_test = salt['config.get']('test') %}
+
+{%- set args_seen_by_runner = salt['publish.runner']('optargs.test_arg', ['keyword_arg1=1', 'keyword_arg2=2', 'test={}'.format(is_test)]) %}
+
+config.get check for is_test:
+  cmd.run:
+    - name: echo '{{ is_test }}'
+
+opts.get check for test:
+  cmd.run:
+    - name: echo '{{ opts.get('test') }}'
+
+runner check for test:
+  cmd.run:
+    - name: "echo {{ args_seen_by_runner|yaml }}"
+
+```
+</details>
+
+**Steps to Reproduce the behavior**
+
+Execute the state via both salt-minion and salt-ssh
+
+
+<details>
+<summary>correct output from `state.apply` via minion</summary>
+
+```
+salt asaltminion state.apply optargs test=true
+asaltminion:
+----------
+          ID: config.get check for is_test
+    Function: cmd.run
+        Name: echo 'True'
+      Result: None
+     Comment: Command "echo 'True'" would have been executed
+     Started: 21:28:25.884482
+    Duration: 5.029 ms
+     Changes:   
+----------
+          ID: opts.get check for test
+    Function: cmd.run
+        Name: echo 'True'
+      Result: None
+     Comment: Command "echo 'True'" would have been executed
+     Started: 21:28:25.890995
+    Duration: 1.476 ms
+     Changes:   
+----------
+          ID: runner check for test
+    Function: cmd.run
+        Name: echo {__opts__.argv: null, __opts__.test: false, kwargs: {keyword_arg1: 1, keyword_arg2: 2, test: true}}
+      Result: None
+     Comment: Command "echo {__opts__.argv: null, __opts__.test: false, kwargs: {keyword_arg1: 1, keyword_arg2: 2, test: true}}" would have been executed
+     Started: 21:28:25.892674
+    Duration: 1.221 ms
+     Changes:   
+
+Summary for asaltminion
+------------
+Succeeded: 3 (unchanged=3)
+Failed:    0
+------------
+Total states run:     3
+Total run time:   8.834 ms
+
+```
+</details>
+
+<details><summary>incorrect output from `state.apply` via salt-ssh</summary>
+
+```
+salt-ssh asaltminion state.apply optargs test=true
+
+asaltminion:
+----------
+          ID: config.get check for is_test
+    Function: cmd.run
+        Name: echo 'False'
+      Result: None
+     Comment: Command "echo 'False'" would have been executed
+     Started: 21:32:09.650784
+    Duration: 1.051 ms
+     Changes:   
+----------
+          ID: opts.get check for test
+    Function: cmd.run
+        Name: echo 'False'
+      Result: None
+     Comment: Command "echo 'False'" would have been executed
+     Started: 21:32:09.651985
+    Duration: 0.661 ms
+     Changes:   
+----------
+          ID: runner check for test
+    Function: cmd.run
+        Name: echo {__opts__.argv: [state.apply, optargs, test=true], __opts__.test: false, kwargs: { keyword_arg1: 1, keyword_arg2: 2, test: false}}
+      Result: None
+     Comment: Command "echo {__opts__.argv: [state.apply, optargs, test=true], __opts__.test: false, kwargs: { keyword_arg1: 1, keyword_arg2: 2, test: false}}" would have been executed
+     Started: 21:32:09.652741
+    Duration: 0.749 ms
+     Changes:   
+
+Summary for asaltminion
+------------
+Succeeded: 3 (unchanged=3)
+Failed:    0
+------------
+Total states run:     3
+Total run time:   3.102 ms
+```
+</details>
+
+**Expected behavior**
+I would expect the value of the cli kwarg `test` to exactly match value provided when invoked by either salt-ssh or the salt-minion.
+
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+NOTE: salt master was patched with patch listed after versions report
+
+```
+Salt Version:
+           Salt: 3000.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.11
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.7.3 (default, Dec 20 2019, 18:57:59)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+          smmap: 2.0.5
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: debian 10.3 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.19.0-8-amd64
+         system: Linux
+        version: debian 10.3 
+
+```
+
+<summary>salt-master-v300.2-patch.sh</summary>
+
+```
+cd $(dirname $(find /usr/lib -wholename '*/salt/master.py'))
+cp master.py master.py.bak
+
+cat << EOF | patch -Np1
+--- old/master.py 
++++ new/master.py
+@@ -1177,10 +1177,11 @@
+         'verify_minion', '_master_tops', '_ext_nodes', '_master_opts',
+         '_mine_get', '_mine', '_mine_delete', '_mine_flush', '_file_recv',
+         '_pillar', '_minion_event', '_handle_minion_event', '_return',
+-        '_syndic_return', '_minion_runner', 'pub_ret', 'minion_pub',
++        '_syndic_return', 'minion_runner', 'pub_ret', 'minion_pub',
+         'minion_publish', 'revoke_auth', 'run_func', '_serve_file',
+         '_file_find', '_file_hash', '_file_find_and_stat', '_file_list',
+         '_file_list_emptydirs', '_dir_list', '_symlink_list', '_file_envs',
++        '_file_hash_and_stat',
+     )
+
+     def __init__(self, opts):
+EOF
+```
+</details>
+
+**Additional context**
+
+We first noticed this within the runner, so we attempted to pass the value of `test` via an argument to a runner (either collected from `config` or `opts` variables), but as you can see, the value of `test` in `config` and `opts` is also False, regardless of the option passed.  What is curious is that the state module obviously knows it is a test in both scenarios and does not make any changes when passing `test=true`.
+
+**Workaround**
+
+For the time being I am first checking the value of `__opts__['argv']` within the runner (seems correct during salt-ssh calls) and then falling back to the kwargs passed in via publish_runner (correct when using salt-minion).
+
+<details><summary>runner workaround example</summary>
+
+```
+# some ugly code as a not-well-tested workaround example.
+# within sls:
+...
+{%- set ... = salt['publish.runner']('...', ['keyword_arg1=1', 'keyword_arg2=2', 'test={}'.format(salt['config.get']('test'))]) %}
+
+# within runner
+
+def myrunner(*args, **kwargs):
+  test = list(filter(lambda v: v[0] == 'test', map(lambda arg: arg.split('='), __opts__.get('argv', []))))
+  if len(test) > 0 and len(test[0]) > 0:
+    test = test[0][1]
+  else:
+    test = kwargs.get('test', False)
+  ...
+```
+</details>
+
+**Why does this matter**
+
+Our states need to request that certain actions be performed only during an actual state-run, and never during a test state-run (i.e. ask the salt-master to perform or delegate a very expensive or sensitive operation and return a result) -- and some of our devices are running a minion, some are only managed via salt-ssh for various reasons.

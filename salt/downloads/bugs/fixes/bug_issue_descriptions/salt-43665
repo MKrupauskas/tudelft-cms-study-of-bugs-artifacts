@@ -1,0 +1,89 @@
+### Description of Issue/Question
+Whenever a minion receives a payload form the master via the PUB channel, it will spawn a thread or (by default) a process to handle it. If many functions are being executed in parallel, this can be a problem because processes consume memory, file descriptors, process descriptors, etc.
+
+### Setup
+This has been reproduced with 2016.11 and 2017.7 versions.
+
+### Steps to Reproduce Issue
+One easy way to reproduce this is:
+
+```
+master$ for ((i=0;i<100;i++)); do salt --async MINION test.sleep 3600; done
+
+master$ ssh MINION
+
+minion$ top
+```
+
+This is not the normal use case of course, because typically users do not really want to run that many functions all together and group them in states instead.
+
+Using `state.apply` and related functions from the `state` execution module with default options works around the issue, because the `state` functions do not allow more than one instance running in parallel by default (`queue=False`):
+
+```
+master$ cat >/srv/salt/sleep.sls <<<"
+test:
+  module.run:
+    - name: test.sleep
+    - length: 3 
+"
+
+master$ salt MINION state.sls sleep
+^C
+Exiting gracefully on Ctrl-c [...]
+
+master$ salt MINION state.sls sleep
+mino.tf.local:
+    Data failed to compile:
+----------
+    The function "state.sls" is running as PID 30540 and was started at 2017, Sep 21 12:16:58.940803 with jid 20170921121658940803
+ERROR: Minions returned with non-zero exit code
+```
+
+This issue appears with `state.apply` and related functions when using `queue=True` though:
+
+```
+master$ for ((i=0;i<100;i++)); do salt --async MINION state.sls sleep queue=True; done
+```
+
+`queue=True` is the default in SUSE Manager, which is the reason why we stumbled upon this issue.
+
+### Versions Report
+> Salt Version:
+>            Salt: 2016.11.4
+>  
+> Dependency Versions:
+>            cffi: 1.5.2
+>        cherrypy: 3.6.0
+>        dateutil: 2.4.2
+>       docker-py: Not Installed
+>           gitdb: Not Installed
+>       gitpython: Not Installed
+>           ioflo: Not Installed
+>          Jinja2: 2.8
+>         libgit2: 0.24.0
+>         libnacl: Not Installed
+>        M2Crypto: 0.21.1
+>            Mako: Not Installed
+>    msgpack-pure: Not Installed
+>  msgpack-python: 0.4.6
+>    mysql-python: Not Installed
+>       pycparser: 2.10
+>        pycrypto: 2.6.1
+>    pycryptodome: Not Installed
+>          pygit2: 0.24.0
+>          Python: 2.7.13 (default, Jan 11 2017, 10:56:06) [GCC]
+>    python-gnupg: Not Installed
+>          PyYAML: 3.10
+>           PyZMQ: 14.0.0
+>            RAET: Not Installed
+>           smmap: Not Installed
+>         timelib: Not Installed
+>         Tornado: 4.2.1
+>             ZMQ: 4.0.4
+>  
+> System Versions:
+>            dist: SuSE 12 x86_64
+>         machine: x86_64
+>         release: 4.4.21-69-default
+>          system: Linux
+>         version: SUSE Linux Enterprise Server  12 x86_64

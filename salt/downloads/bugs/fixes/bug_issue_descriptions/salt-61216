@@ -1,0 +1,39 @@
+Hi,
+
+This is the first time I tried salt + first time I looked at some python code, fix may not be appropriate nor written correctly
+
+**Description**
+The --list-images option / avail_images() on the proxmox driver does not honor cluster node states
+See https://github.com/saltstack/salt/issues/61215
+
+The --list-images option / avail_images() on the proxmox driver does not support any location parameter
+
+**Current behavior**
+
+```
+$ salt-cloud -f avail_images pveProvider location=foo
+[ERROR   ] There was an error running the function: avail_images() got an unexpected keyword argument 'kwargs'
+```
+
+Quick&ugly fix to get around the default location was to add 
+```
+def avail_images(call=None, location="local", kwargs=None):
+
+    if call == "action":
+        raise SaltCloudSystemExit(
+            "The avail_images function must be called with "
+            "-f or --function, or with the --list-images option"
+        )
+
+    # Ideally if we'd just reuse the already present location var(probably there is a standard way to do that), this is rather ugly
+    if (kwargs is not None) and (kwargs['location'] is not None):
+        location = kwargs['location']
+
+    ret = {}
+    for host_name, host_details in avail_locations().items():
+        for item in query(
+            "get", "nodes/{}/storage/{}/content".format(host_name, location)
+        ):
+            ret[item["volid"]] = item
+    return ret
+```

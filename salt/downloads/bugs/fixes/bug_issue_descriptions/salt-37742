@@ -1,0 +1,123 @@
+### Description of Issue/Question
+Using a runner targeting a nodegroup fails with a stack trace:
+
+```shell
+saltmaster ~$ salt-run cache.grains tgt='saltmaster' expr_form='nodegroup'
+[ERROR   ] Failed matching available minions with nodegroup pattern: saltmaster
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/utils/minions.py", line 642, in check_minions
+    minions = check_func(expr, greedy)
+TypeError: 'NoneType' object is not callable
+```
+
+where `saltmaster` is a node group.
+
+### Setup
+In `/etc/salt/master.d/nodegroups.conf`:
+```
+nodegroups:
+  saltmaster: saltmaster.host.name
+  ...
+```
+
+Nodegroup works for targeting with `salt`:
+
+```shell
+saltmaster ~$ salt -N saltmaster test.ping
+saltmaster.host.name:
+    True
+```
+
+### Steps to Reproduce Issue
+
+Pretty clear to see where the problem is. In `salt/utils/minions.py` ([source](https://github.com/saltstack/salt/blob/2016.3/salt/utils/minions.py)), the function `check_minions()` tries to get the class attribute of `_check_nodegroup_minions()` on line 631, but it simply doesn't exist which is why the function call on line 641 fails with `NoneType`.
+
+Some debug output shows that the function *does* at least receive the `expr_form` argument set as `nodegroup`, so I think it's just a function missing (some sensitive information omitted):
+
+```shell
+saltmaster ~$ salt-run cache.grains tgt='saltmaster' expr_form='nodegroup' -l debug
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/master.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/master.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/nodegroups.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/nodegroups.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: saltmaster.host.name
+[DEBUG   ] Configuration file path: /etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+WARNING: yacc table file version is out of date
+[DEBUG   ] LazyLoaded cache.grains
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/minion.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/minion.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: saltmaster.host.name
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/master.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/master.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/nodegroups.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/nodegroups.conf
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event: tag = salt/run/20161116141814528067/new; data = <REDACTED>
+[DEBUG   ] New instance of MasterPillarUtil created.
+[DEBUG   ] Init settings: tgt: 'saltmaster', expr_form: 'nodegroup', saltenv: 'None', use_cached_grains: True, use_cached_pillar: True, grains_fallback: False, pillar_fallback: True
+[ERROR   ] Failed matching available minions with nodegroup pattern: saltmaster
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/utils/minions.py", line 641, in check_minions
+    minions = check_func(expr, greedy)
+TypeError: 'NoneType' object is not callable
+[DEBUG   ] No minions matched for tgt="saltmaster" and expr_form="nodegroup"
+[DEBUG   ] Getting cached minion data.
+[DEBUG   ] Getting minion grain data for: {}
+[DEBUG   ] Missed cached minion grains for: []
+[DEBUG   ] LazyLoaded nested.output
+[DEBUG   ] Sending event: tag = salt/run/20161116141814528067/ret; data = <REDACTED>
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[INFO    ] Runner completed: 20161116141814528067
+[DEBUG   ] Runner return: {}
+```
+
+### Versions Report
+```shell
+saltmaster ~$ salt --versions-report
+WARNING: yacc table file version is out of date
+Salt Version:
+           Salt: 2016.3.4
+ 
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 2.0.0
+      gitpython: 2.1.0
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.21.0
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.21.4
+         Python: 2.7.5 (default, Oct 11 2015, 17:47:16)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: 2.0.1
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: redhat 7.2 Maipo
+        machine: x86_64
+        release: 3.10.0-327.36.3.el7.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 7.2 Maipo
+```

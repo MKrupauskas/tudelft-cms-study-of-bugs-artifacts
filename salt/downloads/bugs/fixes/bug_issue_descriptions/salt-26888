@@ -1,0 +1,70 @@
+I have a minion connecting to a master via Internet, the routing between these 2 servers is bit unstable, e.g. there is some packet loss, however many other services are running fine, just salt is having bigger problems. 
+
+one server is in Azure Cloud and they dont allow ICMP, so here is a tcpping to give an idea of the packet loss encountered:
+
+```
+root@minion1:~# ./tcpping salt-master.example.com 4506
+seq 0: tcp response from salt-master.example.com (1.1.1.1) [open]  310.518 ms
+seq 1: tcp response from salt-master.example.com (1.1.1.1) [open]  314.011 ms
+seq 2: tcp response from salt-master.example.com (1.1.1.1) [open]  310.209 ms
+seq 3: tcp response from salt-master.example.com (1.1.1.1) [open]  310.258 ms
+seq 5: tcp response from salt-master.example.com (1.1.1.1) [open]  310.698 ms
+seq 4: no response (timeout)
+seq 7: tcp response from salt-master.example.com (1.1.1.1) [open]  313.063 ms
+seq 8: tcp response from salt-master.example.com (1.1.1.1) [open]  309.968 ms
+seq 6: no response (timeout)
+seq 9: tcp response from salt-master.example.com (1.1.1.1) [open]  313.527 ms
+seq 10: tcp response from salt-master.example.com (1.1.1.1) [open]  311.129 ms
+seq 11: tcp response from salt-master.example.com (1.1.1.1) [open]  310.477 ms
+seq 12: tcp response from salt-master.example.com (1.1.1.1) [open]  313.292 ms
+seq 13: tcp response from salt-master.example.com (1.1.1.1) [open]  313.591 ms
+seq 15: tcp response from salt-master.example.com (1.1.1.1) [open]  314.750 ms
+seq 16: tcp response from salt-master.example.com (1.1.1.1) [open]  313.983 ms
+seq 14: no response (timeout)
+seq 17: tcp response from salt-master.example.com (1.1.1.1) [open]  310.181 ms
+seq 19: tcp response from salt-master.example.com (1.1.1.1) [open]  312.813 ms
+```
+
+here is "salt-minion -l debug", trying "salt minion1 test.ping" from the master only works about 1 out of 10 times, just wondering if the errors below are normal in this situation of a not 100% stable connection and also if its normal to expect salt to work this badly over this kind of connection (pretty much unusable, whereas other services are working fine even though there is some packet loss)
+
+```
+[DEBUG   ] Ping master
+[DEBUG   ] Re-using SAuth for ('/etc/salt/pki/minion', 'minion1', 'tcp://1.1.1.1:4506')
+[INFO    ] SaltReqTimeoutError: after 60 seconds. (Try 1 of 3)
+[INFO    ] SaltReqTimeoutError: after 60 seconds. (Try 2 of 3)
+[INFO    ] SaltReqTimeoutError: after 60 seconds. (Try 3 of 3)
+[INFO    ] fire_master failed: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 992, in _fire_master
+    result = channel.send(load, timeout=timeout)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 314, in send
+    return self._crypted_transfer(load, tries, timeout)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 302, in _crypted_transfer
+    return _do_transfer()
+  File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 293, in _do_transfer
+    timeout)
+  File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 273, in send
+    'SaltReqTimeoutError: after {0} seconds, ran {1} tries'.format(timeout * tried, tried)
+SaltReqTimeoutError: SaltReqTimeoutError: after 180 seconds, ran 3 tries
+
+[DEBUG   ] Ping master
+[DEBUG   ] Re-using SAuth for ('/etc/salt/pki/minion', 'minion1', 'tcp://1.1.1.1:4506')
+[INFO    ] SaltReqTimeoutError: after 60 seconds. (Try 1 of 3)
+[INFO    ] SaltReqTimeoutError: after 60 seconds. (Try 2 of 3)
+[INFO    ] SaltReqTimeoutError: after 60 seconds. (Try 3 of 3)
+[INFO    ] fire_master failed: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 992, in _fire_master
+    result = channel.send(load, timeout=timeout)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 314, in send
+    return self._crypted_transfer(load, tries, timeout)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 302, in _crypted_transfer
+    return _do_transfer()
+  File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 293, in _do_transfer
+    timeout)
+  File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 273, in send
+    'SaltReqTimeoutError: after {0} seconds, ran {1} tries'.format(timeout * tried, tried)
+SaltReqTimeoutError: SaltReqTimeoutError: after 180 seconds, ran 3 tries
+```
+
+I experience similar kind of problems with other minions, all are connecting via Internet to the master. You could argue that the connection in the above example is not good, but over WAN connecting multiple clouds and many servers its just expected to have a few of those not ideal connections, other services between those servers (mostly HTTP/HTTPS based etc) run fine, is it normal that ZMQ is this sensitive to packet loss, given that other services are able to recover without problems but with ZMQ I always seem to have minions loosing their connection to the master. 
+
+I wanted to try RAET, but it has been broken for a few releases now already, I tried following the RAET bugs and the patches there but could never get it to work sadly.  

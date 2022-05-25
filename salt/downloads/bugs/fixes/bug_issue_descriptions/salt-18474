@@ -1,0 +1,31 @@
+Hi all,
+
+`mount.mounted` contains the following code:
+
+```
+       if opts:                                                             
+                mount_invisible_options = ['defaults', 'comment', 'nobootwait', 'reconnect', 'delay_connect']
+                for opt in opts:                                                 
+                    comment_option = opt.split('=')[0]                           
+                    if comment_option == 'comment':                              
+                        opt = comment_option                                     
+                    if opt not in active[real_name]['opts'] and opt not in mount_invisible_options:
+                        if __opts__['test']:                                     
+                            ret['result'] = None                                 
+                            ret['comment'] = "Remount would be forced because options changed"
+                            return ret                                           
+                        else:                                                    
+                            ret['changes']['umount'] = "Forced remount because " \
+                                                        + "options changed"      
+                            remount_result = __salt__['mount.remount'](real_name, device, mkmnt=mkmnt, fstype=fstype, opts=opts)
+                            ret['result'] = remount_result                       
+                            return ret                                           
+```
+
+which checks if some of the mount options changed. Due to this we are running into two problems with NFS mounts that we manage. 
+
+The first is that due to the "return ret" in the last line the change to options is _never_ persisted to the fstab because the state simply returns once it completed the option check and running `__salt__['mount.remount']`.
+
+This is really quite suboptimal and I don't quite understand why the `return ret` is necessary at this point.
+
+The second issue we run into is that for NFS mounts it is not enough to simply remount them, but necessary to unmount and then (re-)mount them. This would probably necessitate to special case NFS (and other filesystems with the same issue) at this point and we might want to consider these two to be separate issues.

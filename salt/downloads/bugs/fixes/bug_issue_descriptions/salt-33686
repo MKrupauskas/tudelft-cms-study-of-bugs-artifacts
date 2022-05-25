@@ -1,0 +1,160 @@
+### Description of Issue/Question
+
+When using blockreplace with single-line of `content`, `marker_end` is not placed on newline. Also, `marker_end` is matched without matching whole line it seems. Workaround is to not place content in salt state yaml on same line, but use `|` to place content on next line, so:
+
+doesn't work, newline not added after content:
+
+```
+- content: "tags: test"
+```
+
+works as expected:
+
+```
+- content: |
+    tags: test
+```
+### Setup
+
+ubuntu 14.04
+salt master/minion 2015.8.10
+### Steps to Reproduce Issue
+
+**Create existing file on system with something in it:**
+
+```
+root@server:~# cat /root/test.txt
+i'm typing some things
+# comment out some things
+
+# my last line of file
+```
+
+**Make a simple blockreplace state in salt master something.sls:**
+
+```
+/root/test.txt:
+  file.blockreplace:
+    - marker_start: "# start here"
+    - marker_end: "# end here"
+    - append_if_not_found: True
+    - content: "tags: test"
+```
+
+**Apply it once:**
+salt 'server*' state.apply
+returned:
+
+```
+----------
+          ID: /root/test.txt
+    Function: file.blockreplace
+      Result: True
+     Comment: Changes were made
+     Started: 21:09:12.018361
+    Duration: 1.491 ms
+     Changes:
+              ----------
+              diff:
+                  ---
+                  +++
+                  @@ -2,3 +2,6 @@
+                   # comment out some things
+
+                   # my last line of file
+                  +# start here
+                  +tags: test+# end here
+```
+
+**Notice the funky last line. No newline after `content` and before `marker_end`. The file indeed looks like this:**
+
+```
+i'm typing some things
+# comment out some things
+
+# my last line of file
+# start here
+tags: test
+tags: test# end here
+```
+
+Now run highstate again, without changes:
+Return:
+
+```
+----------
+          ID: /root/test.txt
+    Function: file.blockreplace
+      Result: True
+     Comment: Changes were made
+     Started: 21:09:50.715762
+    Duration: 1.383 ms
+     Changes:
+              ----------
+              diff:
+                  ---
+                  +++
+                  @@ -3,4 +3,5 @@
+
+                   # my last line of file
+                   # start here
+                  +tags: test
+                   tags: test# end here
+```
+
+**Notice it adds the `content` again, but still recognizes the `marker_end` even though it doesn't match the exact line (like docs says it should).**
+
+**Future state.apply will change nothing**
+### Workaround
+
+use `|` after content item and place text on newline like so:
+
+```
+/root/test.txt:
+  file.blockreplace:
+    - marker_start: "# start here"
+    - marker_end: "# end here"
+    - append_if_not_found: True
+    - content: |
+        tags: test
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.10
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: 3.2.3
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-86-generic
+         system: Ubuntu 14.04 trusty
+```

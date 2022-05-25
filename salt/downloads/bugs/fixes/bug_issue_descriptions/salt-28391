@@ -1,0 +1,58 @@
+This issue was originally discussed on https://github.com/saltstack/salt/issues/13924.  The package in question is named gpfs.gplbin-3.10.0-229.7.2.el7.x86_64-4.1.0-8.x86_64 (name=gpfs.gplbin-3.10.0-229.7.2.el7.x86_64, version=4.1.0, release=8, arch=x86_64).
+
+The following declaration:
+
+``` yaml
+gpfs-kernelmodule:
+  pkg.installed:
+    - skip_suggestions: True
+    - normalize: False
+    - name: gpfs.gplbin-{{ grains.get('kernelrelease') }}
+    - version: {{ gpfs.version }}
+```
+
+Yields a yum command with the Kernel arch incorrectly stripped and a failed package installation:
+
+```
+[INFO    ] Executing command 'yum -y     install "gpfs.gplbin-3.10.0-229.7.2.el7-4.1.0-8.x86_64"' in directory '/root'
+[ERROR   ] Command 'yum -y     install "gpfs.gplbin-3.10.0-229.7.2.el7-4.1.0-8.x86_64"' failed with return code: 1
+```
+
+\* I've fixed locally by testing normalize [here](https://github.com/saltstack/salt/blob/2015.5/salt/modules/yumpkg.py#L1112), albeit with limited testing for other breakage.
+
+Changing the yaml stanza to provide a name which includes the version:
+
+``` yaml
+gpfs-kernelmodule:
+  pkg.installed:
+    - refresh: True
+    - skip_suggestions: True
+    - normalize: False
+    - name: gpfs.gplbin-{{ grains.get('kernelrelease') }}-{{ gpfs.version }}
+```
+
+Results in the package getting installed but the verification fails since the desired dict provided by _find_install_targets() contains the version in the name which doesn't match list_pkgs():
+
+```
+----------
+          ID: gpfs-kernelmodule
+    Function: pkg.installed
+        Name: gpfs.gplbin-3.10.0-229.7.2.el7.x86_64-4.1.0-8
+      Result: False
+     Comment: The following packages failed to install/update: gpfs.gplbin-3.10.0-229.7.2.el7.x86_64-4.1.0-8
+     Started: 18:24:22.587193
+    Duration: 6360.914 ms
+     Changes:   
+              ----------
+              gpfs.gplbin-3.10.0-229.7.2.el7.x86_64:
+                  ----------
+                  new:
+                      4.1.0-8
+                  old:
+```
+
+\* I'd prefer to explicitly provide a version but I was just pointing this out.
+
+In addition to the above installation related normalization issues, removal of packages which require normalize=False is currently not possible since names are being normalized by pkg_resource.parse_targets().  I have extended normalize to pkg.removed (and requisite calls) locally and will be testing tonight/tomorrow.  
+
+Cc: @SEjeff @junster1

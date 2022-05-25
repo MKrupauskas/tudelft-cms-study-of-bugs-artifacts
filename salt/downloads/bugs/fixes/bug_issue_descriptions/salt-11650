@@ -1,0 +1,70 @@
+Salt-ssh seems to not be including Pillar data in the variables available to template files, although salt states in sls files seem to work fine. The Pillar is configured as follows:
+- executed using
+
+```
+salt-ssh --out=highstate -v -l debug -c salt/ 'test' 'state.highstate'
+```
+- show-versions (local)
+
+```
+Salt: 2014.1.0-4076-g00855dd
+         Python: 2.7.5 (default, Aug 25 2013, 00:04:04)
+         Jinja2: 2.7.2
+       M2Crypto: 0.22
+ msgpack-python: 0.4.2
+   msgpack-pure: 0.1.3
+       pycrypto: 2.6.1
+         PyYAML: 3.11
+          PyZMQ: 14.1.1
+            ZMQ: 4.0.4
+```
+- pillar.sls
+
+```
+VerifyPillar:
+  should_be_included: True
+```
+- state.sls
+
+```
+{% set VerifyPillar  = salt['pillar.get']('VerifyPillar', {}) -%}
+
+pillar-debug:
+  file.managed:
+    - name: /tmp/test_output.txt
+    - source: salt://debug/files/test_output.jinja
+    - template: jinja
+    - context:
+      VerifyPillar: {{ VerifyPillar }}
+```
+- test_output.jinja
+
+```
+# GRAINS
+#########################
+
+{% for key in grains %}
+{{ key }}: {{ grains[key] }}
+{% endfor -%}
+
+
+# PILLAR
+#########################
+
+{% for key in pillar %}
+{{ key }}: {{ pillar[key] }}
+
+# VerifyPillar
+#########################
+{{ VerifyPillar }}
+
+
+{% endfor -%}
+```
+- cat /tmp/test_output.txt | grep -A 2 Verify
+
+```
+# VerifyPillar
+#########################
+{'should_be_included': True}
+```

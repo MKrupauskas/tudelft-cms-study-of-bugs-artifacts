@@ -1,0 +1,60 @@
+When using the scanning roster with salt-ssh the command will fail with the following traceback if the minion is uncached:
+
+```
+Traceback (most recent call last):
+  File "/Users/athienem/salt/venv/lib/python2.7/site-packages/salt/utils/process.py", line 647, in _run
+    return self._original_run()
+  File "/usr/local/Cellar/python/2.7.13/Frameworks/Python.framework/Versions/2.7/lib/python2.7/multiprocessing/process.py", line 114, in run
+    self._target(*self._args, **self._kwargs)
+  File "/Users/athienem/salt/venv/lib/python2.7/site-packages/salt/client/ssh/__init__.py", line 425, in handle_routine
+    **target)
+TypeError: __init__() takes at least 5 arguments (18 given)
+```
+
+The command in question was `$ salt-ssh --roster=scan '192.168.3.3' test.ping --user=root --priv=agent-forwarding --no-host-keys`
+
+The command will succeed though if run against a previously known minion, e.g. listed in a flat file roster.
+
+Running this with `-l debug` shows the problem.
+Failing run:
+```
+[DEBUG   ] LazyLoaded scan.targets
+[DEBUG   ] Matched minions: {'192.168.3.3': {}}
+```
+
+Successful run:
+```
+[DEBUG   ] LazyLoaded scan.targets
+[DEBUG   ] Matched minions: {'192.168.3.3': {'host': '192.168.3.3', 'port': 22}}
+```
+
+The Single class expects at minimum of 4 parameters: opts, argv, id and host.
+The calling handle_routine uses the following code:
+```
+single = Single(
+                opts,
+                opts['argv'],
+                host,
+                mods=self.mods,
+                fsclient=self.fsclient,
+                thin=self.thin,
+                mine=mine,
+                **target)
+```
+opts, argv, and id (which is using the host variable) are passed directly. The expected host parameter is passed within the target kwargs dictionary.
+
+If a machine is previously known, the target dictionary will contain the following data:
+```
+{'passwd': '', 'ssh_options': None, 'sudo': False, 'identities_only': False, 'host': '192.168.3.3', 'user': 'root', 'timeout': 65, 'remote_port_forwards': None, 'sudo_user': '', 'port': 22, 'priv': 'agent-forwarding'}
+```
+
+If the machine is _not_ known, the target dictionary is missing the host key:
+```
+{'passwd': '', 'ssh_options': None, 'sudo': False, 'identities_only': False, 'user': 'root', 'timeout': 65, 'remote_port_forwards': None, 'sudo_user': '', 'port': '22', 'priv': 'agent-forwarding'}
+```
+
+Observed under 2017.7.0:
+```
+$ salt-ssh --version
+salt-ssh 2017.7.0 (Nitrogen)
+```

@@ -1,0 +1,32 @@
+During a deployment, we bump version from 3.2.5 to 3.3 and we get weird git error:
+
+```
+State: - git
+Name:      git@github.com:**/**.git
+Function:  latest
+    Result:    False
+    Comment:   cannot concatenate 'str' and 'float' objects
+    Changes:  
+```
+
+I try to dig into the code and thinks I found the problem: https://github.com/saltstack/salt/blob/7bb7ff8f2b2688dddb90d801965a8654c3a51776/salt/states/git.py#L216
+
+I tried to add some log before this line and revision is parsed as a float. With this patch, state.highstate ends successfully:
+
+```
+diff --git a/salt/states/git.py b/salt/states/git.py
+index cc7b26e..1a75a46 100644
+--- a/salt/states/git.py
++++ b/salt/states/git.py
+@@ -213,7 +213,7 @@ def latest(name,
+                                           identity=identity)
+                 elif rev:
+
+-                    cmd = "git rev-parse " + rev + '^{commit}'
++                    cmd = "git rev-parse %s ^{commit}" % rev
+                     retcode = __salt__['cmd.retcode'](cmd,
+                                                       cwd=target,
+                                                       runas=user)
+```
+
+If it's the problem and the patch works, I will push a pull-request.

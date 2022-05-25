@@ -1,0 +1,121 @@
+I am trying to create a mdadm raid on a Amazon EC2 instance, but I keep getting errors.
+I have tried both using the state and module both both gives errors, though it is not the same errors.
+
+I have the following state (from minion debug):
+
+```
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/system/raid/mdadm-raid.sls:
+create-mdadm-raid-md6:
+  raid.present:
+    - name: /dev/md/nfs-ip-10-61-70-66:0
+    - level: 0
+    - devices:
+       - /dev/xvdb
+       - /dev/xvdc
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('create-mdadm-raid-md6', OrderedDict([('raid.present', [OrderedDict([('name', '/dev/md/nfs-ip-10-61-70-66:0')]), OrderedDict([('level', 0)]), OrderedDict([('devices', ['/dev/xvdb', '/dev/xvdc'])])])]))])
+```
+
+that gives this error:
+
+```
+[INFO    ] Executing command 'mdadm --detail --scan' in directory '/root'
+[INFO    ] Executing command ['mdadm', '-C', '/dev/md/nfs-ip-10-61-70-66:0', '-v', '-l', 0, '-e', 'default', '-n', 2, '/dev/xvdb', '/dev/xvdc'] in directory '/root'
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 1533, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.6/site-packages/salt/states/mdadm.py", line 97, in present
+    **kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/modules/mdadm.py", line 219, in create
+    return __salt__['cmd.run'](cmd, python_shell=False)
+  File "/usr/lib/python2.6/site-packages/salt/modules/cmdmod.py", line 606, in run
+    use_vt=use_vt)
+  File "/usr/lib/python2.6/site-packages/salt/modules/cmdmod.py", line 358, in _run
+    proc = salt.utils.timed_subprocess.TimedProc(cmd, **kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/utils/timed_subprocess.py", line 24, in __init__
+    self.process = subprocess.Popen(args, **kwargs)
+  File "/usr/lib64/python2.6/subprocess.py", line 642, in __init__
+    errread, errwrite)
+  File "/usr/lib64/python2.6/subprocess.py", line 1234, in _execute_child
+    raise child_exception
+TypeError: coercing to Unicode: need string or buffer, int found
+```
+
+I have tried a lot of different combinations of variables for the sate, but it always fails with the shown error. At first I though it was the name, but I get the same error if using `/dev/md0`. Also tried with `run: True` and `chunk: 256` , but it still gives the same error.
+
+I then tried to use the module to create the raid like this:
+
+```
+salt 'nfs-ip-10-61-70-66' raid.create /dev/md/nfs-ip-10-61-70-66:0 level=0 chunk=256 ['/dev/xvdb', '/dev/xvdc']
+```
+
+but that gives the following error (from minion debug):
+
+```
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20141215105622592774', 'tgt': 'nfs-ip-10-61-70-66', 'ret': '', 'user': 'salt', 'arg': ['/dev/md0', '[/dev/xvdb,', '/dev/xvdc]', {'chunk': 256, 'test_mode': True, 'level': 1, '__kwarg__': True}], 'fun': 'raid.create'}
+[INFO    ] Starting a new job with PID 25378
+[WARNING ] TypeError encountered executing raid.create: create() got multiple values for keyword argument 'level'. See debug log for more info.
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1019, in _thread_return
+    return_data = func(*args, **kwargs)
+TypeError: create() got multiple values for keyword argument 'level'
+```
+
+I then tried it without the level parameter just to see what would happend:
+
+```
+salt 'nfs-ip-10-61-70-66' raid.create /dev/md/nfs-ip-10-61-70-66:0 ['/dev/xvdb', '/dev/xvdc']
+```
+
+and that gives the following error:
+
+```
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20141215104535686909', 'tgt': 'nfs-ip-10-61-70-66', 'ret': '', 'user': 'salt', 'arg': ['/dev/md0', '[/dev/xvdb,', '/dev/xvdc]', {'test_mode': True, '__kwarg__': True}], 'fun': 'raid.create'}
+[INFO    ] Starting a new job with PID 25343
+[WARNING ] TypeError encountered executing raid.create: can only concatenate list (not "str") to list. See debug log for more info.
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1019, in _thread_return
+    return_data = func(*args, **kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/modules/mdadm.py", line 214, in create
+    '-n', len(devices)] + devices
+TypeError: can only concatenate list (not "str") to list
+```
+
+Version information from Master (Debian Wheezy):
+
+```
+           Salt: 2014.7.0
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 13.1.0
+           RAET: Not Installed
+            ZMQ: 3.2.3
+           Mako: 0.7.0
+```
+
+Version information from Minion (Amazon Linux AMI release 2014.09):
+
+```
+           Salt: 2014.7.0
+         Python: 2.6.9 (unknown, Sep 13 2014, 00:25:11)
+         Jinja2: 2.7.2
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.4
+           Mako: 0.8.1
+```

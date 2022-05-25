@@ -1,0 +1,87 @@
+### Description of Issue/Question
+
+git.latest appears broken since upgrading to 2016.3.3.
+
+My example state basically looks like this:
+
+```
+git@github.com:myaccount/myrepo.git:
+  git.latest:
+    - rev: {{ salt['pillar.get']('git:myrepo:rev') }}
+    - target: /srv/www/myrepo
+    - identity: /some_path/id_rsa.github
+    - force_checkout: True
+    - submodules: False
+
+/srv/www/myrepo/somefile:
+  file.append:
+    - text: some string
+    - require:
+      - git: git@github.com:myaccount/myrepo.git
+```
+
+This worked great in 2016.3.2, but since upgrading it will error out with the following:
+
+```
+          ID: git@github.com:myaccount/myrepo.git
+    Function: git.latest
+      Result: False
+     Comment: Repository would be updated to c15b1a6, but there are uncommitted changes. Set 'force_reset' to True to force this update and discard these changes.
+     Started: 18:05:48.001508
+    Duration: 25839.618 ms
+     Changes:   
+```
+
+The problem? It's already on c15b1a6 so it doesn't need to force a checkout - it shouldn't be doing anything at all.
+
+I can take the suggestion to add the `- force_reset: True` argument, but then `/srv/www/myrepo/somefile` gets clobbered on every execution, causing both of these to report changes on every execution! Needless to say, this is not desirable and we may need to hold off upgrading. These states should only report changes when there is a requested update to the git codebase. Any known work-around to achieve this would be very much appreciated.
+
+It looks like the issue might be related to https://github.com/saltstack/salt/issues/34725.
+### Versions Report
+
+```
+# apt-cache policy salt-minion | head -n 3
+salt-minion:
+  Installed: 2016.3.3-1
+  Candidate: 2016.3.3-1
+# salt-call --versions-report
+Salt Version:
+           Salt: 2016.3.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.5 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.5 
+
+# 
+```

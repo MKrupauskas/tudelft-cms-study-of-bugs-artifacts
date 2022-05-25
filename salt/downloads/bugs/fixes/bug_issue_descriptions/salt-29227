@@ -1,0 +1,38 @@
+As of commit ed315cc2068c3e969c69c66c844bacd72fedbb45, I can no longer deploy to cloud images which use "centos" as the ssh_username rather than "root"
+
+The sftp upload step fails, because sftp runs as user 'centos', but the directory was created and owned by user root.
+
+The below code was responsible for changing ownership of the directory to the user we're ssh-ing as. 
+
+```
+                if len(comps) > 0:
+                    if len(comps) > 1 or comps[0] != 'tmp':
+                        ret = root_cmd(
+                            'chown {0} \'{1}\''.format(username, tmp_dir),
+                            tty, sudo, **ssh_kwargs
+                        )
+                        if ret:
+                            raise SaltCloudSystemExit(
+                                'Cant set {0} ownership on {1}'.format(
+                                    username, tmp_dir))
+```
+
+The condition here says 'if the directory doesn't start with /tmp OR it starts with /tmp/xxx (has at least two components), then chown it to the ssh user'. But this second part of the condition was deleted as part of ed315cc2068c3e969c69c66c844bacd72fedbb45. Therefore, the temp directory - which is usually something like /tmp/.salt-xxxx/  - is not chowned and, sftp fails because does not have permission to upload files to tmpdir.
+
+The below patch fixed the problem for me.
+
+```
+diff --git a/salt/utils/cloud.py b/salt/utils/cloud.py
+index 56124ba..75cdc55 100644
+--- a/salt/utils/cloud.py
++++ b/salt/utils/cloud.py
+@@ -1255,7 +1255,7 @@ def deploy_script(host,
+                     )
+             if sudo:
+                 comps = tmp_dir.lstrip('/').rstrip('/').split('/')
+-                if comps and comps[0] != 'tmp':
++                if len(comps) > 1 or comps[0] != 'tmp':
+                     ret = root_cmd(
+                         'chown {0} \'{1}\''.format(username, tmp_dir),
+                         tty, sudo, **ssh_kwargs
+```

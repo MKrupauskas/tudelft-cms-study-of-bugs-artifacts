@@ -1,0 +1,271 @@
+### Description of Issue/Question
+
+When some package provides legacy init.d script but you wish to use your own shiny systemd unit file, salt resists to help out.
+### Setup
+
+I managed to get "minimal" working example. There may be extra bits here, but the whole thing shows the issue.
+
+State in question (the only one):
+
+``` yaml
+dbus:
+  pkg.installed:
+    - name: dbus
+  service.running:
+    - name: dbus
+    - sig: dbus-daemon
+    - enable: true
+
+/usr/sbin/policy-rc.d:
+  file.managed:
+    - mode: 755
+    - contents: |
+        #!/bin/sh -e
+        # Deny execution of any automatic restarts via invoke-rc.d.
+
+        exit 101
+
+unbound:
+  pkg.installed:
+    - version: 1.4.22-3+deb8u1 # 1.5+ may need chroot setting
+
+/etc/unbound:
+  file.directory:
+    - mode: 755
+
+/etc/unbound/unbound.conf:
+  file.managed:
+    - contents: |
+        server:
+         interface: 0.0.0.0
+
+unbound-control-setup:
+  cmd.run:
+    - name: unbound-control-setup -d /etc/unbound
+    - creates: /etc/unbound/unbound_control.key
+
+/etc/systemd/system/unbound.service:
+  file.managed:
+    - contents: |
+        [Unit]
+        Description = Recursive DNS server
+
+        [Service]
+        ExecStartPre=/usr/sbin/unbound-anchor -a /var/lib/unbound/root.key -v
+        ExecStartPre=/usr/sbin/unbound-checkconf
+        ExecStart=/usr/sbin/unbound -d
+        ExecReload=/bin/kill -HUP $MAINPID
+        Restart=always
+
+unbound-service:
+  service.running:
+    - name: unbound
+    - enable: true
+    - reload: true
+```
+
+Highstating from it gives us running unbound, that's great:
+
+```
+root@36com0:/# systemctl status unbound
+ unbound.service - (null)
+   Loaded: loaded (/etc/init.d/unbound; static)
+  Drop-In: /run/systemd/generator/unbound.service.d
+           50-insserv.conf-$named.conf, 50-unbound-$named.conf
+   Active: active (running) since Mon 2016-07-25 15:17:35 UTC; 39s ago
+  Process: 501 ExecStart=/etc/init.d/unbound start (code=exited, status=0/SUCCESS)
+   CGroup: /docker/c223dc315de57f3c12c70fee3db0ec3350f45b4c1c3b0f14759f2e9245b3351f/system.slice/unbound.service
+           511 /usr/sbin/unbound
+
+Jul 25 15:17:35 36com0 unbound-anchor[508]: /var/lib/unbound/root.key has content
+Jul 25 15:17:35 36com0 unbound-anchor[508]: success: the anchor is ok
+Jul 25 15:17:35 36com0 unbound[501]: Starting recursive DNS server: unbound.
+Jul 25 15:17:35 36com0 systemd[1]: Started (null).
+Jul 25 15:17:35 36com0 unbound[511]: [511:0] notice: init module 0: validator
+Jul 25 15:17:35 36com0 unbound[511]: [511:0] notice: init module 1: iterator
+Jul 25 15:17:35 36com0 unbound[511]: [511:0] info: start of service (unbound 1.4.22).
+```
+
+But don't be fooled and look at the second line:
+
+```
+   Loaded: loaded (/etc/init.d/unbound; static)
+```
+
+That's not right, there should be our unit file. Let's try to reload service to see if it helps:
+
+```
+root@36com0:/# systemctl reload unbound
+root@36com0:/# systemctl status unbound
+ unbound.service - (null)
+   Loaded: loaded (/etc/init.d/unbound; static)
+  Drop-In: /run/systemd/generator/unbound.service.d
+           50-insserv.conf-$named.conf, 50-unbound-$named.conf
+   Active: active (running) since Mon 2016-07-25 15:17:35 UTC; 3min 28s ago
+  Process: 547 ExecReload=/etc/init.d/unbound reload (code=exited, status=0/SUCCESS)
+  Process: 501 ExecStart=/etc/init.d/unbound start (code=exited, status=0/SUCCESS)
+   CGroup: /docker/c223dc315de57f3c12c70fee3db0ec3350f45b4c1c3b0f14759f2e9245b3351f/system.slice/unbound.service
+           511 /usr/sbin/unbound
+
+Jul 25 15:21:00 36com0 systemd[1]: Reloading (null).
+Jul 25 15:21:00 36com0 unbound[511]: [511:0] info: service stopped (unbound 1.4.22).
+Jul 25 15:21:00 36com0 unbound[511]: [511:0] info: server stats for thread 0: 0 queries, 0 answers from cache, 0 recursions, 0 prefetch
+Jul 25 15:21:00 36com0 unbound[511]: [511:0] info: server stats for thread 0: requestlist max 0 avg 0 exceeded 0 jostled 0
+Jul 25 15:21:00 36com0 unbound[511]: [511:0] notice: Restart of unbound 1.4.22.
+Jul 25 15:21:00 36com0 unbound[511]: [511:0] notice: init module 0: validator
+Jul 25 15:21:00 36com0 unbound[511]: [511:0] notice: init module 1: iterator
+Jul 25 15:21:00 36com0 systemd[1]: Reloaded (null).
+Jul 25 15:21:00 36com0 unbound[547]: Reloading recursive DNS server: unbound.
+Jul 25 15:21:00 36com0 unbound[511]: [511:0] info: start of service (unbound 1.4.22).
+```
+
+Nope, same thing. Now let's tell systemd to do `daemon-reload`:
+
+```
+root@36com0:/# systemctl daemon-reload
+```
+
+And then let's look at the state of our service:
+
+```
+root@36com0:/# systemctl status unbound
+ unbound.service - Recursive DNS server
+   Loaded: loaded (/etc/systemd/system/unbound.service; static)
+  Drop-In: /run/systemd/generator/unbound.service.d
+           50-insserv.conf-$named.conf, 50-unbound-$named.conf
+   Active: active (running) since Mon 2016-07-25 15:17:35 UTC; 4min 17s ago
+   CGroup: /docker/c223dc315de57f3c12c70fee3db0ec3350f45b4c1c3b0f14759f2e9245b3351f/system.slice/unbound.service
+           511 /usr/sbin/unbound
+
+Jul 25 15:21:00 36com0 systemd[1]: Reloading (null).
+Jul 25 15:21:00 36com0 unbound[511]: [511:0] info: service stopped (unbound 1.4.22).
+Jul 25 15:21:00 36com0 unbound[511]: [511:0] info: server stats for thread 0: 0 queries, 0 answers from cache, 0 recursions, 0 prefetch
+Jul 25 15:21:00 36com0 unbound[511]: [511:0] info: server stats for thread 0: requestlist max 0 avg 0 exceeded 0 jostled 0
+Jul 25 15:21:00 36com0 unbound[511]: [511:0] notice: Restart of unbound 1.4.22.
+Jul 25 15:21:00 36com0 unbound[511]: [511:0] notice: init module 0: validator
+Jul 25 15:21:00 36com0 unbound[511]: [511:0] notice: init module 1: iterator
+Jul 25 15:21:00 36com0 systemd[1]: Reloaded (null).
+Jul 25 15:21:00 36com0 unbound[547]: Reloading recursive DNS server: unbound.
+Jul 25 15:21:00 36com0 unbound[511]: [511:0] info: start of service (unbound 1.4.22).
+```
+
+Great, systemd picked up our unit file. Let's reload the service:
+
+```
+root@36com0:/# systemctl reload unbound
+Job for unbound.service failed. See 'systemctl status unbound.service' and 'journalctl -xn' for details.
+```
+
+Not if we look at the reason:
+
+```
+root@36com0:/# systemctl status unbound
+ unbound.service - Recursive DNS server
+   Loaded: loaded (/etc/systemd/system/unbound.service; static)
+  Drop-In: /run/systemd/generator/unbound.service.d
+           50-insserv.conf-$named.conf, 50-unbound-$named.conf
+   Active: active (running) (Result: exit-code) since Mon 2016-07-25 15:17:35 UTC; 5min ago
+  Process: 570 ExecReload=/bin/kill -HUP $MAINPID (code=exited, status=1/FAILURE)
+   CGroup: /docker/c223dc315de57f3c12c70fee3db0ec3350f45b4c1c3b0f14759f2e9245b3351f/system.slice/unbound.service
+           511 /usr/sbin/unbound
+
+Jul 25 15:22:29 36com0 kill[570]: <pid> [...]            send signal to every <pid> listed
+Jul 25 15:22:29 36com0 kill[570]: -<signal>, -s, --signal <signal>
+Jul 25 15:22:29 36com0 kill[570]: specify the <signal> to be sent
+Jul 25 15:22:29 36com0 kill[570]: -l, --list=[<signal>]  list all signal names, or convert one to a name
+Jul 25 15:22:29 36com0 kill[570]: -L, --table            list all signal names in a nice table
+Jul 25 15:22:29 36com0 kill[570]: -h, --help     display this help and exit
+Jul 25 15:22:29 36com0 kill[570]: -V, --version  output version information and exit
+Jul 25 15:22:29 36com0 kill[570]: For more details see kill(1).
+Jul 25 15:22:29 36com0 systemd[1]: unbound.service: control process exited, code=exited status=1
+Jul 25 15:22:29 36com0 systemd[1]: Reload failed for Recursive DNS server.
+```
+
+We can see (if we look very closely) that it's because systemd doesn't work nicely when we run service via legacy init script, reload daemon config and then try to reload service for which systemd doesn't know `$MAINPID`. Here systemd is to blame, but salt could've helped us to avoid this situation.
+
+I think salt should do `systemd daemon-reload` before starting up `unbound` state here. Right now it's confused because it sees that systemd is happy (not complaining about running `daemon-reload`), unit file (our override) is readable and state is known to systemd (legacy script!).
+
+If we try to remove legacy script before starting the state:
+
+```
+root@36com0:/# systemctl status unbound
+ unbound.service - (null)
+   Loaded: loaded (/etc/init.d/unbound; static)
+  Drop-In: /run/systemd/generator/unbound.service.d
+           50-insserv.conf-$named.conf, 50-unbound-$named.conf
+   Active: failed (Result: exit-code) since Mon 2016-07-25 15:31:38 UTC; 6s ago
+  Process: 507 ExecStart=/etc/init.d/unbound start (code=exited, status=203/EXEC)
+
+Jul 25 15:31:38 36com0 systemd[507]: Failed at step EXEC spawning /etc/init.d/unbound: No such file or directory
+Jul 25 15:31:38 36com0 systemd[1]: unbound.service: control process exited, code=exited status=203
+Jul 25 15:31:38 36com0 systemd[1]: Failed to start (null).
+Jul 25 15:31:38 36com0 systemd[1]: Unit unbound.service entered failed state.
+
+Warning: Unit file changed on disk, 'systemctl daemon-reload' recommended.
+```
+
+This looks like another bug. Systemd says to do `daemon-reload`, but salt ignored the advice:
+
+```
+root@36com0:/# systemctl daemon-reload
+root@36com0:/# systemctl start unbound
+root@36com0:/# systemctl status unbound
+ unbound.service - Recursive DNS server
+   Loaded: loaded (/etc/systemd/system/unbound.service; static)
+   Active: active (running) since Mon 2016-07-25 15:32:35 UTC; 5s ago
+  Process: 553 ExecStartPre=/usr/sbin/unbound-checkconf (code=exited, status=0/SUCCESS)
+  Process: 552 ExecStartPre=/usr/sbin/unbound-anchor -a /var/lib/unbound/root.key -v (code=exited, status=0/SUCCESS)
+ Main PID: 554 (unbound)
+   CGroup: /docker/f87e6bf46ab94a7aa4b25f61d3377a4951d2ef8e2eb4b55869fd1fd4e29b5d69/system.slice/unbound.service
+           554 /usr/sbin/unbound -d
+
+Jul 25 15:32:35 36com0 unbound-anchor[552]: /var/lib/unbound/root.key has content
+Jul 25 15:32:35 36com0 unbound-anchor[552]: success: the anchor is ok
+Jul 25 15:32:35 36com0 unbound-checkconf[553]: unbound-checkconf: no errors in /etc/unbound/unbound.conf
+Jul 25 15:32:35 36com0 systemd[1]: Started Recursive DNS server.
+Jul 25 15:32:35 36com0 unbound[554]: [554:0] notice: init module 0: validator
+Jul 25 15:32:35 36com0 unbound[554]: [554:0] notice: init module 1: iterator
+Jul 25 15:32:35 36com0 unbound[554]: [554:0] info: start of service (unbound 1.4.22).
+```
+### Versions Report
+
+```
+root@36com0:/# salt-call --versions
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: 0.3.6
+         PyYAML: 3.11
+          PyZMQ: Not Installed
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: Not Installed
+
+System Versions:
+           dist: debian 8.5
+        machine: x86_64
+        release: 4.4.14-cloudflare
+         system: Linux
+        version: debian 8.5
+```

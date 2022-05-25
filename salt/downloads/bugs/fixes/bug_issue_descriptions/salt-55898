@@ -1,0 +1,100 @@
+### Description of Issue
+Cannot install packages using pkg.installed on CentOS 8 minion
+
+### Setup
+```
+[root@sm pillar]# cat ../state/timezone/init.sls
+# timezone state
+
+{% from "timezone/map.jinja" import timezone with context %}
+
+timezone:
+  timezone.system:
+    - name: {{ salt['pillar.get']('timezone:zone', 'UTC') }}
+  pkg.installed:
+    - pkgs: {{ timezone.pkgs|default([])|yaml }}
+    - require_in:
+        timezone: timezone
+[root@sm pillar]# cat ../state/timezone/map.jinja
+# map file for timezone
+
+{% set timezone = salt['grains.filter_by']({
+    'Debian': {
+        'pkgs': [ 'systemd', 'dbus' ],
+        },
+    'RedHat': {
+        'pkgs': [ 'time' ],
+        },
+}, merge=salt['pillar.get']('timezone:lookup')) %}
+
+```
+### Steps to Reproduce Issue
+1. setup a minion with CentOS 8
+2. try to use pkg.installed
+3. this message appears
+```
+          ID: timezone
+    Function: pkg.installed
+      Result: False
+     Comment: Error occurred installing package(s). Additional info follows:
+
+              errors:
+                  - Failed to find executable yum: No such file or directory
+```
+
+### Versions Report
+Salt Master:
+
+```
+Salt Version:
+           Salt: 2019.2.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  7 2019, 00:51:29)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.7.1908 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1062.9.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.7.1908 Core
+
+```
+Salt minion:
+
+```
+salt-minion-2019.2.3-1.el8.noarch
+salt-py3-repo-latest-4.el8.noarch
+salt-2019.2.3-1.el8.noarch
+```
+
+Problem seems to be here : https://github.com/saltstack/salt/blob/master/salt/modules/yumpkg.py#L140-L152
+Basically only Fedora >= 22 is supported.

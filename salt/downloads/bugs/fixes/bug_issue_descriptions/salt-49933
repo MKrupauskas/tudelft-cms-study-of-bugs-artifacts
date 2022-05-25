@@ -1,0 +1,86 @@
+### Description of Issue/Question
+Using the salt-api to run saltcheck.run_state_tests returns 500 status
+
+### Setup
+Given a call to the salt api like:
+```
+#!/bin/sh
+
+JSON='{"client":"local","tgt":"MINIONID","tgt_type":"list","fun":"saltcheck.run_state_tests", "arg":["deploy.application_jars"]}'
+
+RESPONSE=`curl -ik http://localhost:8000/login -H 'Content-Type: application/json' -d '{"eauth":"pam","password":"PASSWORD","username":"jenkins"}' 2>/dev/null`
+TOKEN=$(echo $RESPONSE |
+    sed -e 's/[{}]/''/g' |
+    awk -v k="text" '{n=split($0,a,","); for (i=1; i<=n; i++) print a[i]}' |
+    grep token | cut -d: -f 2 | cut -d'"' -f 2 )
+echo $TOKEN
+
+RESPONSE=`curl -k http://localhost:8000/ -H 'Accept: application/json' -H "X-Auth-Token: $TOKEN" -H 'Content-Type: application/json' -d "$JSON" 2>/dev/null`
+echo $RESPONSE
+```
+
+curl reports
+```
+# sh saltapi.sh
+91f5161754eee8af9b98b10015dec79410cdae5b
+{"status": 500, "return": "An unexpected error occurred"}
+```
+
+/var/log/salt/master log shows only the single line of:
+```
+2018-10-08 13:53:00,968 [salt.master      :2043][WARNING ][800] Authentication failure of type "token" occurred.
+```
+and /var/log/salt/api shows:
+```
+2018-10-08 13:53:00,750 [salt.loaded.int.netapi.rest_cherrypy.app:752 ][INFO    ][25888] [api_acl] Authentication not checked for user jenkins from IP 127.0.0.1
+2018-10-08 13:53:00,915 [cherrypy.access.140036038913616:299 ][INFO    ][25888] 127.0.0.1 - - [08/Oct/2018:13:53:00] "POST /login HTTP/1.1" 200 247 "" "curl/7.29.0"
+2018-10-08 13:53:00,973 [cherrypy.access.140036038913616:299 ][INFO    ][25888] 127.0.0.1 - - [08/Oct/2018:13:53:00] "POST / HTTP/1.1" 500 57 "" "curl/7.29.0"
+```
+
+If the function of the json in the api call is changed from saltcheck.run_state_tests to another module like test.args, the job runs just fine. Running saltcheck.run_state_tests and saltcheck.run_highstate_tests specifically seem to create this failure. 
+
+### Versions Report
+The saltcheck module is from git develop
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2018.3.0
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: unknown
+       dateutil: 2.6.0
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.26.3
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.1
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: 3.4.3
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, Apr 11 2018, 07:36:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.3.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```

@@ -1,0 +1,128 @@
+```
+# salt-call --versions
+           Salt: 2014.7.0-1596-g5586c20
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 13.1.0
+           RAET: Not Installed
+            ZMQ: 3.2.3
+           Mako: Not Installed
+```
+
+Git (based on 2014.7 branch): https://github.com/bechtoldt/salt/tree/2014.7-arbe
+
+```
+# cat /etc/salt/minion
+master: 127.0.0.1
+log_level: debug
+```
+
+```
+# cat /etc/salt/master
+file_roots:
+  prod:
+    - /srv/salt/prod/
+pillar_roots:
+  base:
+    - /srv/pillar
+pillar_opts: False
+```
+
+```
+# cat /srv/salt/prod/top.sls
+prod:
+  '*':
+    - test_state
+# cat /srv/salt/prod/test_state.sls
+test:
+  file:
+    - managed
+    - name: /var/tmp/test_file
+    - contents: |
+        {{ salt['pillar.items']() }}
+```
+
+```
+# cat /srv/pillar/top.sls
+base:
+  '*':
+    - test
+# cat /srv/pillar/test.sls
+foo: bar
+```
+
+```
+# tree /srv/
+/srv/
+ pillar
+    test.sls
+    top.sls
+ salt
+     prod
+         test_state.sls
+         top.sls
+
+3 directories, 4 files
+```
+
+```
+# rm -f /var/tmp/test_file
+# salt '*' state.sls test_state saltenv=prod
+ipm1039:
+----------
+          ID: test
+    Function: file.managed
+        Name: /var/tmp/test_file
+      Result: True
+     Comment: File /var/tmp/test_file updated
+     Started: 19:54:37.940317
+    Duration: 2.514 ms
+     Changes:
+              ----------
+              diff:
+                  New file
+
+Summary
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+# cat /var/tmp/test_file
+{'foo': 'bar'}
+# salt '*' state.highstate saltenv=prod
+ipm1039:
+----------
+          ID: test
+    Function: file.managed
+        Name: /var/tmp/test_file
+      Result: True
+     Comment: File /var/tmp/test_file updated
+     Started: 19:54:53.186957
+    Duration: 2.467 ms
+     Changes:
+              ----------
+              diff:
+                  ---
+                  +++
+                  @@ -1 +1 @@
+                  -{'foo': 'bar'}
+                  +{}
+
+
+Summary
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+# cat /var/tmp/test_file
+{}
+```

@@ -1,0 +1,58 @@
+This might be considered a non-issue, but on bare-bone installations of Debian 8 (Jessie), sudo is not installed by default, so cmd.run/wait commands fail when a user context is applied.
+
+Example State Command definition:
+
+```
+/binpath/tools-extraction.sh:
+  file:
+    - managed
+    - mode: 755
+    - template: jinja
+    - user: {{user}}
+    - group: {{user}}
+    - source: salt://tools/tools-extraction.sh
+    - require:
+      - file: /binpath
+```
+
+State output error:
+
+```
+----------
+          ID: extract_tools
+    Function: cmd.wait
+        Name: sudo -u username /binpath/tools-extraction.sh
+      Result: False
+     Comment: Command "sudo -u username /binpath/tools-extraction.sh" run
+     Started: 15:13:16.109880
+    Duration: 5.425 ms
+     Changes:   
+              ----------
+              pid:
+                  4076
+              retcode:
+                  127
+              stderr:
+                  /bin/sh: 1: sudo: not found
+              stdout:
+```
+
+The issue simply stems from Salt attempting to change the user with the `sudo -u username`  instead of `su - username`. (I tested with `su` manually and it worked fine)  
+
+Installing `sudo` with apt fixes the problem and Salt executes the script fine, however it seems odd that it doesn't have a fall back to `su` if `sudo` is not installed by default.  I have to salt master configured to run commands as `root`, so I think Salt is just using `sudo` instead of `su` to switch user contexts for command execution.  `sudo` is not installed even with standard system utilities selected during boot, so I don't think it's unreasonable to expect Salt to handle this.
+![selection_058](https://cloud.githubusercontent.com/assets/489062/6837168/9ba11f98-d306-11e4-8bb0-a2835b8d5c18.png)
+
+Debian 7 with 'standard system utilities' selected also does not install `sudo` by default.  So I guess our cloud images have just installed it for us.  
+
+This isn't a new [problem](http://forums.debian.net/viewtopic.php?p=528259) in the Debian world, but it seemed like worth mentioning.  
+
+Test Environment:
+`salt 2014.7.1 (Helium)` Master & Minion
+
+Minion OS: Debian 8 Jessie RC1  
+- `Linux debian 3.16.0-4-amd64 #1 SMP Debian 3.16.7-ckt7-1 (2015-03-01) x86_64 GNU/Linux`  
+
+Master OS: Ubuntu 14.04
+- `Linux opstop 3.13.0-36-generic #63-Ubuntu SMP Wed Sep 3 21:30:07 UTC 2014 x86_64 x86_64 x86_64 GNU/Linux`
+
+I'm guessing this might be known behavior, but I wasn't able to find a WNF issue already, and freenode#salt said I should open a ticket.

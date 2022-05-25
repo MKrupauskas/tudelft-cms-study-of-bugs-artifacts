@@ -1,0 +1,172 @@
+### Description of Issue/Question
+
+When using `docker_container.running`, the state needs to be applied twice to be in a consistent state.
+The second time we run it, some changes are made, which is inconsistent with the fact that states should not change once run.
+
+### Setup
+
+A state that reproduce the issue would be : 
+
+```
+postgresql sonar container:
+  docker_container.running:
+    - name: psql-sonar
+    - image: postgres:latest
+
+    - binds:
+      - /tmp/sonar/psql/config:/var/lib/postgresql:Z
+      - /tmp/sonar/psql/data:/var/lib/postgresql/data:Z
+
+    - environment:
+        - POSTGRES_USER: test
+        - POSTGRES_PASSWORD: test
+```
+
+### Steps to Reproduce Issue
+
+1) install a salt minion with docker support
+2) add a state with as shown before
+3) apply the state (for example `salt my_node state.apply test.sls`)
+
+This should give something like : 
+
+```
+172.17.0.1:
+----------
+          ID: postgresql sonar container
+    Function: docker_container.running
+        Name: psql-sonar
+      Result: True
+     Comment: 
+     Started: 02:45:26.386970
+    Duration: 51873.065 ms
+     Changes:   
+              ----------
+              container_id:
+                  ----------
+                  added:
+                      02e71748963d4d231e06e69b7cbeb519e07d756ec5e5b00adc0c165d69ffe847
+              image:
+                  ----------
+                  Layers:
+                      ----------
+                      Pulled:
+                          - 8996b4a29b2b
+                          - bea3311ef15b
+                          - 1d6d551d6af0
+                          - ba16377760f9
+                          - fd68bfa82d98
+                          - b1b9eb0ac9c8
+                          - 6b1468749943
+                          - 29d82d6e2d6c
+                          - ad849322ee0c
+                          - c5539863a39f
+                          - 18cc2b50256c
+                          - ad74af05f5a2
+                          - f49f2decd34d
+                  Status:
+                      Downloaded newer image for docker.io/postgres:latest
+                  Time_Elapsed:
+                      49.62261796
+              state:
+                  ----------
+                  new:
+                      running
+                  old:
+                      None
+
+Summary for 172.17.0.1
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  51.873 s
+```
+
+4) re-apply the state (same command)
+
+This should give : 
+```
+172.17.0.1:
+----------
+          ID: postgresql sonar container
+    Function: docker_container.running
+        Name: psql-sonar
+      Result: True
+     Comment: Replaced container 'psql-sonar'
+     Started: 02:46:39.755519
+    Duration: 3759.944 ms
+     Changes:   
+              ----------
+              container:
+                  ----------
+                  Config:
+                      ----------
+                      Image:
+                          ----------
+                          new:
+                              sha256:82b06f064259120143321ba826ce7c172bf04404f9634911f545b7bac5aa547e
+                          old:
+                              postgres:latest
+              container_id:
+                  ----------
+                  added:
+                      87c4efaf5833c536fb857d16b1027b59ff3ca2adf32fb666b20d8b110c18716e
+                  removed:
+                      - 02e71748963d4d231e06e69b7cbeb519e07d756ec5e5b00adc0c165d69ffe847
+
+Summary for 172.17.0.1
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   3.760 s
+```
+
+However, this is not an expected output, as a state should be stable, and rerunning the state a second time should not change anything.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.0-455-gfbf2e0d
+ 
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: 2.4.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Jun 26 2017, 10:20:05)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.1
+            ZMQ: 4.1.6
+ 
+System Versions:
+           dist: fedora 26 Twenty Six
+         locale: UTF-8
+        machine: x86_64
+        release: 4.11.8-300.fc26.x86_64
+         system: Linux
+        version: Fedora 26 Twenty Six
+```

@@ -1,0 +1,135 @@
+Hello!
+
+Here is Salt version info:
+
+```
+[root@qa212 salt]# salt --versions
+           Salt: 2015.5.3
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.09
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+        Tornado: Not Installed
+```
+
+In our code we heavily rely on LocalClient().get_cache_returns() when we check if particular Job was finished on minions or not.
+So today it happened that we didn't get any returns from cache even after all jobs were completed on all minions.
+
+After some investigation it was discovered that master failed to create cache file and dropped the following message in its log:
+
+```
+2015-10-29 09:57:51,479 [salt.loaded.int.returner.local_cache][WARNING][83620] Could not write job invocation cache file: [Errno 2] No such file or directory: '/var/cache/salt/master/jobs/da/f078df7329ccb5496667601d450d22/.load.p'
+```
+
+Unfortunately this issue is hard to reproduce and we saw it only once so we didn't prepare our environment and I have only minion debug logs for investigation.
+
+Here what I've found.
+
+At some point we sent a very simple job to all minions:
+
+```
+2015-10-29 09:57:47,546 [salt.minion][INFO][109772] User root Executing command state.sls with jid 20151029095746578949
+2015-10-29 09:57:47,547 [salt.minion][DEBUG][109772] Command details {'tgt_type': 'list', 'jid': '20151029095746578949', 'tgt': ['qa212', 'qa213', 'qa211', 'qa214', 'qa215'], 'ret': '', 'user': 'root', 'arg': ['some_service.some_state'], 'fun': 'state.sls'}
+2015-10-29 09:57:47,558 [salt.minion][INFO][109911] Starting a new job with PID 109911
+```
+
+After some time we see that all minions returned results to master:
+
+```
+[root@qa212 ~]# salt \* cmd.run 'grep -r "Returning information for job: 20151029095746578949" /var/log/salt/minion'
+qa211:
+    2015-10-29 09:57:51,064 [salt.minion][INFO][91825] Returning information for job: 20151029095746578949
+qa214:
+    2015-10-29 09:57:50,040 [salt.minion][INFO][115221] Returning information for job: 20151029095746578949
+qa212:
+    2015-10-29 09:57:51,360 [salt.minion][INFO][85405] Returning information for job: 20151029095746578949
+qa213:
+    2015-10-29 09:57:51,031 [salt.minion][INFO][109911] Returning information for job: 20151029095746578949
+qa215:
+    2015-10-29 09:57:50,036 [salt.minion][INFO][7755] Returning information for job: 20151029095746578949
+```
+
+Also there are no exceptions and failures on minions side at this time so they are fine.
+So you can see that 120 msec after the last minion returned to master - he tried to save job results into cache but failed to do so.
+
+Warning message leads us to salt/returners/local_cache.py:
+
+``` python
+def _jid_dir(jid):
+    '''
+    Return the jid_dir for the given job id
+    '''
+    jid = str(jid)
+    jhash = getattr(hashlib, __opts__['hash_type'])(jid).hexdigest()
+    return os.path.join(_job_dir(),
+                        jhash[:2],
+                        jhash[2:])
+
+...
+
+def save_load(jid, clear_load):
+    '''
+    Save the load to the specified jid
+    '''
+    jid_dir = _jid_dir(jid)
+
+...
+    # Save the invocation information
+    try:
+        if not os.path.exists(jid_dir):
+            os.makedirs(jid_dir)
+        serial.dump(
+            clear_load,
+            salt.utils.fopen(os.path.join(jid_dir, LOAD_P), 'w+b')
+            )
+    except IOError as exc:
+        log.warning('Could not write job invocation cache file: {0}'.format(exc))
+```
+
+Here we see that first of all save_load called _jid_dir which returned the full path to cache of this job.
+Lets recreate what it did for the given jid 20151029095746578949:
+
+``` python
+>>> import hashlib
+>>> hashlib.md5("20151029095746578949").hexdigest()
+'daf078df7329ccb5496667601d450d22'
+```
+
+So as result it will return path /var/cache/salt/master/jobs/da/f078df7329ccb5496667601d450d22 .
+
+A bit later we try to create this dir if it is absent:
+
+``` python
+        if not os.path.exists(jid_dir):
+            os.makedirs(jid_dir)
+```
+
+For some reason we didn't create dir here because after all half of its path is absent:
+
+```
+[root@qa212 salt]# ls -l /var/cache/salt/master/jobs/da
+total 0
+```
+
+Path jobs/da is here but jobs/da/f078df7329ccb5496667601d450d22 is missing.
+
+After that section we try to actually put file .load.p and fail with OSError exception:
+
+```
+[Errno 2] No such file or directory: '/var/cache/salt/master/jobs/da/f078df7329ccb5496667601d450d22/.load.p'
+```
+
+I looked into develop branch and found that nothing was changed here accept this https://github.com/saltstack/salt/pull/26081 . So the issue is most likely to be present even for the latest code.
+
+For me it looks like another one race condition when master processes fight for directory creation or something like that. What do you think about it? How it can be fixed?
+
+Thank you in advance! =)

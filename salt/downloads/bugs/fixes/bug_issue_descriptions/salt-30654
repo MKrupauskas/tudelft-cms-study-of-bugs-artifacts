@@ -1,0 +1,180 @@
+Hi,
+
+There seems to be a misleading behavior about the locale(mod) module, depending on python2-dbus presence.
+# Informations + some checks that might be useful
+
+This part will focus on giving as much relevant informations as possible so you can better understand under which conditions it happens and why it's a misleading behavior.
+## Previous issue
+
+There was already a similar issue, which actually concerns the python dbus lib and the locale module output : issue #28080 "fixed" by commit 1e75665a9a04eb916474c3d19cf25761c5349f43 .
+At the end, as explained later, the problem lays on _when_ to display the message added in the fix instead of _why_.
+## System
+- Archlinux
+- Uses dbus
+
+```
+[root@osgiliath ~]# uname -a
+Linux osgiliath 4.2.5-1-ARCH #1 SMP PREEMPT Tue Oct 27 08:13:28 CET 2015 x86_64 GNU/Linux
+```
+## D-Bus
+### Installed and running
+
+```
+[root@osgiliath ~]# systemctl status dbus | head -n 3
+* dbus.service - D-Bus System Message Bus
+   Loaded: loaded (/usr/lib/systemd/system/dbus.service; static; vendor preset: disabled)
+   Active: active (running) since Tue 2016-01-26 15:39:00 CET; 2min 34s ago
+```
+### Running confirmation
+
+```
+[root@osgiliath ~]# ps aux | grep dbus
+dbus     29226  0.0  0.0  32636  1920 ?        Ss   15:39   0:00 /usr/bin/dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation
+```
+### Python lib **not** installed
+
+```
+[root@myhost.domain ~]# pacman -Qi python2-dbus
+error: package 'python2-dbus' was not found
+```
+## Salt
+### Version
+- The issue #28080 was in 2015.8.1
+- The fix 1e75665a9a04eb916474c3d19cf25761c5349f43 was merged in 2015.8.2
+- I'm on 2015.8.3 so it includes it
+
+```
+[root@osgiliath ~]# salt --versions-report
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+         Python: 2.7.11 (default, Dec  6 2015, 15:43:46)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.3
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist:   
+        machine: x86_64
+        release: 4.2.5-1-ARCH
+```
+### Fix 1e75665a9a04eb916474c3d19cf25761c5349f43 is here
+
+```
+[root@osgiliath ~]# grep 'def __virtual__' -A 10 /usr/lib64/python2.7/site-packages/salt/modules/localemod.py
+def __virtual__():
+    '''
+    Only work on POSIX-like systems
+    '''
+    if HAS_DBUS is False and _uses_dbus():
+        return (False, 'Cannot load locale module: dbus python module unavailable')
+    if salt.utils.is_windows():
+        return (False, 'Cannot load locale module: windows platforms are unsupported')
+
+    return __virtualname__
+```
+# The weird behavior itself
+
+The [localemod module](https://docs.saltstack.com/en/latest/ref/modules/all/salt.modules.localemod.html) seems to have 2 names :
+- It is documented under salt.modules.localemod
+- The CLI examples are [given with "locale"](https://docs.saltstack.com/en/latest/ref/modules/all/salt.modules.localemod.html#salt.modules.localemod.avail) instead of "localemod"
+
+I don't know if that kind of differences happens often; I guess it's just some kind of aliases added afterhand to have a new name without breaking the old one (any information about this is welcome for my own knowledge of Salt btw).
+
+Now, let's get to the fun part.
+## locale.directive **without** python2-dbus
+
+```
+[root@osgiliath ~]# salt '*' locale.list_avail
+myhost.domain:
+    'locale.list_avail' is not available.
+ERROR: Minions returned with non-zero exit code
+```
+
+According to the fix presented earlier, it should also print **why** the module is unavailable (dbus lib missing).
+## locale**mod**.directive **without** python2-dbus
+
+```
+[root@osgiliath ~]# salt '*' localemod.list_avail
+myhost.domain:
+    'localemod' __virtual__ returned False: Cannot load locale module: dbus python module unavailable
+ERROR: Minions returned with non-zero exit code
+```
+
+Here, with localemod instead of locale, the expected message is printed !
+## Installing python2-dbus
+
+Until now, the previous examples were **without** python dbus lib installed.
+The following examples will now be **with** python dbus lib installed.
+
+```
+[root@osgiliath ~]# pacman -Qi python2-dbus | head -n 3
+Name           : python2-dbus
+Version        : 1.2.0-5
+Description    : Python 2.7 bindings for DBUS
+```
+## locale.directive **with** python2-dbus
+
+```
+[root@osgiliath ~]# salt '*' locale.list_avail
+myhost.domain:
+    - C
+    - POSIX
+    - en_US.utf8
+    - fr_FR.utf8
+```
+
+Yay, works as expected !
+## locale**mod**.directive **with** python2-dbus
+
+```
+[root@osgiliath ~]# salt '*' localemod.list_avail
+myhost.domain:
+    'localemod.list_avail' is not available.
+ERROR: Minions returned with non-zero exit code
+```
+
+But now **localemod** (which printed the expected error before) doesn't do anything anymore : neither does it print the "no lib found" nor does it print the module results.
+# Conclusion
+
+It's not really a bug I guess, but it is definitely misleading and I spent some time figuring that out. I also think it could affect other modules which work the same way with optionnal lib dependencies.
+
+My understanding (helped by @jbonachera) is the following :
+## Without python2-dbus
+1. `locale` is some kind of alias / name replacement on `localemod`
+2. `localemod` fails to load the `dbus` python module
+3. since `localemod` fails to load, `locale` "alias" definition fails
+4. `locale` is not defined, hence the "'locale.list_avail' is not available."
+5. `localemod` stays defined, hence the fact that it display the good message
+## With python2-dbus
+1. `locale` is some kind of alias / name replacement on `localemod`
+2. `localemod` loads correctly
+3. `locale` replace name `localemod`
+4. `locale` works as expected
+5. `localemod` doesn't work anymore
+
+This issue might be a bit too long for what it actually is, but I prefered to be as complete as possible. Let me know if I can provide any other useful informations !
+
+If it looks confusing for you too and consider that it needs a patch, I _might_ try to dig the code and see how it could be fixed.

@@ -1,0 +1,141 @@
+### Description of Issue/Question
+
+I am trying to create a new blank Virtual Machine using this shiny new feature introduced in 2016.3.0 via salt-cloud with a target of a single ESXi host 
+
+(**NOTE:** Not using vCenter, thus no template in use nor specified)
+### Setup
+- Single Salt-Master with Salt-Cloud installed, both at version 2016.3.1
+- Followed guide: https://docs.saltstack.com/en/latest/topics/cloud/vmware.html#creating-a-vm
+- Target is a single ESXI host using a very basic provider configuration
+
+```
+esx01:
+  driver: vmware
+  user: 'root'
+  password: 'password'
+  url: '192.168.1.13'
+```
+- Using a very basic profile configuration
+
+```
+base-gold:
+  provider: esx01
+  datastore: Datastore1
+  resourcepool: Resources
+  folder: vm
+
+  ## Optional arguments
+  num_cpus: 1
+  memory: 4GB
+  devices:
+    cd:
+      CD/DVD drive 1:
+        controller: 'IDE 0'
+        device_type: datastore_iso_file
+        iso_path: "[Datastore1] ISOs/Microsoft/WindowsServer2012R2.iso"
+    disk:
+      Hard disk 1:
+        size: 40
+        controller: 'SCSI controller 1'
+    network:
+      Network adapter 1:
+        name: 'VM Network'
+        adapter_type: e1000
+        switch_type: standard
+    scsi:
+      SCSI controller 1:
+        type: lsilogic
+    ide:
+      IDE 0
+      IDE 1
+
+  deploy: True
+  customization: False
+  power_on: True
+  hardware_version: 10
+  image: windows8Server64Guest
+```
+- Using the following command **salt-cloud -f test_vcenter_connection esx01** returns success
+- I couldn't find a test_esxi_connection thus assumed because it returned success, this would be fine
+
+```
+esx01:
+    ----------
+    vmware:
+        connection successful
+```
+- Using command **salt-cloud -p base-gold TESTVM -l debug** fails to deploy
+
+> [ERROR   ] The required **'clonefrom'** configuration setting is missing from the 'base-gold' profile, which is configured under the 'esx01' alias.
+> Error: There was a profile error: Failed to deploy VM
+- Other commands work fine, for example listing datastores
+
+```
+esx01:
+    ----------
+    vmware:
+        ----------
+        Datastores:
+            - Datastore1
+            - Datastore2
+```
+- Weirdly enough if I specify a template name with the name of an existing VM on my ESXI host, which is obviously not a template, I get a different error, as for whether its relevant, no idea.
+
+```
+[ERROR   ] There was a profile error: 'str' object has no attribute 'keys'
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/cli.py", line 284, in run
+    self.config.get('names')
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 1446, in run_profile
+    ret[name] = self.create(vm_)
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 1281, in create
+    output = self.clouds[func](vm_)
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/clouds/vmware.py", line 2319, in create
+    specs = _manage_devices(devices, object_ref)
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/clouds/vmware.py", line 687, in _manage_devices
+    ide_controllers_to_create = list(set(devices['ide'].keys()) - set(existing_ide_controllers_label))
+AttributeError: 'str' object has no attribute 'keys'
+```
+### Steps to Reproduce Issue
+- Create provider as per above
+- Create profile as per above
+- Attempt to create a new Virtual Machine on a standalone host
+### Versions Report
+
+> Salt Version:
+>            Salt: 2016.3.1
+> 
+> Dependency Versions:
+>            cffi: Not Installed
+>        cherrypy: 3.5.0
+>        dateutil: 2.4.2
+>           gitdb: 0.6.4
+>       gitpython: 1.0.1
+>           ioflo: Not Installed
+>          Jinja2: 2.8
+>         libgit2: Not Installed
+>         libnacl: Not Installed
+>        M2Crypto: Not Installed
+>            Mako: 1.0.3
+>    msgpack-pure: Not Installed
+>  msgpack-python: 0.4.6
+>    mysql-python: Not Installed
+>       pycparser: Not Installed
+>        pycrypto: 2.6.1
+>          pygit2: Not Installed
+>          Python: 2.7.12 (default, Jul  1 2016, 15:12:24)
+>    python-gnupg: Not Installed
+>          PyYAML: 3.11
+>           PyZMQ: 15.2.0
+>            RAET: Not Installed
+>           smmap: 0.9.0
+>         timelib: Not Installed
+>         Tornado: 4.2.1
+>             ZMQ: 4.1.4
+> 
+> System Versions:
+>            dist: Ubuntu 16.04 xenial
+>         machine: x86_64
+>         release: 4.4.0-28-generic
+>          system: Linux
+>         version: Ubuntu 16.04 xenial

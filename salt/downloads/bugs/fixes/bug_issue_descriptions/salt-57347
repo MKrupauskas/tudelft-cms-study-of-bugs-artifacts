@@ -1,0 +1,80 @@
+**Description**
+rpm_lowpkg.version_cmp() logs a warning asking to install rpmdevtools which may end up surfacing dev tools in production.
+
+**Setup**
+- python3-based salt-master / salt-minion
+- Centos 7.8 minion  (I suspect any Centos 7.x host may enough)
+- the python3-rpm package is not installed
+- the rpmdevtools package is not installed
+
+**Steps to Reproduce the behavior**
+- Apply a pkg.latest states against the minion
+- The minion logs include a "rpmdevtools is not installed, please install it for more accurate version comparisons" warning
+
+**Expected behavior**
+- rpm_lowpkg.version_cmp() suggests installing a package that surfaces rpm.labelCompare()
+- rpm_lowpkg.version_cmp() warning that rpmdevtools may suface dev tools in production if rpmdev-vercmp is found
+
+**Screenshots**
+N/A
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+[root@salt.dev.xr: ~]# salt --versions-report
+Salt Version:
+           Salt: 3000.3
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.8.1
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Mar 30 2020, 17:04:00)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 15.3.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.8.2003 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.131-1.el7.centos.x86_64
+         system: Linux
+        version: CentOS Linux 7.8.2003 Core
+```
+</details>
+
+**Additional context**
+After I migrated to the python3 salt packages, I started seeing the warning below in my minion logs:
+
+"rpmdevtools is not installed, please install it for more accurate version comparisons"
+
+Looking at the source, I see that rpm_lowpkg.version_cmp() first checks for rpm.labelCompare and rpmUtils.miscutils.compreEVR before control reaches the point it asks for rpmdevtools to be installed.
+
+It looks like rpm.labelCompare is available in the python3-rpm package from EPEL, so it might be better to suggest installing this package or some other package that provides this function.
+
+I think I wasn't seeing this with the python2 salt packages because rpmUtils.miscutils.compareEVR would have been available from yum packages, which is still using python2.  Once moving to the python3 salt package, 'import rpmUtils.miscutils' would have started throwing an exception.
+
+I tried installing rpmdevtools on one of my hosts and found it also pulled in rpm-build and gdb which I didn't want to surface on production machines
+
+See [A6:2017-Security Misconfiguration](https://owasp.org/www-project-top-ten/OWASP_Top_Ten_2017/Top_10-2017_A6-Security_Misconfiguration) wrt wanting to keep unused packages from being installed in production.

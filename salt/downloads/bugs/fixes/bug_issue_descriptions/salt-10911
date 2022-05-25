@@ -1,0 +1,37 @@
+I am using salt-ssh against some machines that are misconfigured so that I cannot always ssh into them. While the misconfiguration issue is obviously mine, I would really like for Salt to have a better failure mode. Right now, I am seeing that Salt is SSH'ing into hosts and they instantly fail with 'Permission denied (publickey)'.
+
+The output of SSH is processed here, in salt/client/ssh/wrapper/**init**.py:
+
+```
+        try:
+            ret = json.loads(stdout, object_hook=salt.utils.decode_dict)
+        except ValueError:
+            ret = {'_error': 'Failed to return clean data'}
+```
+
+In the case where SSH immediately fails, stdout is equal to '' and json.loads fails, which results in ret being set to the error object in the exception handler. Control returns to salt.client.ssh and the following exception occurs:
+
+```
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/multiprocessing/process.py", line 258, in _bootstrap
+    self.run()
+  File "/usr/lib/python2.7/multiprocessing/process.py", line 114, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/joshk/env/local/lib/python2.7/site-packages/salt/client/ssh/__init__.py", line 260, in handle_routine
+    stdout, stderr = single.run()
+  File "/home/joshk/env/local/lib/python2.7/site-packages/salt/client/ssh/__init__.py", line 498, in run
+    stdout, stderr = self.run_wfunc()
+  File "/home/joshk/env/local/lib/python2.7/site-packages/salt/client/ssh/__init__.py", line 542, in run_wfunc
+    opts_pkg['grains'],
+KeyError: 'grains'
+```
+
+This exception occurs once per busted host, and is the only indication of failure; from the output there is no indication of which host experienced the failure.
+
+To make matters worse, something about the uncaught exception results in zombie processes, and control never returns to my salt wrapper script. I can debug this a bit further if you all want.
+
+I don't expect Salt to be able to magically SSH into hosts that _I_ misconfigured but I would really prefer if they failed gracefully. It would be great if the error object could indicate those things and that a SSH failure does not jeopardize the completion of the script.
+
+To reproduce, set up a single machine roster and specify the wrong ssh key for that one machine, then run 'ping'.
+
+Thanks!

@@ -1,0 +1,62 @@
+Hi,
+
+when using the dockerng.running state like this:
+
+``` yaml
+redis-server image:
+  dockerng.image_present:
+    - name: 'redis'
+redis key-value store:
+  dockerng.running:
+    - name: 'my_redis'
+    - image: 'redis:latest'
+    - ports: '6379'
+    - memory: 4G
+    - volumes:
+      - '/data'
+    - restart_policy: 'on-failure:5'
+    - require:
+      - dockerng: 'redis-server image'
+    - watch:
+      - dockerng: 'redis-server image'
+```
+
+what you get is a running docker container with the name my_redis and a memory limit of _0_:
+
+``` json
+#> docker inspect my_redis
+...
+    "HostConfig": {
+        "Binds": null,
+        "ContainerIDFile": "",
+        "LxcConf": null,
+        "Memory": 0,
+```
+
+This should not happen and is a result of splitting the hostconfig arguments into two sets of options in the dockerng state module. The docker-API starting with v1.15 accepts all hostconfig parameters directly at container creation. In fact there is a current discussion, deprecating the hostconfig on the start API-Call entirely https://github.com/docker/docker/issues/14777
+
+While I am not sure whether this is actually triggering a bug in the docker API (wiping part of a containers hostconfig certainly looks like one) or intended behaviour, the results are the same and the dockerng module should be adapted.
+
+In my case it would suffice moving the restart policy from runtime to create args, but I think it should be validated that all the other runtime args do not trigger the same bug.
+
+I am using the 2015.8.0 Release of Salt on a Gentoo System running Linux 4.1.6-hardened with the following relevant libraries:
+
+```
+docker-py 1.4.0
+docker 1.8.1
+python 2.7.9
+salt 2015.8.0
+```
+
+I found this bug by attaching with strace to the following commands to see the actual POST payload sent to docker (but this also works by declaring an appropriate state):
+
+``` bash
+# Create the container with a memory limit, this works
+salt-call --local dockerng.create  name='my_redis' image='redis:latest' memory=4G ports='[6379]' volumes='/data'
+# Start the container with a restartpolicy, this deletes the previously set memory limit
+salt-call --local dockerng.start my_redis restart_policy="{'MaximumRetryCount': 5, 'Name': 'on-failure'}"
+# Whereas this call does start the container correctly
+salt-call --local dockerng.start my_redis
+# As does this
+docker start my_redis
+```

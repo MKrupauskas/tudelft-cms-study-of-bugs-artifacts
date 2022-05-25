@@ -1,0 +1,110 @@
+### Description of Issue/Question
+When the `dockercompose.up` module is called it seems to be catching a 404 when checking if the docker network has been created. I assume this is when docker-compose is doing its checks before trying to create the network, but I am not certain of this.
+
+Error I am seeing:
+```
+          ID: run-mediacuration-container
+    Function: module.run
+        Name: dockercompose.up
+      Result: True
+     Comment: Module function dockercompose.up executed
+     Started: 16:48:10.004748
+    Duration: 8.65 ms
+     Changes:   
+              ----------
+              ret:
+                  ----------
+                  message:
+                      Docker-compose command __load_project_from_file_path failed
+                  return:
+                      404 Client Error: Not Found for url: http+docker://localhost/v1.25/networks/mediacuration_default
+                  status:
+                      False
+```
+There are two really odd things with this issue.
+1) I can run `docker-compose up` by hand and it runs without any issues, and now that the network exists from compose creating it I can run the state successfully.
+2) This state runs without issue on Ubuntu Trusty, I've tried matching exact versions (was originally thinking requests was the culprit) but that did not help either.
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+docker-compose.yml
+```yaml
+{% from "mediacuration/map.jinja" import props with context %}
+
+version: '3'
+services:
+  app:
+    image: plos/mediacuration:{{ props.get('tag') }}
+    environment:
+     <snip>
+    ports:
+      - 3000:3000
+    dns:
+      - 10.5.2.240
+      - 10.136.1.30
+    volumes:
+      - railsassets:/code/public
+    
+volumes:
+  railsassets:
+```
+
+The state:
+```yaml
+run-mediacuration-container:
+  module.run:
+    - name: dockercompose.up
+    - path: /opt/mediacuration/docker-compose.yml
+    - require:
+      - pull-mediacuration-image
+      - mediacuration-compose-file
+```
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+Really not sure, just running the `dockercompose.up` module in Ubuntu Bionic.
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+```
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: 1.12.3
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: 3.7.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.15rc1 (default, Nov 12 2018, 14:31:15)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-29-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```

@@ -1,0 +1,74 @@
+## Problem/Example
+
+This is a simple Salt state to enable and start `jenkins` service:
+
+```
+# jenkins.sls
+activate_jenkins_service:
+    service.running:
+        - name: jenkins
+        - enable: True
+```
+
+Official Jenkins installation on [RedHat/CentOS/Fedora](https://wiki.jenkins-ci.org/display/JENKINS/Installing+Jenkins+on+RedHat+distributions#InstallingJenkinsonRedHatdistributions-Start%2FStop) uses init.d/sysv scripts.
+
+Manually enabling and starting through init.d/sysv scripts perfectly works even on systemd-based Fedora 20:
+
+```
+systemctl enable jenkins                                                                                                                                                                             
+jenkins.service is not a native service, redirecting to /sbin/chkconfig.
+Executing /sbin/chkconfig jenkins on
+
+systemctl start jenkins
+```
+
+On the other hand, Salt fails to execute the state:
+
+```
+salt-call -l all state.sls jenkins
+...
+          ID: activate_jenkins_service
+    Function: service.running
+        Name: jenkins
+      Result: False
+     Comment: The named service jenkins is not available
+     Changes:   
+...
+```
+## Cause
+
+The problem stems from the fact that Salt executes `systemctl list-unit-files` command which only lists systemd unit files excluding init.d/sysv scripts:
+
+```
+...
+[INFO    ] Executing state service.running for jenkins
+[INFO    ] Executing command 'systemctl --full list-unit-files | col -b' in directory '/root'
+...
+```
+
+Because Salt doesn't see required `jenkins` service in the list of unit files, it doesn't pass next execution to `systemctl` for enabling/starting/... the service and does't let `systemctl` to tell "authoritatively" about actual existence of the service.
+## Proposal
+
+This issue is very closely related to issue #8444 (as far as the proposed solution is concerned) and described in [this comment](https://github.com/saltstack/salt/issues/8444#issuecomment-28317923).
+
+Rather than executing any pre-validation logic (i.e. finding service name somewhere), Salt should rely on systemd (and its `systemctl` command) to determine whether states to enable/start/... the service failed or succeeded. In other words, Salt should execute `systemctl` with any arbitrary service name optimistically and report result of the execution instead of trying to predict its outcome.
+## Workaround
+
+Again, see it in issue #8444.
+## Versions
+
+Master and minion is the same host with Fedora 20 x86_64:
+
+```
+ salt --versions-report
+           Salt: 2014.1.1
+         Python: 2.7.5 (default, Feb 19 2014, 13:47:28)
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.2
+            ZMQ: 3.2.4
+```

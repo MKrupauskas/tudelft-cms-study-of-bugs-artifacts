@@ -1,0 +1,91 @@
+**Description**
+
+Unable to apply mariaDB's [`REPLICA MONITOR` privilege](https://mariadb.com/docs/reference/mdb/privileges/REPLICA_MONITOR/) with mysql_grants state.
+
+known/authorized grants are hardcoded in source code [here](https://github.com/saltstack/salt/blob/master/salt/modules/mysql.py#L82-L129) and `REPLICA MONITOR` grant is not present so it is impossible to add that grant as per https://github.com/saltstack/salt/blob/master/salt/modules/mysql.py#L2258-L2259
+
+**Setup**
+
+Salt 3003 under Debian 11 Bullseye with MariaDB 10.5 as shipped with debian 11
+
+state:
+```
+mariadb:
+  pkg.installed:
+    - pkgs:
+      - mariadb-server
+      - mariadb-client
+      - python3-mysqldb
+   
+mariadb_monitoring_user:
+  mysql_user.present:
+    - name: monitoring
+    - host: localhost
+    - password: 'S3cr3tP@ssw0rd'
+    - require:
+      - pkg: mariadb
+  mysql_grants.present:
+    - grant: PROCESS,REPLICA MONITOR,SHOW DATABASES,SHOW VIEW
+    - database: "*.*"
+    - user: monitoring
+    - require:
+      - mysql_user: mariadb_monitoring_user
+```
+  
+**Steps to Reproduce the behavior**
+
+apply state and see mysql grant failing
+
+**Expected behavior**
+
+grant is applied
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+          Salt: 3003.2
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.8.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.3
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 1.0.0
+  msgpack-pure: Not Installed
+  mysql-python: 1.4.4
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.9.7
+        pygit2: Not Installed
+        Python: 3.9.2 (default, Feb 28 2021, 17:03:44)
+  python-gnupg: Not Installed
+        PyYAML: 5.3.1
+         PyZMQ: 20.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+ 
+System Versions:
+          dist: debian 11 bullseye
+        locale: utf-8
+       machine: x86_64
+       release: 5.4.0-91-generic
+        system: Linux
+       version: Debian GNU/Linux 11 bullseye
+
+```
+</details>
+
+**Additional context**
+
+Starting from mariaDB 10.5 [`REPLICATION CLIENT` privilege](https://mariadb.com/docs/reference/mdb/privileges/REPLICATION_CLIENT/) changed capabilities and new [`REPLICA MONITOR` privilege](https://mariadb.com/docs/reference/mdb/privileges/REPLICA_MONITOR/) has been added in mariadb, so to achieve same functionnality as `REPLICATION CLIENT` in mariaDB <= 10.4 one should now use the new `REPLICA MONITOR` privilege.

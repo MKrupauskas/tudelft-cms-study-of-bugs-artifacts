@@ -1,0 +1,196 @@
+I have the following Salt state defined and it looks like the require argument is not setting the correct order of execution
+
+``` yaml
+mysqld:
+  service.running:
+    - enable: True
+    - reload: True
+    - watch:
+      - sls: database.packages
+
+mirulabs_db:
+  mysql_database.present:
+    - name: mirulabs
+    - require:
+      - service: mysqld
+
+mirulab_user_password:
+  mysql_user.present:
+    - name: 'damian'
+    - host: '10.132.228.57'
+    - password: 's3cr3t'
+    - require:
+      - mysql_grants: mirulab_user_perms
+
+mirulab_user_perms:
+   mysql_grants.present:
+    - grant: select,insert,update
+    - database: mirulabs.*
+    - user: 'damian'
+    - host: 10.132.228.57
+```
+
+As you will see from the `show_sls` output, the `require` requisite does not set the `mirulab_user_perms` to be executed before the `mirulab_user_password` state.
+
+``` bash
+    mirulab_user_password:
+        ----------
+        __env__:
+            base
+        __sls__:
+            database
+        mysql_user:
+            |_
+              ----------
+              name:
+                  damian
+            |_
+              ----------
+              host:
+                  10.132.228.57
+            |_
+              ----------
+              password:
+                  s3cr3t
+            |_
+              ----------
+              require:
+                  |_
+                    ----------
+                    mysql_grants:
+                        mirulab_user_perms
+            - present
+            |_
+              ----------
+              order:
+                  10003
+    mirulab_user_perms:
+        ----------
+        __env__:
+            base
+        __sls__:
+            database
+        mysql_grants:
+            |_
+              ----------
+              grant:
+                  select,insert,update
+            |_
+              ----------
+              database:
+                  mirulabs.*
+            |_
+              ----------
+              user:
+                  damian
+            |_
+              ----------
+              host:
+                  10.132.228.57
+            - present
+            |_
+              ----------
+              order:
+                  10004
+    mirulabs_db:
+        ----------
+        __env__:
+            base
+        __sls__:
+            database
+        mysql_database:
+            |_
+              ----------
+              name:
+                  mirulabs
+            |_
+              ----------
+              require:
+                  |_
+                    ----------
+                    service:
+                        mysqld
+            - present
+            |_
+              ----------
+              order:
+                  10002
+    mysqld:
+        ----------
+        __env__:
+            base
+        __sls__:
+            database
+        service:
+            |_
+              ----------
+              enable:
+                  True
+            |_
+              ----------
+              reload:
+                  True
+            |_
+              ----------
+              watch:
+                  |_
+                    ----------
+                    sls:
+                        database.packages
+            - running
+            |_
+              ----------
+              order:
+                  10001
+```
+
+However, changing the ordering in the Salt State fixes the ordering issue but the `require` requisite should correct the order.
+
+``` yaml
+mysqld:
+  service.running:
+    - enable: True
+    - reload: True
+    - watch:
+      - sls: database.packages
+
+mirulabs_db:
+  mysql_database.present:
+    - name: mirulabs
+    - require:
+      - service: mysqld
+
+mirulab_user_perms:
+   mysql_grants.present:
+    - grant: select,insert,update
+    - database: mirulabs.*
+    - user: 'damian'
+    - host: 10.132.228.57
+
+mirulab_user_password:
+  mysql_user.present:
+    - name: 'damian'
+    - host: '10.132.228.57'
+    - password: 's3cr3t'
+    - require:
+      - mysql_grants: mirulab_user_perms
+```
+
+Salt versions:-
+
+``` bash
+           Salt: 2014.7.0
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+         Jinja2: unknown
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.4
+           Mako: Not Installed
+```

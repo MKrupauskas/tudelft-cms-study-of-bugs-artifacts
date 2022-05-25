@@ -1,0 +1,49 @@
+I've been running into this error pretty frequently as of late:
+
+```
+2015-03-23 03:49:06,850 [salt.master                                         ][INFO    ] Clear payload received with command _auth
+2015-03-23 03:49:06,851 [salt.master                                         ][INFO    ] Authentication request from vm-123-123.testdomain.com
+2015-03-23 03:49:06,852 [salt.master                                         ][ERROR   ] Authentication attempt from vm-123-123.testdomain.com failed, the public keys did not match. This may be an attempt to compromise the Salt cluster.
+```
+
+Further debugging basically lead me to discover there was a missing new line at the end of the minion's public key.    I've had almost the exact problem in the past, and it started after a salt-master upgrade(I don't remember which version unfortunately), but it was due to an extra new line instead of a missing new line.   
+
+And I found this check in https://github.com/saltstack/salt/blob/develop/salt/master.py#L1714:
+
+``` python
+        elif os.path.isfile(pubfn):
+            # The key has been accepted, check it
+            if salt.utils.fopen(pubfn, 'r').read() != load['pub']:
+                log.error(
+                    'Authentication attempt from {id} failed, the public '
+```
+
+Since it looks for an exact match, it will fail if there is an extra new-line/space/etc in the public key on either side.   This probably isn't a big deal for normal use-cases that generate the minion key on the minion itself, but we are using a wrapper around salt-key to generate the key and pre-populate it on the minion.   
+
+Patching master.py to use this as the check instead, fixes the issue entirely for us:
+
+``` python
+            if salt.utils.fopen(pubfn, 'r').read().strip() != load['pub'].strip():
+```
+
+Would this be an acceptable fix (mainly as convenience), or considered harmful to performance/etc?   I realize this could be fixed in our key-generating and populating code instead of on the master, but we already have quite a few minions that are running into this issue and needed to be able to connect to the master again.
+
+Salt-master version info if needed:
+
+```
+# salt-master --versions
+           Salt: 2014.7.1
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.4
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+```

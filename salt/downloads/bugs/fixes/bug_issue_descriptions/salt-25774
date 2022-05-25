@@ -1,0 +1,52 @@
+Seem to be getting an error using the GPG renderer when using 2015.8.0rc2 compared to 2015.5.2. For pillars which are not using the GPG renderer, it seems to be happy:
+
+```
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('accountui', OrderedDict([('smtpHost', '10.16.0.213'), ('smtpPort', 25), ('proxyHost', '10.17.0.63'), ('proxyPort', 8081), ('nonProxyHosts', '127.0.0.1|xxx.yyy.local')]))])
+[DEBUG   ] compile template: /srv/pillar/webui.sls
+```
+
+but using a pillar which uses the GPG renderer leads to an error:
+
+```
+[DEBUG   ] Rendered data from file: /srv/pillar/xxx.sls:
+#!jinja|yaml|gpg
+xxx:
+  yyy: xxx
+  password: |
+    -----BEGIN PGP MESSAGE-----
+    Version: GnuPG v2.0.14 (GNU/Linux)
+
+    hQEMAzdVcI17BV28AQf9F3+hu9LK/wNPeSdOy9XuG/duee/2YMr44F54MovcLbQX
+    4CwvU3NijDjEbgX+y0oG01sceO51027lBlJBVx1aC3/NgeGbZjrwYRuXHfOrhIXR
+    MgPFHp0DsMAIBQM0muVrr7JwFb5JtH/IjjKxCSWwhrFMkvd2/lo6ln4wm8AD0rms
+    qDUC2EiOjk8UvdIe+abVad+FU7EH5hwNxw8+T3LvZCnPfCS5hnQHHZRssw5+6OPa
+    AbpnFEvT12t0MWHvoKZRumOyAvrR1nk2/1RIh7aZbPR/XP86vlCgl5+pP4XNlg4V
+    B9bbDOk9lS/Dj3pGl8vebpIXuaEpg1fda8oaNQYXpdJZAV16y7CZEpn2azCtSBZI
+    AdU9GdbZM3PbUOgkD38PHrC3BSpygpiEZf8eMOp91nu3LGQNRszLXJeR4ethEhOY
+    l7TEHzOjc2Rh0Z9phKVkdMLAC+7t1moHcBw=
+    =sNy9
+    -----END PGP MESSAGE-----
+  zzz: xxx
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('xxx', OrderedDict([('yyy', 'xxx'), ('password', '-----BEGIN PGP MESSAGE-----\nVersion: GnuPG v2.0.14 (GNU/Linux)\n\nhQEMAzdVcI17BV28AQf9F3+hu9LK/wNPeSdOy9XuG/duee/2YMr44F54MovcLbQX\n4CwvU3NijDjEbgX+y0oG01sceO51027lBlJBVx1aC3/NgeGbZjrwYRuXHfOrhIXR\nMgPFHp0DsMAIBQM0muVrr7JwFb5JtH/IjjKxCSWwhrFMkvd2/lo6ln4wm8AD0rms\nqDUC2EiOjk8UvdIe+abVad+FU7EH5hwNxw8+T3LvZCnPfCS5hnQHHZRssw5+6OPa\nAbpnFEvT12t0MWHvoKZRumOyAvrR1nk2/1RIh7aZbPR/XP86vlCgl5+pP4XNlg4V\nB9bbDOk9lS/Dj3pGl8vebpIXuaEpg1fda8oaNQYXpdJZAV16y7CZEpn2azCtSBZI\nAdU9GdbZM3PbUOgkD38PHrC3BSpygpiEZf8eMOp91nu3LGQNRszLXJeR4ethEhOY\nl7TEHzOjc2Rh0Z9phKVkdMLAC+7t1moHcBw=\n=sNy9\n-----END PGP MESSAGE-----\n'), ('zzz', 'xxx')]))])
+[ERROR   ] error: 'OrderedDict' object has no attribute 'seek'
+
+```
+
+I can trace this to https://github.com/saltstack/salt/blob/v2015.8.0rc2/salt/template.py#L82
+
+```
+    # Get the list of render funcs in the render pipe line.
+    render_pipe = template_shebang(template, renderers, default, input_data)
+
+    input_data = string_io(input_data)
+    for render, argline in render_pipe:
+        try:
+            input_data.seek(0)
+        except Exception as exp:
+            log.error('error: {0}'.format(exp))
+```
+
+Strangely enough, the encrypted pillar is decrypted successfully. I don't know enough about the code to know what's going wrong. As mentioned above, there is no error with the same pillar using 2015.5.2.

@@ -1,0 +1,233 @@
+### Description of Issue/Question
+
+When using an upper case `source_hash`, `archive.extracted` will fail on a valid hash. 
+This looks similar to the issue resolved for `file.managed` testing in #48422
+
+```
+Comment: File is cached to /var/cache/salt/minion/extrn_files/base/dl.influxdata.com/telegraf/releases/telegraf-1.9.1_linux_amd64.tar.gz, 
+but the hash   (2459157a25988796cef2a2c6fbb2377d767303477985654f5d0a795ec6bbfee1) 
+does not match the 
+specified hash (2459157A25988796CEF2A2C6FBB2377D767303477985654F5D0A795EC6BBFEE1)
+```
+
+### Setup
+
+```
+docker run -it --rm ubuntu:18.04
+```
+
+```
+export DEBIAN_FRONTEND=noninteractive &&\
+apt-get update && \
+apt-get install -y --no-install-recommends apt-utils gnupg wget openssl ca-certificates tzdata && \
+ln -fs /usr/share/zoneinfo/UTC /etc/localtime && \
+dpkg-reconfigure --frontend noninteractive tzdata && \
+wget -O - https://repo.saltstack.com/apt/ubuntu/18.04/amd64/latest/SALTSTACK-GPG-KEY.pub | apt-key add - && \
+echo 'deb http://repo.saltstack.com/apt/ubuntu/18.04/amd64/archive/2018.3.3 bionic main' > /etc/apt/sources.list.d/saltstack.list && \
+apt-get update  && \
+apt-get install -y salt-minion && \
+echo 'file_client: local' > /etc/salt/minion.d/masterless.conf && \
+mkdir -p /srv/salt
+```
+
+```
+cat <<EOF > /srv/salt/test-source_hash-case-sensitivity.sls
+{% set source_uri  = "https://dl.influxdata.com/telegraf/releases/telegraf-1.9.1_linux_amd64.tar.gz" %}
+{% set source_hash = "2459157a25988796cef2a2c6fbb2377d767303477985654f5d0a795ec6bbfee1" %}
+
+/tmp/test_hash_case:
+  file.directory
+/tmp/test_hash_case/lowercase:
+  file.directory
+/tmp/test_hash_case/uppercase:
+  file.directory
+
+Download a file with a lowercase hash:
+  file.managed:
+    - name: /tmp/test_hash_case/lowercase.tar.gz
+    - source: {{ source_uri }}
+    - source_hash: {{ source_hash | lower }}
+
+Download a file with an uppercase hash:
+  file.managed:
+    - name: /tmp/test_hash_case/uppercase.tar.gz
+    - source: {{ source_uri }}
+    - source_hash: {{ source_hash | upper }}
+
+Download and extract a file with a lowercase hash:
+  archive.extracted:
+    - name: /tmp/test_hash_case/lowercase
+    - source: {{ source_uri }}
+    - source_hash: {{ source_hash | lower }}
+
+Download and extract a file with an uppercase hash:
+  archive.extracted:
+    - name: /tmp/test_hash_case/uppercase
+    - source: {{ source_uri }}
+    - source_hash: {{ source_hash | upper }}
+EOF
+```
+### Steps to Reproduce Issue
+
+```
+salt-call --local state.apply test-source_hash-case-sensitivity
+```
+
+```
+local:
+----------
+          ID: /tmp/test_hash_case
+    Function: file.directory
+      Result: True
+     Comment: Directory /tmp/test_hash_case updated
+     Started: 01:10:22.927808
+    Duration: 8.371 ms
+     Changes:
+              ----------
+              /tmp/test_hash_case:
+                  New Dir
+----------
+          ID: /tmp/test_hash_case/lowercase
+    Function: file.directory
+      Result: True
+     Comment: Directory /tmp/test_hash_case/lowercase updated
+     Started: 01:10:22.936464
+    Duration: 1.809 ms
+     Changes:
+              ----------
+              /tmp/test_hash_case/lowercase:
+                  New Dir
+
+----------
+          ID: /tmp/test_hash_case/uppercase
+    Function: file.directory
+      Result: True
+     Comment: Directory /tmp/test_hash_case/uppercase updated
+     Started: 01:10:22.938579
+    Duration: 1.404 ms
+     Changes:
+              ----------
+              /tmp/test_hash_case/uppercase:
+                  New Dir
+----------
+          ID: Download a file with a lowercase hash
+    Function: file.managed
+        Name: /tmp/test_hash_case/lowercase.tar.gz
+      Result: True
+     Comment: File /tmp/test_hash_case/lowercase.tar.gz updated
+     Started: 01:10:22.940258
+    Duration: 11043.273 ms
+     Changes:
+              ----------
+              diff:
+                  New file
+              mode:
+                  0644
+----------
+          ID: Download a file with an uppercase hash
+    Function: file.managed
+        Name: /tmp/test_hash_case/uppercase.tar.gz
+      Result: True
+     Comment: File /tmp/test_hash_case/uppercase.tar.gz updated
+     Started: 01:10:33.984148
+    Duration: 553.513 ms
+     Changes:
+              ----------
+              diff:
+                  New file
+              mode:
+                  0644
+----------
+          ID: Download and extract a file with a lowercase hash
+    Function: archive.extracted
+        Name: /tmp/test_hash_case/lowercase
+      Result: True
+     Comment: https://dl.influxdata.com/telegraf/releases/telegraf-1.9.1_linux_amd64.tar.gz extracted to /tmp/test_hash_case/lowercase/, due to absence of one or more files/dirs
+     Started: 01:10:34.539394
+    Duration: 1418.725 ms
+     Changes:
+              ----------
+              extracted_files:
+                  - ./telegraf
+                  - ./telegraf/var
+                  - ./telegraf/var/log
+                  - ./telegraf/var/log/telegraf
+                  - ./telegraf/usr
+                  - ./telegraf/usr/lib
+                  - ./telegraf/usr/lib/telegraf
+                  - ./telegraf/usr/lib/telegraf/scripts
+                  - ./telegraf/usr/lib/telegraf/scripts/telegraf.service
+                  - ./telegraf/usr/lib/telegraf/scripts/init.sh
+                  - ./telegraf/usr/bin
+                  - ./telegraf/usr/bin/telegraf
+                  - ./telegraf/etc
+                  - ./telegraf/etc/telegraf
+                  - ./telegraf/etc/telegraf/telegraf.conf
+                  - ./telegraf/etc/telegraf/telegraf.d
+                  - ./telegraf/etc/logrotate.d
+                  - ./telegraf/etc/logrotate.d/telegraf
+----------
+          ID: Download and extract a file with an uppercase hash
+    Function: archive.extracted
+        Name: /tmp/test_hash_case/uppercase
+      Result: False
+     Comment: File is cached to /var/cache/salt/minion/extrn_files/base/dl.influxdata.com/telegraf/releases/telegraf-1.9.1_linux_amd64.tar.gz, but the hash (2459157a25988796cef2a2c6fbb2377d767303477985654f5d0a795ec6bbfee1) does not match the specified hash (2459157A25988796CEF2A2C6FBB2377D767303477985654F5D0A795EC6BBFEE1)
+     Started: 01:10:35.958569
+    Duration: 224.778 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 6 (changed=6)
+Failed:    1
+------------
+Total states run:     7
+Total run time:  13.252 s
+```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2018.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.15rc1 (default, Nov 12 2018, 14:31:15)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 4.9.125-linuxkit
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```
+
+Originally ran into this on Windows minions running 2018.3.2-py2

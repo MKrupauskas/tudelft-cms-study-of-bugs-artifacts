@@ -1,0 +1,120 @@
+This is on an Ubuntu 12.04 LTS with Salt 0.17.2.
+
+On the first run:
+
+```
+root@srv03:/srv/salt# salt-call --local state.highstate test=True                                                                                                               
+'[INFO    ] Loading fresh modules for state activity
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/modules'
+[INFO    ] Syncing modules for environment 'base'
+[INFO    ] Loading cache from salt://_modules, for base)
+[INFO    ] Caching directory '_modules/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/states'
+[INFO    ] Syncing states for environment 'base'
+[INFO    ] Loading cache from salt://_states, for base)
+[INFO    ] Caching directory '_states/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/grains'
+[INFO    ] Syncing grains for environment 'base'
+[INFO    ] Loading cache from salt://_grains, for base)
+[INFO    ] Caching directory '_grains/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/renderers'
+[INFO    ] Syncing renderers for environment 'base'
+[INFO    ] Loading cache from salt://_renderers, for base)
+[INFO    ] Caching directory '_renderers/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/returners'
+[INFO    ] Syncing returners for environment 'base'
+[INFO    ] Loading cache from salt://_returners, for base)
+[INFO    ] Caching directory '_returners/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/outputters'
+[INFO    ] Syncing outputters for environment 'base'
+[INFO    ] Loading cache from salt://_outputters, for base)
+[INFO    ] Caching directory '_outputters/' for environment 'base'
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Executing state pkg.installed for libvirt
+[INFO    ] Executing command 'apt-get -q update' in directory '/home/hh-admin'
+[INFO    ] Executing command "dpkg-query --showformat='${Status} ${Package} ${Version} ${Architecture}\n' -W" in directory '/home/hh-admin'
+[INFO    ] Executing command 'grep-available -F Provides -s Package,Provides -e "^.+$"' in directory '/home/hh-admin'
+[INFO    ] All specified packages are already installed.
+[INFO    ] Executing state file.append for /etc/default/libvirt-bin
+[INFO    ] File /etc/default/libvirt-bin is set to be updated
+[INFO    ] Executing state libvirt.keys for libvirt
+/bin/sh: 1: certtool: not found
+/bin/sh: 1: certtool: not found
+/bin/sh: 1: certtool: not found
+/bin/sh: 1: certtool: not found
+/bin/sh: 1: certtool: not found
+/bin/sh: 1: certtool: not found
+[ERROR   ] Failed to load ext_pillar libvirt: [Errno 2] No such file or directory: '/etc/salt/pki/minion/libvirt/cacert.pem'
+Traceback (most recent call last):
+  File "/usr/lib/pymodules/python2.7/salt/pillar/__init__.py", line 417, in ext_pillar
+    ext = self.ext_pillars[key](self.opts['id'], pillar, val)
+  File "/usr/lib/pymodules/python2.7/salt/pillar/libvirt.py", line 36, in ext_pillar
+    with salt.utils.fopen(cacert, 'r') as fp_:
+  File "/usr/lib/pymodules/python2.7/salt/utils/__init__.py", line 872, in fopen
+    fhandle = open(*args, **kwargs)
+IOError: [Errno 2] No such file or directory: '/etc/salt/pki/minion/libvirt/cacert.pem'
+[INFO    ] All keys are correct
+```
+
+Subsequent runs (at this point I isolated the states from a full highstate run to a single SLS file):
+
+``` bash
+root@srv03:/srv/salt# salt-call --local state.sls test test=True
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Executing state pkg.installed for libvirt
+[INFO    ] Executing command 'apt-get -q update' in directory '/home/hh-admin'
+[INFO    ] Executing command "dpkg-query --showformat='${Status} ${Package} ${Version} ${Architecture}\n' -W" in directory '/home/hh-admin'
+[INFO    ] Executing command 'grep-available -F Provides -s Package,Provides -e "^.+$"' in directory '/home/hh-admin'
+[INFO    ] All specified packages are already installed.
+[INFO    ] Executing state libvirt.keys for libvirt
+[ERROR   ] Failed to load ext_pillar libvirt: [Errno 2] No such file or directory: '/etc/salt/pki/minion/libvirt/cacert.pem'
+Traceback (most recent call last):
+  File "/usr/lib/pymodules/python2.7/salt/pillar/__init__.py", line 417, in ext_pillar
+    ext = self.ext_pillars[key](self.opts['id'], pillar, val)
+  File "/usr/lib/pymodules/python2.7/salt/pillar/libvirt.py", line 36, in ext_pillar
+    with salt.utils.fopen(cacert, 'r') as fp_:
+  File "/usr/lib/pymodules/python2.7/salt/utils/__init__.py", line 872, in fopen
+    fhandle = open(*args, **kwargs)
+IOError: [Errno 2] No such file or directory: '/etc/salt/pki/minion/libvirt/cacert.pem'
+[INFO    ] All keys are correct
+local:
+----------
+    State: - pkg
+    Name:      libvirt
+    Function:  installed
+        Result:    True
+        Comment:   All specified packages are already installed.
+        Changes:   
+----------
+    State: - libvirt
+    Name:      libvirt
+    Function:  keys
+        Result:    True
+        Comment:   All keys are correct
+        Changes:   
+
+Summary
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total:     2
+root@srv03:/srv/salt#
+```
+
+The SLS file:
+
+``` yaml
+libvirt:
+  pkg:
+    - installed
+    - pkgs:
+        - libvirt-bin
+        - libvirt0
+  libvirt:
+    - keys
+    - require:
+      - pkg: libvirt
+```
+
+I cannot investigate this further at this time (time and priority constraints).

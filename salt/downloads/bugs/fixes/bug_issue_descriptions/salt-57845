@@ -1,0 +1,166 @@
+**Description**
+Receive the a 'RuntimeError: dictionary changed size during iteration' when running genesis.mksls to convert a kickstart file to an SLS file
+
+**Setup**
+Create the following kickstart file on /tmp/anaconda-ks.cfg:
+
+```
+#version=DEVEL
+# System authorization information
+auth --enableshadow --passalgo=sha512
+# Install OS instead of upgrade
+install
+repo --name="Server-HighAvailability" --baseurl=file:///run/install/repo/addons/HighAvailability
+repo --name="Server-ResilientStorage" --baseurl=file:///run/install/repo/addons/ResilientStorage
+repo --name="Server-Mysql" --baseurl=file:///run/install/repo/addons/Mysql
+# Use CDROM installation media
+cdrom
+# Use text mode install
+text
+# Firewall configuration
+firewall --disabled
+firstboot --disable
+ignoredisk --only-use=sda
+# Keyboard layouts
+keyboard --vckeymap=us --xlayouts='us'
+# System language
+lang en_US.UTF-8
+
+# Network information
+network  --bootproto=static --device=link --gateway=192.0.2.249 --ip=192.0.2.253 --nameserver=192.0.2.1 --netmask=255.255.255.248 --ipv6=auto --activate
+network  --bootproto=dhcp --hostname=host2.example.com
+# Reboot after installation
+reboot --eject
+# Root password
+rootpw --iscrypted $6$/lIb80D7DgbjByl1$dfDyvmmSeiT3le5eWNRUb/gNtfE1Y.5X5GfsUIkViV3rsCsidHnanVlnUOhwxrz8JX6GTFzXzCAXg4G.YSAb//
+# SELinux configuration
+selinux --disabled
+# System services
+services --enabled="chronyd"
+# Do not configure the X Window System
+skipx
+# System timezone
+timezone UTC --isUtc
+user --groups=s-em7-core --name=em7admin --password=$6$/lIb80D7DgbjByl1$dfDyvmmSeiT3le5eWNRUb/gNtfE1Y.5X5GfsUIkViV3rsCsidHnanVlnUOhwxrz8JX6GTFzXzCAXg4G.YSAb// --iscrypted --shell=/bin/bash
+# System bootloader configuration
+bootloader --location=mbr --boot-drive=sda
+reqpart
+# Clear the Master Boot Record
+zerombr
+# Partition clearing information
+clearpart --all
+# Disk partitioning information
+part pv.60 --asprimary --fstype="lvmpv" --size=91647
+part /boot --asprimary --fstype="xfs" --size=512 --label=/boot
+volgroup em7vg --pesize=4096 pv.60
+logvol /var/log  --fstype="xfs" --size=5120 --name=var_log --vgname=em7vg
+logvol /var/log/audit  --fstype="xfs" --size=2048 --name=var_log_audit --vgname=em7vg
+logvol /data.local/db  --fstype="xfs" --grow --size=4096 --fsoptions="noatime" --name=db --vgname=em7vg
+logvol /home  --fstype="xfs" --size=512 --fsoptions="nosuid" --name=home --vgname=em7vg
+logvol /tmp  --fstype="xfs" --size=4608 --name=tmp --vgname=em7vg
+logvol /var  --fstype="xfs" --size=6144 --name=var --vgname=em7vg
+logvol /  --fstype="xfs" --grow --maxsize=10240 --size=4096 --name=root --vgname=em7vg
+logvol swap  --fstype="swap" --size=6016 --name=swap --vgname=em7vg
+
+%pre
+# This script will generate /tmp/kickstart_config.out - included above
+/usr/bin/python /mnt/install/repo/scripts/install_wizard.py > /dev/tty1
+%end
+
+%post --nochroot
+export EM7_ISO_INSTALLATION=1
+chroot /mnt/sysimage /bin/bash <<'EOT'
+if ! [ -d /data/db/mysql ]; then
+  /bin/mv /var/lib/mysql/* /data/db/ || true
+  /bin/chown -R mysql:mysql /data/db || true
+fi
+/opt/em7/share/scripts/em7_install.sh cu
+source /opt/em7/share/scripts/environment.sh
+EOT
+%end
+
+%packages
+@base
+@core
+@em7-core
+chrony
+em7-local-db
+em7-model-cu
+
+%end
+
+%addon com_redhat_kdump --disable --reserve-mb='auto'
+
+%end
+```
+
+
+**Steps to Reproduce the behavior**
+
+```
+$ sudo salt host1.example.com genesis.mksls kickstart /tmp/anaconda-ks.cfg
+host1.example.com:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python3.6/site-packages/salt/minion.py", line 1870, in _thread_return
+        opts, data, func, args, kwargs
+      File "/usr/lib/python3.6/site-packages/salt/executors/direct_call.py", line 12, in execute
+        return func(*args, **kwargs)
+      File "/usr/lib/python3.6/site-packages/salt/modules/genesis.py", line 739, in mksls
+        return salt.utils.kickstart.mksls(src, dst)
+      File "/usr/lib/python3.6/site-packages/salt/utils/kickstart.py", line 927, in mksls
+        ks_opts["auth"] = parse_auth(line)
+      File "/usr/lib/python3.6/site-packages/salt/utils/kickstart.py", line 116, in parse_auth
+        args = clean_args(vars(parser.parse_args(rules)))
+      File "/usr/lib/python3.6/site-packages/salt/utils/kickstart.py", line 21, in clean_args
+        for arg in args:
+    RuntimeError: dictionary changed size during iteration
+```
+
+**Expected behavior**
+An SLS file to me output
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 3001
+
+Dependency Versions:
+           cffi: 1.14.0
+       cherrypy: unknown
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.2
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.20
+       pycrypto: Not Installed
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Apr 16 2020, 01:36:27)
+   python-gnupg: Not Installed
+         PyYAML: 5.3.1
+          PyZMQ: 19.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+
+System Versions:
+           dist: centos 8 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 4.18.0-147.el8.x86_64
+         system: Linux
+        version: CentOS Linux 8 Core
+```
+</details>
+

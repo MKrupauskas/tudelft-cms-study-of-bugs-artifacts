@@ -1,0 +1,108 @@
+### Description of Issue
+There is an ability in Salt to sent minion wide http proxy: 
+https://github.com/saltstack/salt/pull/29322
+https://github.com/saltstack/salt/pull/43764
+
+Which supports both setting **proxy_host** and **no_proxy** args.
+https://docs.saltstack.com/en/latest/ref/configuration/minion.html#proxy-host
+https://docs.saltstack.com/en/latest/ref/configuration/minion.html#no-proxy
+
+Setting this args will affect every module and state which is using a **utils.http** since it uses tornado by default and tornado is aware of those proxy options.
+
+The problem is that if you set both **proxy_host** and **no_proxy** option and use it in the same execution run - it **won't work** with a weird bug.
+
+### Setup
+Consider setup minion so it will go via http proxy everywhere **except** the 127.0.0.1 - which is a very normal approach.
+
+### Steps to Reproduce Issue
+Now try to run this state in this order:
+```
+test_http_source:
+  file.managed:
+    - name: /tmp/test.txt
+    - source: https://sentry.io
+    - skip_verify: True
+
+get_agent_info:
+  module.run:
+    - consul.agent_self:
+      - consul_url: http://127.0.0.1:8500
+```
+**file.managed** will work just fine and download the contents of the url to the file via proxy. But consul agent which will execute a **consul.get** module which itself will execute the very same **utils.http** lib which will execute the very same **tornado** - will fail will the weird error:
+```
+'consul.agent_info' failed: initialize() got an unexpected keyword argument 'max_body_size'
+```
+
+The problem part of the **utils/http.py** is 
+```
+        if proxy_host and proxy_port:
+            if HAS_CURL_HTTPCLIENT is False:
+                ret['error'] = ('proxy_host and proxy_port has been set. This requires pycurl and tornado, '
+                                'but the libraries does not seem to be installed')
+                log.error(ret['error'])
+                return ret
+
+            tornado.httpclient.AsyncHTTPClient.configure('tornado.curl_httpclient.CurlAsyncHTTPClient')
+            client_argspec = salt.utils.args.get_function_argspec(
+                    tornado.curl_httpclient.CurlAsyncHTTPClient.initialize)
+        else:
+            client_argspec = salt.utils.args.get_function_argspec(
+                    tornado.simple_httpclient.SimpleAsyncHTTPClient.initialize)
+        supports_max_body_size = 'max_body_size' in client_argspec.args
+```
+As you can see we switch from **SimpleAsyncHTTPClient** to **CurlAsyncHTTPClient** only in case of using a proxy. 
+
+So **file.managed** which goes outside via proxy so is using a **CurlAsyncHTTPClient** and it **supports_max_body_size** is set to **False** in that case.
+
+After that, we go to consul which is uses a connection to **127.0.0.1** which is set in **no_proxy** arg, so we fall into else statement and use **SimpleAsyncHTTPClient** and **supports_max_body_size** is **True**.
+
+Yet we get the `TypeError: initialize() got an unexpected keyword argument 'max_body_size'`
+So I kinda assume the following:
+
+1. It's not related to consul, it's related to proxy logic vs non-proxy logic
+2. Error is triggered by a specific order. You need to run proxy connection first
+3. It feels like the non-proxy connection re-use the proxy socket\connection\object but with wrong arguments this time.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2019.2.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Aug  7 2019, 17:28:10)
+   python-gnupg: 0.4.5
+         PyYAML: 3.11
+          PyZMQ: 18.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.3.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```

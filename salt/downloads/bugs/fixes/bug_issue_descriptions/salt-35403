@@ -1,0 +1,110 @@
+### Description of Issue/Question
+
+Bug introduced from 2015.8.10+ds-1 to 2015.8.11+ds-1 is breaking salt masters set with ext_job_cache
+### Setup
+
+Confirmed on:
+salt-common                    2015.8.11+ds-1 
+python version: 2.7
+Likely still broken on develop branch.
+### Steps to Reproduce Issue
+
+Set ext_job_cache on the master config file to any returner e.g. ext_job_cache: local_cache
+
+With any number of minions running:
+`salt '*' test.ping`
+`[CRITICAL] Could not deserialize msgpack message.This often happens when trying to read a file not in binary modeTo see message payload, enable debug logging and retry. Exception: unpack(b) received extra data.
+[ERROR   ] Uncaught exception, closing connection.
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/zmq/eventloop/zmqstream.py", line 407, in _run_callback
+    callback(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/tornado/stack_context.py", line 275, in null_wrapper
+    return fn(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 857, in mark_future
+    future.set_result(self.serial.loads(msg[0]))
+  File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 120, in loads
+    return msgpack.loads(msg, use_list=True)
+  File "_unpacker.pyx", line 123, in msgpack._unpacker.unpackb (msgpack/_unpacker.cpp:123)
+ExtraData: unpack(b) received extra data.
+[ERROR   ] Uncaught exception, closing connection.
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/zmq/eventloop/zmqstream.py", line 433, in _handle_events
+    self._handle_recv()
+  File "/usr/lib/python2.7/dist-packages/zmq/eventloop/zmqstream.py", line 465, in _handle_recv
+    self._run_callback(callback, msg)
+  File "/usr/lib/python2.7/dist-packages/zmq/eventloop/zmqstream.py", line 407, in _run_callback
+    callback(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/tornado/stack_context.py", line 275, in null_wrapper
+    return fn(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 857, in mark_future
+    future.set_result(self.serial.loads(msg[0]))
+  File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 120, in loads
+    return msgpack.loads(msg, use_list=True)
+  File "_unpacker.pyx", line 123, in msgpack._unpacker.unpackb (msgpack/_unpacker.cpp:123)
+ExtraData: unpack(b) received extra data.
+[ERROR   ] Exception in callback None
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/tornado/ioloop.py", line 866, in start
+    handler_func(fd_obj, events)
+  File "/usr/lib/python2.7/dist-packages/tornado/stack_context.py", line 275, in null_wrapper
+    return fn(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/zmq/eventloop/zmqstream.py", line 433, in _handle_events
+    self._handle_recv()
+  File "/usr/lib/python2.7/dist-packages/zmq/eventloop/zmqstream.py", line 465, in _handle_recv
+    self._run_callback(callback, msg)
+  File "/usr/lib/python2.7/dist-packages/zmq/eventloop/zmqstream.py", line 407, in _run_callback
+    callback(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/tornado/stack_context.py", line 275, in null_wrapper
+    return fn(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 857, in mark_future
+    future.set_result(self.serial.loads(msg[0]))
+  File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 120, in loads
+    return msgpack.loads(msg, use_list=True)
+  File "_unpacker.pyx", line 123, in msgpack._unpacker.unpackb (msgpack/_unpacker.cpp:123)
+ExtraData: unpack(b) received extra data.
+`
+
+I've traced it down to this line of code in salt/master.py
+
+`# Get the returner's save_load arg_spec.
+            try:
+                arg_spec = salt.utils.args.get_function_argspec(fstr)`
+Is throwing an uncaught exception because for all the built-in returners I've tried, "${returner}.save_load is not a callable". Even though, for example, the mysql returner has save_load() defined.
+# Versions report
+
+Salt Version:
+           Salt: 2015.8.11
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.5
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 8.5

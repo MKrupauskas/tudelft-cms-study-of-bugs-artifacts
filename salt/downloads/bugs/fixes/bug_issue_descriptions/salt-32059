@@ -1,0 +1,69 @@
+I just got the error message 
+
+> Unable to perform create_container: create_container() got an unexpected keyword argument 'binds'
+
+Nothing special in the definition:
+
+``` yaml
+zabbix_container:
+  dockerng.running:
+    - name: zabbix
+    - image: zabbix/zabbix-3.0:latest
+    - network_mode: host
+    - binds:
+      - /etc/localtime:/etc/localtime:ro
+      - /usr/local/share/ca-certificates:/usr/local/share/ca-certificates:ro
+      - /srv/docker/volumes/zabbix_hosts.d:/etc/nginx/hosts.d
+      - /srv/docker/volumes/zabbix_pki:/etc/pki
+```
+
+Salt is on 2015.8.3 on the minion and on 2014.1.11 on the master:
+
+```
+# salt --versions-report
+           Salt: 2014.1.11
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.3.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+            ZMQ: 4.0.4
+# salt 'host' dockerng.version          
+host:
+    ----------
+    ApiVersion:
+        1.18
+    ApiVersionInfo:
+        - 1
+        - 18
+    Arch:
+        amd64
+    GitCommit:
+        7c8fca2
+    GoVersion:
+        go1.5.1
+    KernelVersion:
+        4.2.0-16-generic
+    Os:
+        linux
+    Version:
+        1.6.2
+    VersionInfo:
+        - 1
+        - 6
+        - 2
+```
+
+The reason for said error is that `binds` also moved into `create_host_config`. Hence I was able to work around this issue with the following change:
+
+```
+# diff /usr/lib/python2.7/dist-packages/salt/modules/dockerng.py{,.old}
+2920c2920
+<     if salt.utils.version_cmp(version()['ApiVersion'], '1.18') >= 0:
+
+---
+>     if salt.utils.version_cmp(version()['ApiVersion'], '1.18') == 1:
+```

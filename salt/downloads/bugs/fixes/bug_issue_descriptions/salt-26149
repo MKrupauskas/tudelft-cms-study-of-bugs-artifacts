@@ -1,0 +1,99 @@
+I have an issue where claims files are missing when I run a `state.highstate`, but `fileserver.file_list` and `cp.list_master` shows that they exist in the environment. Also `cp.get_file` does not work on the files. I'm not sure what my next steps in debugging should be. I also run into this on develop.
+
+I imagine this is just a misconfiguration somewhere, but after reading the docs all day I've yet to find anything.
+
+```
+vagrant@salt-master:~$ sudo salt --versions-report
+Salt Version:
+           Salt: 2015.8.0rc2
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+       pycrypto: 2.6.1
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-55-generic
+         system: Ubuntu 14.04 trusty
+
+vagrant@salt-master:~$ pip list | grep pygit
+pygit2 (0.20.3)
+vagrant@salt-master:~$ python -c 'import pygit2
+> print pygit2.LIBGIT2_VERSION'
+0.20.0
+```
+
+First highstate run
+
+```
+Calling state.highstate... (this may take a while)
+The following SSH command responded with a non-zero exit status.
+Vagrant assumes that this means the command failed!
+
+salt '*' state.highstate --verbose --log-level=debug --force-color
+
+Stdout from the command:
+
+Executing job with jid 20150809214733068349
+-------------------------------------------
+
+salt-master:
+    Data failed to compile:
+----------
+    Specified SLS sensu.client in saltenv base is not available on the salt master or through a configured fileserver
+----------
+    No matching sls found for 'ntp' in env 'base'
+----------
+    No matching sls found for 'sensu' in env 'base'
+```
+
+Fileserver claims the files are there:
+
+```
+vagrant@salt-master:~$ sudo salt-run fileserver.file_list saltenv=base backend=git | grep 'sensu/client.sls'
+- sensu/client.sls
+- unpro-sensu/client.sls
+vagrant@salt-master:~$ sudo salt-run fileserver.file_list saltenv=base backend=git | grep 'sensu/init.sls'                                                                                                                                    
+- sensu/init.sls
+vagrant@salt-master:~$ sudo salt-run fileserver.file_list saltenv=base backend=git | grep 'ntp/init.sls'
+- ntp/init.sls
+```
+
+Minion also claims the files are there:
+
+```
+vagrant@salt-master:~$ sudo salt 'salt-master' cp.list_master | grep sensu/client.sls
+    - sensu/client.sls
+    - unpro-sensu/client.sls
+```
+
+Master gitfs config:
+
+```
+fileserver_backend:
+  - git
+gitfs_remotes:
+  - https://github.com/TronPaul/unpro-salt.git:
+    - root: state
+  - https://github.com/TronPaul/sun-java-formula.git
+  - https://github.com/TronPaul/sensu-formula.git
+  - https://github.com/TronPaul/rabbitmq-formula.git
+  - https://github.com/saltstack-formulas/nfs-formula.git
+  - https://github.com/TronPaul/openvpn-formula.git
+  - https://github.com/TronPaul/openvpn-client-formula.git
+  - https://github.com/TronPaul/bind-formula.git
+  - https://github.com/saltstack-formulas/ntp-formula.git
+```

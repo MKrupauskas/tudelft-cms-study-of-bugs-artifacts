@@ -1,0 +1,114 @@
+**Description**
+module.run:service.systemctl_reload broken on 3003.2.
+3002.1  works fine. 
+
+**Setup**
+minion config:
+```
+master_type: failover
+master_alive_interval: 30
+master_failback: True
+master_failback_interval: 3600
+retry_dns: 0
+master_tries: -1
+tcp_keepalive: True
+tcp_keepalive_idle: 60
+random_startup_delay: 5
+ping_interval: 10
+auth_timeout: 60
+auth_tries: 7
+auth_safemode: True
+use_superseded:
+  - module.run
+```
+
+sls:
+```
+salt-minion.service:
+    file.managed:
+        - name: /usr/lib/systemd/system/salt-minion.service
+        - source:  salt://{{ slspath }}/salt-minion.service
+        - user: root
+        - group: root
+        - mode: 0644
+    module.run:
+        - name: service.systemctl_reload
+        - onchanges:
+           - file: /usr/lib/systemd/system/salt-minion.service
+
+salt-minion:
+    service.running:
+        - enable: True
+        - watch:
+            - file: /etc/salt/minion
+            - file: /usr/lib/systemd/system/salt-minion.service
+```
+
+  
+**Steps to Reproduce the behavior**
+Modify local salt-minion.service, add some comment #xxxx, then salt-call  state.apply  sls.
+
+**Expected behavior**
+ if salt-minion.service file has changed, module.run will call  systemctl reload.
+
+**Screenshots**
+output:
+
+```
+----------
+          ID: salt-minion.service
+    Function: module.run
+        Name: service.systemctl_reload
+      Result: False
+     Comment: No function provided.
+     Started: 17:19:50.711014
+    Duration: 5.146 ms
+     Changes:
+
+     
+```
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+          Salt: 3003.2
+
+Dependency Versions:
+          cffi: 1.14.4
+      cherrypy: 5.6.0
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.1
+       libgit2: 0.28.4
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.20
+      pycrypto: Not Installed
+  pycryptodome: Not Installed
+        pygit2: 1.0.3
+        Python: 3.6.8 (default, Nov 16 2020, 16:55:22)
+  python-gnupg: Not Installed
+        PyYAML: 3.13
+         PyZMQ: 17.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.1.4
+
+System Versions:
+          dist: centos 7 Core
+        locale: UTF-8
+       machine: x86_64
+       release: 3.10.0-957.21.3.el7.x86_64
+        system: Linux
+       version: CentOS Linux 7 Core
+```
+</details>

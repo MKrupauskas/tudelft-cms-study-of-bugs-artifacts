@@ -1,0 +1,131 @@
+### Description of Issue/Question
+
+After the upgrade to salt-ssh 2017.7.3 I'm receiving this errors on each execution:
+```
+[ERROR   ] Execption caught loading ext_pillar 'vault':
+  File "/usr/lib/python2.7/dist-packages/salt/pillar/__init__.py", line 833, in ext_pillar
+    key)
+  File "/usr/lib/python2.7/dist-packages/salt/pillar/__init__.py", line 773, in _external_pillar_data
+    val)
+  File "/usr/lib/python2.7/dist-packages/salt/pillar/vault.py", line 91, in ext_pillar
+    response = __utils__['vault.make_request']('GET', url)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/vault.py", line 124, in make_request
+    connection = _get_vault_connection()
+  File "/usr/lib/python2.7/dist-packages/salt/utils/vault.py", line 113, in _get_vault_connection
+    return _get_token_and_url_from_master()
+  File "/usr/lib/python2.7/dist-packages/salt/utils/vault.py", line 55, in _get_token_and_url_from_master
+    minion_id
+  File "/usr/lib/python2.7/dist-packages/salt/crypt.py", line 176, in sign_message
+    key = _get_rsa_key(privkey_path)
+  File "/usr/lib/python2.7/dist-packages/salt/crypt.py", line 169, in _get_rsa_key
+    return _get_key_with_evict(path, str(os.path.getmtime(path)))
+  File "/usr/lib/python2.7/genericpath.py", line 62, in getmtime
+    return os.stat(filename).st_mtime
+
+[CRITICAL] Pillar render error: Failed to load ext_pillar vault: [Errno 13] Permission denied: '/var/tmp/.salt_a40eac_salt/running_data/etc/salt/pki/minion/minion.pem'
+[ERROR   ] Execption caught loading ext_pillar 'vault':
+  File "/usr/lib/python2.7/dist-packages/salt/pillar/__init__.py", line 833, in ext_pillar
+    key)
+  File "/usr/lib/python2.7/dist-packages/salt/pillar/__init__.py", line 773, in _external_pillar_data
+    val)
+  File "/usr/lib/python2.7/dist-packages/salt/pillar/vault.py", line 91, in ext_pillar
+    response = __utils__['vault.make_request']('GET', url)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/vault.py", line 124, in make_request
+    connection = _get_vault_connection()
+  File "/usr/lib/python2.7/dist-packages/salt/utils/vault.py", line 113, in _get_vault_connection
+    return _get_token_and_url_from_master()
+  File "/usr/lib/python2.7/dist-packages/salt/utils/vault.py", line 55, in _get_token_and_url_from_master
+    minion_id
+  File "/usr/lib/python2.7/dist-packages/salt/crypt.py", line 176, in sign_message
+    key = _get_rsa_key(privkey_path)
+  File "/usr/lib/python2.7/dist-packages/salt/crypt.py", line 169, in _get_rsa_key
+    return _get_key_with_evict(path, str(os.path.getmtime(path)))
+  File "/usr/lib/python2.7/genericpath.py", line 62, in getmtime
+    return os.stat(filename).st_mtime
+
+[CRITICAL] Pillar render error: Failed to load ext_pillar vault: [Errno 13] Permission denied: '/var/tmp/.salt_a40eac_salt/running_data/etc/salt/pki/minion/minion.pem'
+```
+
+It seems like it tries to access the non-existing file "/var/tmp/.salt_a40eac_salt/running_data/etc/salt/pki/minion/minion.pem", but even "/var/tmp/.salt_a40eac_salt/running_data/etc" does not exist on my minions.
+
+I can confirm that salt doesnt load any pillar-values from vault and tries to use '' as values for them. I've tried deleting the cache on the master and the cache on the minion to no avail.
+
+Salt-SSH 2017.7.2 worked flawlessly. Downgrading to it fixes the bug. 
+Steps for the downgrade:
+* Change the apt-get package repository URL to "http://repo.saltstack.com/apt/debian/9/amd64/archive/2017.7.2/" instead of "http://repo.saltstack.com/apt/debian/9/amd64/latest"
+* run "apt-get install salt-ssh=2017.7.2+ds-1 salt-common=2017.7.2+ds-1"
+
+(Is "Execption" written like this on purpose? ^^)
+
+### Setup
+`config/master.d/vault.conf`:
+```yaml
+vault:
+    url: https://my-vault.example.com:443
+    auth:
+      method: token
+      token: "REDACTED"
+
+ext_pillar:
+  - vault: path=secret/salt
+```
+
+`ssh-wipe` is not explicitly set (therefor deactivated) in my Saltfile.
+
+`config/roster`:
+```yaml
+my-minion.example.org:
+  host: my-minion.example.org
+  user: salt
+  sudo: True
+  minion_opts:
+    backup_mode: minion
+```
+
+### Steps to Reproduce Issue
+Run "salt-ssh 'my-minion.example.org' state.apply test=True" as usual.
+
+### Versions Report
+```
+$ salt-ssh --versions-report
+Salt Version:
+           Salt: 2017.7.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Nov 24 2017, 17:33:09)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: Not Installed
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: Not Installed
+
+System Versions:
+           dist: debian 9.3
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-5-amd64
+         system: Linux
+        version: debian 9.3
+```

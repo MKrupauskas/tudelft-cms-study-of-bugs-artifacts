@@ -1,0 +1,149 @@
+**Description**
+Parsing of zpool status fails when the device name includes ':'.
+
+I was looking for a python function that could parse the output of `zpool status`. The command has a strange output formatting and I decided that I shouldn't write my own code for parsing. I'm not using salt.
+
+I'v got two pools. One gets parsed correctly, the other one not.
+
+
+Pool one consists of an usb hdd enclosure with two slots. Slot one is marked with :0 and Slot two with :1
+Pool two consists of some internal hdds
+
+Here is the output of `zpool status`:
+```
+  pool: one
+ state: ONLINE
+  scan: scrub repaired 0B in 0 days 11:38:06 with 0 errors on Sun Jan 10 12:02:08 2021
+config:
+
+        NAME                                                      STATE     READ WRITE CKSUM
+        local_backup                                              ONLINE       0     0     0
+          mirror-0                                                ONLINE       0     0     0
+            usb-WD_My_Book_Duo_25F6_....32-0:0  ONLINE       0     0     0
+            usb-WD_My_Book_Duo_25F6_....32-0:1  ONLINE       0     0     0
+
+errors: No known data errors
+
+  pool: two
+ state: ONLINE
+  scan: scrub repaired 0B in 0 days 02:48:18 with 0 errors on Sun Jan 10 03:12:23 2021
+config:
+
+        NAME                        STATE     READ WRITE CKSUM
+        zfsdata                     ONLINE       0     0     0
+          mirror-0                  ONLINE       0     0     0
+            wwn-0x500....39  ONLINE       0     0     0
+            wwn-0x500....1f  ONLINE       0     0     0
+
+errors: No known data errors
+```
+
+**Observed behavior**
+Here it is what this gets parsed to. Formatted in json for better readability.
+```json
+{
+    "one": {
+        "state": "ONLINE",
+        "scan": "scrub repaired 0B in 0 days 11:38:06 with 0 errors on Sun Jan 10 12:02:08 2021",
+        "config": {
+            "one": {
+                "state": "ONLINE",
+                "read": "0",
+                "write": "0",
+                "cksum": "0",
+                "mirror-0": {
+                    "state": "ONLINE",
+                    "read": "0",
+                    "write": "0",
+                    "cksum": "0"
+                }
+            }
+        },
+        "usb-WD_My_Book_Duo_25F6_....32-0": "1  ONLINE       0     0     0",
+        "errors": "No known data errors"
+    },
+    "zfsdata": {
+        "state": "ONLINE",
+        "scan": "scrub repaired 0B in 0 days 02:48:18 with 0 errors on Sun Jan 10 03:12:23 2021",
+        "config": {
+            "two": {
+                "state": "ONLINE",
+                "read": "0",
+                "write": "0",
+                "cksum": "0",
+                "mirror-0": {
+                    "state": "ONLINE",
+                    "read": "0",
+                    "write": "0",
+                    "cksum": "0",
+                    "wwn-0x500....39": {
+                        "state": "ONLINE",
+                        "read": "0",
+                        "write": "0",
+                        "cksum": "0"
+                    },
+                    "wwn-0x500....1f": {
+                        "state": "ONLINE",
+                        "read": "0",
+                        "write": "0",
+                        "cksum": "0"
+                    }
+                }
+                }
+            }
+        },
+        "errors": "No known data errors"
+    }
+}
+
+```
+
+**Expected behavior**
+I expected that the list of devices of pool one would be structured like pool two.
+
+
+**Additional context**
+I narrowed down this problem to [modules/zpool.py#L152-L155](https://github.com/saltstack/salt/blob/master/salt/modules/zpool.py#L152-L155). The code was written with the assumption that the character `:` is always seperating key and value. Unfortunately it can be in a device name, too.
+
+
+**Edit: possible solution**
+Since the config part of zpool status always starts with \t this could be used in the if condition.
+Replace `if ":" in zpd:` with `if ":" in zpd and zpd[0] != "\t":`
+
+
+This brings me to:
+```json
+{
+    "one": {
+        "state": "ONLINE",
+        "scan": "scrub repaired 0B in 0 days 11:38:06 with 0 errors on Sun Jan 10 12:02:08 2021",
+        "config": {
+            "one": {
+                "state": "ONLINE",
+                "read": "0",
+                "write": "0",
+                "cksum": "0",
+                "mirror-0": {
+                    "state": "ONLINE",
+                    "read": "0",
+                    "write": "0",
+                    "cksum": "0",
+                    "usb-WD_My_Book_Duo_25F6_.....32-0:0": {
+                        "state": "ONLINE",
+                        "read": "0",
+                        "write": "0",
+                        "cksum": "0"
+                    },
+                    "usb-WD_My_Book_Duo_25F6_.....32-0:1": {
+                        "state": "ONLINE",
+                        "read": "0",
+                        "write": "0",
+                        "cksum": "0"
+                    }
+                }
+            }
+        },
+        "errors": "No known data errors"
+    }
+}
+```

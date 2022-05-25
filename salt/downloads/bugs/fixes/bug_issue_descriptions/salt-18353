@@ -1,0 +1,25 @@
+As per #9878 and #16733, `extra_filerefs` should now be able to be defined in a Saltfile, however my tests with the latest `2014.7` show these options get ignored if present.  
+
+My example Saltfile:
+
+```
+salt-ssh:
+  extra_filerefs:
+    - salt://mysql/defaults.yaml
+    - salt://mysql/supported_params.yaml
+```
+
+I believe the `SaltfileMixIn` parser is ignoring these options because they're not (explicitly) part of the option list for `salt-ssh`.
+
+In the `SaltfileMixIn` parser (https://github.com/saltstack/salt/blob/2014.7/salt/utils/parsers.py#L326), the `cli_config` variable has a hold of the `Saltfile` contents, including `extra_filerefs`, but the iteration over `self.options_list` (and `self.option_groups`) only steps through "known" options.  `extra_filerefs` is  thus never mixed into options.
+
+In addition, even if I force the option to be copied (with a hack like:  
+
+```
+        setattr(self.options, 'extra_filerefs', cli_config['extra_filerefs'])
+
+```
+
+), the options aren't present upon reaching the state wrapper code at https://github.com/saltstack/salt/blob/2014.7/salt/client/ssh/wrapper/state.py#L85.  I'm not sure where they're supposed to end up, but both `__opts__` and `kwargs` have no value for `extra_filerefs`. 
+
+I'm using the `2014.7` branch.

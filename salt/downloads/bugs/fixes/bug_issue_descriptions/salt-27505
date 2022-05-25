@@ -1,0 +1,65 @@
+Hello,
+
+I have the following in my state file:
+
+``` salt
+{% if cfg.supervise %}
+{{ cfg.name }}_stop_service:
+    service.dead:
+        - name: {{ cfg.name }}
+        - provider: daemontools
+        - watch_in:
+            {% if cfg.venv.lang == 'python' %}
+            - virtualenv: {{ cfg.repo.name }}_venv
+            {% elif cfg.venv.lang == 'ruby' %}
+            - cmd: {{ cfg.repo.name }}_venv
+            {% endif %}
+
+{{ cfg.name }}_supervise:
+    file.managed:
+        - name: {{ cfg.supervise._fullpath }}
+        - source: salt://webapps/files/{{ cfg.supervise._template }}
+        - user: root
+        - group: wheel
+        - mode: 754
+        - template: jinja
+        - makedirs: True
+        - dir_mode: 755
+        - context:
+            cfg: {{ cfg }}
+        - require:
+            - pkg: daemontools
+
+{{ cfg.name }}_supervise_service:
+    service.running:
+        - name: {{ cfg.name }}
+        - provider: daemontools
+        - watch:
+            - file: {{ cfg.name }}_supervise
+{% endif %}
+```
+
+it seems that it uses sometimes a mix of modules/daemontools.py and modules/freebsdservice.py:
+
+```
+2015-09-29 14:46:34,076 [salt.loaded.int.module.cmdmod                      ][INFO    ][98886] Executing command 'svstat /var/service/harmonia' in directory '/'
+2015-09-29 14:46:34,162 [salt.loaded.int.module.cmdmod                      ][INFO    ][98886] Executing command '/usr/sbin/service -l' in directory '/'
+2015-09-29 14:46:34,249 [salt.loaded.int.module.freebsdservice              ][ERROR   ][98886] Service harmonia not found
+(...)
+2015-09-29 14:47:04,228 [salt.loaded.int.module.cmdmod                      ][INFO    ][98886] Executing command 'svstat /var/service/harmonia' in directory '/'
+2015-09-29 14:47:04,319 [salt.loaded.int.module.cmdmod                      ][INFO    ][98886] Executing command '/usr/sbin/service -l' in directory '/'
+2015-09-29 14:47:04,413 [salt.loaded.int.module.freebsdservice              ][ERROR   ][98886] Service harmonia not found
+2015-09-29 14:47:04,413 [salt.loaded.int.module.cmdmod                      ][INFO    ][98886] Executing command '/usr/sbin/service harmonia onestart' in directory '/'
+2015-09-29 14:47:04,501 [salt.loaded.int.module.cmdmod                      ][ERROR   ][98886] Command '/usr/sbin/service harmonia onestart' failed with return code: 1
+2015-09-29 14:47:04,501 [salt.loaded.int.module.cmdmod                      ][ERROR   ][98886] output: harmonia does not exist in /etc/rc.d or the local startup
+directories (/usr/local/etc/rc.d)
+2015-09-29 14:47:04,502 [salt.loaded.int.module.cmdmod                      ][INFO    ][98886] Executing command '/usr/sbin/service harmonia onestatus' in directory '/'
+2015-09-29 14:47:04,591 [salt.loaded.int.module.cmdmod                      ][ERROR   ][98886] Command '/usr/sbin/service harmonia onestatus' failed with return code: 1
+2015-09-29 14:47:04,591 [salt.loaded.int.module.cmdmod                      ][ERROR   ][98886] output: harmonia does not exist in /etc/rc.d or the local startup
+directories (/usr/local/etc/rc.d)
+2015-09-29 14:47:04,592 [salt.loaded.int.module.cmdmod                      ][INFO    ][98886] Executing command '/usr/sbin/service -l' in directory '/'
+2015-09-29 14:47:04,694 [salt.loaded.int.module.freebsdservice              ][ERROR   ][98886] Service harmonia not found
+```
+
+In my case the modules/freebsdservice.py shouldn't be used at all (as I used provider: daemontools).
+Note that it worked in Salt version 2015.5.0

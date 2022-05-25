@@ -1,0 +1,261 @@
+### Description of Issue/Question
+I am trying to apply security patches to my RedHat systems.
+According to the documentation:
+
+> Note
+> To add extra arguments to the yum upgrade command, pass them as key word arguments. For arguments without assignments, pass True
+>salt '*' pkg.upgrade security=True exclude='kernel*'
+
+But when I try to pass `security=True`, I receive following error:
+```
+[root@station79 ~]# salt-call pkg.upgrade security=True
+[ERROR   ] Command '['systemd-run', '--scope', 'yum', '--quiet', '-y', "--security='True'", 'upgrade']' failed with return code: 1
+[ERROR   ] stdout: Usage: yum [options] COMMAND
+...
+<snip>
+[ERROR   ] stderr: Running scope as unit run-8321.scope.
+Command line error: --security option does not take a value
+```
+
+I believe there's an error in logic in `/usr/lib/python2.7/site-packages/salt/modules/yumpkg.py` in function `def _get_extra_options` which always return arguments in `key=value` format:
+```
+def _get_extra_options(**kwargs):
+    '''
+    Returns list of extra options for yum
+    '''
+    ret = []
+    kwargs = salt.utils.clean_kwargs(**kwargs)
+    for key, value in six.iteritems(kwargs):
+        if isinstance(key, six.string_types):
+            ret.append('--{0}=\'{1}\''.format(key, value))
+        elif value is True:
+            ret.append('--{0}'.format(key))
+    return ret
+
+```
+I receive the same error on CentOS/RHEL 6/7, 
+### Setup
+
+### Steps to Reproduce Issue
+1) Install salt-minion on CentOS/RHEL 6/7.
+2) Execute `salt minion pkg.upgrade security=True` from master or `salt-call pkg.upgrade security=True` from minion
+3) Execution fails with an error:
+```
+[root@station71 ~]# salt-call pkg.upgrade security=True -l debug
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: station71.redhat.lab
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Connecting to master. Attempt 1 of 1
+
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (3265)
+[DEBUG   ] Setting zmq_reconnect_ivl to '3265ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] SaltEvent PUB socket URI: /var/run/salt/minion/minion_event_08090ffa34_pub.ipc
+[DEBUG   ] SaltEvent PULL socket URI: /var/run/salt/minion/minion_event_08090ffa34_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/minion/minion_event_08090ffa34_pull.ipc
+
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Determining pillar cache
+
+
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded pkg.upgrade
+[DEBUG   ] LazyLoaded cmd.run
+[INFO    ] Executing command ['yum', '--quiet', 'clean', 'expire-cache'] in directory '/root'
+[DEBUG   ] output:
+[INFO    ] Executing command ['yum', '--quiet', 'check-update'] in directory '/root'
+[INFO    ] Executing command ['rpm', '-qa', '--queryformat', '%{NAME}_|-%{EPOCH}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-(none)'] in directory '/root'
+[INFO    ] Executing command ['yum', '--quiet', '-y', "--security='True'", 'upgrade'] in directory '/root'
+[ERROR   ] Command '['yum', '--quiet', '-y', "--security='True'", 'upgrade']' failed with return code: 1
+[ERROR   ] stdout: Usage: yum [options] COMMAND
+
+List of Commands:
+
+check          Check for problems in the rpmdb
+check-update   Check for available package updates
+clean          Remove cached data
+deplist        List a package's dependencies
+distribution-synchronization Synchronize installed packages to the latest available versions
+downgrade      downgrade a package
+erase          Remove a package or packages from your system
+groupinfo      Display details about a package group
+groupinstall   Install the packages in a group on your system
+grouplist      List available package groups
+groupremove    Remove the packages in a group from your system
+help           Display a helpful usage message
+history        Display, or use, the transaction history
+info           Display details about a package or group of packages
+install        Install a package or packages on your system
+list           List a package or groups of packages
+load-transaction load a saved transaction from filename
+makecache      Generate the metadata cache
+provides       Find what package provides the given value
+reinstall      reinstall a package
+repolist       Display the configured software repositories
+resolvedep     Determine which package provides the given dependency
+search         Search package details for the given string
+shell          Run an interactive yum shell
+update         Update a package or packages on your system
+update-minimal Works like update, but goes to the 'newest' package match which fixes a problem that affects your system
+updateinfo     Acts on repository update information
+upgrade        Update packages taking obsoletes into account
+version        Display a version for the machine and/or available repos.
+[ERROR   ] stderr: Command line error: --security option does not take a value
+[ERROR   ] retcode: 1
+[INFO    ] Executing command ['rpm', '-qa', '--queryformat', '%{NAME}_|-%{EPOCH}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-(none)'] in directory '/root'
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/cli/caller.py", line 204, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/yumpkg.py", line 1762, in upgrade
+    info={'changes': ret, 'result': result}
+CommandExecutionError: Problem encountered upgrading packages. Additional info follows:
+
+changes:
+    ----------
+result:
+    ----------
+    pid:
+        2803
+    retcode:
+        1
+    stderr:
+        Command line error: --security option does not take a value
+    stdout:
+        Usage: yum [options] COMMAND
+
+        List of Commands:
+
+        check          Check for problems in the rpmdb
+        check-update   Check for available package updates
+        clean          Remove cached data
+        deplist        List a package's dependencies
+        distribution-synchronization Synchronize installed packages to the latest available versions
+        downgrade      downgrade a package
+        erase          Remove a package or packages from your system
+        groupinfo      Display details about a package group
+        groupinstall   Install the packages in a group on your system
+        grouplist      List available package groups
+        groupremove    Remove the packages in a group from your system
+        help           Display a helpful usage message
+        history        Display, or use, the transaction history
+        info           Display details about a package or group of packages
+        install        Install a package or packages on your system
+        list           List a package or groups of packages
+        load-transaction load a saved transaction from filename
+        makecache      Generate the metadata cache
+        provides       Find what package provides the given value
+        reinstall      reinstall a package
+        repolist       Display the configured software repositories
+        resolvedep     Determine which package provides the given dependency
+        search         Search package details for the given string
+        shell          Run an interactive yum shell
+        update         Update a package or packages on your system
+        update-minimal Works like update, but goes to the 'newest' package match which fixes a problem that affects your system
+        updateinfo     Acts on repository update information
+        upgrade        Update packages taking obsoletes into account
+        version        Display a version for the machine and/or available repos.
+Error running 'pkg.upgrade': Problem encountered upgrading packages. Additional info follows:
+
+changes:
+    ----------
+result:
+    ----------
+    pid:
+        2803
+    retcode:
+        1
+    stderr:
+        Command line error: --security option does not take a value
+    stdout:
+        Usage: yum [options] COMMAND
+
+        List of Commands:
+
+        check          Check for problems in the rpmdb
+        check-update   Check for available package updates
+        clean          Remove cached data
+        deplist        List a package's dependencies
+        distribution-synchronization Synchronize installed packages to the latest available versions
+        downgrade      downgrade a package
+        erase          Remove a package or packages from your system
+        groupinfo      Display details about a package group
+        groupinstall   Install the packages in a group on your system
+        grouplist      List available package groups
+        groupremove    Remove the packages in a group from your system
+        help           Display a helpful usage message
+        history        Display, or use, the transaction history
+        info           Display details about a package or group of packages
+        install        Install a package or packages on your system
+        list           List a package or groups of packages
+        load-transaction load a saved transaction from filename
+        makecache      Generate the metadata cache
+        provides       Find what package provides the given value
+        reinstall      reinstall a package
+        repolist       Display the configured software repositories
+        resolvedep     Determine which package provides the given dependency
+        search         Search package details for the given string
+        shell          Run an interactive yum shell
+        update         Update a package or packages on your system
+        update-minimal Works like update, but goes to the 'newest' package match which fixes a problem that affects your system
+        updateinfo     Acts on repository update information
+        upgrade        Update packages taking obsoletes into account
+        version        Display a version for the machine and/or available repos.
+
+```
+
+
+### Versions Report
+```
+[root@station71 ~]#  salt --versions-report
+Salt Version:
+           Salt: 2017.7.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8.1
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Jul 12 2017, 17:32:34)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: redhat 6.9 Santiago
+         locale: UTF-8
+        machine: x86_64
+        release: 4.1.12-103.7.3.el6uek.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 6.9 Santiago
+```

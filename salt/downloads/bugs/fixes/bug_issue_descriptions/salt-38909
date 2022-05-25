@@ -1,0 +1,108 @@
+### Description of Issue/Question
+If I follow the documentation for this beacon and put the snippet in `/etc/salt/minion.d/beacons.conf`:
+```
+beacons:
+ memusage:
+    - percent: 63%
+```
+The beacons works fine. However, I prefer using the state configuration, and hence I did put in my `bootstrap.sls` state the following:
+```
+beacons_fun:
+  beacon.present:
+    - enable: True
+    - name: load
+    - 1m:
+      - 0.0
+      - 2.0
+    - 5m:
+      - 0.0
+      - 1.5
+    - 15m:
+      - 0.1
+      - 1.0
+
+# beacons no fun, this won't work  
+memusage:
+  beacon.present:
+    - percent: 3%
+```
+After running the state I see the following on the master:
+```
+# salt "mi*1*" beacons.list
+minion1.local:
+    beacons:
+      load:
+        15m:
+        - 0.1
+        - 1.0
+        1m:
+        - 0.0
+        - 2.0
+        5m:
+        - 0.0
+        - 1.5
+        enable: true
+      memusage:
+        enable: true
+        percent:
+        - 3%
+```
+Which seems fine, but the logs on the minion show:
+```
+2017-01-24 09:48:08,475 [salt.loaded.int.beacons.load][DEBUG   ][30134] Emit because 0.04 < 0.1 or > 1.0
+2017-01-24 09:48:08,476 [salt.minion      ][CRITICAL][30134] The beacon errored: 
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 2153, in handle_beacons
+    beacons = self.process_beacons(self.functions)
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 409, in process_beacons
+    return self.beacons.process(b_conf, self.opts['grains'])  # pylint: disable=no-member
+  File "/usr/lib/python2.7/dist-packages/salt/beacons/__init__.py", line 100, in process
+    raw = self.beacons[fun_str](b_config[mod])
+  File "/usr/lib/python2.7/dist-packages/salt/beacons/memusage.py", line 64, in beacon
+    mount = memusage.keys()[0]
+AttributeError: 'str' object has no attribute 'keys'
+```
+
+So my question is - how do I configure this beacon to work properly within the state?
+
+### Versions Report
+```
+ salt --versions-report
+Salt Version:
+           Salt: 2016.11.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-51-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

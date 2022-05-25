@@ -1,0 +1,111 @@
+Expected Behavior: Batch mode will only execute commands on batch-size minions at once.
+Observed behavior: Batch mode only executes commands on batch-size minions at once per timeout interval on 0.17.0 and later. With a timeout interval of 5, a command that takes ten minutes to run will be processing on many more minions than specified in batch-size.
+
+I believe that this change has triggered the change on behavior.
+
+https://github.com/saltstack/salt/pull/6311
+https://github.com/saltstack/salt/commit/a25f715a8262a4764415ab252361314939eca478
+
+Here's the observed behavior on 0.17.0 - 0.17.2 with default timeout:
+
+root@training [/usr/lib/python2.6/site-packages/salt/cli]# time (salt -G 'opt:dev' cmd.run 'sleep 120; echo "completed"' -b 1)
+one.example.com Detected for this batch run
+two.example.com Detected for this batch run
+
+Executing run on ['one.example.com']
+
+one.example.com:
+    ----------
+
+Executing run on ['two.example.com']
+
+two.example.com:
+    ----------
+
+real    0m27.115s
+user    0m0.332s
+sys     0m0.050s
+
+Here's the behavior with the timeout increased to 200:
+
+root@training [/usr/lib/python2.6/site-packages/salt/cli]# time (salt -G 'opt:dev' cmd.run 'sleep 120; echo "completed"' -b 1)
+two.example.com Detected for this batch run
+one.example.com Detected for this batch run
+
+Executing run on ['one.example.com']
+
+one.example.com:
+    completed
+
+Executing run on ['two.example.com']
+
+two.example.com:
+    completed
+
+real    4m2.823s
+user    0m0.341s
+sys     0m0.030s
+
+Here is the behavior with the default timeout, and the line self.opts['timeout'] changed back to 99999 in what is now line 76 of salt/cli/batch.py:
+
+root@training [/usr/lib/python2.6/site-packages/salt/cli]# time (salt -G 'opt:dev' cmd.run 'sleep 120; echo "completed"' -b 1)
+one.example.com Detected for this batch run
+two.example.com Detected for this batch run
+
+Executing run on ['one.example.com']
+
+one.example.com:
+    completed
+
+Executing run on ['two.example.com']
+
+two.example.com:
+    completed
+
+real    4m4.030s
+user    0m0.365s
+sys     0m0.039s
+
+The documentation for batch size (convenience link:  http://docs.saltstack.com/topics/targeting/batch.html?highlight=batch ) states explicitly that "if there are a total of 150 minions targeted and the batch size is 10, then the command is sent to 10 minions, when one minion returns then the command is sent to one additional minion". The implication here is that the job will not be sent to more minions than specified by the batch size option, however, this is precisely the behavior we see when the timeout is being applied:
+
+root@training [/usr/lib/python2.6/site-packages/salt/cli]# time (salt -G 'opt:dev' cmd.run 'sleep 120; echo "completed"' -b 1); salt-run jobs.active
+one.example.com Detected for this batch run
+two.example.com Detected for this batch run
+
+Executing run on ['one.example.com']
+
+one.example.com:
+    ----------
+
+Executing run on ['two.example.com']
+
+two.example.com:
+    ----------
+
+real    0m25.826s
+user    0m0.345s
+sys     0m0.046s
+'20131116205121926535':
+  Arguments:
+- sleep 120; echo "completed"
+  Function: cmd.run
+  Returned:
+- jid
+  Running: []
+  Target:
+- one.example.com
+  Target-type: list
+  User: root
+  '20131116205131168988':
+  Arguments:
+- sleep 120; echo "completed"
+  Function: cmd.run
+  Returned:
+- jid
+  Running: []
+  Target:
+- two.example.com
+  Target-type: list
+  User: root
+
+Salt needs to either ignore the timeout in batch mode, change how timeouts are being handled for long-running jobs in batch mode, or change the documentation for batch mode to include the information that timeout has to be changed to rather high values in the config mode or specified on the command line along side of batch mode for it to be of any use for longer running commands.

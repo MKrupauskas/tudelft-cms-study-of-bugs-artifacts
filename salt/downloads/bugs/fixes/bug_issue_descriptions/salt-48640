@@ -1,0 +1,205 @@
+### Description of Issue/Question
+There is a regression when upgrading from 2017.7.4 to 2017.7.5+ which results in a change in behaviour to the `user.present` functionality. My understanding is that this should never happen in a bugfix release unless it cannot be avoided due to a security issue.
+
+I was building a new host with the following state applied (as rendered via `state.show_sls users`):
+
+```
+    myuser1:
+        ----------
+        __env__:
+            base
+        __sls__:
+            users
+        user:
+            |_
+              ----------
+              fullname:
+                  User 1
+            |_
+              ----------
+              shell:
+                  /bin/bash
+            |_
+              ----------
+              gid_from_name:
+                  True
+            |_
+              ----------
+              uid:
+                  None
+            |_
+              ----------
+              gid:
+                  myuser1
+            |_
+              ----------
+              groups:
+                  - adm
+                  - sudo
+                  - staff
+            |_
+              ----------
+              home:
+                  /home/myuser1
+            |_
+              ----------
+              createhome:
+                  None
+            - present
+            |_
+              ----------
+              order:
+                  10018
+```
+Note I have replaced the id, fullname and gid arguments in all these examples to protect the innocent. I am focusing on just one specific user here for clarity.
+
+This has worked for many years, and results in the following successful output on <=2017.7.4:
+
+```
+          ID: myuser1
+    Function: user.present
+      Result: True
+     Comment: New user myuser1 created
+     Started: 11:07:51.917005
+    Duration: 82.221 ms
+     Changes:   
+              ----------
+              fullname:
+                  User 1
+              gid:
+                  1001
+              groups:
+                  - myuser1
+                  - adm
+                  - staff
+                  - sudo
+              home:
+              homephone:
+              name:
+                  myuser1
+              passwd:
+                  x
+              roomnumber:
+              shell:
+                  /bin/bash
+              uid:
+                  1001
+              workphone:
+```
+
+The `gid_from_name` argument has historically functioned in more or less the same way as useradd's `-U` argument, which naturally makes sense given the module name is called `useradd`.
+
+```
+$ useradd --help | grep -- -U
+  -U, --user-group              create a group with the same name as the user
+```
+
+The [original](https://docs.saltstack.com/en/2016.11/ref/states/all/salt.states.user.html#salt.states.user.present) documentation for this option in Salt said:
+`If True, the default group id will be set to the id of the group with the same name as the user, Default is False.`
+To me, this implies that it will create the user for the group - which has always been how useradd has functioned, and is the most logical behaviour since the user has already indicated they want the group.
+
+Well, despite all of this, it appears this behaviour [changed](https://github.com/saltstack/salt/pull/45365) in this PR - including the documentation!
+
+I don't understand why this change in functionality was permitted in a point release since those are supposed to be stable. A request to update documentation to reflect new behaviour in a point release should be a red flag! Instead we are left with being unable to log into a new system until we change all affected configurations.
+
+```
+----------
+          ID: myuser1
+    Function: user.present
+      Result: False
+     Comment: Default group with name "myuser1" is not present
+     Started: 11:19:46.648672
+    Duration: 2.019 ms
+     Changes:  
+```
+
+I tried manually correcting this:
+```
+$ sudo salt 'host-in-question' group.add myuser1 1000
+$ sudo salt 'host-in-question' group.add myuser2 1001
+$ # etc.
+```
+
+I then re-ran my `users` state responsible for the above state sls data, and this still didn't work correctly! That left me with this situation:
+```
+$ sudo salt 'host-in-question' cmd.run 'getent passwd | grep myuser | head -n 2'
+    myuser2:x:1000:1001:User 2,,,:/home/user2:/bin/bash
+    myuser1:x:1001:1000:User 1,,,:/home/user1:/bin/bash
+```
+
+How is that even possible? Well let's look at the _updated_ docs for `gid_from_name`:
+
+```If True, the default group id will be set to the id of the group with the same name as the user. If the group does not exist the state will fail.```
+
+Well yes it's technically working as documented... but the user id now doesn't match up with the group id!
+
+There must be a way to fix that... looking at the `uid` argument documentation:
+
+```The user id to assign. If not specified, and the user does not exist, then the next available uid will be assigned.```
+
+So now there's no way to just say "match the group name". We can't embed some jinja to look it up, because that will be rendered before the group is created and it won't find anything!
+
+This is all turning out to be quite a mess, and I'm at a loss as to how this was never picked up over the last few months by anyone. The way I see it I now have two options - write a custom state module, or replace the `user.present` sls blocks with `cmd.run` blocks. If I'm missing a more elegant solution here, please let me know.
+
+Obviously nobody likes bugs and I've reported quite a few over the years, but this one makes me especially sad to see this broken so badly, in a point release, after it's been running for years without issue, in such a core piece of functionality that affects every host I manage.
+
+### Setup
+
+This will probably suffice to trigger the main problem.
+```
+myuser1:
+  user.present:
+    - gid_from_name: True
+    - gid: myuser1
+```
+
+### Steps to Reproduce Issue
+1. Update to 2017.7.5 or higher.
+1. Remove the existing user.
+`sudo salt 'host-in-question' user.delete myuser1 remove=True`
+Note this command also removes the user group! I believe managing the user group is the more convenient behaviour here too - although this really should be documented since in some cases the user might not want or expect the group to be deleted.
+1. `sudo salt 'host-in-question' state.sls users`
+
+### Versions Report
+```
+    Salt Version:
+               Salt: 2017.7.7
+     
+    Dependency Versions:
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: 2.5.3
+          docker-py: Not Installed
+              gitdb: Not Installed
+          gitpython: Not Installed
+              ioflo: Not Installed
+             Jinja2: 2.8
+            libgit2: Not Installed
+            libnacl: Not Installed
+           M2Crypto: Not Installed
+               Mako: Not Installed
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.8
+       mysql-python: Not Installed
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+       pycryptodome: Not Installed
+             pygit2: Not Installed
+             Python: 2.7.13 (default, Nov 24 2017, 17:33:09)
+       python-gnupg: 0.3.9
+             PyYAML: 3.12
+              PyZMQ: 16.0.2
+               RAET: Not Installed
+              smmap: Not Installed
+            timelib: Not Installed
+            Tornado: 4.4.3
+                ZMQ: 4.2.1
+     
+    System Versions:
+               dist: debian 9.5 
+             locale: ANSI_X3.4-1968
+            machine: x86_64
+            release: 4.9.0-6-amd64
+             system: Linux
+            version: debian 9.5
+```

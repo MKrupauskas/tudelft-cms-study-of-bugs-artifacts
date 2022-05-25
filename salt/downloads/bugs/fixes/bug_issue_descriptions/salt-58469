@@ -1,0 +1,50 @@
+**Description**
+
+When using the postgres_privileges.present state, the initial run will succeed, but the second and subsequent runs with the same parameters will fail, with the error being `AttributeError: 'dict_keys' object has no attribute 'sort'`.
+
+**Setup**
+```sls
+state name:
+  postgres_privileges.present:
+    - name: username
+    - object_name: dbname
+    - object_type: database
+    - privileges:
+      - ALL
+    - db_user: authuser
+    - db_password: authpass
+    - db_host: dbhost
+    - db_port: dbport
+```
+
+**Steps to Reproduce the behavior**
+
+1. Define the above state in an SLS file and it to `top.sls`
+2. Run `salt 'target' state.apply` once, it should succeed
+3. Run `salt 'target' state.apply` again, it will now fail with an error
+
+**Expected behavior**
+
+This state should be idempotent and should not fail when run the second and subsequent times.
+
+**Screenshots**
+
+Sorry, cannot provide screenshots.
+
+**Versions Report**
+
+Sorry, cannot provide the direct output. Summary: Salt 2019.2.5, Python 3.6.8, CentOS 7.8.2003, Linux 5.7.6.
+
+**Additional context**
+
+The stack trace points to [this line of salt/modules/postgres.py](https://github.com/saltstack/salt/blob/c798380a16afdc44467c6b4a67cf15a6225bca71/salt/modules/postgres.py#L3237):
+
+```python
+retval = perms.sort() == _privileges[name].keys().sort()
+```
+
+As of Python 3, `dict.keys()` returns a special object of type `dict_keys` and that object does not have a `sort()` method on it. The easiest solution here is probably to replace `_privileges[name].keys().sort()` with `sorted(_privileges[name].keys())`, though assuming the intent is to compare the two collections without regard to order, it is probably more "Pythonic" to replace the entire line with
+
+```python
+retval = set(perms) == set(_privileges[name].keys())
+```

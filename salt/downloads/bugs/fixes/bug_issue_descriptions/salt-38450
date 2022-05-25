@@ -1,0 +1,48 @@
+Env: 2016.11.1 , and the newest develop branch commit also has this problem.
+
+I tried to find symlink file under /etc/rc*.d/, such as:
+
+```
+$ salt-call file.find type='f' /etc/rcS.d/
+# below is debug output I added
+('S55urandom', True, posix.stat_result(st_mode=33261, st_ino=1902045, st_dev=2049L, st_nlink=1, st_uid=0, st_gid=0, st_size=1985, st_atime=1482400037, st_mtime=1334395591, st_ctime=1482400037))
+('README', True, posix.stat_result(st_mode=33188, st_ino=1902277, st_dev=2049L, st_nlink=1, st_uid=0, st_gid=0, st_size=447, st_atime=1482400037, st_mtime=1343327008, st_ctime=1482400037))
+# below is salt result
+local:
+    - /etc/rcS.d/README  # a regular file
+    - /etc/rcS.d/S55urandom  # a symlink
+
+
+$ ls -alsh /etc/rcS.d/
+total 12K
+4.0K drwxr-xr-x  2 root root 4.0K Oct 15  2014 .
+4.0K drwxr-xr-x 98 root root 4.0K Dec 27 17:29 ..
+4.0K -rw-r--r--  1 root root  447 Jul 27  2012 README
+   0 lrwxrwxrwx  1 root root   17 May 24  2013 S55urandom -> ../init.d/urandom
+```
+
+The right mode of /etc/rcS.d/S55urandom should be 41471.
+
+Salt check file's mode to detect if is a regular file, a symlink, a dir... by `stat` in `_check_criteria` function:
+
+```
+def _check_criteria(self, dirpath, name, fullpath, fstat=None):
+    match = True
+    for criterion in self.criteria:
+        if fstat is None and criterion.requires() & _REQUIRES_STAT:
+            try:
+                fstat = os.stat(fullpath)
+            except OSError:
+                fstat = os.lstat(fullpath)
+        if not criterion.match(dirpath, name, fstat):
+            match = False
+            break
+    return match, fstat
+```
+
+The `stat` was brought in with commid id b5b778f7 as the first commit.
+
+But if it is a symlink, `os.stat` will try to check its pointed file, not the symlink itself, so as the test output above, even if I add `type="f"`, it will return symlink file, and if I tried to `type="l"`(l for symlink in doc), it returns nothing.
+
+and a newer commit change this with `try: os.stat except os.lstat`, but this doesn't fix the wrong logic.
+

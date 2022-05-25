@@ -1,0 +1,132 @@
+### Description of Issue/Question
+win_system.get_pending_domain_join is returning False even though PC was just joined to an AD domain
+### Setup
+Here is a state file which renames and joins then attempts a reboot.
+```
+name computer:
+    system.computer_name:
+       - name: OUREXAMS2100008
+
+{% set user_name = pillar['user_name'] %}
+{% set p_word = pillar['p_word'] %}
+join domain:   
+    system.join_domain:
+       - name: AD.QUEENSU.CA
+       - username: {{user_name}}
+       - password: {{p_word}}
+       - account_exists: True
+       - restart: False
+       - require:
+            - name computer
+       
+reboot computer:
+     system.reboot:
+        - timeout: 0
+        - only_on_pending_reboot: True
+        - order: last
+        - require:
+              - join domain
+```
+
+### Steps to Reproduce Issue
+We can run the above state file with:
+```
+salt -t 120 '210008' state.apply our_join pillar='{"user_name": "garf", "p_word": "asdfasdfasdf"}'
+```
+
+We will then get the following output:
+```
+210008:
+----------
+          ID: name computer
+    Function: system.computer_name
+        Name: OUREXAMS210008
+      Result: True
+     Comment: Computer name successfully set to 'OUREXAMS210008' (reboot required for change to take effect)
+     Started: 15:32:08.356468
+    Duration: 31.577 ms
+     Changes:   
+              ----------
+              new:
+                  OUREXAMS210008
+              old:
+                  somehtingorother
+----------
+          ID: join domain
+    Function: system.join_domain
+        Name: AD.QUEENSU.CA
+      Result: True
+     Comment: Computer added to 'AD.QUEENSU.CA'
+     Started: 15:32:08.403369
+    Duration: 3955.51 ms
+     Changes:   
+----------
+          ID: shutdown computer
+    Function: system.reboot
+      Result: True
+     Comment: System reboot has been skipped because no reboot was pending
+     Started: 15:32:12.358879
+    Duration: 15.3 ms
+     Changes:  
+```
+
+(Note that the changes dictionary in the "join domain" state is empty, which is a separate issue that also needs fixing)
+
+
+The final reboot fails because it also turns out that when we run the following command:
+```
+salt -t 120 '210008' system.get_pending_domain_join
+```
+
+we then get the following output
+```
+210008:
+    False
+```
+The result of the command is surely wrong.
+
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.2
+ 
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: Not Installed
+       dateutil: 2.6.0
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.7
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.28.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.15 (default, May 15 2018, 15:37:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 5.1
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist: fedora 27 Twenty Seven
+         locale: UTF-8
+        machine: x86_64
+        release: 4.17.14-102.fc27.x86_64
+         system: Linux
+        version: Fedora 27 Twenty Seven
+
+```

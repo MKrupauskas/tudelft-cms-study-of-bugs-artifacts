@@ -1,0 +1,94 @@
+### Description of Issue/Question
+
+If you create a beacon which fetches any files from the master, any scheduled jobs you have which utilize the fileserver will hang at 100% CPU forever.
+### Setup
+
+/srv/salt/_beacons/hangtest.py
+
+```
+import logging
+log = logging.getLogger(__name__)
+def beacon(config):
+    log.info('Running hangtest beacon')
+    __salt__['cp.cache_file']('salt://_beacons/hangtest.py')
+    return []
+```
+
+/srv/pillar/top.sls
+
+```
+base:
+  '*':
+    - hangtest
+```
+
+/srv/pillar/hangtest.sls
+
+```
+beacons:
+  hangtest:
+    interval: 1
+
+schedule:
+  cache_file_for_hang:
+    function: cp.cache_file
+    seconds: 10
+    args:
+      - salt://_beacons/hangtest.py
+    return_job: False
+```
+
+Setup:
+
+```
+# salt '*' saltutil.sync_all
+# salt '*' saltutil.refresh_pillar
+# service salt-minion restart
+```
+
+The second run of the scheduled job (about 10 seconds after minion start) should hang forever at 100% CPU. Note that `service salt-minion stop` will not stop that process either.
+
+Removing the `cp.cache_file` from the beacon fixes the issue. Scheduled jobs that don't use the fileserver (such as `test.ping`) will not hang even with fileserver operations in the beacon.
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Jun 17 2014, 18:11:42)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.1.1503 Core
+        machine: x86_64
+        release: 3.10.0-229.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.1.1503 Core
+```
+
+(same master/minion -- it's a single box)

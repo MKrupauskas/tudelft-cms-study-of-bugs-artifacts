@@ -1,0 +1,118 @@
+**Description**
+Creation of a symlink fails on a proxy minion when the optional parameter `group` is not specified.
+
+**Setup**
+I run a salt-master with several salt-proxy instances for Junos devices. As part of my state file, I wish to create a symlink locally on the salt-master.
+
+**Steps to Reproduce the behavior**
+```
+# pillar/my-juniper.sls
+proxy:
+  proxytype: junos
+  host: 10.0.0.1
+  username: my_user
+  port: 830
+  password: my_password
+```
+```
+# state.sls
+create_symlink:
+  file.symlink:
+    - name: /testlink
+    - target: /etc/hosts
+```
+`# salt my-juniper state.sls test`
+
+This throws:
+```
+----------
+          ID: create_symlink
+    Function: file.symlink
+        Name: /testlink
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3.6/site-packages/salt/state.py", line 1981, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python3.6/site-packages/salt/loader.py", line 1977, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3.6/site-packages/salt/states/file.py", line 1727, in symlink
+                  __salt__['user.info'](user).get('gid', 0)
+                File "/usr/lib/python3.6/site-packages/salt/loader.py", line 1248, in __getitem__
+                  func = super(LazyLoader, self).__getitem__(item)
+                File "/usr/lib/python3.6/site-packages/salt/utils/lazy.py", line 108, in __getitem__
+                  raise KeyError(key)
+              KeyError: 'user.info'
+     Started: 15:07:39.056091
+    Duration: 6769.352 ms
+     Changes:   
+```
+
+When adding the optional `group` parameter, the state runs successfully:
+```
+create_symlink:
+  file.symlink:
+    - name: /testlink
+    - target: /etc/hosts
+    - group: root
+```
+The reason for this is that the code depends on `user.info`, which is not loaded:
+```
+# salt my-juniper user.info root
+my-juniper:
+    'user.info' is not available.
+ERROR: Minions returned with non-zero exit code
+```
+
+**Expected behavior**
+A symlink can be created without specifying the group.
+
+**Screenshots**
+See above.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 3000.3
+ 
+Dependency Versions:
+           cffi: 1.14.0
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.2
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.20
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Apr  2 2020, 13:34:55)
+   python-gnupg: Not Installed
+         PyYAML: 5.3.1
+          PyZMQ: 15.3.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.8.2003 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1127.8.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.8.2003 Core
+```
+</details>
+
+**Additional context**
+N/A

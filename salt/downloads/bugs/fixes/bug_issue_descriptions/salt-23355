@@ -1,0 +1,115 @@
+I'm using salt version 2014.7.5 (latest stable version at this time, don't know if this issue is the same in 2015.2 branch).
+
+My use case is that I want to use `salt-ssh` to force salt-minion installation and configuration from static packages. That's in order to control the salt update process better. I don't know if there is a better way to do it.
+
+So, with the state `salt.minion`:
+
+```
+salt-minion:
+  pkg.installed:
+    - sources:
+      - salt:        salt://pkg/salt/salt-2014.7.5-1.el6.noarch.rpm
+      - salt-minion: salt://pkg/salt/salt-minion-2014.7.5-1.el6.noarch.rpm
+```
+
+Launched with:
+
+```
+salt-ssh -i 'minion1' state.sls salt.minion
+```
+
+The states fails, and I can see that the rpm files are not included in the generated `salt_state.tgz` file:
+
+```
+minion1:
+----------
+          ID: salt-minion
+    Function: pkg.installed
+      Result: False
+     Comment: The following packages failed to install/update: salt-minion, salt.
+     Started: 15:16:20.836561
+    Duration: 4574.143 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+```
+
+If I change the state as this:
+
+```
+/tmp/salt.rpm:
+  file.managed:
+    - source: salt://pkg/salt/salt-2014.7.5-1.el6.noarch.rpm
+/tmp/salt-minion.rpm:
+  file.managed:
+    - source: salt://pkg/salt/salt-minion-2014.7.5-1.el6.noarch.rpm
+
+salt-minion:
+  pkg.installed:
+    - sources:
+      - salt:        salt://pkg/salt/salt-2014.7.5-1.el6.noarch.rpm
+      - salt-minion: salt://pkg/salt/salt-minion-2014.7.5-1.el6.noarch.rpm
+```
+
+The state succeeds, as the rpm files are included in the tarball file:
+
+```
+minion1:
+----------
+          ID: /tmp/salt.rpm
+    Function: file.managed
+      Result: True
+     Comment: File /tmp/salt.rpm updated
+     Started: 15:54:19.864433
+    Duration: 28.317 ms
+     Changes:   
+              ----------
+              diff:
+                  New file
+              mode:
+                  0644
+----------
+          ID: /tmp/salt-minion.rpm
+    Function: file.managed
+      Result: True
+     Comment: File /tmp/salt-minion.rpm updated
+     Started: 15:54:19.892872
+    Duration: 1.754 ms
+     Changes:   
+              ----------
+              diff:
+                  New file
+              mode:
+                  0644
+----------
+          ID: salt-minion
+    Function: pkg.installed
+      Result: True
+     Comment: The following packages were installed/updated: salt-minion, salt.
+     Started: 15:54:19.894804
+    Duration: 10170.516 ms
+     Changes:   
+              ----------
+              salt:
+                  ----------
+                  new:
+                      2014.7.5-1.el6
+                  old:
+              salt-minion:
+                  ----------
+                  new:
+                      2014.7.5-1.el6
+                  old:
+
+Summary
+------------
+Succeeded: 3 (changed=3)
+Failed:    0
+------------
+Total states run:     3
+```

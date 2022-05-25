@@ -1,0 +1,177 @@
+**1.** The `__virtualname__ = 'nagios_nrdp'` so I think the documentation should be updated to reflect that, i.e.:
+
+```
+nagios_nrdp:
+      url: http://localhost/nrdp
+      token: r4nd0mt0k3n
+      service: service-check
+
+...
+
+salt '*' test.ping --return nagios_nrdp
+```
+
+**2.** There is an exception thrown in case of none `200` status code:
+
+```
+2016-06-08 10:34:28,648 [salt.minion      ][ERROR   ][32248] Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 1417, in _thread_return
+    )](ret)
+  File "/usr/lib/python2.7/site-packages/salt/returners/nagios_return.py", line 203, in returner
+    res = _post_data(options=_options, xml=xml)
+  File "/usr/lib/python2.7/site-packages/salt/returners/nagios_return.py", line 173, in _post_data
+    log.error('Error returned from Nagios NRDP.  Status code: {0}.'.format(res.status_code))
+AttributeError: 'dict' object has no attribute 'status_code'
+```
+
+This works for me:
+
+```
+# diff -u /usr/lib/python2.7/site-packages/salt/returners/nagios_return.py{.bak,}
+--- /usr/lib/python2.7/site-packages/salt/returners/nagios_return.py.bak    2016-06-06 14:45:41.711000000 +0100
++++ /usr/lib/python2.7/site-packages/salt/returners/nagios_return.py    2016-06-08 10:40:04.256000000 +0100
+@@ -169,7 +169,7 @@
+             log.error('No content returned from Nagios NRDP.')
+             return False
+     else:
+-        log.error('Error returned from Nagios NRDP.  Status code: {0}.'.format(res.status_code))
++        log.error('Error returned from Nagios NRDP.  Status code: {0}.'.format(res.get('status', None)))
+         return False
+```
+
+**3.** Now, the main issue here is that it doesn't return any output to Nagios
+
+Scheduled job:
+
+```
+# cat monitoring.sls
+schedule:
+  disk_usage_monitoring:
+    enabled: True
+    function: state.single
+    args:
+      - disk.status
+      - /
+    kwargs:
+      minimum: 50
+      maximum: 90
+    minutes: 1
+    maxrunning: 1
+    returner: nagios_nrdp
+    return_kwargs:
+      service: Test
+```
+
+**a.** I added some extra debugging to include XML data and there is no any `output` and `status` is still `OK` even though, disk usage is below minimum.
+It looks like `return_kwargs` are also not respected so there is no service defined and this make it a host check instead:
+
+```
+2016-06-08 10:12:54,531 [salt.utils.schedule][INFO    ][29892] Running scheduled job: disk_usage_monitoring
+2016-06-08 10:12:54,532 [salt.utils.schedule][DEBUG   ][29892] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+2016-06-08 10:12:54,532 [salt.utils.schedule][DEBUG   ][29892] schedule: This job was scheduled with a max number of 1
+2016-06-08 10:12:54,547 [salt.utils.schedule][DEBUG   ][31889] schedule.handle_func: Checking job against fun state.single: {'fun_args': [], 'jid': '20160608101154543943', 'schedule': 'disk_usage_monitoring', 'pid': 31878, 'fun': 'state.single', 'id': 'server01.exmaple.com'}
+2016-06-08 10:12:54,563 [salt.utils.schedule][DEBUG   ][31891] schedule.handle_func: adding this job to the jobcache with data {'fun_args': [], 'jid': '20160608101254544451', 'schedule': 'disk_usage_monitoring', 'pid': 31891, 'fun': 'state.single', 'id': 'server01.exmaple.com'}
+2016-06-08 10:12:54,578 [salt.utils.lazy  ][DEBUG   ][31891] LazyLoaded saltutil.is_running
+2016-06-08 10:12:54,587 [salt.pillar      ][DEBUG   ][31891] Determining pillar cache
+2016-06-08 10:12:54,589 [salt.transport.zeromq][DEBUG   ][31891] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'server01.exmaple.com', 'tcp://192.168.1.100:4506', 'aes')
+2016-06-08 10:12:54,590 [salt.crypt       ][DEBUG   ][31891] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'server01.exmaple.com', 'tcp://192.168.1.100:4506')
+2016-06-08 10:12:55,191 [salt.crypt       ][DEBUG   ][31891] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2016-06-08 10:12:55,207 [salt.state       ][INFO    ][31891] Loading fresh modules for state activity
+2016-06-08 10:12:55,266 [salt.utils.lazy  ][DEBUG   ][31891] LazyLoaded jinja.render
+2016-06-08 10:12:55,267 [salt.utils.lazy  ][DEBUG   ][31891] LazyLoaded yaml.render
+2016-06-08 10:12:55,268 [salt.utils.lazy  ][DEBUG   ][31891] LazyLoaded disk.status
+2016-06-08 10:12:55,269 [salt.state       ][INFO    ][31891] Running state [/] at time 10:12:55.269186
+2016-06-08 10:12:55,270 [salt.state       ][INFO    ][31891] Executing state disk.status for /
+2016-06-08 10:12:55,324 [salt.utils.lazy  ][DEBUG   ][31891] LazyLoaded disk.usage
+2016-06-08 10:12:55,330 [salt.utils.lazy  ][DEBUG   ][31891] LazyLoaded cmd.run
+2016-06-08 10:12:55,332 [salt.loaded.int.module.cmdmod][INFO    ][31891] Executing command 'df -P' in directory '/root'
+2016-06-08 10:12:55,355 [salt.loaded.int.module.cmdmod][DEBUG   ][31891] output: Filesystem                   1024-blocks     Used Available Capacity Mounted on
+/dev/mapper/vg_main-lv_root      5232640  2062928   3169712      40% /
+devtmpfs                         8124072        0   8124072       0% /dev
+tmpfs                            8134220       12   8134208       1% /dev/shm
+tmpfs                            8134220   205100   7929120       3% /run
+tmpfs                            8134220        0   8134220       0% /sys/fs/cgroup
+/dev/mapper/vg_main-lv_mysql   152505596 60413332  92092264      40% /var/lib/mysql
+/dev/vda1                         508588   258472    250116      51% /boot
+tmpfs                            1626844        0   1626844       0% /run/user/0
+2016-06-08 10:12:55,359 [salt.state       ][ERROR   ][31891] Disk is below minimum of 50 at 40
+2016-06-08 10:12:55,360 [salt.state       ][INFO    ][31891] Completed state [/] at time 10:12:55.359634 duration_in_ms=90.448
+2016-06-08 10:12:55,401 [salt.utils.lazy  ][DEBUG   ][31891] LazyLoaded nagios_nrdp.returner
+2016-06-08 10:12:55,402 [salt.loaded.int.returner.nagios_return][DEBUG   ][31891] attrs {'url': 'url', 'checktype': 'checktype', 'token': 'token', 'service': 'service'}
+2016-06-08 10:12:55,403 [salt.loaded.int.returner.nagios_return][DEBUG   ][31891] _options {'url': 'https://nagios.example.com/nrdp', 'checktype': '1', 'token': 'abc123'}
+2016-06-08 10:12:55,404 [salt.utils.http  ][DEBUG   ][31891] Requesting URL https://nagios.example.com/nrdp?token=abc123&cmd=submitcheck&XMLDATA=%3C%3Fxml+version%3D%271.0%27%3F%3E%0A%3Ccheckresults%3E%0A%3Ccheckresult+type%3D%27host%27+checktype%3D%271%27%3E%3Chostname%3Eserver01.exmaple.com%3C%2Fhostname%3E%3Cstate%3E0%3C%2Fstate%3E%3C%2Fcheckresult%3E%0A%3C%2Fcheckresults%3E using POST method
+2016-06-08 10:12:55,689 [salt.utils.http  ][DEBUG   ][31891] Response Status Code: 200
+2016-06-08 10:12:55,691 [salt.loaded.int.returner.nagios_return][DEBUG   ][31891] XML: <?xml version='1.0'?>
+<checkresults>
+<checkresult type='host' checktype='1'><hostname>server01.exmaple.com</hostname><state>0</state></checkresult>
+</checkresults>
+2016-06-08 10:12:55,692 [salt.utils.event ][DEBUG   ][31891] SaltEvent PUB socket URI: /var/run/salt/minion/minion_event_f738e5a488_pub.ipc
+2016-06-08 10:12:55,692 [salt.utils.event ][DEBUG   ][31891] SaltEvent PULL socket URI: /var/run/salt/minion/minion_event_f738e5a488_pull.ipc
+2016-06-08 10:12:55,693 [salt.transport.ipc][DEBUG   ][31891] Initializing new IPCClient for path: /var/run/salt/minion/minion_event_f738e5a488_pull.ipc
+```
+
+Nagios server also complains about that:
+
+```
+Jun  8 10:14:14 nagios nagios: PASSIVE HOST CHECK: server01.exmaple.com;0;(No output returned from host check)
+```
+
+I also tested this with Nagios plugin:
+
+```
+# salt server01.exmaple.com --return nagios_nrdp --return_kwargs '{"service": "Test"}' cmd.run_all '/usr/lib64/nagios/plugins/check_disk -w 50% -c 90% -p /'
+server01.exmaple.com:
+    ----------
+    pid:
+        32569
+    retcode:
+        2
+    stderr:
+    stdout:
+        DISK CRITICAL - free space: / 3095 MB (60% inode=99%);| /=2014MB;2555;510;0;5110
+```
+
+```
+Jun  8 11:14:05 nagios nagios: PASSIVE SERVICE CHECK: server01.exmaple.com;Test;0;(No output returned from plugin)
+```
+
+```
+# salt --versions-report 
+Salt Version:
+           Salt: 2016.3.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.7.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.18.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```

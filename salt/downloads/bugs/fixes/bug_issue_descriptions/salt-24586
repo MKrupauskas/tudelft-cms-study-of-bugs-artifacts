@@ -1,0 +1,165 @@
+Hello,
+we're running ad hoc commands against windows 2008 r2 minions. 
+
+An example call via cli:
+`
+salt 'VAPDEFAU01MS001' cmd.script salt://scripts/rec-put-cw-alarm.ps1 shell='powershell'
+`
+
+An example call via API (Call is just a wrapper around salt.client.LocalClient.cmd):
+
+``` python
+        result = lackey.jobs.Job.cmd(target=hostname,
+                                     function='cmd.script',
+                                     parameter=['salt://scripts/rec-put-cw-alarm.ps1'])
+```
+
+The ps1 script has been verified working. 
+
+Both calls **never** return. Instead, according to the salt master log they are called over and over again for a time that I predict will converge against something close to infinity.
+
+This is an example snippet from the master log:
+
+```
+2015-06-10 18:29:00,361 [salt.utils.event ][DEBUG   ][23154] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-06-10 18:29:00,361 [salt.utils.event ][DEBUG   ][23154] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-06-10 18:29:00,362 [salt.utils.event ][DEBUG   ][23154] Sending event - data = {'_stamp': '2015-06-10T22:29:00.361747'}
+2015-06-10 18:29:00,368 [salt.master      ][INFO    ][1253] Clear payload received with command publish
+2015-06-10 18:29:00,368 [salt.utils.event ][DEBUG   ][1253] Sending event - data = {'_stamp': '2015-06-10T22:29:00.368269', 'minions': ['VAPDEFAU01MS001']}
+2015-06-10 18:29:00,369 [salt.utils.event ][DEBUG   ][1253] Sending event - data = {'tgt_type': 'list', 'jid': '20150610182900368099', 'tgt': 'VAPDEFAU01MS001', '_stamp': '2015-06-10T22:29:00.368492', 'user': 'sudo_ubuntu', 'arg': ['salt:
+//scripts/rec-put-cw-alarm.ps1'], 'fun': 'cmd.script', 'minions': ['VAPDEFAU01MS001']}
+2015-06-10 18:29:00,369 [salt.master      ][INFO    ][1253] User sudo_ubuntu Published command cmd.script with jid 20150610182900368099
+2015-06-10 18:29:00,369 [salt.master      ][DEBUG   ][1253] Published command details {'tgt_type': 'list', 'jid': '20150610182900368099', 'tgt': 'VAPDEFAU01MS001', 'ret': '', 'user': 'sudo_ubuntu', 'arg': ['salt://scripts/rec-put-cw-alarm
+.ps1'], 'fun': 'cmd.script'}
+2015-06-10 18:29:00,370 [salt.utils.lazy  ][DEBUG   ][23154] LazyLoaded local_cache.get_load
+2015-06-10 18:29:00,371 [salt.client      ][DEBUG   ][23154] get_iter_returns for jid 20150610182900368099 sent to set(['VAPDEFAU01MS001']) will timeout at 18:29:05.370682
+2015-06-10 18:29:00,392 [salt.master      ][INFO    ][1275] AES payload received with command _file_hash
+2015-06-10 18:29:05,374 [salt.utils.event ][DEBUG   ][23154] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-06-10 18:29:05,374 [salt.utils.event ][DEBUG   ][23154] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-06-10 18:29:05,374 [salt.utils.event ][DEBUG   ][23154] Sending event - data = {'_stamp': '2015-06-10T22:29:05.374066'}
+2015-06-10 18:29:05,375 [salt.client      ][DEBUG   ][23154] Checking whether jid 20150610182900368099 is still running
+2015-06-10 18:29:05,376 [salt.master      ][INFO    ][1257] Clear payload received with command publish
+2015-06-10 18:29:05,376 [salt.utils.event ][DEBUG   ][1257] Sending event - data = {'_stamp': '2015-06-10T22:29:05.376168', 'minions': ['VAPDEFAU01MS001']}
+2015-06-10 18:29:05,376 [salt.utils.event ][DEBUG   ][1257] Sending event - data = {'tgt_type': 'list', 'jid': '20150610182905375962', 'tgt': 'VAPDEFAU01MS001', '_stamp': '2015-06-10T22:29:05.376381', 'user': 'sudo_ubuntu', 'arg': ['20150
+610182900368099'], 'fun': 'saltutil.find_job', 'minions': ['VAPDEFAU01MS001']}
+2015-06-10 18:29:05,377 [salt.master      ][INFO    ][1257] User sudo_ubuntu Published command saltutil.find_job with jid 20150610182905375962
+2015-06-10 18:29:05,377 [salt.master      ][DEBUG   ][1257] Published command details {'tgt_type': 'list', 'jid': '20150610182905375962', 'tgt': 'VAPDEFAU01MS001', 'ret': '', 'user': 'sudo_ubuntu', 'arg': ['20150610182900368099'], 'fun':
+'saltutil.find_job'}
+2015-06-10 18:29:05,400 [salt.master      ][INFO    ][1260] AES payload received with command _return
+2015-06-10 18:29:05,400 [salt.utils.job   ][INFO    ][1260] Got return from VAPDEFAU01MS001 for job 20150610182905375962
+2015-06-10 18:29:05,400 [salt.utils.event ][DEBUG   ][1260] Sending event - data = {'fun_args': ['20150610182900368099'], 'jid': '20150610182905375962', 'return': {'tgt_type': 'list', 'jid': '20150610182900368099', 'tgt': 'VAPDEFAU01MS001', 'pid': 2928, 'ret': '', 'user': 'sudo_ubuntu', 'arg': ['salt://scripts/rec-put-cw-alarm.ps1'], 'fun': 'cmd.script'}, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-06-10T22:29:05.400327', 'fun': 'saltutil.find_job', 'id': 'VAPDEFAU01MS001'}
+2015-06-10 18:29:21,279 [salt.utils.lazy  ][DEBUG   ][23192] LazyLoaded bla.run
+2015-06-10 18:29:21,280 [salt.utils.event ][DEBUG   ][23192] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-06-10 18:29:21,280 [salt.utils.event ][DEBUG   ][23192] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-06-10 18:29:21,281 [salt.utils.event ][DEBUG   ][23192] Sending event - data = {'_stamp': '2015-06-10T22:29:21.280814'}
+2015-06-10 18:29:21,281 [salt.utils.event ][DEBUG   ][23192] Sending event - data = {'fun': 'runner.bla.run', 'jid': '20150610182921279613', 'user': 'sudo_ubuntu', '_stamp': '2015-06-10T22:29:21.281419'}
+2015-06-10 18:29:21,305 [salt.loader      ][DEBUG   ][23192] Error loading runners.nacl: libnacl import error, perhaps missing python libnacl package
+2015-06-10 18:29:21,345 [salt.config      ][DEBUG   ][23192] Reading configuration from /etc/salt/master
+2015-06-10 18:29:21,379 [salt.config      ][DEBUG   ][23192] Using cached minion ID from /etc/salt/minion_id: ip-10-0-42-202.ec2.internal
+2015-06-10 18:29:21,380 [salt.config      ][DEBUG   ][23192] Missing configuration file: ~/.saltrc
+2015-06-10 18:29:21,380 [salt.utils.event ][DEBUG   ][23192] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-06-10 18:29:21,381 [salt.utils.event ][DEBUG   ][23192] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-06-10 18:29:21,381 [salt.utils.event ][DEBUG   ][23192] Sending event - data = {'_stamp': '2015-06-10T22:29:21.381237'}
+2015-06-10 18:29:21,387 [salt.master      ][INFO    ][1252] Clear payload received with command publish
+2015-06-10 18:29:21,388 [salt.utils.event ][DEBUG   ][1252] Sending event - data = {'_stamp': '2015-06-10T22:29:21.387905', 'minions': ['VAPDEFAU01MS001']}
+2015-06-10 18:29:21,388 [salt.utils.event ][DEBUG   ][1252] Sending event - data = {'tgt_type': 'list', 'jid': '20150610182921387723', 'tgt': 'VAPDEFAU01MS001', '_stamp': '2015-06-10T22:29:21.388089', 'user': 'sudo_ubuntu', 'arg': ['salt://scripts/rec-put-cw-alarm.ps1'], 'fun': 'cmd.script', 'minions': ['VAPDEFAU01MS001']}
+2015-06-10 18:29:21,388 [salt.master      ][INFO    ][1252] User sudo_ubuntu Published command cmd.script with jid 20150610182921387723
+2015-06-10 18:29:21,389 [salt.master      ][DEBUG   ][1252] Published command details {'tgt_type': 'list', 'jid': '20150610182921387723', 'tgt': 'VAPDEFAU01MS001', 'ret': '', 'user': 'sudo_ubuntu', 'arg': ['salt://scripts/rec-put-cw-alarm.ps1'], 'fun': 'cmd.script'}
+2015-06-10 18:29:21,391 [salt.utils.lazy  ][DEBUG   ][23192] LazyLoaded local_cache.get_load
+2015-06-10 18:29:21,391 [salt.client      ][DEBUG   ][23192] get_iter_returns for jid 20150610182921387723 sent to set(['VAPDEFAU01MS001']) will timeout at 18:29:26.390848
+2015-06-10 18:29:21,398 [salt.master      ][INFO    ][1256] AES payload received with command _file_hash
+2015-06-10 18:29:26,393 [salt.utils.event ][DEBUG   ][23192] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-06-10 18:29:26,393 [salt.utils.event ][DEBUG   ][23192] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-06-10 18:29:26,394 [salt.utils.event ][DEBUG   ][23192] Sending event - data = {'_stamp': '2015-06-10T22:29:26.393449'}
+2015-06-10 18:29:26,394 [salt.client      ][DEBUG   ][23192] Checking whether jid 20150610182921387723 is still running
+2015-06-10 18:29:26,395 [salt.master      ][INFO    ][1261] Clear payload received with command publish
+2015-06-10 18:29:26,395 [salt.utils.event ][DEBUG   ][1261] Sending event - data = {'_stamp': '2015-06-10T22:29:26.395225', 'minions': ['VAPDEFAU01MS001']}
+2015-06-10 18:29:26,395 [salt.utils.event ][DEBUG   ][1261] Sending event - data = {'tgt_type': 'list', 'jid': '20150610182926394983', 'tgt': 'VAPDEFAU01MS001', '_stamp': '2015-06-10T22:29:26.395411', 'user': 'sudo_ubuntu', 'arg': ['20150610182921387723'], 'fun': 'saltutil.find_job', 'minions': ['VAPDEFAU01MS001']}
+2015-06-10 18:29:26,396 [salt.master      ][INFO    ][1261] User sudo_ubuntu Published command saltutil.find_job with jid 20150610182926394983
+2015-06-10 18:29:26,396 [salt.master      ][DEBUG   ][1261] Published command details {'tgt_type': 'list', 'jid': '20150610182926394983', 'tgt': 'VAPDEFAU01MS001', 'ret': '', 'user': 'sudo_ubuntu', 'arg': ['20150610182921387723'], 'fun': 'saltutil.find_job'}
+2015-06-10 18:29:26,416 [salt.master      ][INFO    ][1259] AES payload received with command _return
+2015-06-10 18:29:26,417 [salt.utils.job   ][INFO    ][1259] Got return from VAPDEFAU01MS001 for job 20150610182926394983
+2015-06-10 18:29:26,417 [salt.utils.event ][DEBUG   ][1259] Sending event - data = {'fun_args': ['20150610182921387723'], 'jid': '20150610182926394983', 'return': {'tgt_type': 'list', 'jid': '20150610182921387723', 'tgt': 'VAPDEFAU01MS001', 'pid': 2928, 'ret': '', 'user': 'sudo_ubuntu', 'arg': ['salt://scripts/rec-put-cw-alarm.ps1'], 'fun': 'cmd.script'}, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-06-10T22:29:26.416803', 'fun': 'saltutil.find_job', 'id': 'VAPDEFAU01MS001'}
+2015-06-10 18:29:35,485 [salt.config      ][DEBUG   ][1246] Reading configuration from /etc/salt/master
+```
+
+I've tried to trace back the issue in code and it looks like I have found something. I am not familiar with the salt code so whatever I present here might be total BS and break stuff, but it fixed the issue for me:
+
+It looks like the issue is in _get_iter_returns()_, specifically in the following parts:
+
+``` python
+      # iterator for this job's return
+        if self.opts['order_masters']:
+            # If we are a MoM, we need to gather expected minions from downstreams masters.
+            ret_iter = self.get_returns_no_block(jid, gather_errors=gather_errors, tags_regex='^syndic/.*/{0}'.format(jid))
+        else:
+            ret_iter = self.get_returns_no_block(jid, gather_errors=gather_errors)
+```
+
+This seems to get an iterator object filled with some raw zeromq stuff or None. In the following while loop this is being checked:
+
+``` python
+while True:
+            # Process events until timeout is reached or all minions have returned
+            for raw in ret_iter:
+                # if we got None, then there were no events
+                if raw is None:
+                    break
+                elif [...]
+
+```
+
+Now the issue is that ret_iter will never be updated. The for loop over ret_iter will always break in the first if-clause, since this is always None. In the following part of code we seem to get updated current info from the little minions:
+
+``` python
+jimnfo_iter = self.get_returns_no_block(jinfo['jid'], event=event)
+```
+
+This, however, writes to a different variable. Therefore the execution will run into a timeout (while actually being called successfully) and will be run again.
+
+The "fix" that I am proposing is to use jimnfo_iter as the iterator for all calls of this function. This did the trick for me:
+
+``` python
+# iterator for this job's return
+if self.opts['order_masters']:
+     # If we are a MoM, we need to gather expected minions from downstreams masters.
+     jimnfo_iter = self.get_returns_no_block(jid, gather_errors=gather_errors, tags_regex='^syndic/.*/{0}'.format(jid))
+else:
+     jimnfo_iter = self.get_returns_no_block(jid, gather_errors=gather_errors)
+[...]
+while True:
+            # Process events until timeout is reached or all minions have returned
+            for raw in jimnfo_iter:
+                # if we got None, then there were no events
+                if raw is None:
+                    break
+[...]
+jimnfo_iter = self.get_returns_no_block(jinfo['jid'], event=event)
+```
+
+Again, I don't know if this a valid fix. I encountered the issue on 2015.5. It looks like it will also be present on the develop branch.
+salt-master uname is 
+
+```
+Linux ip-10-0-64-20 3.13.0-46-generic #79-Ubuntu SMP Tue Mar 10 20:06:50 UTC 2015 x86_64 x86_64 x86_64 GNU/Linux
+```
+
+salt --versions-report is
+
+```
+                  Salt: 2015.5.0
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2015.5.0+ds-1trusty1
+```

@@ -1,0 +1,133 @@
+detected in #20908 & #20914
+to illustrate the bug, the current sls
+
+```
+postgresql-pg_hba-conf:
+  file.managed:
+    - name: /tmp/tests
+    - content: foo
+    - user: ubuntu
+    - mode: 750
+    - group: root
+    - template: jinja
+
+
+append-to-pg-hba--block:
+  file.blockreplace:
+    - name: /tmp/tests
+    - marker_start: "#-- start salt managed zonestart -- PLEASE, DO NOT EDIT"
+    - marker_end: "#-- end salt managed zonestart --"
+    - content: ''
+    - append_if_not_found: True
+    - backup: '.bak'
+    - show_changes: True
+    - require:
+        - file: postgresql-pg_hba-conf
+
+```
+
+produces:
+
+```
+local:
+----------
+          ID: postgresql-pg_hba-conf
+    Function: file.managed
+        Name: /tmp/tests
+      Result: True
+     Comment: Empty file
+     Started: 18:51:03.768306
+    Duration: 1.534 ms
+     Changes:
+              ----------
+              mode:
+                  0750
+              new:
+                  file /tmp/tests created
+              user:
+                  ubuntu
+----------
+          ID: append-to-pg-hba--block
+    Function: file.blockreplace
+        Name: /tmp/tests
+      Result: True
+     Comment: Changes were made
+     Started: 18:51:03.770175
+    Duration: 34.258 ms
+     Changes:
+              ----------
+              diff:
+                  ---
+                  +++
+                  @@ -0,0 +1,3 @@
+                  +#-- start salt managed zonestart -- PLEASE, DO NOT EDIT
+                  +
+                  +#-- end salt managed zonestart --
+
+
+Summary
+------------
+Succeeded: 2 (changed=2)
+Failed:    0
+------------
+Total states run:     2
+
+
+-rwxr-x--- 1 root root 91 févr. 23 18:51 /tmp/tests
+```
+
+If the blockreplace is omitted:
+
+```
+postgresql-pg_hba-conf:
+  file.managed:
+    - name: /tmp/tests
+    - content: foo
+    - user: ubuntu
+    - mode: 750
+    - group: root
+    - template: jinja
+
+{#
+append-to-pg-hba--block:
+  file.blockreplace:
+    - name: /tmp/tests
+    - marker_start: "#-- start salt managed zonestart -- PLEASE, DO NOT EDIT"
+    - marker_end: "#-- end salt managed zonestart --"
+    - content: ''
+    - append_if_not_found: True
+    - backup: '.bak'
+    - show_changes: True
+    - require:
+        - file: postgresql-pg_hba-conf
+#}
+
+```
+
+this produces 
+
+```
+local:
+----------
+          ID: postgresql-pg_hba-conf
+    Function: file.managed
+        Name: /tmp/tests
+      Result: True
+     Comment:
+     Started: 18:52:33.258766
+    Duration: 1.081 ms
+     Changes:
+              ----------
+              user:
+                  ubuntu
+
+Summary
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+-rwxr-x--- 1 ubuntu root 91 févr. 23 18:51 /tmp/tests
+```
+
+here the user is correctly set

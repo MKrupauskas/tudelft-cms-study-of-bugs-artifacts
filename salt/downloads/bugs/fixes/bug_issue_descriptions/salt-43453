@@ -1,0 +1,23 @@
+### Description of Issue/Question
+Runner code is broken. It never saves request load to the job cache.
+
+**Why does it usually work then?** The returner `local_cache` is written such that it does not require the request load to be present to fetch job returns from the cache. It simply traverses the directory looking for hostnames. For other returners such as `couchbase`, `load` not being present in the job_cache will cause fetching job returns to fail.
+
+**ROOT CAUSE:** Runner uses `utils.job.store_job` to store the job in the job cache. In this method, the condition that is checked before calling `save_load` is doomed to always return False.
+https://github.com/saltstack/salt/blob/b4ca024e44353bb9b5cc5e73d7de6db27a85ed80/salt/utils/job.py#L102-L104
+
+1) `get_load` in returner loader. This check is incorrect as it does not conform to the loader interface. It should check for `'{0}.get_load'.format(job_cache)`
+2) `not mminion.returners[getfstr](load.get('jid', ''))`. This check is redundant. It seems to be intended to make sure that no document/entry with the key `jid` is present in the job cache. It is not needed as it is the job of `prep_jid` to ensure JIDs do not collide. Should be removed.
+
+### Setup
+ `master_job_cache: couchbase` in master configs
+
+### Steps to Reproduce Issue
+1) Fire a runner `test.stdout_print`
+2) Lookup the return for the runner just fired. `salt-run jobs.lookup_jid <runner_jid>`
+Fails to find request load.
+
+Might run in to issue #43452 while trying to reproduce using couchbase returner
+
+### Versions Report
+Salt 2016.11.07

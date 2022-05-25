@@ -1,0 +1,268 @@
+**Description**
+While HTTP auth is enabled on the influxdb the saltstack modules for handling dbs and dbusers are not working.
+
+**Setup**
+InfluxDB Version:
+```
+$ influxd version
+InfluxDB v1.8.3 (git: 1.8 563e6c3d1a7a2790763c6289501095dbec19244e)
+```
+/etc/influxdb/influxdb.conf:
+```
+# Bind address to use for the RPC service for backup and restore.
+bind-address = "10.1.1.7:8088"
+
+level = "debug"
+
+[http]
+  enabled = true
+  bind-address = ":8086"
+  auth-enabled = true
+  log-enabled = true
+  write-tracing = false
+  pprof-enabled = true
+  pprof-auth-enabled = true
+  debug-pprof-enabled = false
+  ping-auth-enabled = true
+  https-enabled = true
+  https-certificate = "/etc/influxdb/ssl/cert.pem"
+  https-private-key = "/etc/influxdb/ssl/key.pem"
+```
+Netstat:
+```
+$ netstat -tulpn
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    
+tcp        0      0 10.1.1.7:8086      0.0.0.0:*               LISTEN      24489/influxd       
+tcp        0      0 10.1.1.7:22        0.0.0.0:*               LISTEN      4762/sshd           
+tcp        0      0 10.1.1.7:8088      0.0.0.0:*               LISTEN      24489/influxd 
+```
+
+State:
+```{%-   set datamap = salt['pillar.get']('influxdb') %}
+
+{%-   for user, userattr in datamap.dbusers.items() %}
+Create InfluxDB User - {{ userattr['username'] }}:
+  influxdb_user.present:
+    - name: {{ userattr['username'] }}
+    - passwd: {{ userattr['password'] }}
+    - admin: {{ userattr['isadmin'] }}
+{%-   endfor %}
+```
+
+Pillar:
+```influxdb:
+  packages:
+    install:
+      - python3-influxdb
+  dbusers:
+    influxadmin:
+      isadmin: true
+      username: influxadmin
+      password: |
+          -----BEGIN PGP MESSAGE-----
+          
+          ... a lot of crypt stuff....
+          -----END PGP MESSAGE-----
+    icinga2_reader:
+      isadmin: false
+      username: icinga2read
+      password: |
+            -----BEGIN PGP MESSAGE-----
+            
+            ... a lot of crypt stuff....
+            -----END PGP MESSAGE-----
+      grants:
+        icinga2: read
+  databases:
+    icinga2:
+      dbname: icinga2
+      dbuser: icinga2db
+      dbpwd: |
+            -----BEGIN PGP MESSAGE-----
+            
+            ... a lot of crypt stuff....
+            -----END PGP MESSAGE-----
+```
+**Steps to Reproduce the behavior**
+Use the Saltstack InfluxDB Modules.
+
+**Expected behavior**
+Create DBs and DBUsers while InfluxDB HTTP Auth is enabled.
+
+**Error message**
+Short:
+```
+requests.exceptions.ConnectionError: HTTPConnectionPool(host='localhost', port=8086): Max retries exceeded with url: /query?q=SHOW+USERS (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f01333c9208>: Failed to establish a new connection: [Errno 111] Connection refused'))
+```
+Long:
+
+```
+ ID: Create InfluxDB User - icinga2read
+    Function: influxdb_user.present
+        Name: icinga2read
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/urllib3/connection.py", line 159, in _new_conn
+                  (self._dns_host, self.port), self.timeout, **extra_kw)
+                File "/usr/lib/python3/dist-packages/urllib3/util/connection.py", line 80, in create_connection
+                  raise err
+                File "/usr/lib/python3/dist-packages/urllib3/util/connection.py", line 70, in create_connection
+                  sock.connect(sa)
+              ConnectionRefusedError: [Errno 111] Connection refused
+              
+              During handling of the above exception, another exception occurred:
+              
+              Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/urllib3/connectionpool.py", line 600, in urlopen
+                  chunked=chunked)
+                File "/usr/lib/python3/dist-packages/urllib3/connectionpool.py", line 354, in _make_request
+                  conn.request(method, url, **httplib_request_kw)
+                File "/usr/lib/python3.7/http/client.py", line 1244, in request
+                  self._send_request(method, url, body, headers, encode_chunked)
+                File "/usr/lib/python3.7/http/client.py", line 1290, in _send_request
+                  self.endheaders(body, encode_chunked=encode_chunked)
+                File "/usr/lib/python3.7/http/client.py", line 1239, in endheaders
+                  self._send_output(message_body, encode_chunked=encode_chunked)
+                File "/usr/lib/python3.7/http/client.py", line 1026, in _send_output
+                  self.send(msg)
+                File "/usr/lib/python3.7/http/client.py", line 966, in send
+                  self.connect()
+                File "/usr/lib/python3/dist-packages/urllib3/connection.py", line 181, in connect
+                  conn = self._new_conn()
+                File "/usr/lib/python3/dist-packages/urllib3/connection.py", line 168, in _new_conn
+                  self, "Failed to establish a new connection: %s" % e)
+              urllib3.exceptions.NewConnectionError: <urllib3.connection.HTTPConnection object at 0x7f01333c9208>: Failed to establish a new connection: [Errno 111] Connection refused
+              
+              During handling of the above exception, another exception occurred:
+              
+              Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/requests/adapters.py", line 449, in send
+                  timeout=timeout
+                File "/usr/lib/python3/dist-packages/urllib3/connectionpool.py", line 638, in urlopen
+                  _stacktrace=sys.exc_info()[2])
+                File "/usr/lib/python3/dist-packages/urllib3/util/retry.py", line 398, in increment
+                  raise MaxRetryError(_pool, url, error or ResponseError(cause))
+              urllib3.exceptions.MaxRetryError: HTTPConnectionPool(host='localhost', port=8086): Max retries exceeded with url: /query?q=SHOW+USERS (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f01333c9208>: Failed to establish a new connection: [Errno 111] Connection refused'))
+              
+              During handling of the above exception, another exception occurred:
+              
+              Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/salt/state.py", line 1933, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 1951, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/states/influxdb_user.py", line 67, in present
+                  if not __salt__['influxdb.user_exists'](name, **client_args):
+                File "/usr/lib/python3/dist-packages/salt/modules/influxdbmod.py", line 188, in user_exists
+                  if user_info(name, **client_args):
+                File "/usr/lib/python3/dist-packages/salt/modules/influxdbmod.py", line 207, in user_info
+                  matching_users = (user for user in list_users(**client_args)
+                File "/usr/lib/python3/dist-packages/salt/modules/influxdbmod.py", line 172, in list_users
+                  return client.get_list_users()
+                File "/usr/lib/python3/dist-packages/influxdb/client.py", line 769, in get_list_users
+                  return list(self.query("SHOW USERS").get_points())
+                File "/usr/lib/python3/dist-packages/influxdb/client.py", line 416, in query
+                  expected_response_code=expected_response_code
+                File "/usr/lib/python3/dist-packages/influxdb/client.py", line 267, in request
+                  timeout=self._timeout
+                File "/usr/lib/python3/dist-packages/requests/sessions.py", line 533, in request
+                  resp = self.send(prep, **send_kwargs)
+                File "/usr/lib/python3/dist-packages/requests/sessions.py", line 646, in send
+                  r = adapter.send(request, **kwargs)
+                File "/usr/lib/python3/dist-packages/requests/adapters.py", line 516, in send
+                  raise ConnectionError(e, request=request)
+              requests.exceptions.ConnectionError: HTTPConnectionPool(host='localhost', port=8086): Max retries exceeded with url: /query?q=SHOW+USERS (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f01333c9208>: Failed to establish a new connection: [Errno 111] Connection refused'))
+```
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+Saltstack Master:
+
+```$ salt --versions-report
+Salt Version:
+           Salt: 2019.2.5
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.11
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.27.7
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.27.4
+         Python: 3.7.3 (default, Jul 25 2020, 13:03:44)
+   python-gnupg: 0.4.4
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: 2.0.5
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: debian 10.6 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.19.0-11-amd64
+         system: Linux
+        version: debian 10.6 
+```
+
+Minion with InfluxDB:
+```$ salt-call --versions-report
+Salt Version:
+           Salt: 2019.2.5
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.7.3 (default, Jul 25 2020, 13:03:44)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: debian 10.6 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.19.0-10-amd64
+         system: Linux
+        version: debian 10.6 
+```
+</details>

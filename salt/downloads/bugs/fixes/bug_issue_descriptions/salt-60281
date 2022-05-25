@@ -1,0 +1,162 @@
+**Description**
+I am deploying Windows EC2 using salt-cloud and am using generic WinRM script provided [here](https://docs.saltproject.io/en/latest/topics/cloud/windows.html#firewall-settings)
+
+With pywinrm==0.2.1, I get this error: 
+
+```
+requests.exceptions.ConnectionError: HTTPSConnectionPool(host='10.36.108.17', port=5986): Max retries exceeded with url: /wsman (Caused by SSLError(SSLError("bad handshake: Error([('SSL routines', 'tls_process_server_certificate', 'certificate verify failed')],)",),))
+```
+
+Downgrading to  pywinrm==0.1.1, throws this error:
+```
+There was a profile error: POST data should be bytes, an iterable of bytes, or a file object. It cannot be of type str.
+```
+
+**Setup**
+Profile sls
+
+```
+windows-dev:
+  provider: connected-vpc
+  image: {{ windows_ami }}
+  userdata_file: /etc/salt/userdata/windows-fw-saltinstall-a.ps1
+  userdata_template: False
+  del_root_vol_on_destroy: True
+  del_all_vols_on_destroy: True
+  flush_mine_on_destroy: True
+  use_winrm: True
+  win_installer: /etc/salt/win_installer/Salt-Minion-3003-Setup.exe
+  win_username: Administrator
+  win_password: auto
+```
+
+
+**Steps to Reproduce the behavior**
+Debug logs
+
+```
+There was a profile error: HTTPSConnectionPool(host='10.36.108.17', port=5986): Max retries exceeded with url: /wsman (Caused by SSLError(SSLError("bad handshake: Error([('SSL routines', 'tls_process_server_certificate', 'certificate verify failed')],)",),))
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/requests/packages/urllib3/contrib/pyopenssl.py", line 485, in wrap_socket
+    cnx.do_handshake()
+  File "/usr/local/lib/python3.6/site-packages/OpenSSL/SSL.py", line 1828, in do_handshake
+    self._raise_ssl_error(self._ssl, result)
+  File "/usr/local/lib/python3.6/site-packages/OpenSSL/SSL.py", line 1566, in _raise_ssl_error
+    _raise_current_error()
+  File "/usr/local/lib/python3.6/site-packages/OpenSSL/_util.py", line 57, in exception_from_error_queue
+    raise exception_type(errors)
+OpenSSL.SSL.Error: [('SSL routines', 'tls_process_server_certificate', 'certificate verify failed')]
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/requests/packages/urllib3/connectionpool.py", line 672, in urlopen
+    chunked=chunked,
+  File "/usr/lib/python3.6/site-packages/requests/packages/urllib3/connectionpool.py", line 376, in _make_request
+    self._validate_conn(conn)
+  File "/usr/lib/python3.6/site-packages/requests/packages/urllib3/connectionpool.py", line 994, in _validate_conn
+    conn.connect()
+  File "/usr/lib/python3.6/site-packages/requests/packages/urllib3/connection.py", line 408, in connect
+    ssl_context=context,
+  File "/usr/lib/python3.6/site-packages/requests/packages/urllib3/util/ssl_.py", line 383, in ssl_wrap_socket
+    return context.wrap_socket(sock)
+  File "/usr/lib/python3.6/site-packages/requests/packages/urllib3/contrib/pyopenssl.py", line 491, in wrap_socket
+    raise ssl.SSLError("bad handshake: %r" % e)
+ssl.SSLError: ("bad handshake: Error([('SSL routines', 'tls_process_server_certificate', 'certificate verify failed')],)",)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/requests/adapters.py", line 438, in send
+    timeout=timeout
+  File "/usr/lib/python3.6/site-packages/requests/packages/urllib3/connectionpool.py", line 720, in urlopen
+    method, url, error=e, _pool=self, _stacktrace=sys.exc_info()[2]
+  File "/usr/lib/python3.6/site-packages/requests/packages/urllib3/util/retry.py", line 436, in increment
+    raise MaxRetryError(_pool, url, error or ResponseError(cause))
+requests.packages.urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='10.36.108.17', port=5986): Max retries exceeded with url: /wsman (Caused by SSLError(SSLError("bad handshake: Error([('SSL routines', 'tls_process_server_certificate', 'certificate verify failed')],)",),))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/cloud/cli.py", line 290, in run
+    ret = mapper.run_profile(self.options.profile, self.config.get("names"))
+  File "/usr/lib/python3.6/site-packages/salt/cloud/__init__.py", line 1407, in run_profile
+    ret[name] = self.create(vm_)
+  File "/usr/lib/python3.6/site-packages/salt/cloud/__init__.py", line 1228, in create
+    output = self.clouds[func](vm_)
+  File "/usr/lib/python3.6/site-packages/salt/loader.py", line 1235, in __call__
+    return self.loader.run(run_func, *args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/loader.py", line 2268, in run
+    return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/contextvars/__init__.py", line 38, in run
+    return callable(*args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/loader.py", line 2283, in _run_as
+    return _func_or_method(*args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/cloud/clouds/ec2.py", line 2793, in create
+    vm_ = wait_for_instance(vm_, data, ip_address, display_ssh_output)
+  File "/usr/lib/python3.6/site-packages/salt/cloud/clouds/ec2.py", line 2459, in wait_for_instance
+    verify=winrm_verify_ssl,
+  File "/usr/lib/python3.6/site-packages/salt/utils/cloud.py", line 1054, in wait_for_winrm
+    r = s.run_cmd("sc query winrm")
+  File "/home/salt/.local/lib/python3.6/site-packages/winrm/__init__.py", line 37, in run_cmd
+    shell_id = self.protocol.open_shell()
+  File "/home/salt/.local/lib/python3.6/site-packages/winrm/protocol.py", line 132, in open_shell
+    res = self.send_message(xmltodict.unparse(req))
+  File "/home/salt/.local/lib/python3.6/site-packages/winrm/protocol.py", line 207, in send_message
+    return self.transport.send_message(message)
+  File "/home/salt/.local/lib/python3.6/site-packages/winrm/transport.py", line 173, in send_message
+    response = self.session.send(prepared_request, timeout=self.read_timeout_sec)
+  File "/usr/lib/python3.6/site-packages/requests/sessions.py", line 651, in send
+    r = adapter.send(request, **kwargs)
+  File "/usr/lib/python3.6/site-packages/requests/adapters.py", line 502, in send
+    raise ConnectionError(e, request=request)
+requests.exceptions.ConnectionError: HTTPSConnectionPool(host='10.36.108.17', port=5986): Max retries exceeded with url: /wsman (Caused by SSLError(SSLError("bad handshake: Error([('SSL routines', 'tls_process_server_certificate', 'certificate verify failed')],)",),))
+```
+**Expected behavior**
+Windows ec2 instance should be up and running and configured via Salt
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+Salt version report:
+
+```
+Salt Version:
+          Salt: 3003
+
+Dependency Versions:
+          cffi: 1.14.5
+      cherrypy: unknown
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10.3
+       libgit2: 1.1.0
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.20
+      pycrypto: Not Installed
+  pycryptodome: 3.10.1
+        pygit2: 1.5.0
+        Python: 3.6.8 (default, Nov 16 2020, 16:55:22)
+  python-gnupg: Not Installed
+        PyYAML: 3.13
+         PyZMQ: 17.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.1.4
+
+System Versions:
+          dist: centos 7 Core
+        locale: UTF-8
+       machine: x86_64
+       release: 4.14.231-173.361.amzn2.x86_64
+        system: Linux
+       version: CentOS Linux 7 Core
+```</details>
+

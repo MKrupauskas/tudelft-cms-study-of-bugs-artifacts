@@ -1,0 +1,72 @@
+Hi there, we check if our hosts are virtual as such in our pillars:
+
+``{% elif 'host' in grains['is_virtual'] %}``
+
+and we have a problem on Windows where a physical host won't have a grain key for virtual and jinja errors out, because in grains/core.py the windows grain defaults to an empty dictionary rather than ''physical":
+
+grains/core.py
+```
+def _windows_virtual(osdata):
+    '''
+    Returns what type of virtual hardware is under the hood, kvm or physical
+    '''
+    # Provides:
+    #   virtual
+    #   virtual_subtype
+    grains = dict()
+    if osdata['kernel'] != 'Windows':
+        return grains
+
+def _virtual(osdata):
+    '''
+    Returns what type of virtual hardware is under the hood, kvm or physical
+    '''
+    # This is going to be a monster, if you are running a vm you can test this
+    # grain with please submit patches!
+    # Provides:
+    #   virtual
+    #   virtual_subtype
+    **grains = {'virtual': 'physical'}**
+```
+We worked around that creating a custom grain 'is_virtual' and wrapping around virtual as such:
+
+```
+import salt.config
+import salt.loader
+import platform
+import os
+
+def is_virtual():
+    ## we put the only necessary dummy keys for loader.py
+    ## if we used an actual config file, it would try to retrieve itself and enter an endless loop
+    __opts__ = {}
+    __opts__['cachedir'] = 'dummy'
+    __opts__['extension_modules'] = 'dummy'
+    ## Load core grains only
+    __grains__ = salt.loader.grains(__opts__)
+    try:
+        virtual = __grains__['virtual']
+    except KeyError, e:
+        grains = {'is_virtual': 'physical'}
+        return grains
+    grains = {'is_virtual': virtual}
+    return grains
+```
+But shouldn't the windows "virtual" default to "pyhisical" after the os check like this?
+
+```
+def _windows_virtual(osdata):
+    '''
+    Returns what type of virtual hardware is under the hood, kvm or physical
+    '''
+    # Provides:
+    #   virtual
+    #   virtual_subtype
+    grains = dict()
+    if osdata['kernel'] != 'Windows':
+        return grains
+    grains = {'virtual': 'physical'}
+```
+We are on 2017.7.7 but I can see the code is the same in the newer versions,
+
+thanks

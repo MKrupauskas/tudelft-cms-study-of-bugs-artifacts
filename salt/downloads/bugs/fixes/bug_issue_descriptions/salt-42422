@@ -1,0 +1,159 @@
+### Description of Issue/Question
+
+### Setup
+
+Setup is to have mysql states that maintain mysql users, removing them when they are no longer in the pillar list
+
+mysql/install.sls:
+```yaml
+mysql-repo:
+  pkgrepo.managed:
+    - humanname: mysql
+    - name: deb http://repo.mysql.com/apt/debian {{ salt['grains.get']('oscodename') }} mysql-5.7
+    - file: /etc/apt/sources.list.d/mysql.list
+    - key_url: http://repo.mysql.com/RPM-GPG-KEY-mysql
+
+mysql-init-root-password:
+  debconf.set:
+    - name: mysql-community-server
+    - require_in: # should be prereq_in but causes maximum recursion depth exceeded errors, see https://github.com/saltstack/salt/issues/15171
+      - pkg: mysql-community-server
+    - data:
+        'mysql-community-server/root-pass': {'type': 'password', 'value': '<some_password>'}
+        'mysql-community-server/re-root-pass': {'type': 'password', 'value': '<some_password>'}
+    - onlyif: test -z "$(salt-call --out=newline_values_only --local pkg.version mysql-community-server)"
+
+mysql-community-server:
+  pkg.installed:
+    - require:
+        - pkgrepo: mysql-repo
+    - pkgs:
+      - mysql-community-server
+      - python-pymysql
+      - mysql-community-client
+
+mysql:
+  service.running:
+    - require:
+      - pkg: mysql-community-server
+
+mysql-init-admin:
+  mysql_user.present:
+    - name: an_admin
+    - host: localhost
+    - password: '<some_other_password>'
+    - require:
+      - service: mysql
+    - watch:
+      - debconf: mysql-init-root-password
+    - connection_user: root
+    - connection_pass: '<some_password>'
+
+```
+mysql/users.sls:
+```yaml
+{%- if salt['saltmods.is_loaded']('mysql.user_list') %}
+{% set wanted_users = salt['pillar.get']('mysql:users', {'root': {'hosts': ['localhost', '127.0.0.1']}})  %}
+{% do wanted_users.update({'mysql.sys': {'hosts': ['localhost']}}) %}
+{%- for user in salt['mysql.user_list']() if user.User not in wanted_users.keys() %}
+mysql-user-{{ user.User }}-on-{{ user.Host|e }}-remove:
+  mysql_user.absent:
+    - name: {{ user.User }}
+    - host: {{ user.Host }}
+    - require:
+      - service: mysql
+{%- endfor %}
+{%- endif %}
+```
+
+### Steps to Reproduce Issue
+The issue lies in the use of `salt['mysql.user_list']` trying to connect to the mysql server when it not yet available
+Deeper down, the `mysql_user.present` and `mysql_user.absent` states check the `mysql.error` list when the user does not exist, while the mysql.error is still populated by the `mysql.user_list` call error
+
+Subsequent states involving `mysql_user.present` work flawlessly
+
+The workaround I use now is a custom state which clears the list before the actual state call:
+mysql_user_s.py:
+```python
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import
+
+# Import python libs
+import sys
+
+
+def __virtual__():
+    '''
+    Only load if the mysql module is in __salt__
+    '''
+    return 'mysql.user_create' in __salt__
+
+
+def _get_mysql_error():
+    '''
+    Look in module context for a MySQL error. Eventually we should make a less
+    ugly way of doing this.
+    '''
+    return sys.modules[
+        __salt__['test.ping'].__module__
+    ].__context__.pop('mysql.error', None)
+
+
+def present(**kwargs):
+    while _get_mysql_error() is not None:
+        continue
+
+    return __states__['mysql_user.present'](**kwargs)
+
+def absent(**kwargs):
+    while _get_mysql_error() is not None:
+        continue
+
+    return __states__['mysql_user.absent'](**kwargs)
+```
+
+I could make a pull request with the list clearing built directly into the states but I kinda suspect that's not the most elegant solution wanted..
+
+### Versions Report
+Bother the master and minion use the Debian version and same Salt version
+```
+Salt Version:
+           Salt: 2016.11.6
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: 2.0.0
+      gitpython: 2.1.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Jan 19 2017, 14:48:08)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.1
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.0 
+        machine: x86_64
+        release: 4.10.0-26-generic
+         system: Linux
+        version: debian 9.0 
+```

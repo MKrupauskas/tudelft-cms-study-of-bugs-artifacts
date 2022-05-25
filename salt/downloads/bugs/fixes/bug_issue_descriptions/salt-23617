@@ -1,0 +1,40 @@
+Hey all, I have a state that looks something like this:
+
+``` yaml
+unzip:
+  pkg.installed
+
+http_proxy:
+  environ.setenv:
+    - value: 'http://proxy-url'
+
+https_proxy:
+  environ.setenv:
+    - value: 'https://proxy-url'
+
+/usr/local/bin/consul_dir:
+  archive.extracted:
+    - source: https://dl.bintray.com/mitchellh/consul/0.5.0_linux_amd64.zip
+    - archive_format: zip
+    - source_hash: sha256=161f2a8803e31550bd92a00e95a3a517aa949714c19d3124c46e56cfdc97b088
+    - require:
+        - environ: http_proxy
+        - environ: https_proxy
+        - pkg: unzip
+```
+
+where `proxy-url` is a standin for the actual url of my http proxy. With a 2014.7 minion the archive extracted fine, with a  2015.5 minion, I get:
+
+``` yaml
+----------
+          ID: /usr/local/bin/consul_dir
+    Function: archive.extracted
+      Result: False
+     Comment: Unable to manage file: [Errno 111] Connection refused
+     Started: 17:58:15.121916
+    Duration: 420.282 ms
+     Changes:
+----------
+```
+
+Debugging with salt-call, this appears to be happening [here](https://github.com/saltstack/salt/blob/2015.5/salt/utils/http.py#L286), it looks like the new utils.http doesn't use the `http_proxy` and `https_proxy` environment variables, whereas whatever was responsible for the http calls in 2014.7 did.

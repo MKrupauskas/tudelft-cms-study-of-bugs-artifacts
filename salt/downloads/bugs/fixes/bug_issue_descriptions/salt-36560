@@ -1,0 +1,100 @@
+### Description of Issue/Question
+
+If the salt minion try to restart itself during a highstate (by using the salt-formula)
+The minion may continuously polls for a set of file descriptors that are already closed.
+This prevents the minion from stopping, so the minion becomes unresponsive.
+This doesn't seem to happen consistently. 
+### Steps to Reproduce Issue
+
+```
+# master
+salt minion state.apply
+# minion
+service salt_minion restart
+```
+
+tracing with truss:
+
+```
+_umtx_op(0x805e5f244,UMTX_OP_SEM_WAKE,0x0,0x0,0x0) = 0 (0x0)
+poll({8/POLLIN 10/POLLIN 12/POLLIN 22/POLLIN},4,0) = 4 (0x4)
+getpid()           = 44609 (0xae41)
+_umtx_op(0x805e5f294,UMTX_OP_SEM_WAKE,0x0,0x0,0x0) = 0 (0x0)
+_umtx_op(0x805e5f294,UMTX_OP_SEM_WAKE,0x0,0x0,0x0) = 0 (0x0)
+_umtx_op(0x805e5f244,UMTX_OP_SEM_WAKE,0x0,0x0,0x0) = 0 (0x0)
+_umtx_op(0x805e5f244,UMTX_OP_SEM_WAKE,0x0,0x0,0x0) = 0 (0x0)
+poll({8/POLLIN 10/POLLIN 12/POLLIN 22/POLLIN},4,0) = 4 (0x4)
+getpid()           = 44609 (0xae41)
+_umtx_op(0x805e5f294,UMTX_OP_SEM_WAKE,0x0,0x0,0x0) = 0 (0x0)
+_umtx_op(0x805e5f294,UMTX_OP_SEM_WAKE,0x0,0x0,0x0) = 0 (0x0)
+_umtx_op(0x805e5f244,UMTX_OP_SEM_WAKE,0x0,0x0,0x0) = 0 (0x0)
+poll({8/POLLIN 10/POLLIN 12/POLLIN 22/POLLIN},4,0) = 4 (0x4)
+getpid()           = 44609 (0xae41)
+_umtx_op(0x805e5f294,UMTX_OP_SEM_WAKE,0x0,0x0,0x0) = 0 (0x0)
+_umtx_op(0x805e5f294,UMTX_OP_SEM_WAKE,0x0,0x0,0x0) = 0 (0x0)
+_umtx_op(0x805e5f244,UMTX_OP_SEM_WAKE,0x0,0x0,0x0) = 0 (0x0)
+poll({8/POLLIN 10/POLLIN 12/POLLIN 22/POLLIN},4,0) = 4 (0x4)
+getpid()           = 44609 (0xae41)
+_umtx_op(0x805e5f294,UMTX_OP_SEM_WAKE,0x0,0x0,0x0) = 0 (0x0)
+_umtx_op(0x805e5f294,UMTX_OP_SEM_WAKE,0x0,0x0,0x0) = 0 (0x0)
+_umtx_op(0x805e5f244,UMTX_OP_SEM_WAKE,0x0,0x0,0x0) = 0 (0x0)
+poll({8/POLLIN 10/POLLIN 12/POLLIN 22/POLLIN},4,0) = 4 (0x4)
+...snip...
+```
+
+output of procstat -f (info about file descriptors):
+
+```
+tarvos # procstat -f 44609
+  PID COMM               FD T V FLAGS     REF  OFFSET PRO NAME
+44609 python2.7         text v r r-------  -       - -   /usr/local/bin/python2.7
+44609 python2.7          cwd v d r-------  -       - -   /
+44609 python2.7         root v d r-------  -       - -   /
+44609 python2.7         jail v d r-------  -       - -   /
+44609 python2.7            0 p - rw------ 11       0 -   -
+44609 python2.7            1 p - rw------  2       0 -   -
+44609 python2.7            2 p - rw------  2       0 -   -
+```
+### Versions Report
+
+master and minion:
+
+```
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Jul  5 2016, 01:21:33)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist:   
+        machine: amd64
+        release: 10.2-RELEASE-p18
+         system: FreeBSD
+        version: Not Installed
+```

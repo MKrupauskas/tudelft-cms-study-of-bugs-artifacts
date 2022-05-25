@@ -1,0 +1,113 @@
+**Description**
+So first of all it's a shame that ret dictionary data structure is not strict. I think it has to be.
+
+The problem is in the `salt/state.py` file.
+
+In a function `_run_check` we have a:
+```
+        ret = {'result': False, 'comment': []}
+[CUT]
+
+        if 'unless' in low_data:
+            _ret = self._run_check_unless(low_data, cmd_opts)
+            # If either result is True, the returned result should be True
+            ret['result'] = _ret['result'] or ret['result']
+            ret['comment'].append(_ret['comment'])
+```
+
+So we `comment` key is a `list` and we append some stuff to it, what could go wrong right?
+
+Later in the `call` function we call:
+```
+            if ('unless' in low and '{0[state]}.mod_run_check'.format(low) not in self.states) or \
+                    ('onlyif' in low and '{0[state]}.mod_run_check'.format(low) not in self.states):
+                ret.update(self._run_check(low))
+```
+
+And guess what - we just overrode the `ret` dict `'comment'` key from **string** to **list**!
+
+And in the end of that function we do this:
+```
+                ret['comment'] = '  '.join(
+                        ['' if not ret['comment'] else ret['comment'],
+                         ('The state would be retried every {1} seconds '
+                          '(with a splay of up to {3} seconds) '
+                          'a maximum of {0} times or until a result of {2} '
+                          'is returned').format(low['retry']['attempts'],
+                                                low['retry']['interval'],
+                                                low['retry']['until'],
+                                                low['retry']['splay'])])
+```
+
+And yeah it will break since `ret['comment']` is a list right now.
+
+And I get this:
+```
+Traceback (most recent call last):
+  File "/opt/behavox/salt/venv/lib64/python3.6/site-packages/salt/cli/caller.py", line 218, in call
+    ret['return'] = self.minion.executors[fname](self.opts, data, func, args, kwargs)
+  File "/opt/behavox/salt/venv/lib/python3.6/site-packages/salt/executors/direct_call.py", line 12, in execute
+    return func(*args, **kwargs)
+  File "/opt/behavox/salt/venv/lib/python3.6/site-packages/salt/modules/state.py", line 782, in apply_
+    return sls(mods, **kwargs)
+  File "/opt/behavox/salt/venv/lib/python3.6/site-packages/salt/modules/state.py", line 1351, in sls
+    ret = st_.state.call_high(high_, orchestration_jid)
+  File "/opt/behavox/salt/venv/lib64/python3.6/site-packages/salt/state.py", line 2911, in call_high
+    ret = self.call_chunks(chunks)
+  File "/opt/behavox/salt/venv/lib64/python3.6/site-packages/salt/state.py", line 2273, in call_chunks
+    running = self.call_chunk(low, running, chunks)
+  File "/opt/behavox/salt/venv/lib64/python3.6/site-packages/salt/state.py", line 2718, in call_chunk
+    running[tag] = self.call(low, chunks, running)
+  File "/opt/behavox/salt/venv/lib64/python3.6/site-packages/salt/utils/decorators/state.py", line 30, in _func
+    result = func(*args, **kwargs)
+  File "/opt/behavox/salt/venv/lib64/python3.6/site-packages/salt/state.py", line 2086, in call
+    low['retry']['splay'])])
+TypeError: sequence item 0: expected str instance, list found
+```
+
+**Steps to Reproduce the behavior**
+To reproduce that you need to use `onlyif` or `unless` requisites with `retry` for example. In a check mode, it will produce a list for unless and will try to add an additional comment for retry logic and will fail.
+
+**Expected behavior**
+Correct comment has to be set in ret['comment'] and no exception should happen.
+
+**Versions Report**
+```
+Salt Version:
+           Salt: 3000.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.1
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Aug  7 2019, 17:28:10)
+   python-gnupg: 0.4.5
+         PyYAML: 3.11
+          PyZMQ: 18.0.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.3.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```

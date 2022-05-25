@@ -1,0 +1,102 @@
+Hello,
+
+today I got in highstate problems because of boto calls not working as expected:
+
+```
+root@ip-172-31-24-226:~# salt-call boto_ec2.get_id salt solr-master-euc1-01 -l debug
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', 'solr-master-euc1-01', 'tcp://52.28.xx.xx:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (2732)
+[DEBUG   ] Setting zmq_reconnect_ivl to '2732ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'solr-master-euc1-01', 'tcp://52.28.xx.xx:4506', 'aes')
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', 'solr-master-euc1-01', 'tcp://52.28.xx.xx:4506')
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'solr-master-euc1-01', 'tcp://52.28.xx.xx:4506', 'clear')
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded boto.assign_funcs
+[DEBUG   ] LazyLoaded boto_ec2.get_id
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+NameError: global name '__salt__' is not defined
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 335, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/call.py", line 53, in run
+    caller.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 133, in run
+    ret = self.call()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 196, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/boto_ec2.py", line 191, in get_id
+    keyid=keyid, profile=profile)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/boto_ec2.py", line 120, in find_instances
+    conn = _get_conn(region=region, key=key, keyid=keyid, profile=profile)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/boto.py", line 176, in get_connection
+    keyid, profile)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/boto.py", line 91, in _get_profile
+    if not region and __salt__['config.option'](service + '.region'):
+NameError: global name '__salt__' is not defined
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 335, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/call.py", line 53, in run
+    caller.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 133, in run
+    ret = self.call()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 196, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/boto_ec2.py", line 191, in get_id
+    keyid=keyid, profile=profile)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/boto_ec2.py", line 120, in find_instances
+    conn = _get_conn(region=region, key=key, keyid=keyid, profile=profile)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/boto.py", line 176, in get_connection
+    keyid, profile)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/boto.py", line 91, in _get_profile
+    if not region and __salt__['config.option'](service + '.region'):
+NameError: global name '__salt__' is not defined
+****
+```
+
+```
+root@ip-172-31-24-226:~# salt-call --version
+salt-call 2015.8.4 (Beryllium)
+root@ip-172-31-24-226:~# lsb_release -d
+Description:    Debian GNU/Linux 8.1 (jessie)
+root@ip-172-31-24-226:~# apt-cache show python-boto | grep Version
+Version: 2.34.0-2
+```
+- Also tested with updated boto 2.38.0-1 from sid - same problem
+- My previous setup instances can still run this command 
+  but not the new ones (which are generated out of cloud profile).
+- IAM profile is working (checked with e.g.:
+
+```
+root@ip-172-31-24-226:~# wget -qO- http://169.254.169.254/latest/meta-data/iam/info ; echo                          {
+  "Code" : "Success",
+  "LastUpdated" : "2016-02-02T13:03:22Z",
+  "InstanceProfileArn" : "arn:aws:iam::123456789012:instance-profile/solr-master",
+  "InstanceProfileId" : "AIPAJQXXFIYGXXXXXXXXX"
+}
+```
+- AWS seems having a temporary credentials problem - again ^^... 
+
+```
+ root@ip-172-31-24-226:~# aws ec2 describe-instances --filters 'Name=tag:Name,Values=solr-slave-euc1-01' --region=eu-central-1
+
+A client error (AuthFailure) occurred when calling the DescribeInstances operation: AWS was not able to validate the provided access credentials
+```

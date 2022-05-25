@@ -1,0 +1,115 @@
+Hi
+i upgraded one server today from centos 7.1 to centos 7.2 and from salt 2015.5.2 to 2015.8.4 at once.
+if you compare 
+https://github.com/saltstack/salt/blob/v2015.5.2/salt/states/lvm.py
+with
+https://github.com/saltstack/salt/blob/v2015.8.4/salt/states/lvm.py
+you see this difference with realpath bla bla 
+I think that can be the cause.
+
+after that the highstate did not run through anymore.
+So I cannot tell if centos or salt upgrade is the cause of the failure.
+
+Here some infos:
+important part of the rendered sls (pv_present works, but vg_present does not work):
+
+```
+disk_lvm__pv_/dev/mapper/crypt_ceph_meta:
+  lvm.pv_present:
+    - name: /dev/mapper/crypt_ceph_meta
+    - require:
+      - pkg: disk_lvm__pkg_lvm2
+      - augeas: disk_lvm__file_/etc/lvm/lvm.conf
+      - cmd: disk_lvm__cmd_start_lvm2-lvmetad.service
+      - cmd: disk_lvm__cmd_start_lvm2-monitor.service
+disk_lvm__vg_vgceph:
+  lvm.vg_present:
+    - name: vgceph
+    - devices: /dev/mapper/crypt_ceph_meta 
+    - require:
+      - lvm: disk_lvm__pv_/dev/mapper/crypt_ceph_meta
+```
+
+debug output (salt-call -l debug)(pv_present works, but vg_present does not work):
+
+```
+[INFO    ] Executing state lvm.pv_present for /dev/mapper/crypt_ceph_meta
+[INFO    ] Executing command ['pvdisplay', '-c', '/dev/mapper/crypt_ceph_meta'] in directory '/root'
+[DEBUG   ] stdout:   /dev/mapper/crypt_ceph_meta:vgceph:85913600:-1:8:8:-1:4096:10487:247:10240:j3YmvR-5cYR-WqH3-K3x0-iT1N-n5zb-XL6eIm
+[INFO    ] Physical Volume /dev/mapper/crypt_ceph_meta already present
+[INFO    ] Completed state [/dev/mapper/crypt_ceph_meta] at time 23:45:09.209684
+
+[INFO    ] Running state [vgceph] at time 23:45:09.212759
+[INFO    ] Executing state lvm.vg_present for vgceph
+[INFO    ] Executing command ['vgdisplay', '-c', 'vgceph'] in directory '/root'
+[DEBUG   ] stdout:   vgceph:r/w:772:-1:0:4:4:-1:0:1:1:42954752:4096:10487:10240:247:1gqmdc-Aa7O-XOBS-cBRs-ZXPX-UxXT-gGKFsM
+[INFO    ] Executing command ['pvdisplay', '-c', '/dev/dm-16'] in directory '/root'
+[DEBUG   ] stdout:   /dev/mapper/crypt_ceph_meta:vgceph:85913600:-1:8:8:-1:4096:10487:247:10240:j3YmvR-5cYR-WqH3-K3x0-iT1N-n5zb-XL6eIm
+[ERROR   ] Volume Group vgceph already present
+pv /dev/mapper/crypt_ceph_meta is not present
+[INFO    ] Completed state [vgceph] at time 23:45:09.291215
+```
+
+highstate output
+
+```
+          ID: disk_lvm__pv_/dev/mapper/crypt_ceph_meta
+    Function: lvm.pv_present
+        Name: /dev/mapper/crypt_ceph_meta
+      Result: True
+     Comment: Physical Volume /dev/mapper/crypt_ceph_meta already present
+     Started: 23:45:09.072969
+    Duration: 136.715 ms
+     Changes:   
+----------
+          ID: disk_lvm__vg_vgceph
+    Function: lvm.vg_present
+        Name: vgceph
+      Result: False
+     Comment: Volume Group vgceph already present
+              pv /dev/mapper/crypt_ceph_meta is not present
+     Started: 23:45:09.212759
+    Duration: 78.456 ms
+     Changes:   
+----------
+```
+
+pvs
+
+```
+  PV                          VG     Fmt  Attr PSize   PFree  
+  /dev/mapper/crypt_ceph_meta vgceph lvm2 a--   40.96g 988.00m
+  /dev/mapper/crypt_ssd_1     vgssd1 lvm2 a--  175.47g  17.47g
+  /dev/mapper/crypt_ssd_2     vgssd2 lvm2 a--  175.47g  17.47g
+```
+
+vgdisplay -v vgceph
+
+```
+    Using volume group(s) on command line.
+  --- Volume group ---
+  VG Name               vgceph
+  System ID             
+  Format                lvm2
+  Metadata Areas        1
+  Metadata Sequence No  17
+  VG Access             read/write
+  VG Status             resizable
+  MAX LV                0
+  Cur LV                4
+  Open LV               4
+  Max PV                0
+  Cur PV                1
+  Act PV                1
+  VG Size               40.96 GiB
+  PE Size               4.00 MiB
+  Total PE              10487
+  Alloc PE / Size       10240 / 40.00 GiB
+  Free  PE / Size       247 / 988.00 MiB
+  VG UUID             
+  ...
+  --- Physical volumes ---
+  PV Name               /dev/mapper/crypt_ceph_meta     
+  PV UUID               
+  PV Status             allocatable
+```

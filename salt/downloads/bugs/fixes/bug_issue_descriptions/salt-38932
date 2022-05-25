@@ -1,0 +1,145 @@
+### Description of Issue/Question
+Windows minion(version: 2016.11.1) doesn't failover to other masters when the connected master is down.
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+minion's configs:
+```
+master:
+  - master1
+  - master2
+  - master3
+
+master_type: failover
+master_shuffle: True
+master_alive_interval: 30
+```
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+
+Send `test.ping` to check the minion was connected.
+Run `netstat -ano | find "4505"` to get the connected master.
+Stop the connected master.
+Send `test.ping` to check the minion was not connected.
+Run `netstat -ano | find "4505"`, no master was connected.
+View the minion's log, minion was not reconnected to other master.
+
+minion's logs
+```
+2017-01-25 16:05:04,836 [salt.utils.schedule][INFO    ][1572] Running scheduled job: __master_alive_master1
+2017-01-25 16:05:04,842 [salt.utils.schedule][DEBUG   ][1572] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+2017-01-25 16:05:04,845 [salt.utils.schedule][DEBUG   ][1572] schedule: This job was scheduled with a max number of 1
+2017-01-25 16:05:04,871 [salt.utils.schedule][DEBUG   ][1572] schedule.handle_func: adding this job to the jobcache with data {'fun_args': [], 'jid': '20170125160504872000', 'schedule': '__master_alive_master1', 'pid': 1572, 'fun': 'status.master', 'id': 'minion1'}
+2017-01-25 16:05:04,881 [salt.utils.lazy  ][DEBUG   ][1572] LazyLoaded status.master
+2017-01-25 16:05:04,887 [salt.utils.lazy  ][DEBUG   ][1572] LazyLoaded config.get
+2017-01-25 16:05:04,918 [salt.utils.event ][DEBUG   ][1572] SaltEvent PUB socket URI: 4510
+2017-01-25 16:05:04,927 [salt.utils.event ][DEBUG   ][1572] SaltEvent PULL socket URI: 4511
+2017-01-25 16:05:04,931 [salt.transport.ipc][DEBUG   ][1572] Initializing new IPCClient for path: 4511
+2017-01-25 16:05:04,938 [salt.utils.event ][DEBUG   ][1572] Sending event: tag = __master_disconnected; data = {'_stamp': '2017-01-25T08:05:04.939000', 'master': 'master1'}
+2017-01-25 16:05:04,946 [salt.utils.schedule][DEBUG   ][1572] schedule.handle_func: Removing c:\salt\var\cache\salt\minion\proc\20170125160504872000
+2017-01-25 16:05:04,948 [salt.minion      ][DEBUG   ][1572] Minion of "master2" is handling event tag '__master_disconnected'
+2017-01-25 16:05:05,838 [salt.utils.lazy  ][DEBUG   ][1572] LazyLoaded mine.update
+2017-01-25 16:05:34,836 [salt.utils.schedule][INFO    ][1572] Running scheduled job: __master_alive_master1
+2017-01-25 16:05:34,845 [salt.utils.schedule][DEBUG   ][1572] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+2017-01-25 16:05:34,846 [salt.utils.schedule][DEBUG   ][1572] schedule: This job was scheduled with a max number of 1
+2017-01-25 16:05:34,871 [salt.utils.schedule][DEBUG   ][1572] schedule.handle_func: adding this job to the jobcache with data {'fun_args': [], 'jid': '20170125160534872000', 'schedule': '__master_alive_master1', 'pid': 1572, 'fun': 'status.master', 'id': 'minion1'}
+2017-01-25 16:05:34,878 [salt.utils.lazy  ][DEBUG   ][1572] LazyLoaded status.master
+2017-01-25 16:05:34,884 [salt.utils.lazy  ][DEBUG   ][1572] LazyLoaded config.get
+2017-01-25 16:05:34,911 [salt.utils.event ][DEBUG   ][1572] SaltEvent PUB socket URI: 4510
+2017-01-25 16:05:34,914 [salt.utils.event ][DEBUG   ][1572] SaltEvent PULL socket URI: 4511
+2017-01-25 16:05:34,917 [salt.transport.ipc][DEBUG   ][1572] Initializing new IPCClient for path: 4511
+2017-01-25 16:05:34,924 [salt.utils.event ][DEBUG   ][1572] Sending event: tag = __master_disconnected; data = {'_stamp': '2017-01-25T08:05:34.925000', 'master': 'master1'}
+2017-01-25 16:05:34,931 [salt.utils.schedule][DEBUG   ][1572] schedule.handle_func: Removing c:\salt\var\cache\salt\minion\proc\20170125160534872000
+2017-01-25 16:05:34,934 [salt.minion      ][DEBUG   ][1572] Minion of "master2" is handling event tag '__master_disconnected'
+2017-01-25 16:05:35,838 [salt.utils.lazy  ][DEBUG   ][1572] LazyLoaded mine.update
+```
+
+I stopped the salt-master service on the master2 which the minion1 was connected. But the minion1 was always sending event "__master_disconnected" on master1.
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+master:
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2016.11.0-n/a-94786d3
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 8.9.1
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.5
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Jun 24 2015, 00:41:19)
+   python-gnupg: 0.3.9
+         PyYAML: 3.10
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: 0.2.4
+        Tornado: 4.4.2
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: centos 7.1.1503 Core
+        machine: x86_64
+        release: 3.10.0-327.4.5.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.1.1503 Core
+```
+
+minion:
+```
+C:\salt>salt-call.bat --versions-report
+Salt Version:
+           Salt: 2016.11.1
+
+Dependency Versions:
+           cffi: 1.7.0
+       cherrypy: 7.1.0
+       dateutil: 2.5.3
+          gitdb: 0.6.4
+      gitpython: 2.0.8
+          ioflo: 1.5.5
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: 1.4.5
+       M2Crypto: Not Installed
+           Mako: 1.0.4
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (v2.7.12:d33e0cf91556, Jun 27 2016, 15:24:40) [MSC v.1500 64 bit (AMD64)]
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 16.0.1
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: 0.2.4
+        Tornado: 4.4.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+        machine: AMD64
+        release: 2012ServerR2
+         system: Windows
+        version: 2012ServerR2 6.3.9600  Multiprocessor Free
+```

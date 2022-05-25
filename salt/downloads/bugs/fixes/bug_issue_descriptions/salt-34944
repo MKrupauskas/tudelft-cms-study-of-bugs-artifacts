@@ -1,0 +1,186 @@
+### Description of Issue/Question
+
+Using not 100% correct USE deps in `pkg.installed`'s `pkgs` arg, the state execution will fail with a backtrace.
+### Setup
+
+Make sure to have Salt 2016.3.1 installed on Gentoo
+### Steps to Reproduce Issue
+
+Execute:
+
+```
+salt-call -l info state.single pkg.installed name=sys-apps/systemd pkgs='[{"sys-apps/systemd": "[curl, importd, nat]"}]'
+```
+
+This will result in a backtrace fixed in #34727 - with this fix applied, it will fail now similarly in another place:
+
+```
+          ID: sys-apps/systemd
+    Function: pkg.installed
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib64/python2.7/site-packages/salt/state.py", line 1723, in call
+                  **cdata['kwargs'])
+                File "/usr/lib64/python2.7/site-packages/salt/loader.py", line 1650, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib64/python2.7/site-packages/salt/states/pkg.py", line 1208, in installed
+                  **kwargs)
+                File "/usr/lib64/python2.7/site-packages/salt/modules/ebuild.py", line 633, in install
+                  old = __salt__['portage_config.get_flags_from_package_conf']('use', target)
+                File "/usr/lib64/python2.7/site-packages/salt/modules/portage_config.py", line 458, in get_flags_from_package_conf
+                  match_list = set(_porttree().dbapi.xmatch("match-all", atom))
+                File "/usr/lib64/python2.7/site-packages/portage/dbapi/porttree.py", line 835, in xmatch
+                  mydep = dep_expand(origdep, mydb=self, settings=self.settings)
+                File "/usr/lib64/python2.7/site-packages/portage/dbapi/dep_expand.py", line 35, in dep_expand
+                  mydep = Atom(mydep, allow_repo=True)
+                File "/usr/lib64/python2.7/site-packages/portage/dep/__init__.py", line 1366, in __init__
+                  use = _use_dep(use_str[1:-1].split(","), eapi_attrs)
+                File "/usr/lib64/python2.7/site-packages/portage/dep/__init__.py", line 855, in __init__
+                  raise InvalidAtom(_("Invalid use dep: '%s'") % (x,))
+              InvalidAtom: Invalid use dep: ' importd'
+     Started: 07:11:39.863500
+    Duration: 1413.905 ms
+     Changes:
+```
+
+I attempted to fix this situation with the following approach:
+
+``` diff
+diff --git a/salt/modules/portage_config.py b/salt/modules/portage_config.py
+index 93b6c8c..c8a327b 100644
+--- a/salt/modules/portage_config.py
++++ b/salt/modules/portage_config.py
+@@ -458,6 +458,9 @@ def get_flags_from_package_conf(conf, atom):
+                 match_list = set(_porttree().dbapi.xmatch("match-all", atom))
+             except AttributeError:
+                 return []
++            except portage.exception.InvalidAtom as iae:
++                log.error('Unable to find a matching package for {0} due to an invalid atom: ({1})'.format(atom, iae))
++                return False
+
+         flags = []
+         try:
+```
+
+But this just results in a wrongly reported success of the `pkg` state while it actually failed to do anything useful:
+
+```
+[ERROR   ] Could not determine init location from command line: (-bash)
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Running state [sys-apps/systemd] at time 07:16:27.374010
+[INFO    ] Executing state pkg.installed for sys-apps/systemd
+[ERROR   ] Unable to find a matching package for sys-apps/systemd[curl, importd, nat]: (Invalid use dep: ' importd')
+[ERROR   ] Unable to find a matching package for sys-apps/systemd[curl, importd, nat]: (Invalid use dep: ' importd')
+[ERROR   ] Unable to find a matching package for sys-apps/systemd[curl, importd, nat] due to an invalid atom: (Invalid use dep: ' importd')
+[ERROR   ] Unable to find a matching package for sys-apps/systemd[curl, importd, nat]: (Invalid use dep: ' importd')
+[ERROR   ] Unable to find a matching package for sys-apps/systemd[curl, importd, nat] due to an invalid atom: (Invalid use dep: ' importd')
+[INFO    ] Executing command ['emerge', '--ask', 'n', '--quiet', 'sys-apps/systemd'] in directory '/root'
+[ERROR   ] Command '['emerge', '--ask', 'n', '--quiet', 'sys-apps/systemd']' failed with return code: 1
+[ERROR   ] stderr: 
+
+!!! Problem resolving dependencies for sys-apps/systemd
+
+!!! The ebuild selected to satisfy "sys-apps/systemd" has unmet requirements.
+- sys-apps/systemd-226-r2::gentoo USE="acl curl importd kdbus kmod lz4 nat pam policykit seccomp ssl (-apparmor) -audit -cryptsetup -elfutils -gcrypt -gnuefi -http -idn -lzma -qrcode (-selinux) -sysv-utils -test -vanilla -xkb" ABI_X86="64 -32 -x32"
+
+  The following REQUIRED_USE flag constraints are unsatisfied:
+    importd? ( gcrypt lzma )
+
+  The above constraints are a subset of the following complete expression:
+    importd? ( curl gcrypt lzma )
+[ERROR   ] retcode: 1
+[INFO    ] Made the following changes:
+'sys-apps/systemd' changed from '{'use': [u'acl', u'kdbus', u'kmod', u'lz4', u'pam', u'seccomp', u'ssl']}' to '{'use': [u'acl', u'curl', u'importd', u'kdbus', u'kmod', u'lz4', u'nat', u'pam', u'policykit', u'seccomp', u'ssl']}'
+
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Completed state [sys-apps/systemd] at time 07:16:31.605088 duration_in_ms=4231.078
+local:
+----------
+          ID: sys-apps/systemd
+    Function: pkg.installed
+      Result: True
+     Comment: 1 targeted package was installed/updated.
+     Started: 07:16:27.374010
+    Duration: 4231.078 ms
+     Changes:   
+              ----------
+              sys-apps/systemd:
+                  ----------
+                  new:
+                      ----------
+                      use:
+                          - acl
+                          - curl
+                          - importd
+                          - kdbus
+                          - kmod
+                          - lz4
+                          - nat
+                          - pam
+                          - policykit
+                          - seccomp
+                          - ssl
+                  old:
+                      ----------
+                      use:
+                          - acl
+                          - kdbus
+                          - kmod
+                          - 
+                          - pam
+                          - seccomp
+                          - ssl
+                  version:
+                      226-r2
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.10 (default, Jul  8 2016, 16:19:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: gentoo 2.2 
+        machine: x86_64
+        release: 4.1.15
+         system: Linux
+        version: Gentoo Base System 2.2
+```
+### Note
+
+This is something which most likely will have to be fixed by me - just filing an issue as I don't have time right now to take care of this.

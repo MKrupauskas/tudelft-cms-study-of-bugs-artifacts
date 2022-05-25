@@ -1,0 +1,114 @@
+### Description of Issue/Question
+Currently boto_route53 create_hosted_zone state use property name to pass it as caller reference.
+This leads to error "A hosted zone has already been created with the specified caller reference." in case when you create hosted zone, then delete it and tried to create again.
+
+From Boto documentation:
+> CallerReference (string) --
+[REQUIRED]
+A unique string that identifies the request and that allows failed CreateHostedZone requests to be retried without the risk of executing the operation twice. You must use a unique CallerReference string every time you create a hosted zone. CallerReference can be any unique string, for example, a date/time stamp.
+
+Basically to avoid duplication in case while boto_module run several retries we should provide exactly the same caller_ref only for execution time, so we can pass via state generated uuid and it will not be changed during execution time and will prevent duplication.
+
+My suggestion is unmap caller_ref from name parameter in state and pass just uuid4 as used in boto connection module.
+
+What you guys think about that?
+
+### Setup
+```yaml
+manage '{{ zone }}' hosted zone:
+  boto_route53.hosted_zone_present:
+    - name: {{ zone }}
+    - domain_name: {{ zone }}
+    - comment: {{ parameters.comment }}
+    - private_zone: {{ parameters.private }}
+    - profile: {{ configurations.profile }}
+```
+
+### Steps to Reproduce Issue
+Create hosted zone then remove and create again.
+
+```
+[INFO    ] Running state [dev.example.com.] at time 08:38:07.433090
+[INFO    ] Executing state boto_route53.hosted_zone_present for dev.example.com.
+[ERROR   ] Failed to create hosted zone dev.example.com.: A hosted zone has already been created with the specified caller reference.
+[ERROR   ] Creating Hosted Zone dev.example.com. failed
+[INFO    ] Completed state [dev.example.com.] at time 08:38:09.145868 duration_in_ms=1712.778
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.2
+ 
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.6.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.21.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.21.4
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-514.2.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+ ```
+
+### Quick and dirty solution patch for testing
+```
+Index: salt/states/boto_route53.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- salt/states/boto_route53.py	(revision cb9dcb1e1b860b919cbdd5ea5c9273719bb2fdde)
++++ salt/states/boto_route53.py	(revision )
+@@ -74,6 +74,7 @@
+ # Import Python Libs
+ from __future__ import absolute_import
+ import json
++import uuid
+ 
+ # Import Salt Libs
+ from salt.utils import SaltInvocationError, exactly_one
+@@ -359,7 +360,7 @@
+     return ret
+ 
+ 
+-def hosted_zone_present(name, domain_name=None, private_zone=False, comment='',
++def hosted_zone_present(name=None, domain_name=None, private_zone=False, comment='',
+                         vpc_id=None, vpc_name=None, vpc_region=None,
+                         region=None, key=None, keyid=None, profile=None):
+     '''
+@@ -481,7 +482,7 @@
+             ret['result'] = None
+             return ret
+         res = __salt__['boto_route53.create_hosted_zone'](domain_name=domain_name,
+-                caller_ref=name, comment=comment, private_zone=private_zone,
++                caller_ref=str(uuid.uuid4()), comment=comment, private_zone=private_zone,
+                 vpc_id=vpc_id, vpc_region=vpc_region, region=region, key=key,
+                 keyid=keyid, profile=profile)
+         if res:
+```

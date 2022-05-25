@@ -1,0 +1,173 @@
+### Description of Issue/Question
+
+Target Minion: 2018.3.4 on CentOS 7
+
+If you attempt to deploy an inotify beacon on a host using beacon.present, and the dependency "python-inotify" rpm is not installed, you get the following error:
+
+```
+# salt do state.apply bad_inotify_error
+do:
+----------
+          ID: inotify
+    Function: beacon.present
+      Result: False
+     Comment: Beacon "inotify" is not available.
+     Started: 23:12:02.314825
+    Duration: 1649.073 ms
+     Changes:
+
+Summary for do
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:   1.649 s
+```
+
+If you start the minion in debug mode and deploy it you see...
+
+```
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/minion/minion_event_ac0b52a2ae_pull.ipc
+[DEBUG   ] Sending event: tag = /salt/minion/minion_beacons_list_available_complete; data = {'beacons': ['btmp', 'diskusage', 'journald', 'load', 'log', 'memusage', 'network_info', 'pkg', 'proxy_example', 'ps', 'salt_proxy', 'service', 'status', 'wtmp'], u'_stamp': '2019-03-11T23:12:03.956809', 'complete': True}
+[DEBUG   ] Minion of '45.77.226.64' is handling event tag '/salt/minion/minion_beacons_list_available_complete'
+[ERROR   ] Beacon "inotify" is not available.
+```
+
+I understand why it was implemented this way but from a usability perspective, this is completely unhelpful to a new user.
+
+Rather than simply checking dependencies and not including it in the list of "available beacons", the minion should return an error saying that the inotify beacon is missing dependency "python-inotify", or something like that.  That then makes it very intuitive and the admin has a cue to add a pkg.installed state to their state file too.
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+```
+# /srv/salt/bad_inotify_error.sls
+inotify:
+  beacon.present:
+    - save: True
+    # - enable: True
+    - files:
+       /etc:
+         mask:
+           - create
+           - attrib
+           - delete
+           - delete_self
+           - modify
+           - moved_from
+           - moved_to
+           - move_self
+         recurse: True
+         auto_add: True
+    - interval: 10
+    - disable_during_state_run: True
+```
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+
+```
+On minion:  
+1. rm -f /etc/salt/minion.d/beacon.conf
+2. yum erase python-inotify -y
+3. systemctl restart salt-minion
+
+On Master 
+1. salt testhost state.apply bad_inotify_error
+```
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+_MASTER  VERSIONS_
+```
+Salt Version:
+           Salt: 2018.3.3
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: unknown
+       dateutil: 2.7.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 2.1.11
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.15 (default, Oct 26 2018, 22:08:03)
+   python-gnupg: 0.4.2
+         PyYAML: 3.12
+          PyZMQ: 16.0.3
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.6
+
+System Versions:
+           dist: centos 7.6.1810 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-957.5.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.6.1810 Core
+```
+
+_MINION VERSIONS_
+
+```
+[root@do minion.d]# salt --versions
+Salt Version:
+           Salt: 2018.3.4
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.31.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Apr 11 2018, 07:36:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.2.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```
+
+Note:  There is a bug in Minion 2018.3.3 (https://github.com/saltstack/salt/pull/50347/files) where a beacon.present corrupts the beacon.conf file - this is fixed in minion 2018.3.4.  So don't test this on a 2018.3.3 minion :)

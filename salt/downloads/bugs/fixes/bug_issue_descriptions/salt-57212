@@ -1,0 +1,132 @@
+**Description**
+When using `ldap.managed` to manage entries in OpenLDAP it keeps re-applying the correct values and fails to detect that they are already correct.
+
+**Setup**
+Debian 10/buster minion with OpenLDAP installed and the following `test.sls` state file:
+```
+ldap-mdb-conf:
+  ldap.managed:
+    - connect_spec:
+        url: ldapi:///
+        bind:
+          method: sasl
+          mechanism: EXTERNAL
+
+    - entries:
+      # Data DB
+      - olcDatabase={1}mdb,cn=config:
+        - replace:
+            olcSuffix: dc=example,dc=com
+            olcRootDN: cn=admin,dc=example,dc=com
+```
+
+
+**Steps to Reproduce the behavior**
+```
+# salt-call state.apply test.apply --output-diff
+local:
+----------
+          ID: ldap-mdb-conf
+    Function: ldap.managed
+      Result: True
+     Comment: Successfully updated LDAP entries
+     Started: 15:35:20.594905
+    Duration: 4.603 ms
+     Changes:   
+              ----------
+              olcDatabase={1}mdb,cn=config:
+                  ----------
+                  new:
+                      ----------
+                      olcRootDN:
+                          - cn=admin,dc=example,dc=com
+                      olcSuffix:
+                          - dc=example,dc=com
+                  old:
+                      ----------
+                      olcRootDN:
+                          - cn=admin,dc=example,dc=com
+                      olcSuffix:
+                          - dc=example,dc=com
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   4.603 ms
+```
+
+**Expected behavior**
+No changes are applied.
+
+**Versions Report**
+Using current master d750d868d8
+```
+Salt Version:
+           Salt: 3000
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.7.3 (default, Dec 20 2019, 18:57:59)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: debian 10.3 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.19.0-8-amd64
+         system: Linux
+        version: debian 10.3 
+```
+</details>
+
+**Additional context**
+It seems to be caused by mixing strings and bytes in the [salt/states/ldap.py](https://github.com/saltstack/salt/blob/d750d868d8/salt/states/ldap.py).
+
+Looking at the output of `old` and `new` from [`old, new = _process_entries(l, entries)`](https://github.com/saltstack/salt/blob/0b2a5613b345f17339cb90e60b407199b3d26980/salt/states/ldap.py#L262) we get the following:
+
+`old`:
+```
+OrderedDict([('olcDatabase={1}mdb,cn=config',
+              {'objectClass': OrderedSet([b'olcDatabaseConfig', b'olcMdbConfig']),
+               'olcDatabase': OrderedSet([b'{1}mdb']),
+               'olcLastMod': OrderedSet([b'TRUE']),
+               'olcRootDN': OrderedSet([b'cn=admin,dc=example,dc=com']),
+               'olcSuffix': OrderedSet([b'dc=example,dc=com'])})])
+```
+
+`new`:
+```
+OrderedDict([('olcDatabase={1}mdb,cn=config',
+              {'objectClass': OrderedSet([b'olcDatabaseConfig', b'olcMdbConfig']),
+               'olcDatabase': OrderedSet([b'{1}mdb']),
+               'olcLastMod': OrderedSet([b'TRUE']),
+               'olcRootDN': OrderedSet(['cn=admin,dc=example,dc=com']),
+               'olcSuffix': OrderedSet(['dc=example,dc=com'])})])
+```
+
+we can see that the `olcRootDN` and `olcSuffix` entries returned for the LDAP server in `old` are bytes, but the same entries are strings in `new`.

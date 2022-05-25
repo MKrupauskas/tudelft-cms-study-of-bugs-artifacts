@@ -1,0 +1,47 @@
+Honestly, I don't even understand why the minion would have the info to do this. However, here it is:
+
+```
+# salt-call cp.list_master
+local:
+...
+    - docker-worker/init.sls          << from git
+...
+    - wt-test/blah                    << from S3
+    - wt-test/broker.sls              << from S3
+    - wt-test/conf/broker.conf.tmpl   << from S3
+    - wt-test/install.sls             << from S3
+# salt-call cp.list_minon
+local:
+...
+    - /var/cache/salt/minion/files/base/docker-worker/init.sls
+...
+    - /var/cache/salt/minion/files/base/base/wt-test/blah
+    - /var/cache/salt/minion/files/base/base/wt-test/blah.sls
+    - /var/cache/salt/minion/files/base/base/wt-test/broker.sls
+    - /var/cache/salt/minion/files/base/base/wt-test/conf/broker.conf.tmpl
+    - /var/cache/salt/minion/files/base/base/wt-test/init.sls
+    - /var/cache/salt/minion/files/base/base/wt-test/install.sls
+```
+
+So it's weird. The docker-worker example file is actually fetched by the master from a gitfs source. The weird files with the duplicated "base" path part are all fetched by the master from s3. Now, I can do "salt-call state.sls wt-test.broker" and it works. Why are these files cached in the wrong location? This makes it impossible to develop a formula on s3 and then move it unchanged into git if I jinja include or import anything from the files fetched on s3 since I have to import "base/wt-test/blah" when the file is sourced from s3 and import "wt-test/blah" when the file is sourced from gitfs.
+
+I was not able to track down in code where the problem is yet. I find it weird that the minion can cache the file in the wrong place and still resolve the state.sls reference to the file.
+
+BTW, here's my fileserver config items on the master:
+
+```
+fileserver_backend:
+  - root
+  - s3fs
+  - git
+
+file_roots:
+  base:
+    - /srv/salt/base
+
+s3.buckets:
+  base: bucket-loc-in-s3
+
+gitfs_remotes:
+  - git+ssh://git@github...
+```

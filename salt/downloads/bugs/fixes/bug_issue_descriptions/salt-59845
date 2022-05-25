@@ -1,0 +1,129 @@
+**Description**
+`mount.mounted` isn't idempotent in this case. What's especially odd is that the claimed different option changes if `test=True`.
+N.B. that `ConnectTimeout` is the first item asciibetically and `umask` is the last item alphabetically.
+
+**Setup**
+Will need an SSH server and keys etc.
+```sls
+sshfs:
+  pkg.installed: []
+
+/mnt/example:
+  mount.mounted:
+    - device: 'sshfs#user@server.example.com:/home/user/path'
+    - fstype: fuse
+      - rw
+      - nodev
+      - noexec
+      - nosuid
+      - noatime
+      - reconnect
+      - allow_other
+      - default_permissions
+      - umask=027
+      - idmap=file
+      - nomap=ignore
+      - uidfile=/etc/example/uidmap
+      - gidfile=/etc/example/gidmap
+      - IdentityFile=/etc/example/id_rsa
+      - IdentitiesOnly=yes
+      - ConnectTimeout=10
+    - mkmnt: true
+    - persist: true
+```
+
+**Steps to Reproduce the behavior**
+```yaml
+# salt-call state.test
+local:
+----------
+          ID: /mnt/example
+    Function: mount.mounted
+      Result: None
+     Comment: Remount would be forced because options (ConnectTimeout=10) changed
+     Started: 17:46:41.589828
+    Duration: 76.178 ms
+     Changes:
+
+Summary for local
+--------------
+Succeeded: 146 (unchanged=1)
+Failed:      0
+--------------
+Total states run:     146
+Total run time:     5.732 s
+# salt-call state.apply
+local:
+----------
+          ID: /mnt/example
+    Function: mount.mounted
+      Result: True
+     Comment: Target was already mounted. Entry already exists in the fstab.
+     Started: 17:47:12.528292
+    Duration: 7506.383 ms
+     Changes:
+              ----------
+              umount:
+                  Forced unmount and mount because options (umask=027) changed
+
+Summary for local
+--------------
+Succeeded: 146 (changed=1)
+Failed:      0
+--------------
+Total states run:     146
+Total run time:    22.185 s
+```
+
+The fstab entry itself is unchanged each time:
+```
+sshfs#user@server.example.com:/home/user/path          /mnt/example    fuse    ConnectTimeout=10,IdentitiesOnly=yes,IdentityFile=/etc/example/id_rsa,allow_other,default_permissions,gidfile=/etc/example/gidmap,idmap=file,noatime,nodev,noexec,nomap=ignore,nosuid,reconnect,rw,uidfile=/etc/example/uidmap,umask=027        0 0
+```
+
+**Expected behavior**
+After first application there should be no further changes.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+          Salt: 3002.5
+
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10.1
+       libgit2: 0.28.3
+      M2Crypto: 0.31.0
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: 1.0.3
+        Python: 3.8.5 (default, Jan 27 2021, 15:41:15)
+  python-gnupg: 0.4.5
+        PyYAML: 5.3.1
+         PyZMQ: 18.1.1
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.2
+
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 5.4.0-67-generic
+        system: Linux
+       version: Ubuntu 20.04 focal
+```
+</details>

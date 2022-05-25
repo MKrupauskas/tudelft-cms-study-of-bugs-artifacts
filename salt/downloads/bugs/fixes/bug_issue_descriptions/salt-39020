@@ -1,0 +1,113 @@
+### Description of Issue/Question
+In most of the boto_vpc modules the name option has to be globally unique.    For example the salt.states.boto_vpc.route_table_present state requires the VPC name that a routing table will be put in, but when the state checks for the existence of that state it is not VPC specific.  
+
+Since the VPC is specified in the state, people will probably assume that the name only needs to be unique inside the VPC.  But that is not the case.  
+
+So either the state should filter for both name and VPC Name when checking for existence, or documentation should be updated to indicate the need for uniqueness.
+
+
+### Setup
+Creating two routing tables in different VPCs with the same name.
+
+```
+boto_vpcProdEast5_my_route_table:
+  boto_vpc.route_table_present:
+    - name: my_route_table
+    - vpc_name: vpcProdEast5
+    - key: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+    - keyid: XXXXXXXXXXXXXXX
+    - region: us-east-2
+
+boto_vpcProdEast6_my_route_table:
+  boto_vpc.route_table_present:
+    - name: my_route_table
+    - vpc_name: vpcProdEast6
+    - key: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+    - keyid: XXXXXXXXXXXXXXX
+    - region: us-east-2
+```
+Results in only the first being created
+```
+----------
+          ID: boto_vpcProdEast5_my_route_table
+    Function: boto_vpc.route_table_present
+        Name: my_route_table
+      Result: True
+     Comment: Route table my_route_table created.
+     Started: 04:52:35.891737
+    Duration: 1887.427 ms
+     Changes:
+              ----------
+              new:
+                  ----------
+                  route_table:
+                      rtb-1224827b
+              old:
+                  ----------
+                  route_table:
+                      None
+----------
+          ID: boto_vpcProdEast6_my_route_table
+    Function: boto_vpc.route_table_present
+        Name: my_route_table
+      Result: True
+     Comment: Route table my_route_table (rtb-1224827b) present.
+     Started: 04:52:37.779406
+    Duration: 239.461 ms
+     Changes:
+
+Summary for local-core-api-prod-1
+------------
+Succeeded: 2 (changed=1)
+Failed:    0
+------------
+Total states run:     2
+Total run time:   2.127 s
+```
+
+Note the second does not get created because the first exists ( routing table ID matches)
+
+boto_vpc.route_table_present eventuall calls _find_resources in modules/boto_vpc.py.   _find_resources is only using the name tag to filter the list of routing tables.
+
+
+### Versions Report
+```
+± |master  origin ?:4 |  salt --versions-report
+Salt Version:
+           Salt: 2016.11.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.10 (default, Oct 23 2015, 19:19:21)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.2.0
+
+System Versions:
+           dist:
+        machine: x86_64
+        release: 15.6.0
+         system: Darwin
+        version: 10.11.6 x86_64
+```

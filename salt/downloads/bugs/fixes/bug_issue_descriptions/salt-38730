@@ -1,0 +1,98 @@
+This is a really strange error I only seem to be experiencing on 1 particular instance with a particular set of tags in our testing environment, but I thought I'd report it here regardless.
+
+I have Salt report failed states to Slack and I noticed I was getting this during one of our Consul states.
+```
+          ID: unzip-consul
+    Function: archive.extracted
+        Name: /opt/consul/bin/consul_0.6.3
+      Result: False
+     Comment: Unable to manage file: [Errno 8] _ssl.c:493: EOF occurred in violation of protocol
+     Started: 14:38:07.716777
+    Duration: 350.336 ms
+     Changes:
+```
+
+Relevant info from consul state
+```
+# Template state
+{{ install(app='consul', version='0.6.3',sha1sum='a291f5ba462414addcbbbefb1dc6c710b0b0b8ca') }}
+
+[...]
+
+# Consul state
+unzip-{{ app }}:
+  archive.extracted:
+    - source: https://releases.hashicorp.com/{{ app }}/{{ version }}/{{ app }}_{{ version }}_linux_amd64.zip
+    - source_hash: sha1={{ sha1sum }}
+    - name: /opt/consul/bin/{{ app }}_{{ version }}
+    - archive_format: zip
+    - user: consul
+    - if_missing: /opt/consul/bin/{{ app }}_{{ version }}/{{ app }}
+    - require:
+      - file: create-{{ app }}-dir
+      - file: create-{{ app }}-data-dir
+```
+
+I experienced this on `salt-call 2016.11.1 (Carbon)` and so I downgraded to `salt-minion 2015.8.8.2 (Beryllium)` because I had recently upgraded, but the issue persisted. By the way, I downgraded via Terraform so this was a completely new instance with an AMI that I've been using elsewhere to bring up dynamic test instances. 
+
+This is the ONLY instance to exhibit this error. Other Beryllium instances don't experience this same issue. Some Stack Overflow responses claim upgrading python was a valid fix, while others say to force using TLSv1. Not sure where to begin with this one. If it was easily reproducible, I'd have a better idea of what the problem is, but the only difference between instances right now are the AWS tags, and that obviously shouldn't be the issue here.
+
+As a temporary work-around for myself, I've posted the zips in question to S3 and updated the Salt state to get everything back in working order.
+
+Salt version output
+```
+sudo salt-call --versions
+Salt Version:
+           Salt: 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.3.1
+         Python: 2.6.9 (unknown, Sep  1 2016, 23:34:36)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 3.2.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist:
+        machine: x86_64
+        release: 3.14.48-33.39.amzn1.x86_64
+```
+
+```
+$ cat /etc/os-release
+NAME="Amazon Linux AMI"
+VERSION="2015.03"
+ID="amzn"
+ID_LIKE="rhel fedora"
+VERSION_ID="2015.03"
+PRETTY_NAME="Amazon Linux AMI 2015.03"
+ANSI_COLOR="0;33"
+CPE_NAME="cpe:/o:amazon:linux:2015.03:ga"
+HOME_URL="http://aws.amazon.com/amazon-linux-ami/"
+```
+
+```
+$ openssl version
+OpenSSL 1.0.1k-fips 8 Jan 2015
+```

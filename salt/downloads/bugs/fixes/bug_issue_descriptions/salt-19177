@@ -1,0 +1,112 @@
+Distro: Ubuntu 14.04LTS
+Salt version: 2014.7.0
+
+Trying to install MariaDB server 10.0 from the official mariadb repositories fails with an apt error
+
+``` bash
+root@infra:/home/vagrant# salt-call state.sls mariadb.server
+[... SNIP ...]
+[INFO    ] Executing state pkg.installed for mariadb-server
+[INFO    ] Executing command "dpkg-query --showformat='${Status} ${Package} ${Version} ${Architecture}\n' -W" in directory '/root'
+[INFO    ] Executing command 'apt-get -q update' in directory '/root'
+[INFO    ] Executing command ['apt-get', '-q', '-y', '-o', 'DPkg::Options::=--force-confold', '-o', 'DPkg::Options::=--force-confdef', 'install', 'mariadb-server'] in directory '/root'
+[ERROR   ] Command ['apt-get', '-q', '-y', '-o', 'DPkg::Options::=--force-confold', '-o', 'DPkg::Options::=--force-confdef', 'install', 'mariadb-server'] failed with return code: 100
+[ERROR   ] output: Reading package lists...
+Building dependency tree...
+Reading state information...
+The following extra packages will be installed:
+  libaio1 libdbd-mysql-perl libdbi-perl libmariadbclient18 libmysqlclient18
+  libreadline5 mariadb-client-10.0 mariadb-client-core-10.0 mariadb-common
+  mariadb-server-10.0 mariadb-server-core-10.0 mysql-common
+Suggested packages:
+  libclone-perl libmldbm-perl libnet-daemon-perl libplrpc-perl
+  libsql-statement-perl libterm-readkey-perl tinyca mailx mariadb-test
+The following NEW packages will be installed:
+  libaio1 libdbd-mysql-perl libdbi-perl libmariadbclient18 libmysqlclient18
+  libreadline5 mariadb-client-10.0 mariadb-client-core-10.0 mariadb-common
+  mariadb-server mariadb-server-10.0 mariadb-server-core-10.0 mysql-common
+Preconfiguring packages ...
+0 upgraded, 13 newly installed, 0 to remove and 34 not upgraded.
+Need to get 0 B/13.7 MB of archives.
+After this operation, 133 MB of additional disk space will be used.
+[... SNIP ...]
+Setting up mariadb-server-10.0 (10.0.15+maria-1~trusty) ...
+ * Stopping MariaDB database server mysqld
+   ...done.
+dpkg: error processing package mariadb-server-10.0 (--configure):
+ subprocess installed post-installation script returned error exit status 1
+dpkg: dependency problems prevent configuration of mariadb-server:
+ mariadb-server depends on mariadb-server-10.0 (= 10.0.15+maria-1~trusty); however:
+  Package mariadb-server-10.0 is not configured yet.
+
+dpkg: error processing package mariadb-server (--configure):
+ dependency problems - leaving unconfigured
+Processing triggers for libc-bin (2.19-0ubuntu6.3) ...
+No apport report written because the error message indicates its a followup error from a previous failure.
+Processing triggers for ureadahead (0.100.0-16) ...
+Errors were encountered while processing:
+ mariadb-server-10.0
+ mariadb-server
+E: Sub-process /usr/bin/dpkg returned an error code (1)
+[INFO    ] Executing command "dpkg-query --showformat='${Status} ${Package} ${Version} ${Architecture}\n' -W" in directory '/root'
+[ERROR   ] Installed Packages:
+mariadb-server-core-10.0 changed from absent to 10.0.15+maria-1~trusty
+mysql-client changed from absent to 1
+libmysqlclient18 changed from absent to 10.0.15+maria-1~trusty
+virtual-mysql-client changed from absent to 1
+mysql-client-4.1 changed from absent to 1
+mysql-client-core-5.1 changed from absent to 1
+mysql-client-core changed from absent to 1
+mysql-client-core-5.5 changed from absent to 1
+mysql-client-5.5 changed from absent to 1
+libreadline5 changed from absent to 5.2+dfsg-2
+libdbi-perl changed from absent to 1.630-1
+libmariadbclient18 changed from absent to 10.0.15+maria-1~trusty
+mysql-common changed from absent to 10.0.15+maria-1~trusty
+libaio1 changed from absent to 0.3.109-4
+mysql-server-core-5.5 changed from absent to 1
+perl-dbdabi-94 changed from absent to 1
+mysql-server-core-5.1 changed from absent to 1
+libdbd-mysql-perl changed from absent to 4.025-1
+mariadb-client-10.0 changed from absent to 10.0.15+maria-1~trusty
+mariadb-client-core-10.0 changed from absent to 10.0.15+maria-1~trusty
+mysql-server-core changed from absent to 1
+mariadb-common changed from absent to 10.0.15+maria-1~trusty
+mysql-client-5.1 changed from absent to 1
+
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Completed state [mariadb-server] at time 11:45:13.099564
+```
+
+The relevant formula is pretty simple
+
+``` yaml
+mariadb-server:
+  pkgrepo.managed:
+    - humanname: MariaDB 10.0 stable repository
+    - name: deb http://mirror2.hs-esslingen.de/mariadb/repo/10.0/ubuntu trusty main
+    - dist: trusty
+    - file: /etc/apt/sources.list.d/mariadb.list
+    - keyid: 1BB943DB
+    - keyserver: keyserver.ubuntu.com
+    - require_in:
+      - pkg: mariadb-server
+
+  pkg.installed:
+    - name: mariadb-server
+    - require:
+      - pkgrepo: mariadb-server
+```
+
+Installing the package manually or with the following formula works
+
+``` yaml
+cmd.run:
+  - name: "apt-get -q -y -o DPkg::Options::=--force-confold -o DPkg::Options::=--force-confdef install mariadb-server"
+  - env:
+    - 'DEBIAN_FRONTEND': 'noninteractive'
+  - require:
+    - pkgrepo: mariadb-repo
+```
+
+The problem can be worked around by setting the cmd.run state as a dependency of the pkg.installed state, making it a noop.

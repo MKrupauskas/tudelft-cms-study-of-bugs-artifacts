@@ -1,0 +1,47 @@
+While writing the unit test case for nftables.py module.
+
+The part of the function, which thows "Referenced before assignment" error is :
+
+```
+############################################################
+375     nft_family = _NFTABLES_FAMILIES[family]
+376     cmd = '{0} --numeric --numeric --numeric --handle list chain {1} {2} {3}'.\
+377     format(_nftables_cmd(), nft_family, table, chain)
+378     out = __salt__['cmd.run'](cmd, python_shell=False)
+379     rules = re.split('\n+', out)
+380
+381     pat = re.compile(r'{0} # handle (?P<handle>\d+)'.format(rule))
+382     for rule in rules:
+383     match = pat.search(rule)
+384     if match:
+385         handle = match.group('handle')
+386     return handle
+###########################################################
+```
+
+The error it gives is,
+
+"UnboundLocalError: local variable 'handle' referenced before assignment."
+
+The 'if' condition in the above nftables module is not getting pass. Due to that the above error is occurring.
+
+As, I discussed this issue with @jfindlay . 
+He replied, 
+
+To me, that looks like a bug, to which the fix would be this:
+
+```
+diff --git a/salt/modules/nftables.py b/salt/modules/nftables.py
+index 29fbe78..d785c5d 100644
+--- a/salt/modules/nftables.py
++++ b/salt/modules/nftables.py
+@@ -382,8 +382,8 @@ def get_rule_handle(table='filter', chain=None,
+rule=None, family='ipv4'):
+     for rule in rules:
+         match = pat.search(rule)
+         if match:
+-            handle = match.group('handle')
+-    return handle
++            return match.group('handle')
++    return False
+```

@@ -1,0 +1,68 @@
+Hello
+I use a Windows 7 Enterprise 64 bit minion with a German locale. 
+
+Two commands (of many) fail: `cmd.run dir` and `cmd.run whoami`
+To reproduce, you need a German locale or a file with a non-ascii character (like ä).
+
+From reading the stacktrace:
+0x84 (hex) is 132 (decimal).
+Character 132 in Codepage 437 (Windows) is ä, which you find...
+at position  8 of of `dir` = `Datenträger in Laufwerk c:` (= `Volume in drive c:`).
+at position 10 of of `cmd.run whoami` = `nt-autorität\system` (= `nt-authority\system`).
+
+Character 132 in UTF-8 is isolatin-1. Character 132 in isolatin-1 is undefined.
+
+A utf-8 decoder fails with `UnicodeDecodeError` on character 132.
+An example is `raw_input().decode('utf-8')` found at http://stackoverflow.com/questions/22772888/german-umlauts-read-in-with-raw-input-in-python-2-7
+I assume `utf_8_decode()`, used in salt/output/nested.py, behaves the same.
+
+The above stackoverflow link contains a possible solution.
+
+The stacktraces:
+
+```
+root@MP2Pdebian:/home/markus# uname -a
+Linux MP2Pdebian 3.2.0-4-amd64 #1 SMP Debian 3.2.63-2+deb7u2 x86_64 GNU/Linux
+root@MP2Pdebian:/home/markus# salt --versions
+           Salt: 2014.7.0
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 13.1.0
+           RAET: Not Installed
+            ZMQ: 3.2.3
+           Mako: 0.7.0
+
+root@MP2Pdebian:/home/markus# salt MarkusTp test.version
+MarkusTp:
+    2014.7.0
+
+root@MP2Pdebian:/home/markus# salt MarkusTp cmd.run dir
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+UnicodeDecodeError: 'utf8' codec can't decode byte 0x84 in position 8: invalid start byte
+Traceback (most recent call last):
+--snip--
+  File "/usr/lib/python2.7/dist-packages/salt/output/nested.py", line 123, in output
+    return nest.display(ret, __opts__.get('nested_indent', 0), '', '')
+  File "/usr/lib/python2.7/dist-packages/salt/output/nested.py", line 114, in display
+    out = self.display(val, indent + 4, '', out)
+  File "/usr/lib/python2.7/dist-packages/salt/output/nested.py", line 89, in display
+    prefix=prefix)
+  File "/usr/lib/python2.7/dist-packages/salt/output/nested.py", line 58, in ustring
+    indent, color, prefix, msg.decode(encoding), endc, suffix)
+  File "/usr/lib/python2.7/encodings/utf_8.py", line 16, in decode
+    return codecs.utf_8_decode(input, errors, True)
+UnicodeDecodeError: 'utf8' codec can't decode byte 0x84 in position 8: invalid start byte
+
+
+root@MP2Pdebian:~# salt MarkusTp cmd.run whoami
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+--snip--
+UnicodeDecodeError: 'utf8' codec can't decode byte 0x84 in position 10: invalid start byte
+```

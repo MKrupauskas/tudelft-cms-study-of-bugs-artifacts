@@ -1,0 +1,458 @@
+We install salt using bootstrap.saltstack.com. In the last few days it has stopped working (version 2015.11.04). The new salt yum repo seems to introduce a unresolvable dependency on libselinux.
+The error on yum install of python26 is:
+
+```
+sh /tmp/install_salt.sh -M -S -X -G git v2015.5.5
+
+....
+
+Transaction Check Error:
+  package libselinux-1.33.4-5.7.0.1.el5.x86_64 (which is newer than libselinux-1.33.4-5.7.el5.i386) is already installed
+```
+
+This looks like a 64 bit issue (note the dependency is on i386 not x86_64)
+
+We create a docker image like so:
+
+```
+FROM oraclelinux:5
+ENV http_proxy http://www-proxy.us.oracle.com:80
+ENV https_proxy http://www-proxy.us.oracle.com:80
+ENV no_proxy *.oracle.com|*.oraclecorp.com|localhost|127.0.0.1
+RUN echo "proxy=$http_proxy" >> /etc/yum.conf
+RUN yum install -y wget
+
+RUN wget --no-check-certificate -O /tmp/install_salt.sh https://bootstrap.saltstack.com
+#This is needed because of proxy
+RUN sed -i "s/^baseurl=https/baseurl=http/; s/^gpgkey=https/gpgkey=http/" /tmp/install_salt.sh
+
+# this is attempted by bootstrap.saltstack.com but fails because of proxy
+RUN rpm --httpproxy www-proxy.us.oracle.com --httpport 80 -Uvh http://dl.fedoraproject.org/pub/epel/5/x86_64/epel-release-5-4.noarch.rpm
+```
+
+```
+[root@6ac4e2e7232d /]# cat /etc/oracle-release 
+Oracle Linux Server release 5.11
+[root@6ac4e2e7232d /]# uname -a
+Linux 6ac4e2e7232d 4.1.10-boot2docker #1 SMP Mon Oct 12 18:36:49 UTC 2015 x86_64 x86_64 x86_64 GNU/Linux
+[root@6ac4e2e7232d /]# 
+```
+
+more detail of failure:
+
+```
+[root@6ac4e2e7232d /]# sh /tmp/install_salt.sh -M -S -X -G git v2015.5.5
+ *  INFO: sh /tmp/install_salt.sh -- Version 2015.11.04
+
+ *  INFO: System Information:
+ *  INFO:   CPU:          GenuineIntel
+ *  INFO:   CPU Arch:     x86_64
+ *  INFO:   OS Name:      Linux
+ *  INFO:   OS Version:   4.1.10-boot2docker
+ *  INFO:   Distribution: Oracle Linux 5.11
+
+ *  INFO: Installing minion
+ *  INFO: Installing master
+ *  INFO: Installing syndic
+ *  INFO: Daemons will not be started
+ *  INFO: Found function install_oracle_linux_git_deps
+ *  INFO: Found function install_oracle_linux_git
+ *  INFO: Found function install_oracle_linux_git_post
+ *  INFO: Found function install_oracle_linux_restart_daemons
+ *  INFO: Found function daemons_running
+ *  INFO: Found function install_oracle_linux_check_services
+ *  INFO: Running install_oracle_linux_git_deps()
+Loaded plugins: lxc-patch
+Setting up Install Process
+Resolving Dependencies
+--> Running transaction check
+---> Package yum-utils.noarch 0:1.1.16-21.0.1.el5 set to be updated
+--> Finished Dependency Resolution
+
+Dependencies Resolved
+
+================================================================================
+ Package         Arch         Version                    Repository        Size
+================================================================================
+Installing:
+ yum-utils       noarch       1.1.16-21.0.1.el5          el5_latest        74 k
+
+Transaction Summary
+================================================================================
+Install       1 Package(s)
+Upgrade       0 Package(s)
+
+Total download size: 74 k
+Downloading Packages:
+Running rpm_check_debug
+Running Transaction Test
+Finished Transaction Test
+Transaction Test Succeeded
+Running Transaction
+  Installing     : yum-utils                                                1/1 
+lxc-patch: checking if updated pkgs need patching...
+
+Installed:
+  yum-utils.noarch 0:1.1.16-21.0.1.el5                                          
+
+Complete!
+Loaded plugins: lxc-patch
+Setting up Install Process
+Package yum-utils-1.1.16-21.0.1.el5.noarch already installed and latest version
+Nothing to do
+Loaded plugins: lxc-patch
+Setting up Install Process
+Package chkconfig-1.3.30.2-2.el5.x86_64 already installed and latest version
+Nothing to do
+Loaded plugins: lxc-patch
+Setting up Install Process
+Resolving Dependencies
+--> Running transaction check
+---> Package python26-PyYAML.i386 0:3.08-4.el5 set to be updated
+--> Processing Dependency: libc.so.6 for package: python26-PyYAML
+--> Processing Dependency: libpython2.6.so.1.0 for package: python26-PyYAML
+--> Processing Dependency: libc.so.6(GLIBC_2.1.3) for package: python26-PyYAML
+--> Processing Dependency: libc.so.6(GLIBC_2.0) for package: python26-PyYAML
+--> Processing Dependency: libpthread.so.0 for package: python26-PyYAML
+--> Processing Dependency: libyaml-0.so.1 for package: python26-PyYAML
+---> Package python26-PyYAML.x86_64 0:3.08-4.el5 set to be updated
+--> Processing Dependency: libyaml-0.so.1()(64bit) for package: python26-PyYAML
+--> Processing Dependency: libpython2.6.so.1.0()(64bit) for package: python26-PyYAML
+--> Running transaction check
+---> Package glibc.i686 0:2.5-123.0.1.el5_11.3 set to be updated
+--> Processing Dependency: glibc-common = 2.5-123.0.1.el5_11.3 for package: glibc
+---> Package glibc.x86_64 0:2.5-123.0.1.el5_11.3 set to be updated
+---> Package libyaml.i386 0:0.1.2-8.el5 set to be updated
+---> Package libyaml.x86_64 0:0.1.2-8.el5 set to be updated
+---> Package python26-libs.i386 0:2.6.8-3.el5 set to be updated
+--> Processing Dependency: python26 = 2.6.8-3.el5 for package: python26-libs
+---> Package python26-libs.x86_64 0:2.6.8-3.el5 set to be updated
+--> Running transaction check
+---> Package glibc-common.x86_64 0:2.5-123.0.1.el5_11.3 set to be updated
+---> Package python26.x86_64 0:2.6.8-3.el5 set to be updated
+--> Processing Dependency: libffi for package: python26
+--> Processing Dependency: libffi.so.5()(64bit) for package: python26
+--> Running transaction check
+---> Package libffi.x86_64 0:3.0.5-1.el5 set to be updated
+--> Finished Dependency Resolution
+
+Dependencies Resolved
+
+================================================================================
+ Package           Arch     Version                  Repository            Size
+================================================================================
+Installing:
+ python26-PyYAML   i386     3.08-4.el5               repo-saltstack-el5   166 k
+ python26-PyYAML   x86_64   3.08-4.el5               epel                 182 k
+Installing for dependencies:
+ glibc             i686     2.5-123.0.1.el5_11.3     el5_latest           5.4 M
+ libffi            x86_64   3.0.5-1.el5              epel                  24 k
+ libyaml           i386     0.1.2-8.el5              epel                  55 k
+ libyaml           x86_64   0.1.2-8.el5              epel                  54 k
+ python26          x86_64   2.6.8-3.el5              repo-saltstack-el5   6.5 M
+ python26-libs     i386     2.6.8-3.el5              repo-saltstack-el5   671 k
+ python26-libs     x86_64   2.6.8-3.el5              repo-saltstack-el5   695 k
+Updating for dependencies:
+ glibc             x86_64   2.5-123.0.1.el5_11.3     el5_latest           4.8 M
+ glibc-common      x86_64   2.5-123.0.1.el5_11.3     el5_latest            16 M
+
+Transaction Summary
+================================================================================
+Install       9 Package(s)
+Upgrade       2 Package(s)
+
+Total download size: 35 M
+Downloading Packages:
+--------------------------------------------------------------------------------
+Total                                           126 kB/s |  35 MB     04:44     
+warning: rpmts_HdrFromFdno: Header V4 DSA signature: NOKEY, key ID 217521f6
+Importing GPG key 0x217521F6 "Fedora EPEL <epel@fedoraproject.org>" from /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL
+Running rpm_check_debug
+Running Transaction Test
+Finished Transaction Test
+Transaction Test Succeeded
+Running Transaction
+  Updating       : glibc-common                                            1/13 
+  Updating       : glibc                                                   2/13 
+  Installing     : libffi                                                  3/13 
+  Installing     : libyaml                                                 4/13 
+  Installing     : glibc                                                   5/13 
+  Installing     : libyaml                                                 6/13 
+  Installing     : python26                                                7/13 
+  Installing     : python26-libs                                           8/13 
+  Installing     : python26-libs                                           9/13 
+  Installing     : python26-PyYAML                                        10/13 
+  Installing     : python26-PyYAML                                        11/13 
+  Cleanup        : glibc                                                  12/13 
+  Cleanup        : glibc-common                                           13/13 
+lxc-patch: checking if updated pkgs need patching...
+
+Installed:
+  python26-PyYAML.i386 0:3.08-4.el5     python26-PyYAML.x86_64 0:3.08-4.el5    
+
+Dependency Installed:
+  glibc.i686 0:2.5-123.0.1.el5_11.3       libffi.x86_64 0:3.0.5-1.el5          
+  libyaml.i386 0:0.1.2-8.el5              libyaml.x86_64 0:0.1.2-8.el5         
+  python26.x86_64 0:2.6.8-3.el5           python26-libs.i386 0:2.6.8-3.el5     
+  python26-libs.x86_64 0:2.6.8-3.el5     
+
+Dependency Updated:
+  glibc.x86_64 0:2.5-123.0.1.el5_11.3                                           
+  glibc-common.x86_64 0:2.5-123.0.1.el5_11.3                                    
+
+Complete!
+Loaded plugins: lxc-patch
+Setting up Install Process
+Resolving Dependencies
+--> Running transaction check
+---> Package python26-m2crypto.x86_64 0:0.21.1-5.el5 set to be updated
+--> Finished Dependency Resolution
+
+Dependencies Resolved
+
+================================================================================
+ Package                  Arch          Version               Repository   Size
+================================================================================
+Installing:
+ python26-m2crypto        x86_64        0.21.1-5.el5          epel        571 k
+
+Transaction Summary
+================================================================================
+Install       1 Package(s)
+Upgrade       0 Package(s)
+
+Total download size: 571 k
+Downloading Packages:
+Running rpm_check_debug
+Running Transaction Test
+Finished Transaction Test
+Transaction Test Succeeded
+Running Transaction
+  Installing     : python26-m2crypto                                        1/1 
+lxc-patch: checking if updated pkgs need patching...
+
+Installed:
+  python26-m2crypto.x86_64 0:0.21.1-5.el5                                       
+
+Complete!
+Loaded plugins: lxc-patch
+Setting up Install Process
+Package m2crypto-0.16-9.el5.x86_64 already installed and latest version
+Nothing to do
+Loaded plugins: lxc-patch
+Setting up Install Process
+Package python26-2.6.8-3.el5.x86_64 already installed and latest version
+Resolving Dependencies
+--> Running transaction check
+---> Package python26.i386 0:2.6.8-3.el5 set to be updated
+--> Processing Dependency: libpanelw.so.5 for package: python26
+--> Processing Dependency: libbz2.so.1 for package: python26
+--> Processing Dependency: libsqlite3.so.0 for package: python26
+--> Processing Dependency: libz.so.1 for package: python26
+--> Processing Dependency: libffi.so.5 for package: python26
+--> Processing Dependency: libdb-4.3.so for package: python26
+--> Processing Dependency: libncursesw.so.5 for package: python26
+--> Processing Dependency: libtermcap.so.2 for package: python26
+--> Processing Dependency: libssl.so.6 for package: python26
+--> Processing Dependency: libcrypto.so.6 for package: python26
+--> Processing Dependency: libreadline.so.5 for package: python26
+--> Processing Dependency: libgdbm.so.2 for package: python26
+--> Running transaction check
+---> Package bzip2-libs.i386 0:1.0.3-6.el5_5 set to be updated
+---> Package db4.i386 0:4.3.29-10.el5_5.2 set to be updated
+--> Processing Dependency: libstdc++.so.6(CXXABI_1.3) for package: db4
+--> Processing Dependency: libgcc_s.so.1 for package: db4
+--> Processing Dependency: libstdc++.so.6 for package: db4
+--> Processing Dependency: libgcc_s.so.1(GCC_3.0) for package: db4
+--> Processing Dependency: libstdc++.so.6(GLIBCXX_3.4) for package: db4
+---> Package gdbm.i386 0:1.8.0-28.el5 set to be updated
+---> Package libffi.i386 0:3.0.5-1.el5 set to be updated
+---> Package libtermcap.i386 0:2.0.8-46.1 set to be updated
+---> Package ncurses.i386 0:5.5-24.20060715 set to be updated
+---> Package openssl.i686 0:0.9.8e-36.0.1.el5_11 set to be updated
+--> Processing Dependency: libgssapi_krb5.so.2 for package: openssl
+--> Processing Dependency: libkrb5.so.3(krb5_3_MIT) for package: openssl
+--> Processing Dependency: libk5crypto.so.3 for package: openssl
+--> Processing Dependency: libk5crypto.so.3(k5crypto_3_MIT) for package: openssl
+--> Processing Dependency: libcom_err.so.2 for package: openssl
+--> Processing Dependency: libkrb5.so.3 for package: openssl
+---> Package openssl.x86_64 0:0.9.8e-36.0.1.el5_11 set to be updated
+---> Package readline.i386 0:5.1-3.el5 set to be updated
+---> Package sqlite.i386 0:3.3.6-7 set to be updated
+---> Package zlib.i386 0:1.2.3-7.el5 set to be updated
+--> Running transaction check
+---> Package e2fsprogs-libs.i386 0:1.39-37.0.1.el5 set to be updated
+--> Processing Dependency: libdevmapper.so.1.02 for package: e2fsprogs-libs
+---> Package krb5-libs.i386 0:1.6.1-80.el5_11 set to be updated
+--> Processing Dependency: libselinux.so.1 for package: krb5-libs
+--> Processing Dependency: libkeyutils.so.1 for package: krb5-libs
+--> Processing Dependency: libkeyutils.so.1(KEYUTILS_0.3) for package: krb5-libs
+---> Package libgcc.i386 0:4.1.2-55.el5 set to be updated
+---> Package libstdc++.i386 0:4.1.2-55.el5 set to be updated
+--> Running transaction check
+---> Package device-mapper.i386 0:1.02.67-2.0.1.el5_11.1 set to be updated
+--> Processing Dependency: libsepol.so.1 for package: device-mapper
+---> Package keyutils-libs.i386 0:1.2-1.el5 set to be updated
+---> Package libselinux.i386 0:1.33.4-5.7.el5 set to be updated
+--> Running transaction check
+---> Package libsepol.i386 0:1.15.2-3.el5 set to be updated
+--> Finished Dependency Resolution
+
+Dependencies Resolved
+
+================================================================================
+ Package          Arch     Version                   Repository            Size
+================================================================================
+Installing:
+ python26         i386     2.6.8-3.el5               repo-saltstack-el5   6.5 M
+Installing for dependencies:
+ bzip2-libs       i386     1.0.3-6.el5_5             el5_latest            37 k
+ db4              i386     4.3.29-10.el5_5.2         el5_latest           918 k
+ device-mapper    i386     1.02.67-2.0.1.el5_11.1    el5_latest           804 k
+ e2fsprogs-libs   i386     1.39-37.0.1.el5           el5_latest           120 k
+ gdbm             i386     1.8.0-28.el5              el5_latest            28 k
+ keyutils-libs    i386     1.2-1.el5                 el5_latest            17 k
+ krb5-libs        i386     1.6.1-80.el5_11           el5_latest           670 k
+ libffi           i386     3.0.5-1.el5               epel                  21 k
+ libgcc           i386     4.1.2-55.el5              el5_latest            97 k
+ libselinux       i386     1.33.4-5.7.el5            el5_latest            77 k
+ libsepol         i386     1.15.2-3.el5              el5_latest           130 k
+ libstdc++        i386     4.1.2-55.el5              el5_latest           364 k
+ libtermcap       i386     2.0.8-46.1                el5_latest            14 k
+ ncurses          i386     5.5-24.20060715           el5_latest           1.1 M
+ openssl          i686     0.9.8e-36.0.1.el5_11      el5_latest           1.7 M
+ readline         i386     5.1-3.el5                 el5_latest           223 k
+ sqlite           i386     3.3.6-7                   el5_latest           213 k
+ zlib             i386     1.2.3-7.el5               el5_latest            51 k
+Updating for dependencies:
+ openssl          x86_64   0.9.8e-36.0.1.el5_11      el5_latest           1.7 M
+
+Transaction Summary
+================================================================================
+Install      19 Package(s)
+Upgrade       1 Package(s)
+
+Total download size: 15 M
+Downloading Packages:
+--------------------------------------------------------------------------------
+Total                                           122 kB/s |  15 MB     02:03     
+Running rpm_check_debug
+Running Transaction Test
+Finished Transaction Test
+
+
+Transaction Check Error:
+  package libselinux-1.33.4-5.7.0.1.el5.x86_64 (which is newer than libselinux-1.33.4-5.7.el5.i386) is already installed
+
+Error Summary
+-------------
+
+Loaded plugins: lxc-patch
+Setting up Install Process
+Package python26-2.6.8-3.el5.x86_64 already installed and latest version
+Resolving Dependencies
+--> Running transaction check
+---> Package python26.i386 0:2.6.8-3.el5 set to be updated
+--> Processing Dependency: libpanelw.so.5 for package: python26
+--> Processing Dependency: libbz2.so.1 for package: python26
+--> Processing Dependency: libsqlite3.so.0 for package: python26
+--> Processing Dependency: libz.so.1 for package: python26
+--> Processing Dependency: libffi.so.5 for package: python26
+--> Processing Dependency: libdb-4.3.so for package: python26
+--> Processing Dependency: libncursesw.so.5 for package: python26
+--> Processing Dependency: libtermcap.so.2 for package: python26
+--> Processing Dependency: libssl.so.6 for package: python26
+--> Processing Dependency: libcrypto.so.6 for package: python26
+--> Processing Dependency: libreadline.so.5 for package: python26
+--> Processing Dependency: libgdbm.so.2 for package: python26
+--> Running transaction check
+---> Package bzip2-libs.i386 0:1.0.3-6.el5_5 set to be updated
+---> Package db4.i386 0:4.3.29-10.el5_5.2 set to be updated
+--> Processing Dependency: libstdc++.so.6(CXXABI_1.3) for package: db4
+--> Processing Dependency: libgcc_s.so.1 for package: db4
+--> Processing Dependency: libstdc++.so.6 for package: db4
+--> Processing Dependency: libgcc_s.so.1(GCC_3.0) for package: db4
+--> Processing Dependency: libstdc++.so.6(GLIBCXX_3.4) for package: db4
+---> Package gdbm.i386 0:1.8.0-28.el5 set to be updated
+---> Package libffi.i386 0:3.0.5-1.el5 set to be updated
+---> Package libtermcap.i386 0:2.0.8-46.1 set to be updated
+---> Package ncurses.i386 0:5.5-24.20060715 set to be updated
+---> Package openssl.i686 0:0.9.8e-36.0.1.el5_11 set to be updated
+--> Processing Dependency: libgssapi_krb5.so.2 for package: openssl
+--> Processing Dependency: libkrb5.so.3(krb5_3_MIT) for package: openssl
+--> Processing Dependency: libk5crypto.so.3 for package: openssl
+--> Processing Dependency: libk5crypto.so.3(k5crypto_3_MIT) for package: openssl
+--> Processing Dependency: libcom_err.so.2 for package: openssl
+--> Processing Dependency: libkrb5.so.3 for package: openssl
+---> Package openssl.x86_64 0:0.9.8e-36.0.1.el5_11 set to be updated
+---> Package readline.i386 0:5.1-3.el5 set to be updated
+---> Package sqlite.i386 0:3.3.6-7 set to be updated
+---> Package zlib.i386 0:1.2.3-7.el5 set to be updated
+--> Running transaction check
+---> Package e2fsprogs-libs.i386 0:1.39-37.0.1.el5 set to be updated
+--> Processing Dependency: libdevmapper.so.1.02 for package: e2fsprogs-libs
+---> Package krb5-libs.i386 0:1.6.1-80.el5_11 set to be updated
+--> Processing Dependency: libselinux.so.1 for package: krb5-libs
+--> Processing Dependency: libkeyutils.so.1 for package: krb5-libs
+--> Processing Dependency: libkeyutils.so.1(KEYUTILS_0.3) for package: krb5-libs
+---> Package libgcc.i386 0:4.1.2-55.el5 set to be updated
+---> Package libstdc++.i386 0:4.1.2-55.el5 set to be updated
+--> Running transaction check
+---> Package device-mapper.i386 0:1.02.67-2.0.1.el5_11.1 set to be updated
+--> Processing Dependency: libsepol.so.1 for package: device-mapper
+---> Package keyutils-libs.i386 0:1.2-1.el5 set to be updated
+---> Package libselinux.i386 0:1.33.4-5.7.el5 set to be updated
+--> Running transaction check
+---> Package libsepol.i386 0:1.15.2-3.el5 set to be updated
+--> Finished Dependency Resolution
+
+Dependencies Resolved
+
+================================================================================
+ Package          Arch     Version                   Repository            Size
+================================================================================
+Installing:
+ python26         i386     2.6.8-3.el5               repo-saltstack-el5   6.5 M
+Installing for dependencies:
+ bzip2-libs       i386     1.0.3-6.el5_5             el5_latest            37 k
+ db4              i386     4.3.29-10.el5_5.2         el5_latest           918 k
+ device-mapper    i386     1.02.67-2.0.1.el5_11.1    el5_latest           804 k
+ e2fsprogs-libs   i386     1.39-37.0.1.el5           el5_latest           120 k
+ gdbm             i386     1.8.0-28.el5              el5_latest            28 k
+ keyutils-libs    i386     1.2-1.el5                 el5_latest            17 k
+ krb5-libs        i386     1.6.1-80.el5_11           el5_latest           670 k
+ libffi           i386     3.0.5-1.el5               epel                  21 k
+ libgcc           i386     4.1.2-55.el5              el5_latest            97 k
+ libselinux       i386     1.33.4-5.7.el5            el5_latest            77 k
+ libsepol         i386     1.15.2-3.el5              el5_latest           130 k
+ libstdc++        i386     4.1.2-55.el5              el5_latest           364 k
+ libtermcap       i386     2.0.8-46.1                el5_latest            14 k
+ ncurses          i386     5.5-24.20060715           el5_latest           1.1 M
+ openssl          i686     0.9.8e-36.0.1.el5_11      el5_latest           1.7 M
+ readline         i386     5.1-3.el5                 el5_latest           223 k
+ sqlite           i386     3.3.6-7                   el5_latest           213 k
+ zlib             i386     1.2.3-7.el5               el5_latest            51 k
+Updating for dependencies:
+ openssl          x86_64   0.9.8e-36.0.1.el5_11      el5_latest           1.7 M
+
+Transaction Summary
+================================================================================
+Install      19 Package(s)
+Upgrade       1 Package(s)
+
+Total size: 15 M
+Downloading Packages:
+Running rpm_check_debug
+Running Transaction Test
+Finished Transaction Test
+
+
+Transaction Check Error:
+  package libselinux-1.33.4-5.7.0.1.el5.x86_64 (which is newer than libselinux-1.33.4-5.7.el5.i386) is already installed
+
+Error Summary
+-------------
+
+ * ERROR: Failed to run install_oracle_linux_git_deps()!!!
+[root@6ac4e2e7232d /]# 
+```

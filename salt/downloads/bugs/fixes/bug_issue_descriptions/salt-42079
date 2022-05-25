@@ -1,0 +1,185 @@
+### Description of Issue/Question
+
+`file.managed` and `cmd.run` randomly fail on freshly deployed Windows 2008/2012/2016.
+Windows is deployed via `salt-cloud` on vmware, and provisioned from `salt-master` via `salt` command.
+Deployment is automated and called remotely and no user interaction happens with the system before it is finished. Behaviour is the same for 2016.11.2, 2016.11.5 and 2016.11.6.
+
+### Setup
+`salt-minion` is configured with default settings by `salt-cloud`. All non-default settings are  environment (base or other git branch), nacl, merge strategy and logging levels.
+
+Running `file.managed` with `template: jinja` randomly fails with ` 'LookupAccountSid', 'A device attached to the system is not functioning.'` or `'LookupAccountSid', 'The remote procedure call failed.')`. I have not yet figured out the difference - the last message I see on windows 2008 and the first one on 2016, but that may not be relevant.  
+When I check the system for this file, it is present and looks correctly rendered, owned by `Administrators` and with `SYSTEM` granted full access.
+
+I cannot find out how to reliably reproduce it, however this happens regularly on new deployment of Windows minion via salt-cloud. By regularly, I mean around 0-3 out of 10 deployments may fail with this error. 
+
+ `cmd.run` produces a slightly different error and may be unrelated, however I suspect that they are, as I either see error for `file` or both `file` and  `cmd`.  It also seems they may be related both to user profile (system user profile?).
+
+If I call these states on a VM I am logged in via rdp I could never reproduce it Same if I call commands directly or execute powershell script.
+Note that newly provisioned VM has "Administrator" user logged in automatically (when salt is executing user is already logged in and at least that user profile should be available).
+
+I've also noticed that by default salt-cloud installs minion with `multiprocessing: false` however even if I set it to `true` I get the same results.
+
+I also cannot find any relevant windows events logged - no related crashes or errors that would state that the device was actually not ready at the moment, etc.
+
+### Steps to Reproduce Issue
+The state that fails most of the time:
+
+```
+sql-configuration-execute:
+  cmd.run:
+    - template: jinja
+    - name: '{{ tmp_dir }}\sqlserver-{{ sqlserver.db_version }}-config.ps1'
+    - shell: powershell
+```
+and file itself has some variables set:
+```
+{% if not salt['pillar.get']('sqlserver', '') %}
+{% from "sqlserver-default.yml" import sqlserver %}
+{% else %}
+{% set sqlserver = salt['pillar.get']('sqlserver') %}
+{% endif %}
+...
+$uri = "ManagedComputer[@Name='$env:computername']/ServerInstance[@Name='{{ sqlserver['instance_name']}}']/ServerProtocol[@Name='Tcp']"
+...
+$wmi.GetSmoObject($uri + "/IPAddress[@Name='IPAll']").IPAddressProperties[1].Value="{{ sqlserver['db_port']}}"
+...
+$uri = "ManagedComputer[@Name='$env:computername']/ServerInstance[@Name='{{ sqlserver['instance_name']}}']/ServerProtocol[@Name='Np']"
+...
+```
+
+The error is for `file.managed`:
+```
+11:05:36			          ID: sql-configuration
+11:05:36			    Function: file.managed
+11:05:36			        Name: C:\Windows\TEMP\sqlserver-2012-config.ps1
+11:05:36			      Result: False
+11:05:36			     Comment: Unable to manage file: (31, 'LookupAccountSid', 'A device attached to the system is not functioning.')
+11:05:36			     Started: 01:03:59.091000
+11:05:36			    Duration: 359.0 ms
+11:05:36			     Changes: 
+```
+The debug log is:
+
+```
+2017-07-03 01:48:08,756 [salt.fileclient  ][DEBUG   ][2296] In saltenv 'base', looking at rel_path '...sqlserver-default.yml' to resolve 'salt://...sqlserver-default.yml'
+2017-07-03 01:48:08,756 [salt.fileclient  ][DEBUG   ][2296] In saltenv 'base', ** considering ** path 'c:\salt\var\cache\salt\minion\files\base\...sqlserver-default.yml' to resolve 'salt://...sqlserver-default.yml'
+2017-07-03 01:48:08,803 [salt.loaded.int.states.file][DEBUG   ][2296] Traceback (most recent call last):
+  File "c:\salt\bin\lib\site-packages\salt\states\file.py", line 1967, in managed
+    **kwargs)
+  File "c:\salt\bin\lib\site-packages\salt\modules\file.py", line 4946, in manage_file
+    ret, _ = check_perms(name, ret, user, group, mode)
+  File "c:\salt\bin\lib\site-packages\salt\modules\file.py", line 4110, in check_perms
+    cur = stats(name, follow_symlinks=follow_symlinks)
+  File "c:\salt\bin\lib\site-packages\salt\modules\win_file.py", line 896, in stats
+    ret['user'] = uid_to_user(ret['uid'])
+  File "c:\salt\bin\lib\site-packages\salt\modules\win_file.py", line 503, in uid_to_user
+    name, domain, account_type = win32security.LookupAccountSid(None, sid)
+error: (31, 'LookupAccountSid', 'A device attached to the system is not functioning.')
+```
+
+alternatively:
+```
+03:42:00			          ID: sql-configuration
+03:42:00			    Function: file.managed
+03:42:00			        Name: C:\Windows\TEMP\sqlserver-2012-config.ps1
+03:42:00			      Result: False
+03:42:00			     Comment: Unable to manage file: (1726, 'LookupAccountSid', 'The remote procedure call failed.')
+03:42:00			     Started: 17:39:47.707000
+03:42:00			    Duration: 797.0 ms
+03:42:00			     Changes:  
+```
+
+and for `cmd.run`:
+```
+11:05:36			          ID: enable-sa-account
+11:05:36			    Function: cmd.run
+11:05:36			        Name: sqlcmd -E -S LOCALHOST\SQLEXPRESS -Q "ALTER LOGIN sa ENABLE;"
+11:05:36			      Result: False
+11:05:36			     Comment: An exception occurred in this state: Traceback (most recent call last):
+11:05:36			                File "c:\salt\bin\lib\site-packages\salt\state.py", line 1750, in call
+11:05:36			                  **cdata['kwargs'])
+11:05:36			                File "c:\salt\bin\lib\site-packages\salt\loader.py", line 1705, in wrapper
+11:05:36			                  return f(*args, **kwargs)
+11:05:36			                File "c:\salt\bin\lib\site-packages\salt\states\cmd.py", line 852, in run
+11:05:36			                  name, timeout=timeout, python_shell=True, **cmd_kwargs
+11:05:36			                File "c:\salt\bin\lib\site-packages\salt\modules\cmdmod.py", line 1662, in run_all
+11:05:36			                  **kwargs)
+11:05:36			                File "c:\salt\bin\lib\site-packages\salt\modules\cmdmod.py", line 386, in _run
+11:05:36			                  return win_runas(cmd, runas, password, cwd)
+11:05:36			                File "c:\salt\bin\lib\site-packages\salt\utils\win_runas.py", line 399, in runas
+11:05:36			                  return runas_system(cmd, username, password)
+11:05:36			                File "c:\salt\bin\lib\site-packages\salt\utils\win_runas.py", line 291, in runas_system
+11:05:36			                  handle_reg = win32profile.LoadUserProfile(token, {'UserName': username})
+11:05:36			              error: (5, 'LoadUserProfile', 'Access is denied.')
+11:05:36			     Started: 01:04:22.889000
+11:05:36			    Duration: 0.0 ms
+11:05:36			     Changes:
+```
+
+debug log:
+```
+2017-07-03 01:48:30,194 [salt.state       ][INFO    ][2296] Completed state [sqlcmd -E -S LOCALHOST\SQLEXPRESS -Q "ALTER LOGIN sa ENABLE;"] at time 01:48:30.195000 duration_in_ms=0.0
+2017-07-03 01:48:30,194 [salt.state       ][INFO    ][2296] Running state [sqlcmd -E -S LOCALHOST\SQLEXPRESS -Q "USE master; ALTER LOGIN sa WITH PASSWORD='sa';"] at time 01:48:30.195000
+2017-07-03 01:48:30,194 [salt.state       ][INFO    ][2296] Executing state cmd.run for sqlcmd -E -S LOCALHOST\SQLEXPRESS -Q "USE master; ALTER LOGIN sa WITH PASSWORD='sa';"
+2017-07-03 01:48:30,194 [salt.loaded.int.module.cmdmod][INFO    ][2296] Executing command 'Powershell -NonInteractive -NoProfile "sqlcmd -E -S LOCALHOST\SQLEXPRESS -Q \"USE master; ALTER LOGIN sa WITH PASSWORD='sa';\""' as user 'Administrator' in directory 'C:\Program Files\Microsoft SQL Server\110\Tools\Binn'
+2017-07-03 01:48:30,210 [salt.state       ][ERROR   ][2296] An exception occurred in this state: Traceback (most recent call last):
+  File "c:\salt\bin\lib\site-packages\salt\state.py", line 1750, in call
+    **cdata['kwargs'])
+  File "c:\salt\bin\lib\site-packages\salt\loader.py", line 1705, in wrapper
+    return f(*args, **kwargs)
+  File "c:\salt\bin\lib\site-packages\salt\states\cmd.py", line 852, in run
+    name, timeout=timeout, python_shell=True, **cmd_kwargs
+  File "c:\salt\bin\lib\site-packages\salt\modules\cmdmod.py", line 1662, in run_all
+    **kwargs)
+  File "c:\salt\bin\lib\site-packages\salt\modules\cmdmod.py", line 386, in _run
+    return win_runas(cmd, runas, password, cwd)
+  File "c:\salt\bin\lib\site-packages\salt\utils\win_runas.py", line 399, in runas
+    return runas_system(cmd, username, password)
+  File "c:\salt\bin\lib\site-packages\salt\utils\win_runas.py", line 291, in runas_system
+    handle_reg = win32profile.LoadUserProfile(token, {'UserName': username})
+error: (5, 'LoadUserProfile', 'Access is denied.')
+```
+
+### Versions Report
+Same behaviour for 2016.11.2 and 2016.11.5.
+```
+Salt Version:
+           Salt: 2016.11.6
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 7.1.0
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 2.0.8
+          ioflo: 1.5.5
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: 1.4.5
+       M2Crypto: Not Installed
+           Mako: 1.0.4
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (v2.7.12:d33e0cf91556, Jun 27 2016, 15:24:40) [MSC v.1500 64 bit (AMD64)]
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 16.0.1
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: 0.2.4
+        Tornado: 4.4.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+        machine: AMD64
+        release: 2016Server
+         system: Windows
+        version: 2016Server 10.0.14393  Multiprocessor Free
+```

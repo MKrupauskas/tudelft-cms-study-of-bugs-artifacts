@@ -1,0 +1,372 @@
+### Description of Issue/Question
+
+**tl;dr**: If the result of a salt-ssh state call is too long, it gets truncated, leading to JSON Decode error.
+
+When the output of a salt-ssh run is too long, the return is (truncated?) gibberish that cannot be decoded, and therefore leads to "No JSON object could be decoded". This is a long-standing bug that is still present in master, I'm sure there used to be a bug report on this but I don't know where it went.
+
+In my current case, it even leads to a misleading error message being included in the output of the command:
+
+```
+$ salt-ssh -i --refresh --user $(whoami) 'vmrbg12' state.sls userhomeserver
+[ERROR   ] JSON Render failed for: The host key needs to be accepted, to auto accept run salt-ssh with the -i flag:
+r certificate (yes/no)\n-# Default is to use libldap's default behavior, which can be configured in\n-# /etc/openldap/ldap.conf using the TLS_REQCERT setting.  The default for\n-# OpenLDAP 2.0 and earlier is \"no\", for 2.1 and later is \"yes\".\n-#tls_checkpeer yes\n-\n-# CA certificates for server certificate verification\n-# At least one of these are required if tls_checkpeer is \"yes\"\n-#tls_cacertfile /etc/ssl/ca.cert\n-#tls_cacertdir /etc/ssl/certs\n-\n-# Seed the PRNG if /dev/urandom is not provided\n-#tls_randfile /var/run/egd-pool\n-\n-# SSL cipher suite\n-# See man ciphers for syntax\n-#tls_ciphers TLSv1\n-\n-# Client certificate and key\n-# Use these, if your server requires client authentication.\n-#tls_cert\n-#tls_key\n-\n-# Disable SASL security layers. This is needed for AD.\n-#sasl_secprops maxssf=0\n-\n-# Override the default Kerberos ticket cache location.\n-#krb5_ccname FILE:/etc/.ldapcache\n-\n-# SASL mechanism for PAM authentication - use is experimental\n-# at present and does not suppo
+
+[ERROR   ] No JSON object could be decoded
+vmrbg12:
+    The host key needs to be accepted, to auto accept run salt-ssh with the -i flag:
+    r certificate (yes/no)\n-# Default is to use libldap's default behavior, which can be configured in\n-# /etc/openldap/ldap.conf using the TLS_REQCERT setting.  The default for\n-# OpenLDAP 2.0 and earlier is \"no\", for 2.1 and later is \"yes\".\n-#tls_checkpeer yes\n-\n-# CA certificates for server certificate verification\n-# At least one of these are required if tls_checkpeer is \"yes\"\n-#tls_cacertfile /etc/ssl/ca.cert\n-#tls_cacertdir /etc/ssl/certs\n-\n-# Seed the PRNG if /dev/urandom is not provided\n-#tls_randfile /var/run/egd-pool\n-\n-# SSL cipher suite\n-# See man ciphers for syntax\n-#tls_ciphers TLSv1\n-\n-# Client certificate and key\n-# Use these, if your server requires client authentication.\n-#tls_cert\n-#tls_key\n-\n-# Disable SASL security layers. This is needed for AD.\n-#sasl_secprops maxssf=0\n-\n-# Override the default Kerberos ticket cache location.\n-#krb5_ccname FILE:/etc/.ldapcache\n-\n-# SASL mechanism for PAM authentication - use is experimental\n-# at present and does not suppo
+```
+
+The state run actually performed flawlessly, and I have no idea what led to the _"The host key needs to be accepted"_ message. There must be some fuzzy logic somewhere triggering on "no sensible output from ssh invocation -> must be missing host key". The other line is part of the diff of a `file.managed` state execution result and I guess is from just before / just after some buffer limit was reached.
+
+EDIT: Rerunning with -l trace, I actually get this as the result:
+
+```
+[TRACE   ] {
+    "local": {
+        "fun_args": [
+            "/var/tmp/.erlacher_f62e6b_salt/salt_state.tgz", 
+            "test=None", 
+            "pkg_sum=ae9d8337f6102904b6229f81d494838743eb7ae00c90b7bcf9b22d6b7dec5541", 
+            "hash_type=sha256"
+        ], 
+        "jid": "20161028134108846268", 
+        "return": {
+            "apache_module_|-enable_cgid_|-cgid_|-enabled": {
+                "comment": "", 
+                "name": "cgid", 
+                "start_time": "13:41:47.032238", 
+                "result": true, 
+                "duration": 49.623, 
+                "__run_num__": 5, 
+                "changes": {
+                    "new": "cgid", 
+                    "old": null
+                }, 
+                "__id__": "enable_cgid"
+            }, 
+            "file_|-autofs_dir_|-/u/halle_|-directory": {
+                "comment": "Directory /u/halle updated", 
+                "pchanges": {
+                    "/u/halle": {
+                        "directory": "new"
+[TRACE   ]                     }
+                }, 
+                "name": "/u/halle", 
+                "start_time": "13:41:47.289518", 
+                "result": true, 
+                "duration": 26.253, 
+                "__run_num__": 11, 
+                "changes": {
+                    "/u/halle": "New Dir"
+                }, 
+                "__id__": "autofs_dir"
+            }, 
+            "file_|-userdir_conf_|-/etc/apache2/mods-available/userdir.conf_|-managed": {
+                "comment": "File /etc/apache2/mods-available/userdir.conf updated", 
+                "pchanges": {}, 
+                "name": "/etc/apache2/mods-available/userdir.conf", 
+                "start_time": "13:41:47.400115", 
+                "result": true, 
+                "duration": 4.085, 
+                "__run_num__": 20, 
+                "changes": {
+                    "diff": "--- \n+++ \n@@ -1,17 +1,32 @@\n <IfModule mod_userdir.c>\n-\tUserDir public_html\n+#\tUserDir public_html\n+\tUserDir \"/u/halle/*/
+[TRACE   ] home_page\"\n \tUserDir disabled root\n \n-\t<Directory /home/*/public_html>\n-\t\tAllowOverride FileInfo AuthConfig Limit Indexes\n-\t\tOptions MultiViews Indexes 
+
+...
+
+granted\n+#\t\t</Limit>\n+#\t\t<LimitExcept GET POST OPTIONS>\n+#\t\t\tRequire all denied\n+#\t\t</LimitExcept>\n+#\t</Directory>\n </IfModule>\n \n # vim: syntax=apache ts=4 sw=4 sts=4 sr noet\n"
+                }, 
+                "__id__": "userdir_conf"
+            }, 
+            "cmd_|-apache_status_|-systemctl status apache2_|-run": {
+                "comment": "Command \"systemctl status apache2\" run", 
+                "name": "systemctl status apache2", 
+                "start_time": "13:41:50.034358", 
+                "result": false, 
+                "duration": 12.57, 
+                "__run_num__": 36, 
+                "changes": {
+                    "pid": 10763, 
+                    "retcode": 3, 
+                    "stderr": "", 
+                    "stdout": "* apache2.service - LSB: Apache2 web server\n   Loaded: loaded (/etc/init.d/apache2; bad; vendor preset: enabled)\n  Drop-In: /lib/system
+[TRACE   ] d/system/apache2.service.d\n           `-apache2-systemd.conf\n   Active: failed (Result: exit-code) since Fri 2016-10-28 13:41:50 CEST; 12ms ago\n     Docs: man:systemd-sysv-generator(8)\n  
+...
+[TRACE   ] 28 13:41:50 vmrbg12 systemd[1]: Failed to start LSB: Apache2 web server.\nOct 28 13:41:50 vmrbg12 systemd[1]: apache2.service: Unit entered failed state.\nOct 28 13:41:50 vmrbg12 systemd[1]: apache2.service: Failed with result 'exit-code'."
+                }, 
+                "__id__": "apache_status"
+            }, 
+            "file_|-cgi-wrappers_|-/usr/lib/cgi-bin_|-recurse": {
+                "comment": "Recursively updated /usr/lib/cgi-bin", 
+                "pchanges": {}, 
+                "name": "/usr/lib/cgi-bin", 
+                "start_time": "13:41:49.802002", 
+                "result": true, 
+                "duration": 51.727, 
+                "__run_num__": 34, 
+                "changes": {
+                    "/usr/lib/cgi-bin/extract_url": {
+                        "diff": "New file", 
+                        "group": "www-data", 
+                        "mode": "0751"
+                    }, 
+                    "/usr/lib/cgi-bin": {
+                        "group": "www-d
+[TRACE   ] ata"
+                    }, 
+                    "/usr/lib/cgi-bin/nosuchuser.py": {
+                        "diff": "New file", 
+                        "group": "www-data", 
+                        "mode": "0751"
+                    }, 
+                    "/usr/lib/cgi-bin/newhomebanner.py": {
+                        "diff": "New file", 
+                        "group": "www-data", 
+                        "mode": "0751"
+                    }, 
+                    "/usr/lib/cgi-bin/nosuchuser.py.bak": {
+                        "diff": "New file", 
+                        "group": "www-data", 
+                        "mode": "0751"
+                    }, 
+                    "/usr/lib/cgi-bin/error500.py": {
+                        "diff": "New file", 
+                        "group": "www-data", 
+                        "mode": "0751"
+                    }, 
+                    "/usr/lib/cgi-bin/userlogger.py": {
+                        "diff": "New file", 
+                        "
+[TRACE   ] group": "www-data", 
+                        "mode": "0751"
+                    }
+                }, 
+                "__id__": "cgi-wrappers"
+            }, 
+            "cmd_|-restart_ssh_|-systemctl restart sshd_|-wait": {
+                "comment": "", 
+                "name": "systemctl restart sshd", 
+                "start_time": "13:41:47.380070", 
+                "result": true, 
+                "duration": 0.57, 
+                "__run_num__": 18, 
+                "changes": {}, 
+                "__id__": "restart_ssh"
+            }, 
+            "apache_module_|-enable_ssl_|-ssl_|-enabled": {
+                "comment": "", 
+                "name": "ssl", 
+                "start_time": "13:41:47.133667", 
+                "result": true, 
+                "duration": 53.016, 
+                "__run_num__": 7, 
+                "changes": {
+                    "new": "ssl", 
+                    "old": null
+                }, 
+                "__id__": "enable_ssl"
+[TRACE   ]  }, 
+            "group_|-apache_tumuser_|-tumuser_|-present": {
+                "comment": "The following group attributes are set to be changed:\naddusers: ['www-data']\n", 
+                "name": "tumuser", 
+                "start_time": "13:41:46.951687", 
+                "result": true, 
+                "duration": 74.766, 
+                "__run_num__": 4, 
+                "changes": {
+                    "Final": "All changes applied successfully"
+                }, 
+                "__id__": "apache_tumuser"
+            }, 
+            "file_|-static-html_|-/srv/home_static_|-recurse": {
+                "comment": "Recursively updated /srv/home_static", 
+                "pchanges": {}, 
+                "name": "/srv/home_static", 
+                "start_time": "13:41:47.424635", 
+                "result": true, 
+                "duration": 79.933, 
+                "__run_num__": 26, 
+                "changes": {
+                    "/srv/home_static/TUM-Logo-102.png": {
+[TRACE   ]                  "diff": "New file", 
+                        "mode": "0644"
+                    }, 
+                    "/srv/home_static/index.html": {
+                        "diff": "New file", 
+                        "mode": "0644"
+                    }, 
+                    "/srv/home_static/rbg_logo.gif": {
+                        "diff": "New file", 
+                        "mode": "0644"
+                    }, 
+                    "/srv/home_static/Fakultaet_logo_102.png": {
+                        "diff": "New file", 
+                        "mode": "0644"
+                    }, 
+                    "/srv/home_static/favicon.ico": {
+                        "diff": "New file", 
+                        "mode": "0644"
+                    }
+                }, 
+                "__id__": "static-html"
+            }, 
+            "cmd_|-autofs_restart_|-systemctl restart autofs_|-wait": {
+                "comment": "", 
+                "name": "systemctl restart autofs",
+[TRACE   ]         "start_time": "13:41:47.367547", 
+                "result": true, 
+                "duration": 0.565, 
+                "__run_num__": 14, 
+                "changes": {}, 
+                "__id__": "autofs_restart"
+            }, 
+            "apache_site_|-default_site_disable_|-000-default_|-disabled": {
+                "comment": "", 
+                "name": "000-default", 
+                "start_time": "13:41:47.512481", 
+                "result": true, 
+                "duration": 53.397, 
+                "__run_num__": 27, 
+                "changes": {
+                    "new": null, 
+                    "old": "000-default"
+                }, 
+                "__id__": "default_site_disable"
+            }, 
+            "cmd_|-binfmt-restart_|-systemctl restart binfmt-support.service_|-run": {
+                "comment": "Command \"systemctl restart binfmt-support.service\" run", 
+                "name": "systemctl restart binfmt-support.service", 
+                "start_ti
+[TRACE   ] me": "13:41:49.754769", 
+                "result": true, 
+                "duration": 46.936, 
+                "__run_num__": 33, 
+                "changes": {
+                    "pid": 10710, 
+                    "retcode": 0, 
+                    "stderr": "", 
+                    "stdout": ""
+                }, 
+                "__id__": "binfmt-restart"
+            }, 
+            "file_|-autofs_halle_|-/etc/auto.halle_|-managed": {
+                "comment": "File /etc/auto.halle updated", 
+                "pchanges": {}, 
+                "name": "/etc/auto.halle", 
+                "start_time": "13:41:47.319941", 
+                "result": true, 
+                "duration": 41.86, 
+                "__run_num__": 13, 
+                "changes": {
+                    "diff": "New file"
+                }, 
+                "__id__": "autofs_halle"
+            }, 
+            "file_|-restrict_ssh_|-/etc/ssh/sshd_config_|-append": {
+                "comment": "Appended 1 lines",
+[TRACE   ]                "pchanges": {}, 
+                "name": "/etc/ssh/sshd_config", 
+                "start_time": "13:41:47.377681", 
+                "result": true, 
+                "duration": 1.914, 
+                "__run_num__": 17, 
+                "changes": {
+                    "diff": "--- \n\n+++ \n\n@@ -86,3 +86,4 @@\n\n # PAM authentication, then enable this but set PasswordAuthentication\n # and ChallengeResponseAuthentication to 'no'.\n UsePAM yes\n+AllowGroup root"
+                }, 
+                "__id__": "restrict_ssh"
+            }, 
+            "file_|-suexec_conf_|-/etc/apache2/suexec/www-data_|-managed": {
+                "comment": "File /etc/apache2/suexec/www-data updated", 
+                "pchanges": {}, 
+                "name": "/etc/apache2/suexec/www-data", 
+                "start_time": "13:41:47.408661", 
+                "result": true, 
+                "duration": 3.755, 
+                "__run_num__": 22, 
+                "changes": {
+[TRACE   ] "diff": "--- \n+++ \n@@ -1,5 +1,5 @@\n /var/www\n-public_html/cgi-bin\n+home_page\n # The first two lines contain the suexec document root and the suexec userdir\n # suffix. If one of them is disabled by prepending a # character, suexec will\n # refuse the corresponding type of request.\n"
+                }, 
+                "__id__": "suexec_conf"
+            }, 
+            "apache_module_|-enable_ext_filter_|-ext_filter_|-enabled": {
+                "comment": "", 
+                "name": "ext_filter", 
+                "start_time": "13:41:47.236937", 
+                "result": true, 
+                "duration": 51.423, 
+                "__run_num__": 9, 
+                "changes": {
+                    "new": "ext_filter", 
+                    "old": null
+                }, 
+                "__id__": "enable_ext_filter"
+            }, 
+            "file_|-ldap_conf_|-/etc/ldap.conf_|-managed": {
+                "comment": "File /etc/ldap.conf updated", 
+                "pchanges": {},
+[TRACE   ]                 "name": "/etc/ldap.conf", 
+                "start_time": "13:41:47.372659", 
+                "result": true, 
+                "duration": 4.84, 
+                "__run_num__": 16, 
+                "changes": {
+                    "diff": "--- \n+++ \n@@ -1,296 +1,17 @@\n-###DEBCONF###\n-##\n-## Configuration of this file will be managed by debconf as long as the\n-## first line of the file says '###DEBCONF###'\n-##\n-## You should use dpkg-reconfigure to configure this file via debconf\n-##\n+# Managed by Saltstack\n+base ou=IN,o=TUM,c=de\n \n-#\n-# @(#)$Id: ldap.conf,v 1.38 2006/05/15 08:13:31 lukeh Exp $\n-#\n-# This is the configuration file for the LDAP nameservice\n-# switch library and the LDAP PAM module.\n-#\n-# PADL Software\n-# http://www.padl.com\n-#\n+uri ldaps://ldaphalle.informatik.tu-muenchen.de\n \n-# Your LDAP server. Must be resolvable without using LDAP.\n-# Multiple hosts may be specified, each separated by a \n-# space. How long nss_ldap takes to failover depends on
+
+...
+[TRACE   ] ber\n-#pam_login_attribute sAMAccountName\n-#pam_filter objectclass=User\n-#pam_password ad\n-\n-# configure --enable-authpassword is no longer supported\n-# AuthPassword mappings\n-#nss_map_attribute userPassword authPassword\n-\n-# AIX SecureWay mappings\n-#nss_map_objectclass posixAccount aixAccount\n-#nss_base_passwd ou=aixaccount,?one\n-#nss_map_attribute uid userName\n-#nss_map_attribute gidNumber gid\n-#nss_map_attribute uidNumber uid\n-#nss_map_attribute userPassword passwordChar\n-#nss_map_objectclass posixGroup aixAccessGroup\n-#nss_base_group ou=aixgroup,?one\n-#nss_map_attribute cn groupName\n-#nss_map_attribute uniqueMember member\n-#pam_login_attribute userName\n-#pam_filter objectclass=aixAccount\n-#pam_password clear\n-\n-# Netscape SDK LDAPS\n-#ssl on\n-\n-# Netscape SDK SSL options\n-#sslpath /etc/ssl/certs\n-\n-# OpenLDAP SSL mechanism\n-# start_tls mechanism uses the normal LDAP port, LDAPS typically 636\n-#ssl start_tls\n-#ssl on\n-\n-# OpenLDAP SSL options\n-# Require and verify server c
+[TRACE   ] ertificate (yes/no)\n-# Default is to use libldap's default behavior, which can be configured in\n-# /etc/openldap/ldap.conf using the TLS_REQCERT setting.  The default for\n-# OpenLDAP 2.0 and earlier is \"no\", for 2.1 and later is \"yes\".\n-#tls_checkpeer yes\n-\n-# CA certificates for server certificate verification\n-# At least one of these are required if tls_checkpeer is \"yes\"\n-#tls_cacertfile /etc/ssl/ca.cert\n-#tls_cacertdir /etc/ssl/certs\n-\n-# Seed the PRNG if /dev/urandom is not provided\n-#tls_randfile /var/run/egd-pool\n-\n-# SSL cipher suite\n-# See man ciphers for syntax\n-#tls_ciphers TLSv1\n-\n-# Client certificate and key\n-# Use these, if your server requires client authentication.\n-#tls_cert\n-#tls_key\n-\n-# Disable SASL security layers. This is needed for AD.\n-#sasl_secprops maxssf=0\n-\n-# Override the default Kerberos ticket cache location.\n-#krb5_ccname FILE:/etc/.ldapcache\n-\n-# SASL mechanism for PAM authentication - use is experimental\n-# at present and does not support
+```
+
+I cut out some long diffs with "...". So it appears that the output is indeed truncated.
+
+This section of the output appears to be 296 lines, or 24525 characters long. That is including the [TRACE] markers, newlines, etc. so the real cutoff point is probably a bit less than that.
+### Setup
+
+Just a salt-ssh run that leads to a lot of output, like a very long diff shown for a `file.managed` state execution.
+### Steps to Reproduce Issue
+
+Just do a salt-ssh run that leads to a lot of output.
+### Versions Report
+
+```
+$ salt-ssh --versions-report
+Salt Version:
+           Salt: 2016.11.0-277-gaf81bac
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.2
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-93-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```

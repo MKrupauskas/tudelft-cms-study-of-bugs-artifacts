@@ -1,0 +1,102 @@
+When creating a VM using salt.virt with the same name multiple times sometimes the keys are different on the master and the VM/minion. 
+
+Test case below:
+1. Need an image. I have only been able to replicate this issue with an image that has salt pre-installed on it. I used this image: https://cloud-images.ubuntu.com/trusty/current/trusty-server-cloudimg-amd64-disk1.img  . And I did the following to pre-install salt on the image:
+2. mount the image using guestmount
+   `guestmount -i -a /srv/salt/images/trusty-server-cloudimg-amd64-disk1-preinstalled.qcow2 --rw /tmp/pre-installed-salt/`
+3. Copy over the bootstrap script to the mounted filesystem
+4. chroot and install salt
+
+```
+mount --bind /dev/ /tmp/pre-installed-salt/
+chroot /tmp/pre-installed-salt/ /bin/bash
+mount -t proc none /proc
+mount -t sysfs none /sys
+sh install_salt.sh -c /tmp
+```
+1. unmount everything and exit
+
+```
+umount /proc/ /sys/ /dev/
+exit
+```
+
+Now that I have an ubuntu image with salt pre-installed I need to create the VM:
+`salt-run virt.init testmegan2 2 512 salt://images/trusty-server-cloudimg-amd64-disk1-preinstalled.qcow2`
+
+Once this VM `testmegan2` is created and I verify the keys are the same I then purge the machine with the following command:
+
+`salt-run virt.purge testmegan2`
+
+Now keep running the init and purge commands multiple times while verifying each time that the keys work until you run into the issue were you have different keys. In my example it was not until the 5th time I ran this init and purge again to re-create the VM that I ran into the issue that the keys were different on the master and the minion and I was not able to run commands against the minion. 
+
+As show below the key is shown as both accepted and denied.
+
+```
+root@virt:/tmp/guest/srv.salt-images.testmegan2.system.qcow2# salt-key
+Accepted Keys:
+testmegan2
+virt
+Denied Keys:
+testmegan2
+Unaccepted Keys:
+Rejected Keys:
+```
+
+I cannot run commands against the minion either:
+
+```
+    root@virt:/usr/lib/python2.7/dist-packages/salt/modules# salt testmegan2 test.ping
+    testmegan2:
+        Minion did not return. [No response]
+```
+
+This is in the VM/minion's log:
+
+```
+2016-01-09 00:23:04,447 [salt.crypt       ][CRITICAL][1094] The Salt Master has rejected this minion's public key!
+To repair this issue, delete the public key for this minion on the Salt Master and restart this minion.
+Or restart the Salt Master in open mode to clean out the keys. The Salt Minion will now exit.
+```
+
+Looks like there was some files left behind after the purge:
+
+```
+root@virt:/var/cache/salt/master/minions# find / -name testmegan2
+/var/cache/salt/master/minions/testmegan2
+/var/cache/salt/master/jobs/99/271bc194d390ef3fc3812803488f18/testmegan2
+/var/cache/salt/master/jobs/2f/20a9a6bafa7f2bf0242a6925caaba4/testmegan2
+/var/cache/salt/master/jobs/60/50d9b3c376f597a66e4fb59fd645fd/testmegan2
+/var/cache/salt/master/jobs/2a/0f0a714a19f5fcf4d31ee707bf11db/testmegan2
+/var/cache/salt/master/jobs/70/60acbb8ab02f1cae4185a91f72191a/testmegan2
+/var/cache/salt/master/jobs/10/c7dac63e2745cc42f07dc9b2b2e619/testmegan2
+/var/cache/salt/master/jobs/2b/9210c75d5e484f4c5e7648a17cf3eb/testmegan2
+/var/cache/salt/master/jobs/62/8023e2909f2faaa8da2d496f7d1779/testmegan2
+/etc/salt/pki/master/virtkeys/testmegan2
+```
+
+Also, I still see a pillar value for testmegan2:
+
+```
+root@virt:/var/cache/salt/master/minions# salt '*virt' pillar.items
+virt:
+    ----------
+    virtkey:
+        ----------
+        testmegan2:
+            False
+```
+
+Also without manually removing this pillar value when I go to create a new VM with a different name `testmegan3` the pillar value is still only testmegan2. It does not even add testmegan3 now:
+
+```
+root@virt:/var/cache/salt/master/minions# salt '*virt' pillar.items
+virt:
+    ----------
+    virtkey:
+        ----------
+        testmegan2:
+            False
+```
+
+Also to note I am using the seed.py file from this PR in my code: #30211

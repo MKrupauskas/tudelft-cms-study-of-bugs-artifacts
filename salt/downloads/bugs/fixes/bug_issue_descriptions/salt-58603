@@ -1,0 +1,117 @@
+**Description**
+When applying zabbix_host.present state to an existent host on Zabbix it fails by numerous errors:
+
+- With Zabbix >= 5.0, the element "bulk" is not present in the hostinterfaces_get output. So it fails when "popped"
+- When current and new inventory were missing, the state fails trying to iterate a boolean
+- The update_interfaces try to delete all interfaces and then recreate them. That doesn't works as any interface with assigned items can't be deleted. Also, every host needs at least one default interface.
+
+**Setup**
+Slackware machines running Salt 3001 managing hosts in a Zabbix 5.0 server, also running on Slackware. The rendered state being applied is:
+```
+create-zabbix-host-bat.mylab:
+  zabbix_host.present:
+    - _connection_user: XXXXXXXXXX
+    - _connection_password: XXXXXXXXXX
+    - _connection_url: http://XXXXXXXXX/zabbix/api_jsonrpc.php
+    - host: bat.mylab
+    - visible_name: Cobra BAT
+    - require_in:
+      - assign-template-host-bat.mylab
+    - groups:
+      - Linux Desktops
+    - interfaces:
+      - 127.0.0.1_agent:
+        - interface1: None
+        - ip: 127.0.0.1
+        - dns: bat.mylab
+        - useip: False
+        - type: agent
+        - port: 10050
+```
+
+**Steps to Reproduce the behavior**
+Write a state using zabbix_host.present that updates an existing host on Zabbix.
+
+- inventory error
+```
+2020-09-16 17:37:00,981 [salt.state                                             :328 ][ERROR   ][32427] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib64/python3.8/site-packages/salt/state.py", line 2153, in call
+    ret = self.states[cdata["full"]](
+  File "/usr/lib64/python3.8/site-packages/salt/loader.py", line 2087, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib64/python3.8/site-packages/salt/states/zabbix_host.py", line 290, in present
+    elif set(cur_inventory) != set(new_inventory):
+TypeError: 'bool' object is not iterable
+```
+- "bulk" missing element
+```
+2020-09-15 20:21:53,504 [salt.state       :328 ][ERROR   ][13162] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib64/python3.8/site-packages/salt/state.py", line 2153, in call
+    ret = self.states[cdata["full"]](
+  File "/usr/lib64/python3.8/site-packages/salt/loader.py", line 2087, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib64/python3.8/site-packages/salt/states/zabbix_host.py", line 260, in present
+    hostintf.pop("bulk")
+KeyError: 'bulk'
+```
+- delete an interface with items linked
+```
+2020-09-28 10:56:36,872 [salt.state                                             :328 ][ERROR   ][30648] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib64/python3.8/site-packages/salt/state.py", line 2153, in call
+    ret = self.states[cdata["full"]](
+  File "/usr/lib64/python3.8/site-packages/salt/loader.py", line 2087, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib64/python3.8/site-packages/salt/states/zabbix_host.py", line 350, in present
+    __salt__["zabbix.hostinterface_delete"](
+  File "/usr/lib64/python3.8/site-packages/salt/modules/zabbix.py", line 1933, in hostinterface_delete
+    ret = _query(method, params, conn_args["url"], conn_args["auth"])
+  File "/usr/lib64/python3.8/site-packages/salt/modules/zabbix.py", line 199, in _query
+    raise SaltException(
+salt.exceptions.SaltException: Zabbix API: Invalid params. (Interface is linked to item "Host name of Zabbix agent running" on "Cobra BAT".)
+```
+
+**Expected behavior**
+To apply the state in an already existing host in Zabbix and having the entry updated to the state specified.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+```
+Salt Version:
+           Salt: 3001
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.2
+        libgit2: Not Installed
+       M2Crypto: 0.36.0
+           Mako: 1.1.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.9.7
+         pygit2: Not Installed
+         Python: 3.8.6 (default, Sep 24 2020, 18:13:36)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 19.0.1
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+ 
+System Versions:
+           dist: slackware 14.2 current
+         locale: utf-8
+        machine: x86_64
+        release: 5.4.66
+         system: Linux
+        version: Slackware 14.2 current
+```
+</details>

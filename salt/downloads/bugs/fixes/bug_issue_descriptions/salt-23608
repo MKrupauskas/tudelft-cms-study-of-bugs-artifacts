@@ -1,0 +1,69 @@
+I'm trying to provision ubuntu masters and minions in ec2, and i found that file_map does not really work if the ssh user is not root. 
+The line of code will result in directories always created as root, and then the following sftp put will silently fail:
+
+``` python
+    if remote_dir not in remote_dirs:
+        root_cmd('mkdir -p \'{0}\''.format(remote_dir), tty, sudo, **ssh_kwargs)
+```
+
+I created a small patch to work around that, and i can make this into a pull request, but it does not appear a particularly clean way of resolving the issue. Adding a sudo_file_map allows adding both 'sudo mkdir' directories and ssh user directories, but the files get created as sftp/ssh user anyway
+
+``` diff
+--- a/salt/utils/cloud.py
++++ b/salt/utils/cloud.py
+@@ -23,6 +23,7 @@ import traceback
+ import copy
+ import re
+ import uuid
++import itertools
+
+
+ # Let's import pwd and catch the ImportError. We'll raise it if this is not
+@@ -401,6 +402,9 @@ def bootstrap(vm_, opts):
+         'file_map': salt.config.get_cloud_config_value(
+             'file_map', vm_, opts, default=None
+         ),
++        'sudo_file_map': salt.config.get_cloud_config_value(
++            'sudo_file_map', vm_, opts, default=None
++        ),
+     }
+
+     inline_script_kwargs = deploy_kwargs
+@@ -1084,6 +1088,7 @@ def deploy_script(host,
+                   opts=None,
+                   tmp_dir='/tmp/.saltcloud',
+                   file_map=None,
++                  sudo_file_map=None,
+                   master_sign_pub_file=None,
+                   **kwargs):
+     '''
+@@ -1171,13 +1176,16 @@ def deploy_script(host,
+             if not isinstance(file_map, dict):
+                 file_map = {}
+
++            if not isinstance(sudo_file_map, dict):
++                sudo_file_map = {}
++
+             # Copy an arbitrary group of files to the target system
+             remote_dirs = []
+             file_map_success = []
+             file_map_fail = []
+-            for map_item in file_map:
++            for map_item,remote_file in itertools.chain(six.iteritems(file_map),
++                                                        six.iteritems(sudo_file_map)):
+                 local_file = map_item
+-                remote_file = file_map[map_item]
+                 if not os.path.exists(map_item):
+                     log.error(
+                         'The local file "{0}" does not exist, and will not be '
+@@ -1196,7 +1204,8 @@ def deploy_script(host,
+                     remote_dir = os.path.dirname(remote_file)
+
+                 if remote_dir not in remote_dirs:
+-                    root_cmd('mkdir -p \'{0}\''.format(remote_dir), tty, sudo, **ssh_kwargs)
++                    use_sudo = map_item in sudo_file_map
++                    root_cmd('mkdir -p \'{0}\''.format(remote_dir), tty, use_sudo, **ssh_kwargs)
+                     remote_dirs.append(remote_dir)
+                 sftp_file(
+                     remote_file, kwargs=ssh_kwargs, local_file=local_file
+```

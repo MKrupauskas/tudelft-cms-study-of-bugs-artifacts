@@ -1,0 +1,71 @@
+We found an issue with mine matching using grains when moving from 2015.5.9 to 2015.8.3. The contents of the mine are fine but when using compound to narrow extraction, results are not correct until a saltutil.sync_grains is done. This is a change in behavior from 2015.5.9 where an explicit sync is not needed. Presumably something changed so that minions do not push their grains to the master automatically in 8.3 whereas in 5.X they did.
+
+Here is a detailed step by step reproduction with annotations:
+
+```
+[root@dtc-master-aus /]# PATTERN="G@oracle_ops:master_level:dtc and G@oracle_ops:role:master and G@oracle_ops:pod_id:jmf"
+[root@dtc-master-aus /]# salt -C "$PATTERN" grains.get oracle_ops
+pod-master-aus-jmf:
+    ----------
+    dtc_id:
+        aus
+    level:
+        pod
+    master_level:
+        dtc
+    pod_id:
+        jmf
+    role:
+        master
+```
+
+The above demonstrates that grains are set up on minions and can be used to target minions
+
+```
+[root@dtc-master-aus /]# salt-run mine.get "*" pods
+pod-master-aus-hvf:
+    hvf
+pod-master-aus-jmf:
+    jmf
+pod-master-aus-jsf:
+    jsf
+pod-master-aus-yaf:
+    yaf
+[root@dtc-master-aus /]# salt -C "$PATTERN" mine.get "*" pods
+pod-master-aus-jmf:
+    ----------
+    pod-master-aus-hvf:
+        hvf
+    pod-master-aus-jmf:
+        jmf
+    pod-master-aus-jsf:
+        jsf
+    pod-master-aus-yaf:
+        yaf
+```
+
+The above demonstrates the mine is set up and accessible both through a runner and minions
+
+```
+[root@dtc-master-aus /]# salt-run mine.get "$PATTERN" pods compound
+[root@dtc-master-aus /]# salt -C "$PATTERN" mine.get "$PATTERN" pods compound
+pod-master-aus-jmf:
+    ----------
+```
+
+The above demonstrates that compound (grain) filtering does not work
+
+```
+[root@dtc-master-aus /]# salt -C "$PATTERN" saltutil.sync_grains
+pod-master-aus-jmf:
+[root@dtc-master-aus /]# salt-run mine.get "$PATTERN" pods compound
+pod-master-aus-jmf:
+    jmf
+[root@dtc-master-aus /]# salt -C "$PATTERN" mine.get "$PATTERN" pods compound
+pod-master-aus-jmf:
+    ----------
+    pod-master-aus-jmf:
+        jmf
+```
+
+The above demonstrates that after a sync_grains all is good

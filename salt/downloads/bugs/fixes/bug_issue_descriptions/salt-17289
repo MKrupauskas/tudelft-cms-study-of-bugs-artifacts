@@ -1,0 +1,75 @@
+#### Summary:
+
+Minion will generate two minion keys under certain race conditions, which results in salt-minion with a key that will never work until you delete and re-add the key on salt-master.
+#### Description:
+
+If you start salt-minion and run a salt call, for example salt-call state.highstate; or from master, salt 'dev.test' state.highstate, the minion will generate two minion keys. Both the salt-minion and the salt call will generate minion keys instead of just one of them. The salt function will usually over write the minion daemon's key, but the minion already sent a message to salt-master before the overwrite. Because of this, you need to delete the key on salt-master and add the new key.
+Under certain conditions, I have added the first key with salt-key and then ran "salt 'dev.test' state.highstate" and it also generated another minion key. This happens if you add the key and then run highstate really quickly.
+#### Steps to Reproduce: Run the following script on a vagrant box.
+
+**salt_crit.sh**
+# !/bin/bash
+
+apt-get update
+apt-get install -y salt-master salt-minion
+echo "master: 10.0.2.15" > /etc/salt/minion.d/master.conf
+/etc/init.d/salt-minion stop
+salt-minion start -l trace &>/tmp/salt-minion.log &
+salt-call state.highstate -l trace &> /tmp/highstate.log &
+#### LOGS
+
+**/etc/salt/pki/minion/minion.pub**
+-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA9ycQzHR5N5SX2EAmrDL5
+......
+.....
+-----END PUBLIC KEY-----
+
+**"Salt-Master log:"**
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dev.test
+[INFO    ] New public key for dev.test placed in pending
+[DEBUG   ] Sending event - data = {'id': 'dev.test', '_stamp': '2014-11-08T00:51:13.949049', 'result': True, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA9ycQzHR5N5SX2EAmrDL5
+....
+
+**"Salt-Master log:"**
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Authentication request from dev.test
+[ERROR   ] Authentication attempt from dev.test failed, the public key in pending did not match. This may be an attempt to compromise the Salt cluster.
+[DEBUG   ] Sending event - data = {'_stamp': '2014-11-08T00:51:14.902917', 'result': False, 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAw8zaNjrndyzgHjIRY7se
+....
+
+**/etc/salt/pki/minion/minion.pub**
+-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAw8zaNjrndyzgHjIRY7se
+....
+
+**"Salt-Minion trace log:"**
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/master.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/master.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dev.test
+.....
+[TRACE   ] Device ram14 does not report itself as an SSD
+[TRACE   ] Device ram15 does not report itself as an SSD
+[DEBUG   ] Attempting to authenticate with the Salt Master at 10.0.2.15
+[INFO    ] Generating keys: /etc/salt/pki/minion
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[ERROR   ] The Salt Master has cached the public key for this node, this salt minion will wait for 10 seconds before attempting to re-authenticate
+[INFO    ] Waiting for minion key to be accepted by the master.
+[INFO    ] Waiting 10 seconds before retry.
+[CRITICAL] The Salt Master has rejected this minion's public key!
+To repair this issue, delete the public key for this minion on the Salt Master and restart this minion.
+Or restart the Salt Master in open mode to clean out the keys. The Salt Minion will now exit.
+
+**"Salt Highstate Trace Log:"**
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/master.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/master.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: dev.test
+......
+[TRACE   ] Device ram15 does not report itself as an SSD
+[INFO    ] Generating keys: /etc/salt/pki/minion
+[CRITICAL] The Salt Master has rejected this minion's public key!
+To repair this issue, delete the public key for this minion on the Salt Master and restart this minion.
+Or restart the Salt Master in open mode to clean out the keys. The Salt Minion will now exit.

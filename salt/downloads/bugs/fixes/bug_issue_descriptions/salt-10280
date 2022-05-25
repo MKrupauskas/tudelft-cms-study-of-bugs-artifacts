@@ -1,0 +1,52 @@
+Hello,
+
+It looks like version '**saltstack_version** = SaltStackVersion(0, 17, 4)’ as provided via the latest bootstrap script on Gentoo unstable has a bug.  I looked at the config.py development version and the error still seems to be there, though on line 1697 instead of line 744.
+
+salt-minion parses /etc/hosts and explodes on an empty line (popping a value from the list where the value is an empty line).  The step to reproduce is easy, put an empty line in /etc/hosts.  Here is the stack trace.
+
+```
+localhost ~ # salt-minion -d
+[ERROR   ] pop from empty list
+Traceback (most recent call last):
+  File "/usr/lib64/python2.7/site-packages/salt/utils/parsers.py", line 146, in parse_args
+    process_option_func()
+  File "/usr/lib64/python2.7/site-packages/salt/utils/parsers.py", line 296, in process_config_dir
+    self.config = self.setup_config()
+  File "/usr/lib64/python2.7/site-packages/salt/utils/parsers.py", line 970, in setup_config
+    minion_id=True)
+  File "/usr/lib64/python2.7/site-packages/salt/config.py", line 595, in minion_config
+    opts = apply_minion_config(overrides, defaults, minion_id=minion_id)
+  File "/usr/lib64/python2.7/site-packages/salt/config.py", line 846, in apply_minion_config
+    cache=opts.get('minion_id_caching', True))
+  File "/usr/lib64/python2.7/site-packages/salt/config.py", line 744, in get_id
+    ip_ = names.pop(0)
+IndexError: pop from empty list
+Usage: salt-minion
+
+salt-minion: error: Error while processing <bound method Minion.process_config_dir of <salt.Minion object at 0x11583d0>>: Traceback (most recent call last):
+  File "/usr/lib64/python2.7/site-packages/salt/utils/parsers.py", line 146, in parse_args
+    process_option_func()
+  File "/usr/lib64/python2.7/site-packages/salt/utils/parsers.py", line 296, in process_config_dir
+    self.config = self.setup_config()
+  File "/usr/lib64/python2.7/site-packages/salt/utils/parsers.py", line 970, in setup_config
+    minion_id=True)
+  File "/usr/lib64/python2.7/site-packages/salt/config.py", line 595, in minion_config
+    opts = apply_minion_config(overrides, defaults, minion_id=minion_id)
+  File "/usr/lib64/python2.7/site-packages/salt/config.py", line 846, in apply_minion_config
+    cache=opts.get('minion_id_caching', True))
+  File "/usr/lib64/python2.7/site-packages/salt/config.py", line 744, in get_id
+    ip_ = names.pop(0)
+IndexError: pop from empty list
+
+localhost ~ #
+```
+
+My must humble patch would be the insertion before line 744 of salt/config.py (or line 1697 in the latest dev) to:
+
+```
+if not name:
+ continue
+```
+
+Cheers,
+-Dan

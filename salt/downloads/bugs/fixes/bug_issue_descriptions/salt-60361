@@ -1,0 +1,138 @@
+**Description**
+Batched running of multiple modules fails due to TypeError exception.  Both batch.py and salt.py assume a single return code for batched execution runs, but running multiple modules results in a dictionary of return codes.
+
+Applied the following patches to job.py and salt.py and they appear to fix the issue
+```
+root@use1-salt-1:/usr/lib/python3/dist-packages/salt/cli# diff -u `pwd`/salt.py  /root/salt.py_patched
+diff --git a/cli/salt.py b/cli/salt.py
+index c672130..f3c8789 100644
+--- a/cli/salt.py
++++ b/cli/salt.py
+@@ -299,6 +299,13 @@ class SaltCMD(salt.utils.parsers.SaltCMDOptionParser):
+             for res in batch.run():
+                 for ret in res.values():
+                     job_retcode = salt.utils.job.get_retcode(ret)
++                    # handle batched running of multiple modules
++                    if isinstance(job_retcode, dict):
++                        try:
++                            job_retcode = max(job_retcode.values())
++                        # handle no retcode values in dict
++                        except ValueError:
++                            job_retcode = 0
+                     if job_retcode > retcode:
+                         # Exit with the highest retcode we find
+                         retcode = job_retcode
+
+
+--- /root/job.py        2021-01-14 09:16:03.332204018 -0500
++++ /usr/lib/python3/dist-packages/salt/utils/job.py    2021-01-14 09:10:58.415043396 -0500
+@@ -174,8 +174,14 @@
+     """
+     retcode = 0
+     # if there is a dict with retcode, use that
+-    if isinstance(ret, dict) and ret.get("retcode", 0) != 0:
+-        return ret["retcode"]
++    if isinstance(ret, dict):
++        retcode = ret.get("retcode", 0)
++        if isinstance(retcode, dict):
++            for retcode in retcode.values():
++                if retcode != 0:
++                    return retcode
++        elif retcode != 0:
++            return retcode
+     # if its a boolean, False means 1
+     elif isinstance(ret, bool) and not ret:
+         return 1
+
+```
+
+**Setup**
+Salt master and multiple syndics all running 3003.
+Minions running 3003
+
+**Steps to Reproduce the behavior**
+Run a batch command with multiple modules:
+salt --no-color --hide-timeout --timeout 30 --out json --out-file /tmp/cldeng-20519.txt  '*'  -b 50 virt.full_info,cmd.run ,'/bin/true'
+
+Get the following stack trace:
+```
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+TypeError: '>' not supported between instances of 'dict' and 'int'
+Traceback (most recent call last):
+  File "/usr/bin/salt", line 11, in <module>
+    load_entry_point('salt==3003', 'console_scripts', 'salt')()
+  File "/usr/lib/python3/dist-packages/salt/scripts.py", line 539, in salt_main
+    client.run()
+  File "/usr/lib/python3/dist-packages/salt/cli/salt.py", line 61, in run
+    self._run_batch()
+  File "/usr/lib/python3/dist-packages/salt/cli/salt.py", line 302, in _run_batch
+    if job_retcode > retcode:
+TypeError: '>' not supported between instances of 'dict' and 'int'
+Traceback (most recent call last):
+  File "/usr/bin/salt", line 11, in <module>
+    load_entry_point('salt==3003', 'console_scripts', 'salt')()
+  File "/usr/lib/python3/dist-packages/salt/scripts.py", line 539, in salt_main
+    client.run()
+  File "/usr/lib/python3/dist-packages/salt/cli/salt.py", line 61, in run
+    self._run_batch()
+  File "/usr/lib/python3/dist-packages/salt/cli/salt.py", line 302, in _run_batch
+    if job_retcode > retcode:
+TypeError: '>' not supported between instances of 'dict' and 'int'
+```
+(Include debug logs if possible and relevant)
+
+**Expected behavior**
+Commands return successfully and report the correct return code (highest value returned)
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+# salt --versions-report
+Salt Version:
+          Salt: 3003
+
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: unknown
+      dateutil: 2.6.1
+     docker-py: Not Installed
+         gitdb: 2.0.3
+     gitpython: 2.1.8
+        Jinja2: 2.10
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.5.6
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.4.7
+        pygit2: Not Installed
+        Python: 3.6.9 (default, Apr 18 2020, 01:56:04)
+  python-gnupg: 0.4.1
+        PyYAML: 3.12
+         PyZMQ: 17.1.2
+         smmap: 2.0.3
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.2.5
+
+System Versions:
+          dist: ubuntu 18.04 Bionic Beaver
+        locale: UTF-8
+       machine: x86_64
+       release: 4.15.0-99-generic
+        system: Linux
+       version: Ubuntu 18.04 Bionic Beaver
+
+```
+</details>
+
+**Additional context**
+Add any other context about the problem here.

@@ -1,0 +1,45 @@
+I'm really sorry this ( #18711 ) has a bug, but I've come against a wall which I've encountered several times with mongo db.
+
+Namely, `ObjectId` objects cannot be serialized by 'standard' packages, although they can be easily transformed into strings. So, if you don't pass `mongodb.insert` objects an `_id` field, `payload.py` fails:
+
+``` bash
+$ salt-call mongodb.insert '{"a": "b", "c": "d"}'
+ValueError: Passed invalid arguments: can't serialize ObjectId('5486bda37bb6b72e35000000')
+```
+
+This is because `mongodb.insert` returns the ids as returned by the pymongo library, and because bson is retarded (sorry, I'd already ran into this before).
+
+As a quick fix for the returner, the following works, and I haven't seen anything better in any other mongodb library. Not even in javascript, which is the most similar to a native thing:
+
+``` python
+return [str(_id) if isinstance(_id, bson.ObjectId) else _id
+            for _id in ids]
+```
+
+The problem with this is that the returned ids cannot be used with `mongodb.find`, because `collection.find({'_id': '5486bda37bb6b72e35000000'})` will return empty, because the wanted `_id` field might very well be that string, rather than the OID with that hash. Objects `{'_id': '5486bda37bb6b72e35000000'}` and `{'_id': bson.ObjectId('5486bda37bb6b72e35000000'})` are two different things.
+
+What I did before on a node.js project was to do something along the following lines (pseudocode):
+
+``` python
+if _id in query:
+  try:
+    query2 = query
+    query2[_id] = ObjectId(query[_id])
+    query = query || query2
+  except:
+    pass
+```
+
+This will match objects with id **either** the passed string, or the corresponding `ObjectId`.
+
+This is by no means a perfect fix, it will not work even slightly complex queries, and I'm not even sure providing a catch-all solution is possible. In said application we ended up deciding to generate all of our `_id`s with `uuid`.
+
+The only other solution I see is some kind of "reserved word" return serialization:
+
+``` python
+if isinstance(_id, ObjectId):
+   _id = "OID(%s)" % str(_id)
+########
+if _id.startswith("OID"):
+  _id = ObjectId(_id)
+```

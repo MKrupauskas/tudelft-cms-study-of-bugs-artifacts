@@ -1,0 +1,120 @@
+```
+# salt-call --version
+salt-call 2014.7.5 (Helium)
+# lsb_release -d
+Description:    Debian GNU/Linux 7.8 (wheezy)
+# lsblk
+NAME   MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT
+sda      8:0    0     8G  0 disk
+sda1   8:1    0   7.5G  0 part /
+sda2   8:2    0   512M  0 part [SWAP]
+sr0     11:0    1  1024M  0 rom
+# mount
+sysfs on /sys type sysfs (rw,nosuid,nodev,noexec,relatime)
+proc on /proc type proc (rw,nosuid,nodev,noexec,relatime)
+udev on /dev type devtmpfs (rw,relatime,size=10240k,nr_inodes=1022728,mode=755)
+devpts on /dev/pts type devpts (rw,nosuid,noexec,relatime,gid=5,mode=620,ptmxmode=000)
+tmpfs on /run type tmpfs (rw,nosuid,noexec,relatime,size=819376k,mode=755)
+/dev/disk/by-uuid/61049f32-02db-407f-9c3e-dc67e3cfbcd2 on / type ext3 (rw,noatime,errors=remount-ro,barrier=1,data=ordered)
+tmpfs on /run/lock type tmpfs (rw,nosuid,nodev,noexec,relatime,size=5120k)
+tmpfs on /run/shm type tmpfs (rw,nosuid,nodev,noexec,relatime,size=1743600k)
+```
+
+(it's a VMware VSphere 6.0 guest)
+
+idea of my state definition is to auto-add "noatime" and other optimizations for root / other partitions for production servers with high file i/o:
+
+=> state definition:
+
+```
+{%- set fstab = salt['cmd.run']('salt-call mount.fstab --out=yaml')|load_yaml %}
+{%- for mount, mount_data in fstab.local.iteritems() %}
+{%-   if   mount_data['fstype'] == "ext3" %}
+{%-     if "noatime" not in mount_data['opts'] %}
+fix-mount-{{ mount }}:
+  mount.mounted:
+    - name: {{ mount }}
+    - device: {{ mount_data['device'] }}
+    - fstype: {{ mount_data['fstype'] }}
+    - dump: {{ mount_data['dump'] }}
+    - opts:
+{%-      for option in mount_data['opts'] %}
+        - {{ option }}
+{%-      endfor %}
+        - noatime
+    - pass: {{ mount_data['pass'] }}
+    - persist: True
+{%-     endif %}
+{%-   elif mount_data['fstype'] == "ext4" %}
+{%-     if "noatime"   not in mount_data['opts']
+        or "nobarrier" not in mount_data['opts'] %}
+fix-mount-{{ mount }}:
+  mount.mounted:
+    - name: {{ mount }}
+    - device: {{ mount_data['device'] }}
+    - fstype: {{ mount_data['fstype'] }}
+    - dump: {{ mount_data['dump'] }}
+    - opts:
+{%-      for option in mount_data['opts'] %}
+{%-        if option not in ["defaults", "noatime", "barrier", "nobarrier", "barrier=0", "barrier=1"] %}
+        - {{ option }}
+{%-        endif %}
+{%-      endfor %}
+        - noatime
+        - nobarrier
+    - pass: {{ mount_data['pass'] }}
+    - persist: True
+{%-     endif %}
+{%-   elif mount_data['fstype'] == "btrfs" %}
+{%-     if "noatime"      not in mount_data['opts']
+        or "nobarrier"    not in mount_data['opts']
+        or "compress=lzo" not in mount_data['opts'] %}
+fix-mount-{{ mount }}:
+  mount.mounted:
+    - name: {{ mount }}
+    - device: {{ mount_data['device'] }}
+    - fstype: {{ mount_data['fstype'] }}
+    - dump: {{ mount_data['dump'] }}
+    - opts:
+{%-      for option in mount_data['opts'] %}
+{%-        if option not in ["defaults", "noatime", "nobarrier", "compress=no","compress=lzo", "compress=zlib"] %}
+        - {{ option }}
+{%-        endif %}
+{%-      endfor %}
+        - noatime
+        - nobarrier
+        - compress=lzo
+    - pass: {{ mount_data['pass'] }}
+    - persist: True
+{%-     endif %}
+{%-   endif %}
+{%- endfor %}
+```
+
+Problem: salt identifies UUID _and_ the sda device and tries to unmount it for changing:
+
+```
+# salt-call state.highstate
+local:
+----------
+          ID: fix-mount-/
+    Function: mount.mounted
+        Name: /
+      Result: None
+     Comment: Unable to unmount
+     Started: 22:55:01.759024
+    Duration: 149.206 ms
+     Changes:
+              ----------
+              umount:
+                  Forced unmount because devices don't match. Wanted: UUID=61049f32-02db-407f-9c3e-dc67e3cfbcd2 (61049f32-02db-407f-9c3e-dc67e3cfbcd2), current: /dev/disk/by-uuid/61049f32-02db-407f-9c3e-dc67e3cfbcd2, /dev/sda1
+
+Summary
+------------
+Succeeded: 1 (unchanged=1, changed=1)
+Failed:    0
+------------
+Total states run:     1
+```
+
+(EDIT: fixed if condition / filter duplicate option parameters)

@@ -1,0 +1,88 @@
+### Description of Issue
+
+postgres_user.present state seems to fire a (finite) loop on each user without any reason.
+
+For example, let's assume that we have 4 users named "alice", "bob", "mike" and "tom" declared on a postgresql database.
+If we run the postgres_user.present state on user "bob", salt will do this:
+
+```
+[INFO    ] Running state [bob] at time 10:04:37.547011
+[INFO    ] Executing state postgres_user.present for bob
+[INFO    ] Executing command ['/usr/bin/psql', '--no-align', '--no-readline', '--no-password', '--dbname', 'postgres', '-c', "SELECT setting FROM pg_catalog.pg_settings WHERE name = 'server_version'", '-t'] as user 'postgres' in directory '/var/lib/postgresql'
+[INFO    ] Executing command ['/usr/bin/psql', '--no-align', '--no-readline', '--no-password', '--dbname', 'postgres', '-v', 'datestyle=ISO,MDY', '-c', 'COPY (SELECT pg_roles.rolname as "name",pg_roles.rolsuper as "superuser", pg_roles.rolinherit as "inherits privileges", pg_roles.rolcreaterole as "can create roles", pg_roles.rolcreatedb as "can create databases", pg_roles.rolcatupdate as "can update system catalogs", pg_roles.rolcanlogin as "can login", pg_roles.rolreplication as "replication", pg_roles.rolconnlimit as "connections", pg_roles.rolvaliduntil::timestamp(0) as "expiry time", pg_roles.rolconfig  as "defaults variables" , COALESCE(pg_shadow.passwd, pg_authid.rolpassword) as "password" FROM pg_roles LEFT JOIN pg_authid ON pg_roles.oid = pg_authid.oid LEFT JOIN pg_shadow ON pg_roles.oid = pg_shadow.usesysid) TO STDOUT WITH CSV HEADER'] as user 'postgres' in directory '/var/lib/postgresql'
+
+[INFO    ] Executing command ['/usr/bin/psql', '--no-align', '--no-readline', '--no-password', '--dbname', 'postgres', '-v', 'datestyle=ISO,MDY', '-c', "COPY (select rolname from pg_user join pg_auth_members      on (pg_user.usesysid=pg_auth_members.member) join pg_roles       on (pg_roles.oid=pg_auth_members.roleid) where pg_user.usename='alice') TO STDOUT WITH CSV HEADER"] as user 'postgres' in directory '/var/lib/postgresql'
+
+[INFO    ] Executing command ['/usr/bin/psql', '--no-align', '--no-readline', '--no-password', '--dbname', 'postgres', '-v', 'datestyle=ISO,MDY', '-c', "COPY (select rolname from pg_user join pg_auth_members      on (pg_user.usesysid=pg_auth_members.member) join pg_roles       on (pg_roles.oid=pg_auth_members.roleid) where pg_user.usename='bob') TO STDOUT WITH CSV HEADER"] as user 'postgres' in directory '/var/lib/postgresql'
+
+[INFO    ] Executing command ['/usr/bin/psql', '--no-align', '--no-readline', '--no-password', '--dbname', 'postgres', '-v', 'datestyle=ISO,MDY', '-c', "COPY (select rolname from pg_user join pg_auth_members      on (pg_user.usesysid=pg_auth_members.member) join pg_roles       on (pg_roles.oid=pg_auth_members.roleid) where pg_user.usename='mike') TO STDOUT WITH CSV HEADER"] as user 'postgres' in directory '/var/lib/postgresql'
+
+[INFO    ] Executing command ['/usr/bin/psql', '--no-align', '--no-readline', '--no-password', '--dbname', 'postgres', '-v', 'datestyle=ISO,MDY', '-c', "COPY (select rolname from pg_user join pg_auth_members      on (pg_user.usesysid=pg_auth_members.member) join pg_roles       on (pg_roles.oid=pg_auth_members.roleid) where pg_user.usename='tom') TO STDOUT WITH CSV HEADER"] as user 'postgres' in directory '/var/lib/postgresql'
+
+[INFO    ] User bob is already present
+[INFO    ] Completed state [bob] at time 10:04:40.354786 duration_in_ms=2807.775
+```
+
+As you can see, 4 SQL requests were done whereas we only requested Salt to ensure that bob was present.
+The big issue with this is that the more users you have, the more time it takes.
+### Setup
+
+content of testpg.sls:
+
+```
+bob:
+    postgres_user.present
+```
+### Steps to Reproduce Issue
+
+time salt-call state.apply testpg --log-level=info
+
+Worse thing is that if, after having run the state, you change it into postgres_user.absent and re-run it, the loop on each is done 3 times!
+### Versions Report
+
+salt-call --versions-report
+
+```
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.5 
+        machine: x86_64
+        release: 2.6.32-19-pve
+         system: Linux
+        version: debian 8.5 
+```
+
+Postgres version: postgresql-9.4 (debian official package).
+
+Regards
+Tom

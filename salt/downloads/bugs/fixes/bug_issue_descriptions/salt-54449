@@ -1,0 +1,196 @@
+### Description of Issue
+I'm trying to use `docker_image.present` but salt fails to detect the module on first `state.apply` because the required python modules are installed in that run. On second `state.apply` the module is detected and used. This is even the case with `reload_modules: true` set.
+
+On the first run I see:
+```
+----------
+          ID: Docker
+    Function: pkg.installed
+      Result: True
+     Comment: The following packages were installed/updated: python3-docker
+              The following packages were already installed: docker-ce
+     Started: 16:12:02.098635
+    Duration: 1403.352 ms
+     Changes:   
+              ----------
+              python3-docker:
+                  ----------
+                  new:
+                      1.9.0-1
+                  old:
+              python3-websocket:
+                  ----------
+                  new:
+                      0.37.0-2
+                  old:
+----------
+          ID: Kubernetes Dependency Image k8s.gcr.io/pause
+    Function: docker_image.present
+        Name: k8s.gcr.io/pause
+      Result: False
+     Comment: State 'docker_image.present' was not found in SLS 'kube-minion'
+              Reason: 'docker_image' __virtual__ returned False: 'docker.version' is not available.
+     Changes:
+```
+
+On the minion itself the `salt-minion` logs have this error:
+```
+salt-minion[138912]: [ERROR   ] State 'docker_image.present' was not found in SLS 'kube-minion'
+salt-minion[138912]: Reason: 'docker_image' __virtual__ returned False: 'docker.version' is not available.
+```
+
+However, it works on second run:
+```
+----------
+          ID: Docker
+    Function: pkg.installed
+      Result: True
+     Comment: All specified packages are already installed and are at the desired version
+     Started: 16:29:44.739748
+    Duration: 26.875 ms
+     Changes:  
+----------
+          ID: Kubernetes Dependency Image k8s.gcr.io/pause
+    Function: docker_image.present
+        Name: k8s.gcr.io/pause
+      Result: True
+     Comment: Image 'k8s.gcr.io/pause:3.1' was pulled
+     Started: 16:29:44.859688
+    Duration: 1079.729 ms
+     Changes:   
+              ----------
+              Layers:
+                  ----------
+                  Pulled:
+                      - 67ddbfb20a22
+              Status:
+                  Downloaded newer image for k8s.gcr.io/pause:3.1
+              Time_Elapsed:
+                  0.4564225673675537
+              retcode:
+                  0
+```
+### Setup
+I have two state files. docker.sls:
+```
+Docker:
+  pkg.installed:
+    - pkgs:
+        - docker-ce: 18.06.1~ce~3-0~debian
+        - python3-docker
+    - install_recommends: False
+    - reload_modules: true
+```
+
+and kube.sls:
+```
+include:
+  - docker
+
+Kubernetes Dependency Image k8s.gcr.io/pause:
+  docker_image.present:
+    - name: k8s.gcr.io/pause
+    - tag: 3.1
+    - reload_modules: True
+    - require:
+      - pkg: Docker
+      - service: Docker
+      - pkg: Kubernetes Dependencies
+```
+
+This may be related to #54332 but in that case `pip` is the installation method and the error message is different. 
+
+### Steps to Reproduce Issue
+1) Run `salt <minion> state.apply`
+2) Get Failure
+3) Run `salt <minion> state.apply`
+Success!
+
+### Versions Report
+On Master:
+```
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.3 (default, Sep 27 2018, 17:25:39)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.9 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-9-amd64
+         system: Linux
+        version: debian 9.9 
+```
+
+On the Minion (after `python3-docker` has been installed):
+```
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: 1.9.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.3 (default, Sep 27 2018, 17:25:39)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.9 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-9-amd64
+         system: Linux
+        version: debian 9.9 
+```

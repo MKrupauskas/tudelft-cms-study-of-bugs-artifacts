@@ -1,0 +1,152 @@
+**Description**
+I'm having some difficulty deploying changes to our staging environment with the Salt minion. Although may not be related, I didn't have this issue until just a few days ago after changing my local psql database along with other minor changes.
+
+Running **salt-call state.highstate** in my minion hangs after this output in terminal
+```
+[INFO    ] Completed state [/home/insurecertstaging/.var/insurecert/virtualenv] at time 10:15:45.105901
+[INFO    ] Running state [salt://insurecert/update.sh] at time 10:15:45.106873
+[INFO    ] Executing state cmd.wait_script for salt://insurecert/update.sh
+[INFO    ] No changes made for salt://insurecert/update.sh
+[INFO    ] Completed state [salt://insurecert/update.sh] at time 10:15:45.109814
+[INFO    ] Running state [salt://insurecert/update.sh] at time 10:15:45.109917
+[INFO    ] Executing state cmd.mod_watch for salt://insurecert/update.sh
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'insurecert/update.sh'
+[INFO    ] Executing command '/tmp/tmp33YVNq.sh' as user 'insurecertstaging' in directory '/home/insurecertstaging'
+```
+
+Opening that tmp file above where the command line hung on.
+```
+app0:/tmp # cat tmp33YVNq.sh
+#!/bin/bash -e
+#
+# update.sh - Update environment
+#
+
+. $HOME/.var/insurecert/virtualenv/bin/activate
+
+if [ -z $DJANGO_SETTINGS_MODULE ] ; then
+    export DJANGO_SETTINGS_MODULE="insurecert.settings"
+fi
+
+RELOAD_FILE="$HOME/.var/insurecert/reload"
+
+pushd $HOME/insurecert
+./manage.py migrate
+./manage.py collectstatic --noinput --clear
+#test -f cities_light_updated || ./manage.py cities_light ||:
+touch cities_light_updated
+./manage.py compress --force ||:
+find ./static -type f -regextype posix-extended -regex '.*\.(html|woff|woff2)' -exec gzip -k {} \;
+
+touch $RELOAD_FILE
+
+pushd broker/io
+if [ -f "broker/io/Makefile" ] ; then
+    if [ ! -d "node-v8.10.0-linux-x64" ] ; then
+        echo "Downloading nodejs binary"
+        wget https://nodejs.org/dist/v8.10.0/node-v8.10.0-linux-x64.tar.xz -O nodejs.tar.xz
+        tar xf nodejs.tar.xz
+        rm nodejs.tar.xz
+    fi
+    if [ ! -f "src_admin/version.json" ] ; then
+        cat <<EOF > src_admin.version.json
+{
+"name": "insurecert_admin",
+"version": "2.0.0"
+}
+EOF
+    fi
+    if [ ! -f "src_admin/environments/environment.prod.ts" ] ; then
+        cat <<EOF > src_admin/environments/environment.prod.ts
+export const environment = {
+production: true,
+version: '2.0.0'
+};
+EOF
+    fi
+    # Don't save package-lock.json file when installing, because npm on macOS uses SHA1
+    # for integrity, while linux uses SHA512 which creates merge conflicts
+    PATH=node-v8.10.0-linux-x64/bin:$PATH npm install --no-save
+    PATH=node-v8.10.0-linux-x64/bin:$PATH npm run build
+else
+    export PATH="node_modules/.bin:node-v8/bin:$PATH"
+    if [ ! -d "node-v8" ] ; then
+        make node-v8
+        make node-sass
+    fi
+    make
+fi
+popd
+
+pushd docs
+make html
+popd
+
+popd
+```
+
+
+I've tried restarting the minion, running **sudo service uwsgi restart**, then **salt-call state.highstate** again. After this, it doesn't hang on the command above but also doesn't actually deploy my changes.
+
+Output in terminal (after restarting service)
+```
+  Changes:   
+----------
+          ID: update_insurecert-staging
+    Function: cmd.wait_script
+        Name: salt://insurecert/update.sh
+      Result: True
+     Comment: 
+     Changes:   
+----------
+          ID: /home/insurecertstaging/.profile
+    Function: file.append
+      Result: True
+     Comment: Appended 0 lines
+     Changes:   
+----------
+          ID: /home/insurecertstaging/bin/insurecert
+    Function: file.managed
+      Result: True
+     Comment: File /home/insurecertstaging/bin/insurecert is in the correct state
+     Changes:   
+----------
+          ID: /home/insurecertstaging/.var/insurecert/log
+    Function: file.directory
+      Result: True
+     Comment: Directory /home/insurecertstaging/.var/insurecert/log is in the correct state
+     Changes:   
+----------
+          ID: /home/insurecertstaging/.var/insurecert/spool
+    Function: file.directory
+      Result: True
+     Comment: Directory /home/insurecertstaging/.var/insurecert/spool is in the correct state
+     Changes:   
+----------
+          ID: /home/insurecertstaging/.var/insurecert
+    Function: file.directory
+      Result: True
+     Comment: Directory /home/insurecertstaging/.var/insurecert is in the correct state
+     Changes:   
+----------
+          ID: /home/insurecertstaging/.var/insurecert/reload
+    Function: file.managed
+      Result: True
+     Comment: File /home/insurecertstaging/.var/insurecert/reload is in the correct state
+     Changes:   
+----------
+          ID: /etc/nginx/insurecert.passwd
+    Function: file.managed
+      Result: True
+     Comment: File /etc/nginx/insurecert.passwd is in the correct state
+     Changes:   
+ 
+Summary
+-------------
+Succeeded: 77
+Failed:     3
+-------------
+Total:     80
+```
+
+I avoided pasting the full output for potential security reasons that I'm unaware of. I'd be happy to provide more context for this and would appreciate some guidance on which sensitive information should be hidden as well. Any help is appreciated, thank you.

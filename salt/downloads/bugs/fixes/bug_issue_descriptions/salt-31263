@@ -1,0 +1,75 @@
+I'm trying to schedule long running job on minion and check if only one instance running at time.
+Here is my pillar data:
+
+```
+schedule:
+  job1:
+    function: cmd.run
+    seconds: 30
+    return_job: False
+    maxrunning: 1
+    jid_include: True
+    args:
+      - 'sleep 60'
+```
+
+It's working as expected with `return_job: False`:
+
+```
+2016-02-17 01:20:53,793 [salt.utils.schedule][INFO    ][21060] Running scheduled job: job1
+2016-02-17 01:20:53,795 [salt.utils.schedule][DEBUG   ][21060] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+2016-02-17 01:20:53,796 [salt.utils.schedule][DEBUG   ][21060] schedule: This job was scheduled with a max number of 1
+2016-02-17 01:20:53,819 [salt.utils.schedule][DEBUG   ][21241] schedule.handle_func: Removing /var/cache/salt/minion/proc/20160217012053804274
+2016-02-17 01:20:53,834 [salt.utils.schedule][DEBUG   ][21242] schedule.handle_func: Removing /var/cache/salt/minion/proc/20160217012053804274
+2016-02-17 01:20:53,833 [salt.utils.schedule][DEBUG   ][21243] schedule.handle_func: adding this job to the jobcache with data {'fun': 'cmd.run', 'jid': '20160217012053804274', 'pid': 21243, 'id': 'salt-minion-1', 'schedule': 'job1'}
+2016-02-17 01:20:53,844 [salt.loaded.int.module.cmdmod][INFO    ][21243] Executing command 'sleep 60' in directory '/root'
+2016-02-17 01:21:23,799 [salt.utils.schedule][INFO    ][21060] Running scheduled job: job1
+2016-02-17 01:21:23,801 [salt.utils.schedule][DEBUG   ][21060] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+2016-02-17 01:21:23,802 [salt.utils.schedule][DEBUG   ][21060] schedule: This job was scheduled with a max number of 1
+2016-02-17 01:21:23,813 [salt.utils.schedule][DEBUG   ][21254] schedule.handle_func: Checking job against fun cmd.run: {'fun': 'cmd.run', 'jid': '20160217012053804274', 'pid': 21243, 'id': 'salt-minion-1', 'schedule': 'job1'}
+2016-02-17 01:21:23,816 [salt.utils.schedule][DEBUG   ][21254] schedule.handle_func: Incrementing jobcount, now 1, maxrunning is 1
+2016-02-17 01:21:23,816 [salt.utils.schedule][DEBUG   ][21254] schedule.handle_func: The scheduled job job1 was not started, 1 already running
+2016-02-17 01:21:53,794 [salt.utils.schedule][INFO    ][21060] Running scheduled job: job1
+2016-02-17 01:21:53,796 [salt.utils.schedule][DEBUG   ][21060] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+2016-02-17 01:21:53,797 [salt.utils.schedule][DEBUG   ][21060] schedule: This job was scheduled with a max number of 1
+2016-02-17 01:21:53,810 [salt.utils.schedule][DEBUG   ][21265] schedule.handle_func: Checking job against fun cmd.run: {'fun': 'cmd.run', 'jid': '20160217012053804274', 'pid': 21243, 'id': 'salt-minion-1', 'schedule': 'job1'}
+2016-02-17 01:21:53,813 [salt.utils.schedule][DEBUG   ][21265] schedule.handle_func: Incrementing jobcount, now 1, maxrunning is 1
+2016-02-17 01:21:53,814 [salt.utils.schedule][DEBUG   ][21265] schedule.handle_func: The scheduled job job1 was not started, 1 already running
+2016-02-17 01:21:53,866 [salt.loaded.int.module.cmdmod][DEBUG   ][21243] output: 
+2016-02-17 01:21:53,869 [salt.utils.schedule][DEBUG   ][21243] schedule.handle_func: Removing /var/cache/salt/minion/proc/20160217012053804274
+2016-02-17 01:22:23,793 [salt.utils.schedule][INFO    ][21060] Running scheduled job: job1
+```
+
+If I remove `return_job: False` from job settings it looks like `maxrunning` is ignored and I get two sleep processing running simultaneously:
+
+```
+2016-02-17 01:27:53,795 [salt.utils.schedule][INFO    ][21060] Running scheduled job: job1
+2016-02-17 01:27:53,797 [salt.utils.schedule][DEBUG   ][21060] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+2016-02-17 01:27:53,798 [salt.utils.schedule][DEBUG   ][21060] schedule: This job was scheduled with a max number of 1
+2016-02-17 01:27:53,826 [salt.transport.zeromq][DEBUG   ][21378] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'salt-minion-1', 'tcp://128.199.119.75:4506', 'aes')
+2016-02-17 01:27:53,838 [salt.crypt       ][DEBUG   ][21378] Initializing new SAuth for ('/etc/salt/pki/minion', 'salt-minion-1', 'tcp://128.199.119.75:4506')
+2016-02-17 01:27:53,840 [salt.utils.schedule][DEBUG   ][21380] schedule.handle_func: adding this job to the jobcache with data {'fun': 'cmd.run', 'jid': '20160217012753807670', 'pid': 21380, 'id': 'salt-minion-1', 'schedule': 'job1'}
+2016-02-17 01:27:53,849 [salt.transport.zeromq][DEBUG   ][21379] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'salt-minion-1', 'tcp://128.199.119.75:4506', 'aes')
+2016-02-17 01:27:53,861 [salt.crypt       ][DEBUG   ][21379] Initializing new SAuth for ('/etc/salt/pki/minion', 'salt-minion-1', 'tcp://128.199.119.75:4506')
+2016-02-17 01:27:53,864 [salt.loaded.int.module.cmdmod][INFO    ][21380] Executing command 'sleep 60' in directory '/root'
+2016-02-17 01:27:55,174 [salt.utils.schedule][DEBUG   ][21378] schedule.handle_func: Removing /var/cache/salt/minion/proc/20160217012753807670
+2016-02-17 01:27:55,204 [salt.utils.schedule][DEBUG   ][21379] schedule.handle_func: Removing /var/cache/salt/minion/proc/20160217012753807670
+2016-02-17 01:28:23,793 [salt.utils.schedule][INFO    ][21060] Running scheduled job: job1
+2016-02-17 01:28:23,795 [salt.utils.schedule][DEBUG   ][21060] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+2016-02-17 01:28:23,796 [salt.utils.schedule][DEBUG   ][21060] schedule: This job was scheduled with a max number of 1
+2016-02-17 01:28:23,825 [salt.transport.zeromq][DEBUG   ][21397] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'salt-minion-1', 'tcp://128.199.119.75:4506', 'aes')
+2016-02-17 01:28:23,836 [salt.crypt       ][DEBUG   ][21397] Initializing new SAuth for ('/etc/salt/pki/minion', 'salt-minion-1', 'tcp://128.199.119.75:4506')
+2016-02-17 01:28:23,839 [salt.utils.schedule][DEBUG   ][21399] schedule.handle_func: adding this job to the jobcache with data {'fun': 'cmd.run', 'jid': '20160217012823805682', 'pid': 21399, 'id': 'salt-minion-1', 'schedule': 'job1'}
+2016-02-17 01:28:23,834 [salt.transport.zeromq][DEBUG   ][21398] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'salt-minion-1', 'tcp://128.199.119.75:4506', 'aes')
+2016-02-17 01:28:23,853 [salt.crypt       ][DEBUG   ][21398] Initializing new SAuth for ('/etc/salt/pki/minion', 'salt-minion-1', 'tcp://128.199.119.75:4506')
+2016-02-17 01:28:23,858 [salt.loaded.int.module.cmdmod][INFO    ][21399] Executing command 'sleep 60' in directory '/root'
+2016-02-17 01:28:23,906 [salt.loaded.int.module.cmdmod][DEBUG   ][21371] output: 
+2016-02-17 01:28:23,911 [salt.transport.zeromq][DEBUG   ][21371] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'salt-minion-1', 'tcp://128.199.119.75:4506', 'aes')
+2016-02-17 01:28:23,914 [salt.crypt       ][DEBUG   ][21371] Initializing new SAuth for ('/etc/salt/pki/minion', 'salt-minion-1', 'tcp://128.199.119.75:4506')
+2016-02-17 01:28:25,181 [salt.utils.schedule][DEBUG   ][21398] schedule.handle_func: Removing /var/cache/salt/minion/proc/20160217012823805682
+2016-02-17 01:28:25,219 [salt.utils.schedule][DEBUG   ][21371] schedule.handle_func: Removing /var/cache/salt/minion/proc/20160217012723807603
+2016-02-17 01:28:25,225 [salt.utils.schedule][DEBUG   ][21397] schedule.handle_func: Removing /var/cache/salt/minion/proc/20160217012823805682
+
+```
+
+salt-minion version is 2015.8.5 (Beryllium).

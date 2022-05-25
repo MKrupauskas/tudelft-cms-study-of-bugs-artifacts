@@ -1,0 +1,174 @@
+I tried to use `yamlex` inside state file as template context. It worked nice. Then I tried to render that template… and strange things happened. All variables were quoted.
+
+.sls example file (it's of course rendered by Jinja, but this is general idea what I wanted to do and it doesn't works…):
+
+``` yaml
+#!jinja|yamlex
+
+icinga_config:
+  file.managed:
+    - name: /etc/icinga/conf.d/salt.cfg
+    - template: jinja
+    - source: salt://icinga/files/server/salt.cfg
+    - user: icinga
+    - group: icinga
+    - mode: 644
+    - context:
+        hosts:
+          testA: !aggregate
+            ip: 127.0.0.1
+            documentation: somedocs
+            services:
+              A:
+                command: echo A
+              B:
+                command: echo B
+          testB: !aggregate
+            ip: 127.0.0.2
+            documentation: anotherdocs
+            services:
+              K:
+                command: echo K
+              J:
+                command: echo J
+          testA: !aggregate
+            services:
+              X:
+                command: echo X
+              Y:
+                command: echo Y
+```
+
+Jinja template file:
+
+``` jinja
+{%- for host_name,host in hosts|dictsort %}
+define host {
+    use linux-server
+    host_name {{ host_name }}
+    alias {{ host_name }}
+    address {{ host.ip }}
+    {%- if host.get('documentation') %}
+    notes_url {{ host.get('documentation') }}
+    {%- endif %}
+}
+define service {
+    use local-service
+    host_name {{ host_name }}
+    service_description ping
+    active_checks_enabled 1
+    passive_checks_enabled 0
+    check_freshness 0
+    check_interval 1
+    retry_interval 1
+    initial_state u
+    check_command check_icmp!500.000ms,40%!1000.000ms,80%
+}
+{%- for service_name, service in host.services|dictsort %}
+define service {
+    use local-service
+    host_name {{ host_name }}
+    service_description {{ service_name }}
+    active_checks_enabled 1
+    passive_checks_enabled 0
+    check_freshness 0
+    check_interval 1
+    retry_interval 1
+    initial_state u
+}
+{%- endfor %}
+{%- endfor %}
+```
+
+And… rendered file:
+
+```
+define host {
+    use linux-server
+    host_name "testA"
+    alias "testA"
+    address "127.0.0.1"
+    notes_url "somedocs"
+}
+define service {
+    use local-service
+    host_name "testA"
+    service_description ping
+    active_checks_enabled 1
+    passive_checks_enabled 0
+    check_freshness 0
+    check_interval 1
+    retry_interval 1
+    initial_state u
+    check_command check_icmp!500.000ms,40%!1000.000ms,80%
+}
+define service {
+    use local-service
+    host_name "testA"
+    service_description "X"
+    active_checks_enabled 1
+    passive_checks_enabled 0
+    check_freshness 0
+    check_interval 1
+    retry_interval 1
+    initial_state u
+}
+define service {
+    use local-service
+    host_name "testA"
+    service_description "Y"
+    active_checks_enabled 1
+    passive_checks_enabled 0
+    check_freshness 0
+    check_interval 1
+    retry_interval 1
+    initial_state u
+}
+define host {
+    use linux-server
+    host_name "testB"
+    alias "testB"
+    address "127.0.0.2"
+    notes_url "anotherdocs"
+
+}
+define service {
+    use local-service
+    host_name "testB"
+    service_description ping
+    active_checks_enabled 1
+    passive_checks_enabled 0
+    check_freshness 0
+    check_interval 1
+    retry_interval 1
+    initial_state u
+    check_command check_icmp!500.000ms,40%!1000.000ms,80%
+}
+define service {
+    use local-service
+    host_name "testB"
+    service_description "J"
+    active_checks_enabled 1
+    passive_checks_enabled 0
+    check_freshness 0
+    check_interval 1
+    retry_interval 1
+    initial_state u
+}
+define service {
+    use local-service
+    host_name "testB"
+    service_description "K"
+    active_checks_enabled 1
+    passive_checks_enabled 0
+    check_freshness 0
+    check_interval 1
+    retry_interval 1
+    initial_state u
+}
+```
+
+This is definitely NOT what I wanted…
+I was unable to find a way get rid of all those quotes.
+Looks like serialization happens here: https://github.com/saltstack/salt/blob/develop/salt/serializers/yamlex.py#L357,L363
+And documentation doesn't tell a word about using YAMLex-rendered data inside Jinja :(

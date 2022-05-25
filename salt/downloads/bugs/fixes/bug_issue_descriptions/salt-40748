@@ -1,0 +1,92 @@
+### Description of Issue/Question
+
+I just confirmed that grain targeting fails regardless of whether or not `salt '*' saltutil.sync_all` is called, when the cache backend is consul.
+
+### Setup
+
+1. Download attached zip file --> [saltbug.tar.gz](https://github.com/saltstack/salt/files/930833/saltbug.tar.gz)
+2. Unzip it, enter the directory, and type `vagrant up`
+3. `vagrant ssh master`
+4. `apt-get install -y vim unzip`
+5. `cd /vagrant`
+6. `unzip consul*.zip`
+7. `mv consul /usr/bin`
+
+### Steps to Reproduce Issue
+
+Steps to reproduce, using the vagrant environment I attached above:
+
+I just confirmed that this problem exists regardless of whether or not `salt '*' saltutil.sync_all` is called, when the cache backend is consul.
+
+Steps to reproduce, using the vagrant environment I attached above:
+
+1. Start Consul on the salt master:
+```
+mkdir -p /var/lib/consul
+mkdir -p /etc/consul.d
+consul agent -server -bootstrap-expect=1 \
+    -data-dir=/var/lib/consul -node=agent-one -bind=127.0.0.1 \
+    -datacenter=dc1 -config-dir=/etc/consul.d
+```
+2. Configure consul cache on the salt master:
+```
+cache: consul
+consul.host: 127.0.0.1
+consul.port: 8500
+consul.token: None
+consul.scheme: http
+consul.consistency: default
+consul.dc: dc1
+consul.verify: True
+```
+3. Restart salt master
+4. Run `rm -rf /var/cache/salt/master/minions/*`
+5. Run `salt '*' saltutil.sync_all`
+6. To verify that salt did indeed sync minion cache data, run `consul kv get -recurse -detailed minions`
+6. Run `salt -C 'G@examplegrain:faraway' test.ping`
+
+You will see minion a returning with "True". Minion `a` is the only minion which has this grain set; the other minions should not be targeted. These other minions return erroneously with "Minion did not return". This means that salt consulted the minion data cache, but couldn't find any entries in the cache associated with those minions.
+
+### Versions Report
+
+```
+
+root@saltmaster:~# salt --versions
+Salt Version:
+           Salt: 2016.11.3
+
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: 0.24.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.24.0
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-21-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

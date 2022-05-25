@@ -1,0 +1,81 @@
+## Problem 
+
+When setting up the demo at https://github.com/dkiser/salt-multimaster-pki-example, I noticed that the failover logic in the salt-minion was trying to connect to a bogus failover master as can be seen below.
+
+> log showing attempt to connect to some crazy failover master address of 0.0.0.1
+> 
+> ```
+> 2015-06-05 03:12:46,404 [salt.minion      ][INFO    ][9] Connection to master 192.168.69.20 lost
+> 2015-06-05 03:12:46,404 [salt.minion      ][INFO    ][9] Trying to tune in to next master from master-list
+> 2015-06-05 03:12:46,404 [salt.minion      ][WARNING ][9] Master ip address changed from 192.168.69.20 to 0.0.0.1
+> 2015-06-05 03:12:46,405 [salt.minion      ][DEBUG   ][9] Attempting to authenticate with the Salt Master at 0.0.0.1
+> ```
+> 
+> salt version report
+> 
+> ```
+> [root@790c989eca16 /]# salt --versions-report
+>            Salt: 2015.5.1
+>          Python: 2.7.5 (default, Jun 17 2014, 18:11:42)
+>          Jinja2: 2.7.3
+>        M2Crypto: 0.22
+>  msgpack-python: 0.4.6
+>    msgpack-pure: Not Installed
+>        pycrypto: 2.6.1
+>         libnacl: Not Installed
+>          PyYAML: 3.11
+>           ioflo: Not Installed
+>           PyZMQ: 14.6.0
+>            RAET: Not Installed
+>             ZMQ: 3.2.5
+>            Mako: Not Installed
+> ```
+## Hypothesis
+
+It appears that logic on https://github.com/saltstack/salt/blob/5eae6de6093fb878fc7004c0549f34955ca3c21e/salt/minion.py#L723 will cause the `opts['master']` to have an incorrect value if `eval_master` is ever called in an execution loop AFTER it has been determined that a master list exist and `opts['master_list']` is created at https://github.com/saltstack/salt/blob/5eae6de6093fb878fc7004c0549f34955ca3c21e/salt/minion.py#L767.  In this case, `opts['master']` will be converted from a string to a list, but the str isn't in the intended format that issue https://github.com/saltstack/salt/issues/23611 intended.  In this edge case a string representation of one master is converted to a list ultimately causing `dns_check` in ``salt.utils` to be called with an argument of '1' versus an intended network address.
+
+> monkey patch output showing eval_check calling dans_check with incorrect args
+> 
+> ```
+> INFO    ] Connection to master 192.168.69.30 lost
+> [INFO    ] Trying to tune in to next master from master-list
+> [ERROR   ] calling dns_check with 1
+> [ERROR   ] entry addr = 1
+> [ERROR   ] addr is 0.0.0.1
+> [WARNING ] Master ip address changed from 192.168.69.30 to 0.0.0.1
+> [DEBUG   ] Attempting to authenticate with the Salt Master at 0.0.0.1
+> ```
+## Possible Solution
+
+Modify original logic introduced in https://github.com/saltstack/salt/issues/23611 to include the following, where we check the fact to see if `opts['master_list']` was ever populated.
+
+> code fix tried out
+> 
+> ```
+>                 # if opts['master'] is a string and we have never created an opts['master_list']
+>                 elif isinstance(opts['master'], str) and ('master_list' not in opts):
+> ```
+
+This proposed fix seems to fix the behavior per the output I am seeing below. Disregard the extra prints I had monkey-patched in there.
+
+> logs showing intended behavior
+> 
+> ```
+> INFO    ] Connection to master 192.168.69.20 lost
+> [INFO    ] Trying to tune in to next master from master-list
+> [ERROR   ] eval_master:opts[master_type]= failover
+> [ERROR   ] eval_master:opts[master]= 192.168.69.20
+> [ERROR   ] eval_master:failed= True
+> [INFO    ] Removing possibly failed master 192.168.69.20 from list of masters
+> [ERROR   ] calling dns_check with 192.168.69.30
+> [ERROR   ] entry addr = 192.168.69.30
+> [ERROR   ] addr is 192.168.69.30
+> [WARNING ] Master ip address changed from 192.168.69.20 to 192.168.69.30
+> [DEBUG   ] Attempting to authenticate with the Salt Master at 192.168.69.30
+> [DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', '7285e4ddae45', 'tcp://192.168.69.30:4506')
+> [DEBUG   ] salt.crypt.verify_signature: Loading public key
+> [DEBUG   ] salt.crypt.verify_signature: Verifying signature
+> [DEBUG   ] Successfully verified signature of master public key with verification public key master_sign.pub
+> ```
+
+Working on a quick PR here shortly for this.

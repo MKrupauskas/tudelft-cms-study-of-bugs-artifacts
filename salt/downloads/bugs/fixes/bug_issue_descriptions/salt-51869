@@ -1,0 +1,339 @@
+### Description of Issue/Question
+x509.sign_remote_certificate not working after upgrade to 2019.2.0
+
+### Setup
+ca server minion config /etc/salt/minion.d/signing_policies.conf:
+```
+x509_signing_policies:
+    ca_policy:
+        - minions: '*'
+        - signing_private_key: /path/to/key/file
+        - signing_cert: /path/to/cert/file
+        - O: Test Company
+        - basicConstraints: "CA:false"
+        - keyUsage: "critical digitalSignature, keyEncipherment"
+        - extendedKeyUsage: "critical serverAuth, clientAuth"
+        - subjectKeyIdentifier: hash
+        - authorityKeyIdentifier: keyid
+        - days_valid: 730
+        - copypath: /path/to/certs/dir/
+```
+
+Managed certificate state:
+```
+{% from "test/map.jinja" import test with context %}
+test_crt:
+    x509.certificate_managed:
+        - name: {{ test.crt }}
+        - ca_server: {{ test.ca_server }}
+        - signing_policy: ca_policy
+        - public_key: {{ test.key }}
+        - CN: {{ grains['id'] }}
+        - days_remaining: 30
+        - backup: True
+```
+
+test/map.jinja:
+```
+{% import_yaml "test/defaults.yaml" as default_settings %}
+{% set test = salt['pillar.get'](
+  'test',
+  default=default_settings.test,
+  merge=True)
+%}
+```
+
+test/defaults.yaml:
+```
+test:
+    key: /etc/pki/tls/private/test.key
+    crt: /etc/pki/tls/certs/test.crt
+    ca_server: 127.0.0.1
+```
+
+pillar of minion:
+```
+test:
+    ca_server: ca.server.hostname
+```
+
+### Steps to Reproduce Issue
+Execute on master:
+```
+salt 'minion' state.apply
+```
+
+Getting errors:
+```
+          ID: test_crt
+    Function: x509.certificate_managed
+        Name: /etc/pki/tls/certs/test.crt
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/site-packages/salt/state.py", line 1933, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1939, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/states/x509.py", line 576, in certificate_managed
+                  'New': __salt__['x509.read_certificate'](certificate=certificate)}
+                File "/usr/lib/python2.7/site-packages/salt/modules/x509.py", line 557, in read_certificate
+                  cert = _get_certificate_obj(certificate)
+                File "/usr/lib/python2.7/site-packages/salt/modules/x509.py", line 371, in _get_certificate_obj
+                  text = get_pem_entry(text, pem_type='CERTIFICATE')
+                File "/usr/lib/python2.7/site-packages/salt/modules/x509.py", line 493, in get_pem_entry
+                  raise salt.exceptions.SaltInvocationError(errmsg)
+              SaltInvocationError: PEM does not contain a single entry of type CERTIFICATE:
+              signing_policy must be specified
+     Started: 15:45:45.250191
+    Duration: 720.156 ms
+     Changes:
+```
+
+Master log:
+```
+2019-02-27 15:45:45,267 [salt.transport.zeromq:132 ][DEBUG   ][27686] Initializing new AsyncZeroMQReqChannel for (u'/etc/salt/pki/master', u'salt.host.local_master', u'tcp: //**.**.**.**:4506', u'clear')
+2019-02-27 15:45:45,267 [salt.transport.zeromq:203 ][DEBUG   ][27686] Connecting the Minion to the Master URI (for the return server): tcp://**.**.**.**:4506
+2019-02-27 15:45:45,267 [salt.transport.zeromq:1178][DEBUG   ][27686] Trying to connect to: tcp://**.**.**.**:4506
+2019-02-27 15:45:45,271 [salt.utils.event :742 ][DEBUG   ][27687] Sending event: tag = 20190227154545270710; data = {u'_stamp': '2019-02-27T13:45:45.271095', u'minions': [u'ca.host.name']}
+2019-02-27 15:45:45,271 [salt.utils.event :742 ][DEBUG   ][27687] Sending event: tag = salt/job/20190227154545270710/new; data = {u'tgt_type': 'glob', u'jid': u'20190227154545270710', u'user': 'root', u'tgt': 'ca.host.name', u'arg': [{"u'CN'": "u'minion.host.name'", "u'signing_policy'": "u'ca_policy'", "u'public_key'": "u'-----BEGIN PUBLIC KEY-----******************************-----END PUBLIC KEY-----'", 'testrun': True, "u'public_key_passphrase'": 'None'}], u'fun': 'x509.sign_remote_certificate', u'missing': [], u'_stamp': '2019-02-27T13:45:45.271621', u'minions': [u'ca.host.name']}
+2019-02-27 15:45:45,272 [salt.loaded.int.returner.local_cache:249 ][DEBUG   ][27687] Adding minions for job 20190227154545270710: [u'ca.host.name']
+2019-02-27 15:45:45,272 [salt.master      :2345][INFO    ][27687] User root Published command x509.sign_remote_certificate with jid 20190227154545270710
+2019-02-27 15:45:45,272 [salt.master      :2353][DEBUG   ][27687] Published command details {u'tgt_type': 'glob', u'jid': u'20190227154545270710', u'tgt': 'ca.host.name', u'ret': '', u'user': 'root', u'arg': [{"u'CN'": "u'minion.host.name'", "u'signing_policy'": "u'ca_policy'", "u'public_key'": "u'-----BEGIN PUBLIC KEY-----*****************************-----END PUBLIC KEY-----'", 'testrun': True, "u'public_key_passphrase'": 'None'}], u'fun': 'x509.sign_remote_certificate', u'id': 'minion.host.name'}
+2019-02-27 15:45:45,272 [salt.transport.zeromq:1012][DEBUG   ][27687] Signing data packet
+2019-02-27 15:45:45,273 [salt.crypt       :199 ][DEBUG   ][27687] salt.crypt.get_rsa_key: Loading private key
+2019-02-27 15:45:45,273 [salt.crypt       :224 ][DEBUG   ][27687] salt.crypt.sign_message: Signing message.
+2019-02-27 15:45:45,274 [salt.transport.zeromq:1034][DEBUG   ][27687] Sending payload to publish daemon. jid=20190227154545270710 size=1092
+2019-02-27 15:45:45,274 [salt.transport.zeromq:1039][DEBUG   ][27687] Sent payload to publish daemon.
+2019-02-27 15:45:45,280 [salt.transport.zeromq:895 ][DEBUG   ][27667] Publish daemon received payload. size=1092
+2019-02-27 15:45:45,281 [salt.transport.zeromq:893 ][DEBUG   ][27667] Publish daemon getting data from puller ipc:///var/run/salt/master/publish_pull.ipc
+2019-02-27 15:45:45,281 [salt.transport.zeromq:227 ][DEBUG   ][27686] Closing AsyncZeroMQReqChannel instance
+2019-02-27 15:45:45,284 [salt.crypt       :207 ][DEBUG   ][27675] salt.crypt.get_rsa_pub_key: Loading public key
+2019-02-27 15:45:45,319 [salt.utils.job   :68  ][INFO    ][27674] Got return from ca.host.name for job 20190227154545270710
+2019-02-27 15:45:45,319 [salt.utils.event :742 ][DEBUG   ][27674] Sending event: tag = salt/job/20190227154545270710/ret/ca.host.name; data = {'fun_args': [{'testrun': True, "u'public_key'": "u'-----BEGIN PUBLIC KEY-----***********************************-----END PUBLIC KEY-----'", "u'signing_policy'": "u'ca_policy'", "u'public_key_passphrase'": 'None', "u'CN'": "u'minion.host.name'"}], 'jid': '20190227154545270710', 'return': 'signing_policy must be specified', 'retcode': 0, 'success': True, 'cmd': '_return', u'_stamp': '2019-02-27T13:45:45.319394', 'fun': 'x509.sign_remote_certificate', 'id': 'ca.host.name'}
+```
+
+CA log:
+```
+2019-02-27 15:45:45,282 [salt.minion      :1465][INFO    ][6880] User root Executing command x509.sign_remote_certificate with jid 20190227154545270710
+2019-02-27 15:45:45,283 [salt.minion      :1472][DEBUG   ][6880] Command details {u'tgt_type': u'glob', u'jid': u'20190227154545270710', u'tgt': u'ca.host.name', u'ret': u'',
+ u'user': u'root', u'arg': [{u"u'CN'": u"u'minion.host.name'", u"u'signing_policy'": u"u'ca_policy'", u"u'public_key'": u"u'-----BEGIN PUBLIC KEY-----**********************-----END PUBLIC KEY-----'", u'testrun': True, u"u'public_key_passphrase'": u'None'}], u'fun': u'x509.sign_remote_certificate', u'id': u'minion.host.name'}
+2019-02-27 15:45:45,299 [salt.minion      :1605][INFO    ][25562] Starting a new job 20190227154545270710 with PID 25562
+2019-02-27 15:45:45,303 [salt.utils.lazy  :107 ][DEBUG   ][25562] Could not LazyLoad {0}.allow_missing_func: '{0}.allow_missing_func' is not available.
+2019-02-27 15:45:45,307 [salt.utils.lazy  :104 ][DEBUG   ][25562] LazyLoaded x509.sign_remote_certificate
+2019-02-27 15:45:45,308 [salt.minion      :767 ][DEBUG   ][25562] Minion return retry timer set to 7 seconds (randomized)
+2019-02-27 15:45:45,308 [salt.minion      :1941][INFO    ][25562] Returning information for job: 20190227154545270710
+2019-02-27 15:45:45,308 [salt.transport.zeromq:132 ][DEBUG   ][25562] Initializing new AsyncZeroMQReqChannel for (u'/etc/salt/pki/minion', u'ca.host.name', u'tcp://**.**.**.**:4506', u'aes')
+2019-02-27 15:45:45,310 [salt.crypt       :463 ][DEBUG   ][25562] Initializing new AsyncAuth for (u'/etc/salt/pki/minion', u'ca.host.name', u'tcp://**.**.**.**:4506')
+2019-02-27 15:45:45,311 [salt.transport.zeromq:203 ][DEBUG   ][25562] Connecting the Minion to the Master URI (for the return server): tcp://**.**.**.**:4506
+2019-02-27 15:45:45,311 [salt.transport.zeromq:1178][DEBUG   ][25562] Trying to connect to: tcp://**.**.**.**:4506
+2019-02-27 15:45:45,321 [salt.transport.zeromq:227 ][DEBUG   ][25562] Closing AsyncZeroMQReqChannel instance
+2019-02-27 15:45:45,322 [salt.minion      :1783][DEBUG   ][25562] minion return: {u'fun_args': [{u"u'CN'": u"u'minion.host.name'", u"u'signing_policy'": u"u'ca_policy'", u"u'public_key'": u"u'-----BEGIN PUBLIC KEY-----**********************-----END PUBLIC KEY-----'", u'testrun': True, u"u'public_key_passphrase'": u'None'}], u'jid': u'20190227154545270710', u'return': u'signing_policy must be specified', u'retcode': 0, u'success': True, u'fun': u'x509.sign_remote_certificate'}
+```
+
+Minion log:
+```
+2019-02-27 15:45:45,250 [salt.state       :1819][INFO    ][7711] Running state [/etc/pki/tls/certs/test.crt] at time 15:45:45.250190
+2019-02-27 15:45:45,250 [salt.state       :1852][INFO    ][7711] Executing state x509.certificate_managed for [/etc/pki/tls/certs/test.crt]
+2019-02-27 15:45:45,255 [salt.loaded.int.module.publish:108 ][INFO    ][7711] Publishing 'x509.sign_remote_certificate' to tcp://**.**.**.**:4506
+2019-02-27 15:45:45,255 [salt.crypt       :1157][DEBUG   ][7711] Re-using SAuth for (u'/etc/salt/pki/minion', u'minion.host.name', u'tcp://**.**.**.**:4506')
+2019-02-27 15:45:45,256 [salt.crypt       :199 ][DEBUG   ][7711] salt.crypt.get_rsa_key: Loading private key
+2019-02-27 15:45:45,256 [salt.crypt       :797 ][DEBUG   ][7711] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2019-02-27 15:45:45,260 [salt.transport.zeromq:132 ][DEBUG   ][7711] Initializing new AsyncZeroMQReqChannel for (u'/etc/salt/pki/minion', u'minion.host.name', u'tcp:/
+/**.**.**.**:4506', u'aes')
+2019-02-27 15:45:45,260 [salt.crypt       :463 ][DEBUG   ][7711] Initializing new AsyncAuth for (u'/etc/salt/pki/minion', u'minion.host.name', u'tcp://**.**.**.**:4506
+')
+2019-02-27 15:45:45,261 [salt.transport.zeromq:203 ][DEBUG   ][7711] Connecting the Minion to the Master URI (for the return server): tcp://**.**.**.**:4506
+2019-02-27 15:45:45,261 [salt.transport.zeromq:1178][DEBUG   ][7711] Trying to connect to: tcp://**.**.**.**:4506
+2019-02-27 15:45:45,554 [salt.utils.lazy  :104 ][DEBUG   ][7565] LazyLoaded list_match.match
+2019-02-27 15:45:45,555 [salt.minion      :1465][INFO    ][7565] User sudo_testuser Executing command saltutil.find_job with jid 20190227154545546145
+2019-02-27 15:45:45,555 [salt.minion      :1472][DEBUG   ][7565] Command details {u'tgt_type': u'list', u'jid': u'20190227154545546145', u'tgt': [u'minion.host.name']
+, u'ret': u'', u'user': u'sudo_testuser', u'arg': [u'20190227154540489597'], u'fun': u'saltutil.find_job'}
+2019-02-27 15:45:45,598 [salt.transport.zeromq:227 ][DEBUG   ][7711] Closing AsyncZeroMQReqChannel instance
+2019-02-27 15:45:45,600 [salt.loaded.int.module.publish:108 ][INFO    ][7711] Publishing 'x509.sign_remote_certificate' to tcp://**.**.**.**:4506
+2019-02-27 15:45:45,600 [salt.crypt       :1157][DEBUG   ][7711] Re-using SAuth for (u'/etc/salt/pki/minion', u'minion.host.name', u'tcp://**.**.**.**:4506')
+2019-02-27 15:45:45,600 [salt.crypt       :199 ][DEBUG   ][7711] salt.crypt.get_rsa_key: Loading private key
+2019-02-27 15:45:45,600 [salt.crypt       :797 ][DEBUG   ][7711] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2019-02-27 15:45:45,604 [salt.transport.zeromq:132 ][DEBUG   ][7711] Initializing new AsyncZeroMQReqChannel for (u'/etc/salt/pki/minion', u'minion.host.name', u'tcp://**.**.**.**:4506', u'aes')
+2019-02-27 15:45:45,604 [salt.crypt       :463 ][DEBUG   ][7711] Initializing new AsyncAuth for (u'/etc/salt/pki/minion', u'minion.host.name', u'tcp://**.**.**.**:4506')
+2019-02-27 15:45:45,605 [salt.transport.zeromq:203 ][DEBUG   ][7711] Connecting the Minion to the Master URI (for the return server): tcp://**.**.**.**:4506
+2019-02-27 15:45:45,605 [salt.transport.zeromq:1178][DEBUG   ][7711] Trying to connect to: tcp://**.**.**.**:4506
+2019-02-27 15:45:45,589 [salt.minion      :1605][INFO    ][7840] Starting a new job 20190227154545546145 with PID 7840
+2019-02-27 15:45:45,647 [salt.utils.lazy  :107 ][DEBUG   ][7840] Could not LazyLoad {0}.allow_missing_func: '{0}.allow_missing_func' is not available.
+2019-02-27 15:45:45,649 [salt.utils.lazy  :104 ][DEBUG   ][7840] LazyLoaded saltutil.find_job
+2019-02-27 15:45:45,650 [salt.minion      :767 ][DEBUG   ][7840] Minion return retry timer set to 7 seconds (randomized)
+2019-02-27 15:45:45,650 [salt.minion      :1941][INFO    ][7840] Returning information for job: 20190227154545546145
+2019-02-27 15:45:45,651 [salt.transport.zeromq:132 ][DEBUG   ][7840] Initializing new AsyncZeroMQReqChannel for (u'/etc/salt/pki/minion', u'minion.host.name', u'tcp://**.**.**.**:4506', u'aes')
+2019-02-27 15:45:45,651 [salt.crypt       :463 ][DEBUG   ][7840] Initializing new AsyncAuth for (u'/etc/salt/pki/minion', u'minion.host.name', u'tcp://**.**.**.**:4506')
+2019-02-27 15:45:45,652 [salt.transport.zeromq:203 ][DEBUG   ][7840] Connecting the Minion to the Master URI (for the return server): tcp://**.**.**.**:4506
+2019-02-27 15:45:45,652 [salt.transport.zeromq:1178][DEBUG   ][7840] Trying to connect to: tcp://**.**.**.**:4506
+2019-02-27 15:45:45,662 [salt.transport.zeromq:227 ][DEBUG   ][7840] Closing AsyncZeroMQReqChannel instance
+2019-02-27 15:45:45,664 [salt.minion      :1783][DEBUG   ][7840] minion return: {u'fun_args': [u'20190227154540489597'], u'jid': u'20190227154545546145', u'return': {'tgt_type': 'glob', 'jid': '20190227154540489597', 'tgt': 'minion.host.name', 'pid': 7711, 'ret': '', 'user': 'sudo_testuser', 'arg': [], 'fun': 'state.apply'}, u'retcode': 0, u'success': True, u'fun': u'saltutil.find_job'}
+2019-02-27 15:45:45,967 [salt.transport.zeromq:227 ][DEBUG   ][7711] Closing AsyncZeroMQReqChannel instance
+2019-02-27 15:45:45,969 [salt.state       :1939][DEBUG   ][7711] An exception occurred in this state: PEM does not contain a single entry of type CERTIFICATE:
+signing_policy must be specified
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 1933, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1939, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/states/x509.py", line 576, in certificate_managed
+    'New': __salt__['x509.read_certificate'](certificate=certificate)}
+  File "/usr/lib/python2.7/site-packages/salt/modules/x509.py", line 557, in read_certificate
+    cert = _get_certificate_obj(certificate)
+  File "/usr/lib/python2.7/site-packages/salt/modules/x509.py", line 371, in _get_certificate_obj
+    text = get_pem_entry(text, pem_type='CERTIFICATE')
+  File "/usr/lib/python2.7/site-packages/salt/modules/x509.py", line 493, in get_pem_entry
+    raise salt.exceptions.SaltInvocationError(errmsg)
+SaltInvocationError: PEM does not contain a single entry of type CERTIFICATE:
+signing_policy must be specified
+2019-02-27 15:45:45,970 [salt.state       :322 ][ERROR   ][7711] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 1933, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1939, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/states/x509.py", line 576, in certificate_managed
+    'New': __salt__['x509.read_certificate'](certificate=certificate)}
+  File "/usr/lib/python2.7/site-packages/salt/modules/x509.py", line 557, in read_certificate
+    cert = _get_certificate_obj(certificate)
+  File "/usr/lib/python2.7/site-packages/salt/modules/x509.py", line 371, in _get_certificate_obj
+    text = get_pem_entry(text, pem_type='CERTIFICATE')
+  File "/usr/lib/python2.7/site-packages/salt/modules/x509.py", line 493, in get_pem_entry
+    raise salt.exceptions.SaltInvocationError(errmsg)
+SaltInvocationError: PEM does not contain a single entry of type CERTIFICATE:
+signing_policy must be specified
+
+2019-02-27 15:45:45,970 [salt.state       :1997][INFO    ][7711] Completed state [/etc/pki/tls/certs/test.crt] at time 15:45:45.970347 (duration_in_ms=720.156)
+```
+
+### Versions Report
+Master:
+```
+Salt Version:
+           Salt: 2019.2.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.31.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Oct 30 2018, 23:45:53)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.6.1810 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-957.5.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.6.1810 Core
+```
+
+CA:
+```
+    Salt Version:
+               Salt: 2019.2.0
+
+    Dependency Versions:
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: Not Installed
+          docker-py: Not Installed
+              gitdb: Not Installed
+          gitpython: Not Installed
+              ioflo: Not Installed
+             Jinja2: 2.7.2
+            libgit2: Not Installed
+            libnacl: Not Installed
+           M2Crypto: 0.31.0
+               Mako: Not Installed
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.6
+       mysql-python: Not Installed
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+       pycryptodome: Not Installed
+             pygit2: Not Installed
+             Python: 2.7.5 (default, Oct 30 2018, 23:45:53)
+       python-gnupg: Not Installed
+             PyYAML: 3.11
+              PyZMQ: 15.3.0
+               RAET: Not Installed
+              smmap: Not Installed
+            timelib: Not Installed
+            Tornado: 4.2.1
+                ZMQ: 4.1.4
+
+    System Versions:
+               dist: centos 7.6.1810 Core
+             locale: UTF-8
+            machine: x86_64
+            release: 3.10.0-957.5.1.el7.x86_64
+             system: Linux
+            version: CentOS Linux 7.6.1810 Core
+```
+
+Minion:
+```
+    Salt Version:
+               Salt: 2019.2.0
+
+    Dependency Versions:
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: Not Installed
+          docker-py: Not Installed
+              gitdb: Not Installed
+          gitpython: Not Installed
+              ioflo: Not Installed
+             Jinja2: 2.7.2
+            libgit2: Not Installed
+            libnacl: Not Installed
+           M2Crypto: 0.31.0
+               Mako: Not Installed
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.6
+       mysql-python: Not Installed
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+       pycryptodome: Not Installed
+             pygit2: Not Installed
+             Python: 2.7.5 (default, Oct 30 2018, 23:45:53)
+       python-gnupg: Not Installed
+             PyYAML: 3.11
+              PyZMQ: 15.3.0
+               RAET: Not Installed
+              smmap: Not Installed
+            timelib: Not Installed
+            Tornado: 4.2.1
+                ZMQ: 4.1.4
+
+    System Versions:
+               dist: centos 7.6.1810 Core
+             locale: UTF-8
+            machine: x86_64
+            release: 3.10.0-957.5.1.el7.x86_64
+             system: Linux
+            version: CentOS Linux 7.6.1810 Core
+```

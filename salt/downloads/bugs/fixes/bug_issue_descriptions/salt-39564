@@ -1,0 +1,158 @@
+### Description of Issue/Question
+
+Unable to run orchetration using salt-run command with non root user despite external_auth configured and working for function/state.
+Execution work as root but not with regular user.
+I am very new to salt and it might be a configuration/usage issue but I have made nothing else than told in documentation.
+
+### Setup
+
+Single master executed as root
+GitFs backend file server for salt files and ext_pillar.
+No publisher_acl configured
+
+/orch/orch_test.sls :
+```yaml
+orch_test:
+  salt.function:
+    - name: test.ping
+    - tgt: '*'
+```
+
+/etc/salt/master :
+```ini
+...
+# The external auth system uses the Salt auth modules to authenticate and
+# validate users to access areas of the Salt system.
+external_auth:
+  pam:
+    testuser:
+      - '@runner'
+      - '@wheel'
+      - '.*'
+...
+```
+
+### Steps to Reproduce Issue
+Executing as a root user giving credential for testuser :
+
+```shell
+[root@host ~]# salt-run -c /etc/salt/ -a pam state.orchestrate orch.orch_test saltenv=dev
+username: testuser
+password:
+host.domain:
+----------
+          ID: orch_test
+    Function: salt.function
+        Name: test.ping
+      Result: True
+     Comment: Function ran successfully. Function test.ping ran on minion1, minion2.
+     Started: 16:40:04.552420
+    Duration: 4287.817 ms
+     Changes:
+              minion1:
+                  True
+              minion2:
+                  True
+
+Summary for host.domain
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   4.288 s
+retcode:
+    0
+```
+
+Executing salt-run as the user :
+
+```shell
+[testuser@host bin]$ salt-run -c /etc/salt/ -a pam state.orchestrate orch.orch_test saltenv=dev -l trace
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: host.domain
+[DEBUG   ] Missing configuration file: /home/testuser/.saltrc
+[TRACE   ] None of the required configuration sections, 'logstash_udp_handler' and 'logstash_zmq_handler', were found in the configuration. Not loading the Logstash logging handlers module.
+[TRACE   ] The required configuration section, 'fluent_handler', was not found the in the configuration. Not loading the fluent logging handlers module.
+[DEBUG   ] Configuration file path: /etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[TRACE   ] Trying pysss.getgrouplist for 'root'
+[TRACE   ] Group list for user 'root': '[]'
+[CRITICAL] Salt configured to run as user "root" but unable to switch.
+```
+
+No log on the master even running as -l trace
+
+For information it works with function/state :
+
+```shell
+testuser@host` bin]$ salt '*' -c /etc/salt/ -a pam test.ping -l debug
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: host.domain
+[DEBUG   ] Missing configuration file: /home/testuser/.saltrc
+[DEBUG   ] Configuration file path: /etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: host.domain
+[DEBUG   ] Missing configuration file: /home/testuser/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] LazyLoaded pam.auth
+username: testuser
+password:
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/master', 'host.domain_master', 'tcp://127.0.0.1:4506', 'clear')
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] LazyLoaded local_cache.get_load
+[DEBUG   ] Reading minion list from /var/cache/salt/master/jobs/b6/aebf55bf13a89ca48a98efc4922ef0f3a96987aea8dc36fc206bf035f093de/.minions.p
+[DEBUG   ] get_iter_returns for jid 20170222164729337388 sent to set(['minion1', 'minion2']) will timeout at 16:47:34.347133
+[DEBUG   ] jid 20170222164729337388 return from minion1
+[DEBUG   ] LazyLoaded nested.output
+minion1:
+    True
+[DEBUG   ] jid 20170222164729337388 return from minion2
+[DEBUG   ] LazyLoaded nested.output
+Minion2:
+    True
+``` 
+
+### Versions Report
+```shell
+[root@host ~]# salt --versions-report
+Salt Version:
+           Salt: 2016.11.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 1.4.1
+          gitdb: 0.5.4
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: 0.20.0
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: 0.20.3
+         Python: 2.6.6 (r266:84292, Sep  4 2013, 07:46:00)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: 0.8.1
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: redhat 6.5 Santiago
+        machine: x86_64
+        release: 2.6.32-431.el6.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 6.5 Santiago
+```

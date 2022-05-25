@@ -1,0 +1,114 @@
+### Description of Issue
+
+I'm running Alpine docker containers. Alpine 3.10 has just been released and pygit2 has been bumped from 0.27.1-r0 to 0.28.2-r0. Now my GITFS repos are failing.
+
+I'm using HTTPS as a transport, but I see the same behaviour using SSH keys.
+
+GitPython does not experience the same issue.
+
+#### HTTPS
+```
+[DEBUG   ] Updating gitfs fileserver cache for the following targets: [('https://git-codecommit.ap-southeast-2.amazonaws.com/v1/repos/salt-states', None)]
+[DEBUG   ] Re-using gitfs object for process 41
+[DEBUG   ] Set update lock for gitfs remote 'https://git-codecommit.ap-southeast-2.amazonaws.com/v1/repos/salt-states'
+[DEBUG   ] Fetching gitfs remote 'https://git-codecommit.ap-southeast-2.amazonaws.com/v1/repos/salt-states'
+[DEBUG   ] Removed update lock for gitfs remote 'https://git-codecommit.ap-southeast-2.amazonaws.com/v1/repos/salt-states'
+[ERROR   ] Exception caught while fetching gitfs remote 'https://git-codecommit.ap-southeast-2.amazonaws.com/v1/repos/salt-states': list index out of range
+Traceback (most recent call last):
+  File "/usr/lib/python3.7/site-packages/salt/utils/gitfs.py", line 2333, in fetch_remotes
+    if repo.fetch():
+  File "/usr/lib/python3.7/site-packages/salt/utils/gitfs.py", line 767, in fetch
+    return self._fetch()
+  File "/usr/lib/python3.7/site-packages/salt/utils/gitfs.py", line 1702, in _fetch
+    origin = self.repo.remotes[0]
+  File "/usr/lib/python3.7/site-packages/pygit2/remote.py", line 582, in __getitem__
+    return list(self)[name]
+IndexError: list index out of range
+```
+#### SSH
+```
+[ERROR   ] Exception caught while fetching gitfs remote 'ssh://#################@git-codecommit.ap-southeast-2.amazonaws.com/v1/repos/salt-states': list index out of range
+Traceback (most recent call last):
+  File "/usr/lib/python3.7/site-packages/salt/utils/gitfs.py", line 2333, in fetch_remotes
+    if repo.fetch():
+  File "/usr/lib/python3.7/site-packages/salt/utils/gitfs.py", line 767, in fetch
+    return self._fetch()
+  File "/usr/lib/python3.7/site-packages/salt/utils/gitfs.py", line 1702, in _fetch
+    origin = self.repo.remotes[0]
+  File "/usr/lib/python3.7/site-packages/pygit2/remote.py", line 582, in __getitem__
+    return list(self)[name]
+IndexError: list index out of range
+```
+
+
+### Setup
+
+I can reproduce this with a single salt-master and a private git repo. The trigger seems to be the version of pygit2.
+
+#### gitfs.conf
+```
+fileserver_backend:
+  - gitfs
+
+gitfs_remotes:
+  - https://git-codecommit.ap-southeast-2.amazonaws.com/v1/repos/salt-states:
+    - user: ############
+    - password: ##########
+```
+
+
+
+### Steps to Reproduce Issue
+
+The following steps reproduce the issue for me:
+```
+docker run -it alpine:3.10
+apk add git salt-master
+mkdir /etc/salt/master.d
+vi /etc/salt/master.d/gitfs.conf
+Configure a GITFS with a git repo requring authentication
+salt-master -l info
+``` 
+### Versions Report
+```
+Salt Version:
+           Salt: 2019.2.0
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: 18.1.1
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.28.2
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.1
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.28.2
+         Python: 3.7.3 (default, May  3 2019, 11:24:39)
+   python-gnupg: Not Installed
+         PyYAML: 5.1.1
+          PyZMQ: 18.0.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.2
+            ZMQ: 4.3.1
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-9-amd64
+         system: Linux
+        version: Not Installed
+```

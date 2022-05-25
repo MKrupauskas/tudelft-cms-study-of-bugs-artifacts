@@ -1,0 +1,30 @@
+Looks like the expected return content of pkg.latest_version has changed and the zypper module was not updated to suit.  This (along with an unchecked list deref) were causing pkg.latest to stackdump during my state runs after updating to 2015.8.0.  Adding insult to injury, recent zypper versions append "(version XXX installed)" to the "out-of-date" status field, which was borking the simple "if string in [ ... ]" match.
+
+Here's a small patch which tunes it up.  Since it uses 'startswith()' rather than 'in', it should (untested) be backwards compatible with older zypper versions.  And yes, I really did just edit the file live on my system as root :-p  Sometimes yah gotta live out on the fringes like that...
+
+``` diff
+# diff -u /usr/lib/python2.7/site-packages/salt/modules/zypper.py.orig  /usr/lib/python2.7/site-packages/salt/modules/zypper.py
+--- /usr/lib/python2.7/site-packages/salt/modules/zypper.py.orig        2015-09-07 12:58:27.000000000 -0400
++++ /usr/lib/python2.7/site-packages/salt/modules/zypper.py     2015-09-29 02:06:56.874035853 -0400
+@@ -165,15 +165,15 @@
+     package_info = info(*names)
+     for name in names:
+         pkg_info = package_info.get(name)
+-        if pkg_info is not None and pkg_info.get('status', '').lower() in ['not installed', 'out-of-date']:
+-            ret_data = {}
+-            for k in ['version', 'vendor']:
+-                ret_data[k] = pkg_info.get(k)
+-            ret[name] = ret_data
++        status = pkg_info.get('status', '').lower()
++        if pkg_info is not None and status.startswith('not installed') or status.startswith('out-of-date'):
++            ret[name] = pkg_info.get('version')
++        else:
++            ret[name] = ''
+
+     # Return a string if only one package name passed
+-    if len(names) == 1:
+-        return ret[names[0]]['version']
++    if len(names) == 1 and len(ret):
++        return ret[names[0]]
+     return ret
+```

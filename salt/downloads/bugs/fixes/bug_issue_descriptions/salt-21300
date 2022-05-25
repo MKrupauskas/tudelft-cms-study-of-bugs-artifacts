@@ -1,0 +1,28 @@
+Currently, I'm writing a set of Salt states to handle locking down our RHEL/CentOS Linux systems. Our security rules first state that IPv6 must be completely disabled (no problem). Subsequent rules further state that, even though IPv6 must be completely disabled, we also have to ensure that certain sysctl settings are enforced (presumably in case someone activates IPv6).
+
+Because IPv6 has been previously disabled, all of the systune-controllable structures are absent from the kernel. This means that when you run a sysctl command (from OS level) to get/set their values, the OS returns an error. When running `sysctl.present` to ensure that the rule gets added to /etc/sysctl.conf, you get an error similar to the following:
+
+```
+----------
+          ID: setting_CCE-27164-3-net.ipv6.conf.default.accept_ra
+    Function: sysctl.present
+        Name: net.ipv6.conf.default.accept_ra
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.6/site-packages/salt/state.py", line 1533, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.6/site-packages/salt/states/sysctl.py", line 88, in present
+                  update = __salt__['sysctl.persist'](name, value, config)
+                File "/usr/lib/python2.6/site-packages/salt/modules/linux_sysctl.py", line 247, in persist
+                  assign(name, value)
+                File "/usr/lib/python2.6/site-packages/salt/modules/linux_sysctl.py", line 138, in assign
+                  raise CommandExecutionError('sysctl {0} does not exist'.format(name))
+              CommandExecutionError: sysctl net.ipv6.conf.default.accept_ra does not exist
+     Started: 07:42:27.369578
+    Duration: 33.687 ms
+     Changes:
+```
+
+It should be noted that the Salt state _does_ place an entry for the tunable into /etc/sysctl.conf in spite of this error (so, "yay" - since my auditors' tools will be happy to see it there). This makes the above exception kind of spurious (and, to a casual observer - say a junior SA made responsible for running the formula containing the state and reviewing the logs - a bit unsettling).
+
+There needs to be a better way to handle this condition (and, yes, I realize that this probably makes it difficult to impossible to detect attempts to set _truly_ bogus sysctl values). Possibly, instead of throwing a trace-back producing exception, trap the error and provide a less-ominous return in the vein of "WARNING: possibly bogus tunable added to /etc/sysctl.conf"?

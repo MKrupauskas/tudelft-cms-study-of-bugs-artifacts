@@ -1,0 +1,49 @@
+There can be a race condition when the minion starts where it might start before the network is fully initialized (perhaps DHCP is slow or was down).  In these cases, I've seen salt-minion stuck querying 127.0.0.1 for DNS.  Even after the network does come online, it never picks up the changes because glibc caches the resolv.conf forever.  Supposedly, debian/ubuntu and opensuse actually patch glibc to stat /etc/resolv.conf for changes (I have not verified this, just saw a reference online somewhere), but this doesn't happen on redhat.  Without a fix in glibc, the current solution is to restart the salt-minion if the resolv.conf changes.  However, salt could also trigger a res_init() to force glibc to reload the resolv.conf configuration.  
+
+I've tested the following by copying the dns_check() and hacking on it a bit.  With the `res_init()` in there, it does pick up changes to resolv.conf:
+
+``` python
+import time
+import socket
+import ctypes
+libc = ctypes.cdll.LoadLibrary('libc.so.6')
+res_init = libc.__res_init
+
+def dns_check(addr, safe=False, ipv6=False):
+    res_init()
+    print time.time(),": Checking", addr
+    try:
+        hostnames = socket.getaddrinfo(
+            addr, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+        )
+        if not hostnames:
+            error = True
+            print "FAILURE: no result"
+        else:
+            addr = False
+            print "SUCCESS: ", hostnames
+    except TypeError:
+        err = ('Attempt to resolve address \'{0}\' failed. Invalid or unresolveable address').format(addr)
+        print err
+    except socket.error as msg:
+        #error = True
+        print "ERROR: socket error: ", msg
+
+for i in range(10):
+    dns_check('salt')
+    print "Sleeping for 10 seconds ..."
+    time.sleep(10)
+```
+
+I tested by changing /etc/resolv.conf to point to a bogus nameserver, then during the loop, changing it back and it shows it able to correctly resolve the address.
+
+Obviously, this isn't the correct patch (It's probably not portable and likely not running res_init() in the right places), but it is a workable solution to a very annoying problem of my minion spitting these out and never being able to fix itself (because it's looking for a nameserver at 127.0.0.1)
+
+```
+2015-03-07 01:22:05,757 [salt.utils       ][ERROR   ] DNS lookup of 'salt01' failed.
+2015-03-07 01:22:05,757 [salt.minion      ][ERROR   ] Master hostname: 'salt01' not found. Retrying in 30 seconds
+```
+
+This might become more important if #15122 and/or #10032 is addressed.
+
+I'm running 2014.7.2, fyi.

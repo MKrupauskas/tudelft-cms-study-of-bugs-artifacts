@@ -1,0 +1,83 @@
+In 2014.7.1, I used different branches in the same remote git repository for my git pillar. As of 2015.8.1, neither of the following configurations work. If I go with this:
+
+```
+ext_pillar:
+  - git:
+    - master git@abc.xyz:salt_pillar.git
+    - integration git@abc.xyz:salt_pillar.git
+```
+
+Then I get the following error and inconsistent pillar data on minions:
+
+`The following git_pillar remotes have conflicting cachedirs: master git@abc.xyz:salt_pillar.git, integration git@abc.xyz:salt_pillar.git. Resolve this using a per-remote parameter called 'name'.`
+
+I can see that the cachedir is [set from the remote URL if no name is provided](https://github.com/saltstack/salt/blob/b3f3275e0ae3db9a71114686d5ea266331a12513/salt/utils/gitfs.py#L255). It makes sense there's a collision, then, since they are branches in the same repo.
+
+But if I set names as suggested:
+
+```
+ext_pillar:
+  - git:
+    - master git@abc.xyz:salt_pillar.git:
+      - name: master
+    - integration git@abc.xyz:salt_pillar.git:
+      - name: integration
+```
+
+I get this:
+
+```
+Failed to checkout integration from git_pillar remote 'integration git@abc.xyz:salt_pillar.git': 23 conflicts prevent checkout
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/gitfs.py", line 703, in checkout
+    self.repo.checkout(local_ref)
+  File "/usr/local/lib/python2.7/dist-packages/pygit2/repository.py", line 277, in checkout
+    self.checkout_tree(treeish, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/pygit2/repository.py", line 231, in checkout_tree
+    check_error(C.git_checkout_tree(self._repo, cptr[0], copts))
+  File "/usr/local/lib/python2.7/dist-packages/pygit2/errors.py", line 64, in check_error
+    raise GitError(message)
+GitError: 23 conflicts prevent checkout
+```
+
+I can only guess that it's trying to check out the wrong branch into `integration`.
+
+Salt versions report:
+
+```
+Salt Version:
+           Salt: 2015.8.1
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: 0.21.1
+           Mako: 1.0.0
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: 0.22.1
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.0 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 8.0
+```

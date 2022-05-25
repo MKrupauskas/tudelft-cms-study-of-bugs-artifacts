@@ -1,0 +1,247 @@
+### States mount.\* fail to take into consideration `mount` output on OpenBSD
+### Setup
+
+Latest OpenBSD snapshot (doesn't matter, should behave the same on any). Following state:
+
+```
+secrets storage:
+  mount.mounted:
+    - name: /etc/secrets
+    - device: tmpfs
+    - fstype: tmpfs
+    - opts: rw,-s20M,-uroot,-gwheel,-m0700
+    - dump: 0
+    - pass_num: 0
+    - persist: True
+    - mkmnt: True
+```
+
+Which results in following `fstab` entry:
+
+```
+tmpfs           /etc/secrets    tmpfs   rw,-s20M,-uroot,-gwheel,-m0700  0 0
+```
+
+and following `mount -v` output:
+
+```
+tmpfs on /etc/secrets type tmpfs (rw, local, ctime=Tue Jun 14 20:32:02 2016)
+```
+### Steps to Reproduce Issue
+
+```
+$ sudo salt-call -l debug --local mount.active 
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/startup_states.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/startup_states.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: builder.viq.vc
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/startup_states.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/startup_states.conf
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded mount.active
+[DEBUG   ] LazyLoaded cmd.run_stdout
+[INFO    ] Executing command 'mount -v' in directory '/home/viq'
+[DEBUG   ] stdout: /dev/sd0a (bd15538f0bff9935.a) on / type ffs (rw, local, softdep, ctime=Tue Jun 14 20:32:10 2016)
+/dev/sd0k (bd15538f0bff9935.k) on /home type ffs (rw, NFS exported, local, nosuid, softdep, ctime=Tue Jun 14 20:32:10 2016)
+/dev/sd0d (bd15538f0bff9935.d) on /tmp type ffs (rw, local, nodev, nosuid, softdep, ctime=Tue Jun 14 20:32:10 2016)
+/dev/sd0f (bd15538f0bff9935.f) on /usr type ffs (rw, local, nodev, softdep, ctime=Tue Jun 14 20:32:10 2016)
+/dev/sd0g (bd15538f0bff9935.g) on /usr/X11R6 type ffs (rw, local, nodev, softdep, ctime=Tue Jun 14 20:32:11 2016)
+/dev/sd0h (bd15538f0bff9935.h) on /usr/local type ffs (rw, local, nodev, wxallowed, softdep, ctime=Tue Jun 14 20:32:11 2016)
+/dev/sd0j (bd15538f0bff9935.j) on /usr/obj type ffs (rw, local, nodev, nosuid, softdep, ctime=Tue Jun 14 20:32:11 2016)
+/dev/sd0i (bd15538f0bff9935.i) on /usr/src type ffs (rw, local, nodev, nosuid, softdep, ctime=Tue Jun 14 20:32:11 2016)
+/dev/sd0e (bd15538f0bff9935.e) on /var type ffs (rw, local, nodev, nosuid, softdep, ctime=Tue Jun 14 20:32:11 2016)
+tmpfs on /etc/secrets type tmpfs (rw, local, ctime=Tue Jun 14 20:32:02 2016)
+[INFO    ] Executing command 'ls -l /dev/sd0a' in directory '/home/viq'
+[DEBUG   ] stdout: brw-r-----  1 root  operator    4,   0 Jun 14 20:32 /dev/sd0a
+[INFO    ] Executing command 'ls -l /dev/sd0k' in directory '/home/viq'
+[DEBUG   ] stdout: brw-r-----  1 root  operator    4,  10 Jun 14 20:32 /dev/sd0k
+[INFO    ] Executing command 'ls -l /dev/sd0d' in directory '/home/viq'
+[DEBUG   ] stdout: brw-r-----  1 root  operator    4,   3 Jun 14 20:32 /dev/sd0d
+[INFO    ] Executing command 'ls -l /dev/sd0f' in directory '/home/viq'
+[DEBUG   ] stdout: brw-r-----  1 root  operator    4,   5 Jun 14 20:32 /dev/sd0f
+[INFO    ] Executing command 'ls -l /dev/sd0g' in directory '/home/viq'
+[DEBUG   ] stdout: brw-r-----  1 root  operator    4,   6 Jun 14 20:32 /dev/sd0g
+[INFO    ] Executing command 'ls -l /dev/sd0h' in directory '/home/viq'
+[DEBUG   ] stdout: brw-r-----  1 root  operator    4,   7 Jun 14 20:32 /dev/sd0h
+[INFO    ] Executing command 'ls -l /dev/sd0j' in directory '/home/viq'
+[DEBUG   ] stdout: brw-r-----  1 root  operator    4,   9 Jun 14 20:32 /dev/sd0j
+[INFO    ] Executing command 'ls -l /dev/sd0i' in directory '/home/viq'
+[DEBUG   ] stdout: brw-r-----  1 root  operator    4,   8 Jun 14 20:32 /dev/sd0i
+[INFO    ] Executing command 'ls -l /dev/sd0e' in directory '/home/viq'
+[DEBUG   ] stdout: brw-r-----  1 root  operator    4,   4 Jun 14 20:32 /dev/sd0e
+[INFO    ] Executing command 'ls -l tmpfs' in directory '/home/viq'
+[ERROR   ] Command 'ls -l tmpfs' failed with return code: 1
+[ERROR   ] stderr: ls: tmpfs: No such file or directory
+[ERROR   ] retcode: 1
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/usr/local/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/local/lib/python2.7/site-packages/salt/scripts.py", line 345, in salt_call
+    client.run()
+  File "/usr/local/lib/python2.7/site-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/local/lib/python2.7/site-packages/salt/cli/caller.py", line 134, in run
+    ret = self.call()
+  File "/usr/local/lib/python2.7/site-packages/salt/cli/caller.py", line 197, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/local/lib/python2.7/site-packages/salt/modules/mount.py", line 208, in active
+    _active_mounts_openbsd(ret)
+  File "/usr/local/lib/python2.7/site-packages/salt/modules/mount.py", line 156, in _active_mounts_openbsd
+    'opts': _resolve_user_group_names(parens[1].split(", "))}
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/usr/local/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/local/lib/python2.7/site-packages/salt/scripts.py", line 345, in salt_call
+    client.run()
+  File "/usr/local/lib/python2.7/site-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/local/lib/python2.7/site-packages/salt/cli/caller.py", line 134, in run
+    ret = self.call()
+  File "/usr/local/lib/python2.7/site-packages/salt/cli/caller.py", line 197, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/local/lib/python2.7/site-packages/salt/modules/mount.py", line 208, in active
+    _active_mounts_openbsd(ret)
+  File "/usr/local/lib/python2.7/site-packages/salt/modules/mount.py", line 156, in _active_mounts_openbsd
+    'opts': _resolve_user_group_names(parens[1].split(", "))}
+IndexError: list index out of range
+```
+### Versions Report
+
+```
+$ sudo salt-call --versions-report 
+Salt Version:
+           Salt: 2016.3.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.11 (default, Jun  8 2016, 15:24:44)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist:   
+        machine: amd64
+        release: 6.0
+         system: OpenBSD
+        version: Not Installed
+```
+
+Currently the master is:
+
+```
+salt --versions-report
+Salt Version:
+           Salt: 2015.8.10
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: 0.24.0
+           Mako: 1.0.4
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+         Python: 2.7.11 (default, Mar 31 2016, 06:18:34)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.4
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+        libgit2: 0.24.0
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.24.0
+   python-gnupg: 0.3.9.dev0
+          smmap: 0.9.0
+        timelib: Not Installed
+
+System Versions:
+           dist:   
+        machine: x86_64
+        release: 4.5.7.201606080852-2-grsec
+```
+
+but I've demonstrated above this happens as well with --local.
+
+Interestingly enough, it works on
+
+```
+Salt Version:
+           Salt: 2015.8.8
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+         Python: 2.7.11 (default, May 23 2016, 04:54:03)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.4
+           cffi: 1.4.2
+       cherrypy: Not Installed
+       dateutil: 2.5.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: 0.3.8
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist:   
+        machine: amd64
+        release: 6.0
+```

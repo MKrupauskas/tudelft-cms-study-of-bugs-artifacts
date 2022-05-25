@@ -1,0 +1,197 @@
+### Description of Issue/Question
+
+x509.certificate_managed results in endless recursion if signing policy denies certificate issue; additionally, master doesn't report the actual error.
+
+### Setup
+state.sls:
+```
+test_certificate:
+  x509.certificate_managed:
+    - name: /tmp/server.pem
+    - ca_server: ca_server
+    - signing_policy: ca_server
+    - CN: test
+    - days_remaining: 30
+    - makedirs: true
+    - dirmode: 755
+    - managed_private_key:
+        name: /tmp/server.key
+        bits: 2048
+        mode: 600
+        user: 0
+        makedirs: true
+        dirmode: 755
+```
+
+signing policy:
+```
+x509_signing_policies:
+  ca_server:
+    - minions: ca_server
+    - signing_private_key: {{pki}}/ca.key
+    - signing_cert: {{pki}}/ca.crt
+    - basicConstraints: "critical CA:false"
+    - keyUsage: "critical keyEncipherment"
+    - subjectKeyIdentifier: hash
+    - authorityKeyIdentifier: keyid,issuer:always
+    - days_valid: 90
+    - copypath: {{pki}}/issued_certs
+```
+
+The error is triggered if the signing minion is not available (in the test env it failed as my minions now use FQDN).
+
+### Steps to Reproduce Issue
+
+Log on minion:
+```
+[INFO    ] Starting a new job with PID 10232
+[DEBUG   ] LazyLoaded x509.sign_remote_certificate
+[DEBUG   ] LazyLoaded direct_call.get
+[DEBUG   ] LazyLoaded pillar.get
+[DEBUG   ] LazyLoaded match.glob
+[DEBUG   ] Minion return retry timer set to 5 seconds (randomized)
+[INFO    ] Returning information for job: 20170603201610623902
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'ca_server.my.fqdn', 'tcp://1.1.1.1:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'ca_server.my.fqdn', 'tcp://1.1.1.1:4506')
+[INFO    ] User sudo_ubuntu Executing command saltutil.find_job with jid 20170603201610955529
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/local/lib/python2.7/dist-packages/salt/state.py", line 1746, in call
+    **cdata['kwargs'])
+  File "/usr/local/lib/python2.7/dist-packages/salt/loader.py", line 1704, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/salt/states/x509.py", line 568, in certificate_managed
+    'New': __salt__['x509.read_certificate'](certificate=certificate)}
+  File "/usr/local/lib/python2.7/dist-packages/salt/modules/x509.py", line 536, in read_certificate
+    cert = _get_certificate_obj(certificate)
+  File "/usr/local/lib/python2.7/dist-packages/salt/modules/x509.py", line 349, in _get_certificate_obj
+    text = get_pem_entry(text, pem_type='CERTIFICATE')
+  File "/usr/local/lib/python2.7/dist-packages/salt/modules/x509.py", line 472, in get_pem_entry
+    raise salt.exceptions.SaltInvocationError(errmsg)
+SaltInvocationError: PEM does not contain a single entry of type CERTIFICATE:
+ca_server.my.fqdn not permitted to use signing policy virtmaster
+```
+
+Logs on master:
+```
+root@ubuntu:~# salt \* state.apply
+ca_server.my.fqdn:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/local/lib/python2.7/dist-packages/salt/minion.py", line 1465, in _thread_return
+        return_data = executor.execute()
+      File "/usr/local/lib/python2.7/dist-packages/salt/executors/direct_call.py", line 28, in execute
+        return self.func(*self.args, **self.kwargs)
+      File "/usr/local/lib/python2.7/dist-packages/salt/modules/state.py", line 551, in apply_
+        return highstate(**kwargs)
+      File "/usr/local/lib/python2.7/dist-packages/salt/modules/state.py", line 829, in highstate
+        orchestration_jid=orchestration_jid)
+      File "/usr/local/lib/python2.7/dist-packages/salt/state.py", line 3453, in call_highstate
+        return self.state.call_high(high, orchestration_jid)
+      File "/usr/local/lib/python2.7/dist-packages/salt/state.py", line 2298, in call_high
+        ret = dict(list(disabled.items()) + list(self.call_chunks(chunks).items()))
+      File "/usr/local/lib/python2.7/dist-packages/salt/state.py", line 1815, in call_chunks
+        running = self.call_chunk(low, running, chunks)
+      File "/usr/local/lib/python2.7/dist-packages/salt/state.py", line 2088, in call_chunk
+        running = self.call_chunk(chunk, running, chunks)
+
+... this repeats many times ...
+
+      File "/usr/local/lib/python2.7/dist-packages/salt/state.py", line 1996, in call_chunk
+        low = self._mod_aggregate(low, running, chunks)
+      File "/usr/local/lib/python2.7/dist-packages/salt/state.py", line 762, in _mod_aggregate
+        agg_opt = self.functions['config.option']('state_aggregate')
+      File "/usr/local/lib/python2.7/dist-packages/salt/loader.py", line 1087, in __getitem__
+        func = super(LazyLoader, self).__getitem__(item)
+      File "/usr/local/lib/python2.7/dist-packages/salt/utils/lazy.py", line 91, in __getitem__
+        if self._missing(key):
+    RuntimeError: maximum recursion depth exceeded
+root@ubuntu:~#
+```
+
+### Versions Report
+Master:
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2016.11.4
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 2.0.5
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.4
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12+ (default, Sep 17 2016, 12:08:02)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.2.0
+
+System Versions:
+           dist: Ubuntu 16.10 yakkety
+        machine: x86_64
+        release: 4.8.0-49-generic
+         system: Linux
+        version: Ubuntu 16.10 yakkety
+```
+
+Minion:
+```
+$ salt --versions-report
+Salt Version:
+           Salt: 2016.11.5
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: 1.9.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.5
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Jan 19 2017, 14:48:08)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist: Ubuntu 17.04 zesty
+        machine: x86_64
+        release: 4.10.0-21-generic
+         system: Linux
+        version: Ubuntu 17.04 zesty
+```

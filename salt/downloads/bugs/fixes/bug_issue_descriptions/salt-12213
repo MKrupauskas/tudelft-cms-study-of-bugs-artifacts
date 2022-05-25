@@ -1,0 +1,44 @@
+I have a state file that looks like so
+
+``` YAML
+{% set host = ".".join(salt['grains.get']('id').split('.')[:1]) %}
+
+hostname:
+  cmd.run:
+    - name: echo {{ host }} > /etc/hostname
+    - cwd: /etc/
+    - stateful: True
+  host.present:
+    - ip : {{ salt['grains.get']('ipv4')[0] }}
+    - names:
+      - {{ salt['grains.get']('id') }} {{ host }} 
+```
+
+The state successfully sets the /etc/hostname file but it fails to add a new-line at the end of the names in the /etc/hosts file. Each time the state runs it will always append another entry to the end of the file without checking if one already exists. It does not however add an additional IP. After having the highstate run on the server several tens of times we had a hosts entry that spanned more than 200 columns wide.
+
+To resolve the problem as a temp fix I have had to do the following state in it's place.
+
+``` YAML
+{% set host = ".".join(salt['grains.get']('id').split('.')[:1]) %}
+
+hostname:
+  cmd.run:
+    - name: echo {{ host }} > /etc/hostname
+    - cwd: /etc/
+    - stateful: True
+  file.append:
+    - name: /etc/hosts
+    - text: '{{ salt['network.interfaces']()['eth0']['inet'][0]['address'] }}   {{ salt['grains.get']('id') }}  {{ salt['grains.get']('host') }}'
+
+```
+
+What I want to have is
+
+``` YAML
+<IP ADDRESS>    <FQDN>    <ALIAS>
+
+```
+
+note: the new-line after the alias.
+
+I am currently running saltstack from the Ubuntu PPA's version 2014.1.1-1precise1

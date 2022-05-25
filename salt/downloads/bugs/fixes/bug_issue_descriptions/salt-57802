@@ -1,0 +1,81 @@
+**Description**
+Looking at the [OpenStack documentation](https://docs.openstack.org/nova/ussuri/user/block-device-mapping.html#block-device-mapping-v2) and [examples](https://github.com/openstack/nova/blob/master/doc/api_samples/servers/v2.42/server-create-req.json), the `block_device_mapping_v2` parameter is a list of dictionaries.
+
+However, the [code for the driver](https://github.com/saltstack/salt/blob/master/salt/cloud/clouds/openstack.py#L624) expects a dictionary under that parameter. If you specify it as the OpenStack docs expect, Salt Cloud throws this error:
+```
+[ERROR   ] Error block_device_mapping_v2: [{u'source_type': u'image', u'boot_index': 0, u'volume_size': 60, u'destination_type': u'local'}] is not of type <type 'dict'>
+```
+
+However, if you specify some dictionary or a dictionary with a list of dictionaries under an arbitrary key, then you get an error from the underlying SDK:
+```
+[ERROR   ] Error creating server cloud-vm1: (400) Client Error for url: https://<hostname>:8774/v2.1/66054510940048219d02e9da3969b38f/os-volumes_boot Invalid input for field/attribute block_device_mapping_v2. Value: {u'mydevice': [{u'source_type': u'image', u'destination_type': u'local', u'boot_index': 0, u'volume_size': 60}]}. {u'mydevice': [{u'source_type': u'image', u'destination_type': u'local', u'boot_index': 0, u'volume_size': 60}]} is not of type 'array'
+```
+
+So, you basically can't win. Changing the [code for the driver](https://github.com/saltstack/salt/blob/master/salt/cloud/clouds/openstack.py#L624) to expect a list instead of a dict fixes the problem.
+
+**Setup**
+Sample cloud profile (hopefully you have a good provider to work with):
+```
+cloud-profile:
+  provider: test-cloud
+  availability_zone: nova
+  image: 23b7dc93-bb8c-43a3-8a01-3fc0c1480ae9
+  block_device_mapping_v2:
+    - source_type: image
+      destination_type: volume
+      boot_index: 0
+      volume_size: 60
+  flavor: m1-medium
+  ip_pool: public
+```
+
+**Steps to Reproduce the behavior**
+Try to create an instance using a `block_device_mapping_v2` parameter as show in Setup.
+
+**Expected behavior**
+Since the cloud driver is just [passing keyword arguments straight to the SDK](https://github.com/saltstack/salt/blob/b95213ec903402f25c1e0aeb3990fe8452ab63ce/salt/cloud/clouds/openstack.py#L683), all parameters in Salt Cloud should expect types that are supported in the SDK.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+# salt-cloud --versions
+Salt Version:
+            Salt: 3000.3
+Dependency Versions:
+ Apache Libcloud: 2.2.1
+            cffi: 1.13.2
+        cherrypy: 5.6.0
+        dateutil: 1.5
+       docker-py: Not Installed
+           gitdb: Not Installed
+       gitpython: Not Installed
+          Jinja2: 2.7.2
+         libgit2: Not Installed
+        M2Crypto: 0.31.0
+            Mako: Not Installed
+    msgpack-pure: Not Installed
+  msgpack-python: 0.6.2
+    mysql-python: Not Installed
+       pycparser: 2.19
+        pycrypto: 2.6.1
+    pycryptodome: Not Installed
+          pygit2: Not Installed
+          Python: 2.7.5 (default, Apr  2 2020, 13:16:51)
+    python-gnupg: Not Installed
+          PyYAML: 3.11
+           PyZMQ: 14.7.0
+           smmap: Not Installed
+         timelib: Not Installed
+         Tornado: 4.5.3
+             ZMQ: 4.1.4
+System Versions:
+            dist: centos 7.8.2003 Core
+          locale: ANSI_X3.4-1968
+         machine: x86_64
+         release: 3.10.0-1127.el7.x86_64
+          system: Linux
+         version: CentOS Linux 7.8.2003 Core
+```
+</details>

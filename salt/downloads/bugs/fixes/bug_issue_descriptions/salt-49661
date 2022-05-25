@@ -1,0 +1,154 @@
+### Description of Issue/Question
+Some incompatibility exists between openssl-1.1.1-1 and salt 2018.3.2-2. I am using Archlinux fully updated (pacman -Syu). Downgrading to openssl-1.1.0.i-1 solves the issue, but makes me worry about updating my system and breaking things again.
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+Any install should provide the same result. No special setups were used. The issue happens on fresh installs with the config files as default.
+
+### Steps to Reproduce Issue
+Fully update your system.
+Check to see if openssl-1.1.1-1 has installed. If not, you may need to manually install it.
+Stop any running instances of salt-master or salt-minion on the system.
+Attempt to run systemctl start salt-minion or systemctl start salt-master.
+
+```
+journalctl -xe     # Post update and attempting to run systemctl start salt-master  
+--SNIP--
+Sep 14 10:35:19 archlinux sudo[15494]: pam_unix(sudo:session): session opened for user root by (uid=0)
+Sep 14 10:35:19 archlinux systemd[1]: Starting The Salt Master Server...
+
+-- Subject: Unit salt-master.service has begun start-up
+-- Defined-By: systemd
+-- Support: https://lists.freedesktop.org/mailman/listinfo/systemd-devel
+-- Unit salt-master.service has begun starting up.
+
+Sep 14 10:35:19 archlinux salt-master[15498]: Usage: salt-master [options]
+Sep 14 10:35:19 archlinux salt-master[15498]: salt-master: error: Failed to load configuration: Failed to initialize OpenSSL library (OPENSSL_init_crypto failed)
+Sep 14 10:35:19 archlinux systemd[1]: salt-master.service: Main process exited, code=exited, status=64/USAGE
+Sep 14 10:35:19 archlinux systemd[1]: salt-master.service: Failed with result 'exit-code'.
+Sep 14 10:35:19 archlinux systemd[1]: Failed to start The Salt Master Server.
+
+-- Subject: Unit salt-master.service has failed
+-- Defined-By: systemd
+-- Support: https://lists.freedesktop.org/mailman/listinfo/systemd-devel
+-- Unit salt-master.service has failed.
+
+--SNIP--
+```
+Attempting to run from the command line rather than a service also fails.
+
+```
+salt-master -l debug
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: archlinux
+Usage: salt-master [options]
+
+salt-master: error: Failed to load configuration: Failed to initialize OpenSSL library (OPENSSL_init_crypto failed)
+```
+
+Here is the newest version of openssl that I have confirmed working with salt
+
+```
+$ pacman -Qi openssl
+Name            : openssl
+Version         : 1.1.0.i-1
+Description     : The Open Source toolkit for Secure Sockets Layer and Transport Layer Security
+Architecture    : x86_64
+URL             : https://www.openssl.org
+Licenses        : custom:BSD
+
+--SNIP--
+```
+
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+All O/S are fully updated and on the same version of salt. Attempting to get a version report while openssl-1.1.1-1  is installed gives the following error.
+
+```
+Traceback (most recent call last):
+  File "/usr/bin/salt", line 10, in <module>
+    salt_main()
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 480, in salt_main
+    import salt.cli.salt
+  File "/usr/lib/python2.7/site-packages/salt/cli/salt.py", line 10, in <module>
+    import salt.utils.job
+  File "/usr/lib/python2.7/site-packages/salt/utils/job.py", line 11, in <module>
+    import salt.minion
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 75, in <module>
+    import salt.client
+  File "/usr/lib/python2.7/site-packages/salt/client/__init__.py", line 30, in <module>
+    import salt.config
+  File "/usr/lib/python2.7/site-packages/salt/config/__init__.py", line 98, in <module>
+    _DFLT_IPC_WBUFFER = _gather_buffer_space() * .5
+  File "/usr/lib/python2.7/site-packages/salt/config/__init__.py", line 88, in _gather_buffer_space
+    import salt.grains.core
+  File "/usr/lib/python2.7/site-packages/salt/grains/core.py", line 44, in <module>
+    import salt.utils.dns
+  File "/usr/lib/python2.7/site-packages/salt/utils/dns.py", line 32, in <module>
+    import salt.modules.cmdmod
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 34, in <module>
+    import salt.utils.templates
+  File "/usr/lib/python2.7/site-packages/salt/utils/templates.py", line 32, in <module>
+    import salt.utils.http
+  File "/usr/lib/python2.7/site-packages/salt/utils/http.py", line 41, in <module>
+    import salt.loader
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 28, in <module>
+    import salt.utils.event
+  File "/usr/lib/python2.7/site-packages/salt/utils/event.py", line 74, in <module>
+    import salt.payload
+  File "/usr/lib/python2.7/site-packages/salt/payload.py", line 17, in <module>
+    import salt.crypt
+  File "/usr/lib/python2.7/site-packages/salt/crypt.py", line 68, in <module>
+    import salt.utils.rsax931
+  File "/usr/lib/python2.7/site-packages/salt/utils/rsax931.py", line 86, in <module>
+    libcrypto = _init_libcrypto()
+  File "/usr/lib/python2.7/site-packages/salt/utils/rsax931.py", line 77, in _init_libcrypto
+    raise OSError("Failed to initialize OpenSSL library (OPENSSL_init_crypto failed)")
+OSError: Failed to initialize OpenSSL library (OPENSSL_init_crypto failed)
+```
+
+After downgrading to openssl-1.1.0.i-1, the report is as follows.
+
+```
+Salt Version:
+           Salt: 2018.3.2
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.30.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 3.6.6
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.15 (default, Jun 27 2018, 13:05:28)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 5.1
+            ZMQ: 4.2.5
+
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: x86_64
+        release: 4.17.8-1-ARCH
+         system: Linux
+        version: Not Installed
+```

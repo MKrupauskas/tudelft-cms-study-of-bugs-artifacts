@@ -1,0 +1,42 @@
+We use cherrypy to drive our testing. Trying to move from 2015.5.5 to 2015.8.3 we saw the salt-api start failing after some load. We guessed that this was some resource leak. We created a reproducer:
+
+```
+#!/bin/bash
+i=1
+while true
+do
+  echo "before $i"
+#  curl -i localhost:8000/login -d username='saltdev' -d password='saltdev' -d eauth='pam'
+  curl -sS localhost:8000/run -H 'Accept: application/x-yaml' -d client='local' -d tgt='*' -d fun='test.ping' -d username='saltdev' -d password='saltdev' -d eauth='pam'
+  echo ""
+  echo "after $i"
+  sleep 3
+  i=$((i+1))
+done
+```
+
+After some time this starts failing. Seems to happen at about 90 iterations.
+In /var/log/salt/api we see:
+
+```
+2015-12-17 21:31:44,513 [cherrypy.access.30547664                 ][INFO    ][537][140059903093056] 172.17.42.1 - - [17/Dec/2015:21:31:44] "POST /run HTTP/1.1" 200 462 "" "curl/7.19.7 (x86_64-re
+dhat-linux-gnu) libcurl/7.19.7 NSS/3.16.2.3 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2"
+2015-12-17 21:31:47,560 [salt.utils.event                         ][DEBUG   ][537][140059894700352] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-12-17 21:31:47,560 [salt.utils.event                         ][DEBUG   ][537][140059894700352] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-12-17 21:31:47,576 [salt.transport.zeromq                    ][DEBUG   ][537][140059894700352] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/master', 'flt-master_master', 'tcp:
+//127.0.0.1:4506', 'clear')
+2015-12-17 21:31:47,693 [salt.log.setup                           ][ERROR   ][435][140060905940704] An un-handled exception was caught by salt's global exception handler:
+OSError: [Errno 10] No child processes
+Traceback (most recent call last):
+  File "/usr/lib64/python2.6/atexit.py", line 24, in _run_exitfuncs
+    func(*targs, **kargs)
+  File "/usr/lib64/python2.6/multiprocessing/util.py", line 262, in _exit_function
+    for p in active_children():
+  File "/usr/lib64/python2.6/multiprocessing/process.py", line 43, in active_children
+    _cleanup()
+  File "/usr/lib64/python2.6/multiprocessing/process.py", line 53, in _cleanup
+    if p._popen.poll() is not None:
+  File "/usr/lib64/python2.6/multiprocessing/forking.py", line 106, in poll
+    pid, sts = os.waitpid(self.pid, flag)
+OSError: [Errno 10] No child processes
+```

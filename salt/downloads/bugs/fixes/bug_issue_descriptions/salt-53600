@@ -1,0 +1,95 @@
+### Description of Issue
+Original problem started out as file.managed with content_pillar throwing an error. 
+
+`Unable to manage file: endswith first arg must be bytes or a tuple of bytes, not str`
+
+with a trace in the debug logs of 
+
+```
+[DEBUG   ] Traceback (most recent call last):
+  File "c:\salt\bin\lib\site-packages\salt\states\file.py", line 2747, in managed
+    **kwargs)
+  File "c:\salt\bin\lib\site-packages\salt\modules\file.py", line 5276, in manage_file
+    _splitlines_preserving_trailing_newline(contents))
+  File "c:\salt\bin\lib\site-packages\salt\modules\file.py", line 157, in _splitlines_preserving_trailing_newline
+    if str.endswith('\n') or str.endswith('\r'):
+TypeError: endswith first arg must be bytes or a tuple of bytes, not str
+```
+Which pointed to `file.check_managed_changes` when it was checking the meta of the file. for `pchanges`
+
+This only happens when any kind of binary `contents` is used instead of a source.
+
+
+### Setup
+Quickest setup i found. 
+
+setup [pillar.file_tree](https://docs.saltstack.com/en/latest/ref/pillar/all/salt.pillar.file_tree.html)
+```
+ext_pillar:
+  - file_tree:
+      root_dir: /srv/file_tree
+      follow_dir_links: False
+      keep_newline: False
+```
+
+add a windows minion to the master.
+Add a binary file to the file_tree pillar for that windows minion that is a binary file named `random.bin`
+
+Use the following state twice. Once to create the binary file. and again to fail.
+```
+dump_secret:
+  file.managed:
+    - name: C:/random.bin
+    - contents_pillar: 'random.bin'
+```
+
+### Steps to Reproduce Issue
+See above
+
+### Versions Report
+```
+PS C:\salt\conf> c:\salt\salt-call --local test.versions_report
+local:
+    Salt Version:
+               Salt: 2018.3.4
+
+    Dependency Versions:
+               cffi: 1.10.0
+           cherrypy: 10.2.1
+           dateutil: 2.6.1
+          docker-py: Not Installed
+              gitdb: 2.0.5
+          gitpython: 2.1.3
+              ioflo: Not Installed
+             Jinja2: 2.9.6
+            libgit2: Not Installed
+            libnacl: 1.6.1
+           M2Crypto: Not Installed
+               Mako: 1.0.6
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.8
+       mysql-python: Not Installed
+          pycparser: 2.17
+           pycrypto: 2.6.1
+       pycryptodome: Not Installed
+             pygit2: Not Installed
+             Python: 3.5.3 (v3.5.3:1880cb95a742, Jan 16 2017, 16:02:32) [MSC v.1900 64 bit (AMD64)]
+       python-gnupg: 0.4.1
+             PyYAML: 3.12
+              PyZMQ: 16.0.3
+               RAET: Not Installed
+              smmap: 2.0.5
+            timelib: 0.2.4
+            Tornado: 4.5.1
+                ZMQ: 4.1.6
+
+    System Versions:
+               dist:
+             locale: cp1252
+            machine: AMD64
+            release: 10
+             system: Windows
+            version: 10 10.0.18362 SP0 Multiprocessor Free
+```
+
+Note under py2 the error is different but looks to be caused by the same inability to handle binary data coming from `contents`

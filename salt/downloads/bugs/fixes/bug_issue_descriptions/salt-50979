@@ -1,0 +1,131 @@
+### Description of Issue/Question
+
+User management is not possible on musl libc -based Linux distributions due
+to a behavior difference with glibc. See bug report at:
+https://www.openwall.com/lists/musl/2018/12/26/1
+
+Basically, musl's implementation of `getspnam` sets `errno` to `ENOENT` when a user
+is absent from the shadow file. glibc's sets it to a nil value. The difference can be handled
+in py3 by catching `FileNotFoundError` (in `salt.modules.shadow.info` in addition to
+`KeyError`). py2 is a bit more complicated and unclear on salt's support for it.
+
+### Setup
+- Alpine Linux 3.8
+- salt stable (2018.3.3) installed via bootstrap.saltstack.com;
+
+### Steps to Reproduce Issue
+**using Docker**
+```
+$ docker run --rm -ti alpine:3.8
+/ # apk update
+/ # apk add openrc shadow
+/ # wget -O- https://bootstrap.saltstack.com/ | sh -s -- -X
+/ # mkdir /srv/salt
+/ # printf "base:\n '*':\n  - x\n" >/srv/salt/top.sls
+/ # printf 'u:\n user.present\n' >/srv/salt/x.sls
+/ # salt-call --local state.apply
+[...]
+local:
+----------
+          ID: u
+    Function: user.present
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3.6/site-packages/salt/state.py", line 1913, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python3.6/site-packages/salt/loader.py", line 1898, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3.6/site-packages/salt/states/user.py", line 563, in present
+                  allow_gid_change)
+                File "/usr/lib/python3.6/site-packages/salt/states/user.py", line 97, in _changes
+                  lshad = __salt__['shadow.info'](name)
+                File "/usr/lib/python3.6/site-packages/salt/modules/shadow.py", line 62, in info
+                  data = spwd.getspnam(name)
+              FileNotFoundError: [Errno 2] No such file or directory
+     Started: 22:38:36.311054
+    Duration: 11.633 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:  11.633 ms
+/ # cat /etc/shadow
+root:::0:::::
+bin:!::0:::::
+daemon:!::0:::::
+adm:!::0:::::
+lp:!::0:::::
+sync:!::0:::::
+shutdown:!::0:::::
+halt:!::0:::::
+mail:!::0:::::
+news:!::0:::::
+uucp:!::0:::::
+operator:!::0:::::
+man:!::0:::::
+postmaster:!::0:::::
+cron:!::0:::::
+ftp:!::0:::::
+sshd:!::0:::::
+at:!::0:::::
+squid:!::0:::::
+xfs:!::0:::::
+games:!::0:::::
+postgres:!::0:::::
+cyrus:!::0:::::
+vpopmail:!::0:::::
+ntp:!::0:::::
+smmsp:!::0:::::
+guest:!::0:::::
+nobody:!::0:::::
+```
+
+### Versions Report
+Using `salt-call --versions-report`
+
+```
+Salt Version:                                                                                                                                           [1/567]
+           Salt: 2018.3.3
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: 0.27.2
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.27.1
+         Python: 3.6.6 (default, Aug 24 2018, 05:04:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.2
+            ZMQ: 4.2.3
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 4.17.0-1-amd64
+         system: Linux
+        version: Not Installed
+```

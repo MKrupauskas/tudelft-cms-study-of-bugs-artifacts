@@ -1,0 +1,37 @@
+First problem... layman.add is painfully lacking on error output.
+Example:
+
+```
+#  `---> salt test1 layman.add gentoo-int
+test1:
+#  `--->
+```
+
+What actually happened in the logs:
+
+```
+2015-02-10 16:27:54,383 [salt.loaded.int.module.cmdmod][ERROR   ] Command 'layman --quietness=0 --add gentoo-int' failed with return code: 1
+2015-02-10 16:27:54,384 [salt.loaded.int.module.cmdmod][ERROR   ] output: 
+ * Adding overlay,...
+ * Warning: an installed db file was not found at: ['/var/lib/layman/installed.xml']
+ * Warning: an installed db file was not found at: ['/var/lib/layman/cache_ac494f50f5736be7871962c0dec7b3bb.xml', '/var/lib/layman/cache_284901cfd79aeb679f0d935b69720446.xml']
+ * Exception: Overlay "gentoo-int" does not exist.
+
+ * CLI: Errors occurred processing action add
+ * Exception: Overlay "gentoo-int" does not exist.
+```
+
+The reason I'm opening an issue is that I'm not sure how best to deal with this... the current code is just throwing the status of that command away:
+
+``` python
+    ret = list()
+    old_overlays = list_local()
+    cmd = 'layman --quietness=0 --add {0}'.format(overlay)
+    __salt__['cmd.retcode'](cmd, python_shell=False)
+    new_overlays = list_local()
+```
+
+My instinct is we should maybe change this code to throw an exception if the layman add call returns anything other than 0?  That will at least let things depending on the function keep working.
+
+I'm going to file a separate PR to have `layman.present` actually call `layman --list` to a/ check if the overlay exists and b/ trigger a remote list fetch.
+At the moment present only calls --list-local and --add, neither of which trigger layman's database update... thus it fails unless you manually sync the layman database first.

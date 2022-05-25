@@ -1,0 +1,203 @@
+### Description of Issue/Question
+
+When trying to create a user through Salt with `gid_from_name: True`, our SUSE minions silently fail to create needed group and to set it afterwards. On subsequent runs, an error is returned: `These values could not be changed: {'gid': ''}`.
+
+### Setup
+
+Master is Ubuntu 16.04 running 2017.7.1. The issue was observed with 2017.7.2 too.
+
+State to reproduce the error:
+```
+test:
+  user.present:
+    - gid_from_name: True
+```
+
+### Steps to Reproduce Issue
+When applying above state multiple times, following two types of errors are returned on the SUSE minions after the first run (as detailed above):
+```
+bs1f-lnx-sles11-x64-51:
+----------
+          ID: test
+    Function: user.present
+      Result: False
+     Comment: These values could not be changed: {'gid': ''}
+     Started: 13:39:51.155928
+    Duration: 18.243 ms
+     Changes:
+
+bs1g-lnx-sles12-x64-57:
+----------
+          ID: test
+    Function: user.present
+      Result: False
+     Comment: These values could not be changed: {'gid': ''}
+     Started: 13:39:52.314709
+    Duration: 31.336 ms
+     Changes:
+```
+
+**Debug logs for the SLES 12 minion**:
+
+First run:
+```
+2018-01-09 13:39:27,792 [salt.state       ][INFO    ][1997] Running state [test] at time 13:39:27.792404
+2018-01-09 13:39:27,793 [salt.state       ][INFO    ][1997] Executing state user.present for test
+2018-01-09 13:39:27,802 [salt.utils.lazy  ][DEBUG   ][1997] LazyLoaded file.group_to_gid
+2018-01-09 13:39:27,805 [salt.utils.lazy  ][DEBUG   ][1997] LazyLoaded shadow.info
+2018-01-09 13:39:27,809 [salt.utils.lazy  ][DEBUG   ][1997] LazyLoaded user.info
+2018-01-09 13:39:27,810 [salt.utils.lazy  ][DEBUG   ][1997] LazyLoaded cmd.run_all
+2018-01-09 13:39:27,812 [salt.loaded.int.module.cmdmod][INFO    ][1997] Executing command ['useradd', '-m', 'test'] in directory '/root'
+2018-01-09 13:39:28,125 [salt.state       ][INFO    ][1997] {'shell': '/bin/bash', 'workphone': '', 'uid': 1003, 'passwd': 'x', 'roomnumber': '', 'gr
+oups': ['users'], 'home': '/home/test', 'name': 'test', 'gid': 100, 'fullname': '', 'homephone': ''}
+2018-01-09 13:39:28,125 [salt.state       ][INFO    ][1997] Completed state [test] at time 13:39:28.125393 duration_in_ms=333.001
+```
+Second run:
+```
+2018-01-09 13:39:52,314 [salt.state       ][INFO    ][2022] Running state [test] at time 13:39:52.314687
+2018-01-09 13:39:52,315 [salt.state       ][INFO    ][2022] Executing state user.present for test
+2018-01-09 13:39:52,325 [salt.utils.lazy  ][DEBUG   ][2022] LazyLoaded file.group_to_gid
+2018-01-09 13:39:52,327 [salt.utils.lazy  ][DEBUG   ][2022] LazyLoaded shadow.info
+2018-01-09 13:39:52,330 [salt.utils.lazy  ][DEBUG   ][2022] LazyLoaded user.info
+2018-01-09 13:39:52,334 [salt.utils.lazy  ][DEBUG   ][2022] LazyLoaded cmd.run
+2018-01-09 13:39:52,335 [salt.loaded.int.module.cmdmod][INFO    ][2022] Executing command ['usermod', '-g', '', 'test'] in directory '/root'
+2018-01-09 13:39:52,342 [salt.loaded.int.module.cmdmod][ERROR   ][2022] Command '['usermod', '-g', '', 'test']' failed with return code: 6
+2018-01-09 13:39:52,343 [salt.loaded.int.module.cmdmod][ERROR   ][2022] output: usermod: group '' does not exist
+2018-01-09 13:39:52,345 [salt.state       ][ERROR   ][2022] These values could not be changed: {'gid': ''}
+2018-01-09 13:39:52,346 [salt.state       ][INFO    ][2022] Completed state [test] at time 13:39:52.346045 duration_in_ms=31.336
+```
+
+### Versions Report
+
+On master:
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2017.7.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.3.7
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 20 2017, 18:23:56)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-104-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```
+
+On slaves:
+```
+bs1f-lnx-sles11-x64-51:~ # salt-minion --versions-report
+Salt Version:
+           Salt: 2016.11.4
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: 0.20.0
+        libnacl: Not Installed
+       M2Crypto: 0.22
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.20.0
+         Python: 2.6.9 (unknown, Aug  5 2016, 11:15:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: SuSE 11 x86_64
+        machine: x86_64
+        release: 3.0.101-108.13-default
+         system: Linux
+        version: SUSE Linux Enterprise Server  11 x86_64
+````
+
+```
+bs1g-lnx-sles12-x64-57:~ # salt-minion --versions-report
+Salt Version:
+           Salt: 2016.11.4
+
+Dependency Versions:
+           cffi: 0.9.2
+       cherrypy: Not Installed
+       dateutil: 2.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: 0.22.0
+        libnacl: Not Installed
+       M2Crypto: 0.22
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.12
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.22.0
+         Python: 2.7.7 (default, Jun 23 2014, 13:38:05) [GCC]
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: SuSE 12 x86_64
+        machine: x86_64
+        release: 3.12.28-4-default
+         system: Linux
+        version: SUSE Linux Enterprise Server  12 x86_64
+```
+  

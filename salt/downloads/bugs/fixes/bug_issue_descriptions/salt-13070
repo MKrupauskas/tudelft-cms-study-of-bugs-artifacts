@@ -1,0 +1,61 @@
+I'm having problem bootstrapping minions on a Windows Server 2012 R2 machine running in Azure.
+
+In Azure, when launching an image you can choose to run a powershell bootstrap script and I'm running the script below. The script downloads the minion, installs it and starts the service.
+
+```
+# Install saltstack minion
+$url = "https://myblob.blob.core.windows.net/latest/saltminion.exe";
+
+$saltInstallationFile = "C:\Users\Public\saltstackminion.exe"
+
+If (Test-Path $saltInstallationFile){
+    Remove-Item $saltInstallationFile
+}
+
+$webclient = New-Object System.Net.WebClient
+$webclient.DownloadFile($url,$saltInstallationFile)
+
+Write-Host "Installing salt for $env:COMPUTERNAME"
+
+iex "$saltInstallationFile /S /master=mymaster.cloudapp.net /minion-name=$env:COMPUTERNAME"
+Start-Sleep -s 10
+Start-Service "salt-minion"
+```
+
+The service runs as local system account and it connects to the master well. I can run test.ping and get a response. But as soon as I run anything that requires more permissions (as disk access) then I get no response from the minion. I've also noticed that the minion doesn't write anything to it's logs in this mode.
+
+If I stop the service then run it in a console (as admin) with the parameters -l debug things start working again. I can execute states that require disk access, logs are written etc.
+
+So my method of bootstrapping doesn't seem to work well, something is blocking the minion.
+
+**Saltify driver**
+I've read about the Saltify driver but I haven't been able to find documentation/examples on how it works to boostrap a new Windows machine. Could you please point me in the right direction?
+
+**Versions report**
+
+```
+root@saltmaster:/srv# salt --versions-report
+           Salt: 2014.1.4
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.3.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+            ZMQ: 4.0.4
+root@saltmaster:/srv# salt rs-sm1 test.versions_report
+rs-sm1:
+               Salt: 2014.1.4
+             Python: 2.7.5 (default, May 15 2013, 22:44:16) [MSC v.1500 64 bit (AMD64)]
+             Jinja2: 2.7.1
+           M2Crypto: 0.21.1
+     msgpack-python: 0.4.2
+       msgpack-pure: Not Installed
+           pycrypto: 2.6
+             PyYAML: 3.11
+              PyZMQ: 14.1.1
+                ZMQ: 4.0.4
+root@saltmaster:/srv#
+```

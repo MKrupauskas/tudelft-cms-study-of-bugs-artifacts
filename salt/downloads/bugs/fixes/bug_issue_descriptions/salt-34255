@@ -1,0 +1,122 @@
+### Description of Issue/Question
+
+Using the `fire_event` requisite in combination with orchestration results in zero events ever getting fired on the master event bus.
+### Setup
+
+``` saltstack
+# orch/test.sls
+
+testing:
+  test.nop
+    - name: a test
+    - fire_event: my/event
+```
+
+```
+# salt-run state.orchestrate orch.test
+my.master:
+----------
+          ID: testing
+    Function: test.nop
+        Name: a test
+      Result: True
+     Comment: Success!
+     Started: 20:26:35.977291
+    Duration: 0.325 ms
+     Changes:
+
+Summary for my.master
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+```
+
+```
+# salt-run state.event pretty=True
+salt/run/20160623202833841373/new       {
+    "_stamp": "2016-06-23T20:28:33.916520",
+    "fun": "runner.state.orchestrate",
+    "jid": "20160623202833841373",
+    "user": "sudo_tmehlinger"
+}
+salt/run/20160623202833841373/ret       {
+    "_stamp": "2016-06-23T20:28:34.428696",
+    "fun": "runner.state.orchestrate",
+    "jid": "20160623202833841373",
+    "return": {
+        "data": {
+            "retcode": 0,
+            "my.master_master": {
+                "test_|-testing_|-a test_|-nop": {
+                    "__id__": "testing",
+                    "__run_num__": 0,
+                    "changes": {},
+                    "comment": "Success!",
+                    "duration": "0.322 ms",
+                    "name": "a test",
+                    "result": true,
+                    "start_time": "20:28:34.425976"
+                }
+            }
+        },
+        "outputter": "highstate"
+    },
+    "success": true,
+    "user": "sudo_tmehlinger"
+}
+```
+
+I would expect to receive an event with the tag `salt/state_result/my.master/my/event`. As you can see, this never happens.
+
+This appears to happen because the event code in `salt/state.py` assumes it is always working from minion context. Relevant code:
+- https://github.com/saltstack/salt/blob/2016.3/salt/state.py#L1951
+- https://github.com/saltstack/salt/blob/2016.3/salt/modules/event.py#L86
+
+I'm working on a pull request that I think will solve the issue but I would like some further insight because this is deep in critical internals.
+### Steps to Reproduce Issue
+
+Run the orchestrate runner with the SLS given above.
+### Versions Report
+
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 2.5.3
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-74-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```

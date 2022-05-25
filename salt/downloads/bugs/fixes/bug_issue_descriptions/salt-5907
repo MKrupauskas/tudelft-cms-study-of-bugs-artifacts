@@ -1,0 +1,20 @@
+This bug took a lot of time to troubleshoot to the point that I could give a cohesive report.  It occurs with salt-0.15.3 and salt-0.16.0, at least.  The following SLS _may_ reproduce the problem (on CentOS 6):
+
+```
+autofs:
+  pkg:
+    - latest
+  service.running:
+    - enable: True
+    - watch: 
+      - pkg: autofs
+```
+
+What happens is that the autofs service is _started_ but not _enabled_ on the first `state.highstate` run.  Running a second `state.highstate` corrects the error by _enabling_ the service.  A key detail is that the init script for the service is installed as part of the package.
+
+The problem appears to be caused by the services cache in `__context__['service.all']` not being updated after the package installation.  As a consequence, `service.running()` erroneously assumes that the service is not available and returns an error that is not returned to the caller.  The error doesn't make it back to the caller because the result of `service.mod_watch()` (which _does_ successfully restart the service) is returned instead.
+
+If I disable the services cache then everything works correctly.  Doing a quick grep, it appears that the services cache is only actually cleared by functions in `state.service`.  This means that this bug likely appears in other circumstances too, like when installing an init script via the `file.managed` state.
+
+Unfortunately, I don't see a way to make the services cache work properly with states that change what services are available to the system.  Each state with such potential would need extra code to determine the cases in which the cache should be cleared.  For example, clearing the cache on every `file.managed()` would make the cache almost pointless, so `file.managed()` would need to check the target and clear the cache of it is an init script.  This seems unnecessarily ugly.
+A better solution may be to add `modules.rh_service.available()` with a dedicated code path that runs `chkconfig --list <service>` instead of calling `_services()`.

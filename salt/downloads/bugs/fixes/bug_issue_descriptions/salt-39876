@@ -1,0 +1,75 @@
+### Description of Issue/Question
+
+The parser of state files handles this kind of a trivial user error like this:
+
+```
+% cat states/volumes.sls
+
+/dev/xvdf:
+  lvm.pv_present
+```
+
+```
+% salt-ssh minion state.apply volumes
+[ERROR   ] JSON Render failed for:
+[CRITICAL] Unable to import msgpack or msgpack_pure python modules
+Traceback (most recent call last):
+  File "/tmp/.ubuntu_674f92__salt/salt-call", line 4, in <module>
+    salt_call()
+  File "/tmp/.ubuntu_674f92__salt/salt/scripts.py", line 227, in salt_call
+    client.run()
+  File "/tmp/.ubuntu_674f92__salt/salt/cli/call.py", line 69, in run
+    caller.run()
+  File "/tmp/.ubuntu_674f92__salt/salt/cli/caller.py", line 236, in run
+    ret = self.call()
+  File "/tmp/.ubuntu_674f92__salt/salt/cli/caller.py", line 138, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/tmp/.ubuntu_674f92__salt/salt/modules/state.py", line 1154, in pkg
+    ret = st_.call_chunks(lowstate)
+  File "/tmp/.ubuntu_674f92__salt/salt/state.py", line 1623, in call_chunks
+    running = self.call_chunk(low, running, chunks)
+  File "/tmp/.ubuntu_674f92__salt/salt/state.py", line 1769, in call_chunk
+    self._mod_init(low)
+  File "/tmp/.ubuntu_674f92__salt/salt/state.py", line 612, in _mod_init
+    self.states['{0}.{1}'.format(low['state'], low['fun'])]  # pylint: disable=W0106
+  File "/tmp/.ubuntu_674f92__salt/salt/utils/lazy.py", line 90, in __getitem__
+    raise KeyError(key)
+KeyError: 'lvm.pv_present'
+[ERROR   ] No JSON object could be decoded
+minion:
+```
+
+First off, the newbie user has no idea what this JSON talk is about, given that they used YAML. Secondly, the part after the colon in that error message is void, which sounds like something should have been there but is somehow missing.
+
+Then there's the spuriously critical msgpack line, which I've found referenced in another few bug reports:
+https://github.com/saltstack/salt/issues/7913
+https://github.com/saltstack/salt/issues/26936
+https://github.com/saltstack/salt/issues/21226
+Clearly there's popular demand for it to be fixed, and looks like it did happen in a later version :)
+Pity it's not done with the Ubuntu Trusty PPA - any chance this could be backported there?
+
+Then, the traceback, which manages to totally obscure the line that best describes actual cause of the problem - KeyError: 'lvm.pv_present'. In this case, where error is apparently connected to a particular user file rather than Salt code itself, it would have been better if the traceback was stashed away in a log file rather than thrown out here.
+
+Finally, that KeyError should be expanded to be minimally more verbose, just enough to be useful, such as "Unrecognized key found: '<whatever>'"
+
+And then, it would be nice in case of these syntax errors the file was parsed in a more user-friendly manner, with a parser that can indicate the line and column of the problem. This kind of an exception is already the slow path (into program death), it likely wouldn't matter if a different, more meticulous parser was loaded to take another swipe at it, just to be able to report something more useful.
+
+Thanks in advance.
+
+% salt-ssh --versions-report
+                  Salt: 2015.5.3
+                Python: 2.7.6 (default, Oct 26 2016, 20:30:19)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+               Tornado: Not Installed
+ Debian source package: 2015.5.3+ds-1trusty1

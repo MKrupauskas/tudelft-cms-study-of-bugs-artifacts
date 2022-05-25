@@ -1,0 +1,99 @@
+``` yaml
+/usr/local/etc/salt/minion.d/:
+  file.recurse:
+    - source: salt://templates/salt/minion.d/
+    - makedirs: true
+    - keep_symlinks: true
+    - force_symlinks: true
+    - user: root
+    - group: wheel
+    - file_mode: 0644
+    - dir_mode: 0755
+    - sym_mode: 0755
+    - watch_in:
+      - service: salt_minion running
+
+salt_minion running:
+  service.running:
+    - enable: true
+    - name: salt_minion
+    - config: /etc/rc.conf
+```
+
+ Running this state via `salt-call` makes it never return:
+
+``` bash
+root@myminion:/usr/home/yz # salt-call -l debug state.sls salt
+[...]
+[INFO    ] The service salt_minion is already running
+[INFO    ] Completed state [salt_minion] at time 15:22:25.222752
+[INFO    ] Running state [salt_minion] at time 15:22:25.222956
+[INFO    ] Executing state service.mod_watch for salt_minion
+[INFO    ] Executing command '/usr/sbin/service salt_minion onestatus' in directory '/root'
+[DEBUG   ] output: salt_minion is running as pid 873 37154.
+[DEBUG   ] LazyLoaded service.full_restart
+[INFO    ] Executing command '/usr/sbin/service salt_minion onerestart' in directory '/root'
+load: 1.07  cmd: pwait 37172 [kqread] 242.42r 0.00u 0.00s 0% 1804k
+Exiting gracefully on Ctrl-c
+```
+
+But if I use `service.restart` it works and I see it using `service.restart` instead of `service.full_restart`:
+
+``` bash
+root@myminion:/usr/home/yz # salt-call -l debug service.restart salt_minion
+[...]
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded service.restart
+[DEBUG   ] LazyLoaded cmd.retcode
+[INFO    ] Executing command '/usr/sbin/service salt_minion onerestart' in directory '/root'
+[DEBUG   ] output: Stopping salt_minion.
+Waiting for PIDS: 37161.
+Starting salt_minion.
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/usr/local/etc/salt/pki/minion', 'myminion', 'tcp://...', 'aes')
+[DEBUG   ] Initializing new SAuth for ('/usr/local/etc/salt/pki/minion', 'myminion', 'tcp://...')
+[DEBUG   ] LazyLoaded nested.output
+local:
+    True
+```
+
+Could someone please take a look at it?
+There is no such a problem with CentOS and Ubuntu. Only FreeBSD is affected. And I guess it has appeared in 2015.8 version =(
+
+```
+root@myminion:/usr/home/yz # salt --versions
+Salt Version:
+           Salt: 2015.8.0
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.3.1
+         Python: 2.7.9 (default, Jan  8 2015, 07:32:49)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.3
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist:
+        machine: amd64
+        release: 10.1-RELEASE-p19
+```

@@ -1,0 +1,125 @@
+This has been an ongoing issue. I posted about it in the mailing list here:
+https://groups.google.com/forum/#!searchin/salt-users/gpgkeys/salt-users/24E_ahS8OC0/Cup3NIy3Fb8J
+
+Basically, I have a salt state file which installs MongoDB and attempts to configure users. It installed MongoDB just fine, but throws an exception the first time when it attempts to set up the user.
+
+Here is the state file I am using:
+
+```
+mongodb:
+  pkgrepo.managed:
+    - name: deb http://downloads-distro.mongodb.org/repo/ubuntu-upstart dist 10gen
+    - keyid: 7F0CEB10
+    - keyserver: keyserver.ubuntu.com
+    - file: /etc/apt/sources.list.d/mongodb.list
+    - refresh: True
+
+  pkg.installed:
+    - name: mongodb-10gen
+    - version: 2.4.8
+    - refresh: True
+    - require:
+      - pkgrepo: mongodb
+
+  file.managed:
+    - name: /etc/mongodb.conf
+    - source: salt://mongodb/mongodb.conf
+    - require:
+      - pkg: mongodb
+
+  service.running:
+    - enable: True
+    - require:
+      - pkg: mongodb
+      - file: /etc/mongodb.conf
+    - watch:
+      - file: /etc/mongodb.conf
+
+pip:
+  pkg.installed:
+    - pkgs:
+      - python-pip
+      - python-dev
+      - build-essential
+
+pymongo:
+  pip.installed:
+    - require:
+      - pkg: pip
+      - pkg: mongodb
+
+mongo_root:
+  mongodb_user.present:
+    - name: root
+    - passwd: PASSWORD
+    - host: localhost
+    - port: 27017
+    - database: admin
+    - require:
+      - service: mongodb
+      - pip: pymongo
+```
+
+And here is the error I get when the last state, mongodb_user, runs:
+
+```
+ State: - mongodb_user
+    Name:      root
+    Function:  present
+        Result:    False
+        Comment:   An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/pymodules/python2.7/salt/state.py", line 1280, in call
+    ret = self.states[cdata['full']](*cdata['args'])
+  File "/usr/lib/pymodules/python2.7/salt/states/mongodb_user.py", line 45, in present
+    if __salt__['mongodb.user_exists'](name, user, password, host, port, database):
+  File "/usr/lib/pymodules/python2.7/salt/modules/mongodb.py", line 186, in user_exists
+    if name == dict(user).get('user'):
+ValueError: dictionary update sequence element #0 has length 1; 2 is required
+```
+
+There is this additional error in the minion log:
+
+```
+2013-12-01 20:56:15,918 [salt.loaded.int.module.mongodb][ERROR   ] Error connecting to database admin
+```
+
+The strange part is, it will eventually work. If I re-run the state again, it completes successfully:
+
+```
+sudo salt-call --local state.sls mongodb
+```
+
+Sometimes it works on the 2nd run, sometimes it takes a 3rd. I have not yet been able to determine what is changing on the 2nd run. Perhaps Mongod is not started properly yet? I did try adding a 120 second `sleep` command in case there was such a race condition happening, but it did not alleviate the problem.
+
+I am working around it by setting up the users with a JS script run with `mongo` via `cmd.run`.
+
+```
+mongo localhost/admin --quiet /var/lib/mongodb/userCreate.js:
+  cmd:
+    - run
+    - user: mongodb
+    - group: mongodb
+    - require:
+      - service: mongodb
+```
+
+/var/lib/mongodb/userCreate.js is just:
+
+```
+db.addUser("root", "PASSWORD");
+```
+
+This is running the latest salt, on Vagrant Ubuntu 12.04.
+
+```
+Salt: 0.17.2
+Python: 2.7.3 (default, Sep 26 2013, 20:03:06)
+Jinja2: 2.6
+M2Crypto: 0.21.1
+msgpack-python: 0.1.10
+msgpack-pure: Not Installed
+pycrypto: 2.4.1
+PyYAML: 3.10
+PyZMQ: 13.0.0
+ZMQ: 3.2.2
+```

@@ -1,0 +1,130 @@
+### Description of Issue/Question
+
+Attempting to use the state `git.detached` with the specific commit ID `4b2527720397c0a9f4af8071b1ae65f4dd6c91ab` as the `ref` parameter gives the following error:
+
+```
+CommandExecutionError: Specified cwd '/root/4b2527720397c0a9f4af8071b1ae65f4dd6c91ab' either not absolute or does not exist
+```
+
+This is caused by incorrect parameters passed to `git.describe` in `git.detached`. The revision is passed as the first parameter, while the function expects CWD as the first parameter. Fixing this gave a second error:
+
+```
+CommandExecutionError: Command 'git describe 4b2527720397c0a9f4af8071b1ae65f4dd6c91ab' failed: fatal: No names found, cannot describe anything.
+```
+
+This was fixed by adding `--always` to the `git describe` call. I will submit a pull request shortly. I do not know if this behaviour change will break any other code.
+### Steps to Reproduce Issue
+
+State file `vim/init.sls`:
+
+``` yaml
+salt-vim:
+  git.detached:
+    - name: https://github.com/saltstack/salt-vim
+    - ref: '4b2527720397c0a9f4af8071b1ae65f4dd6c91ab'
+    - target: /etc/vim/bundle/salt-vim
+```
+
+Run with `salt '*' state.sls_id salt-vim vim` Log after first run:
+
+```
+2016-06-29 19:31:41,093 [salt.state       ][INFO    ][28321] Loading fresh modules for state activity
+2016-06-29 19:31:41,147 [salt.fileclient  ][INFO    ][28321] Fetching file from saltenv 'base', ** done ** 'vim/init.sls'
+2016-06-29 19:31:41,166 [salt.loaded.int.module.cmdmod][INFO    ][28321] Executing command ['git', '--version'] in directory '/root'
+2016-06-29 19:31:41,174 [salt.state       ][INFO    ][28321] Running state [https://github.com/saltstack/salt-vim] at time 19:31:41.174141
+2016-06-29 19:31:41,175 [salt.state       ][INFO    ][28321] Executing state git.detached for https://github.com/saltstack/salt-vim
+2016-06-29 19:31:41,176 [salt.loaded.int.states.git][INFO    ][28321] Checking local revision for /etc/vim/bundle/salt-vim
+2016-06-29 19:31:41,177 [salt.loaded.int.module.cmdmod][INFO    ][28321] Executing command ['git', 'rev-parse', 'HEAD'] in directory '/etc/vim/bundle/salt-vim'
+2016-06-29 19:31:41,182 [salt.loaded.int.states.git][INFO    ][28321] Checking local branch for /etc/vim/bundle/salt-vim
+2016-06-29 19:31:41,183 [salt.loaded.int.module.cmdmod][INFO    ][28321] Executing command ['git', 'rev-parse', '--abbrev-ref', 'HEAD'] in directory '/etc/vim/bundle/salt-vim'
+2016-06-29 19:31:41,189 [salt.loaded.int.module.cmdmod][INFO    ][28321] Executing command ['git', 'describe', 'HEAD'] in directory '/root/4b2527720397c0a9f4af8071b1ae65f4dd6c91ab'
+2016-06-29 19:31:41,192 [salt.state       ][ERROR   ][28321] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1723, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1650, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/states/git.py", line 1944, in detached
+    if remote_ref_type is 'hash' and __salt__['git.describe'](ref):
+  File "/usr/lib/python2.7/dist-packages/salt/modules/git.py", line 1372, in describe
+    ignore_retcode=ignore_retcode)['stdout']
+  File "/usr/lib/python2.7/dist-packages/salt/modules/git.py", line 282, in _git_run
+    **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/cmdmod.py", line 1611, in run_all
+    password=kwargs.get('password', None))
+  File "/usr/lib/python2.7/dist-packages/salt/modules/cmdmod.py", line 460, in _run
+    .format(cwd)
+CommandExecutionError: Specified cwd '/root/4b2527720397c0a9f4af8071b1ae65f4dd6c91ab' either not absolute or does not exist
+```
+
+Caused by missing `cwd` parameter for `git.describe`. Fixing this gave the following log:
+
+```
+2016-06-29 19:36:20,006 [salt.state       ][INFO    ][28563] Loading fresh modules for state activity
+2016-06-29 19:36:20,044 [salt.fileclient  ][INFO    ][28563] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://vim/init.sls'
+2016-06-29 19:36:20,075 [salt.loaded.int.module.cmdmod][INFO    ][28563] Executing command ['git', '--version'] in directory '/root'
+2016-06-29 19:36:20,083 [salt.state       ][INFO    ][28563] Running state [https://github.com/saltstack/salt-vim] at time 19:36:20.083380
+2016-06-29 19:36:20,084 [salt.state       ][INFO    ][28563] Executing state git.detached for https://github.com/saltstack/salt-vim
+2016-06-29 19:36:20,085 [salt.loaded.int.states.git][INFO    ][28563] Checking local revision for /etc/vim/bundle/salt-vim
+2016-06-29 19:36:20,086 [salt.loaded.int.module.cmdmod][INFO    ][28563] Executing command ['git', 'rev-parse', 'HEAD'] in directory '/etc/vim/bundle/salt-vim'
+2016-06-29 19:36:20,092 [salt.loaded.int.states.git][INFO    ][28563] Checking local branch for /etc/vim/bundle/salt-vim
+2016-06-29 19:36:20,093 [salt.loaded.int.module.cmdmod][INFO    ][28563] Executing command ['git', 'rev-parse', '--abbrev-ref', 'HEAD'] in directory '/etc/vim/bundle/salt-vim'
+2016-06-29 19:36:20,099 [salt.loaded.int.module.cmdmod][INFO    ][28563] Executing command ['git', 'describe', '4b2527720397c0a9f4af8071b1ae65f4dd6c91ab'] in directory '/etc/vim/bundle/salt-vim'
+2016-06-29 19:36:20,105 [salt.loaded.int.module.cmdmod][ERROR   ][28563] Command '['git', 'describe', '4b2527720397c0a9f4af8071b1ae65f4dd6c91ab']' failed with return code: 128
+2016-06-29 19:36:20,106 [salt.loaded.int.module.cmdmod][ERROR   ][28563] stderr: fatal: No names found, cannot describe anything.
+2016-06-29 19:36:20,106 [salt.loaded.int.module.cmdmod][ERROR   ][28563] retcode: 128
+2016-06-29 19:36:20,109 [salt.state       ][ERROR   ][28563] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1723, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1650, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/states/git.py", line 1944, in detached
+    if remote_ref_type is 'hash' and __salt__['git.describe'](target, ref):
+  File "/usr/lib/python2.7/dist-packages/salt/modules/git.py", line 1372, in describe
+    ignore_retcode=ignore_retcode)['stdout']
+  File "/usr/lib/python2.7/dist-packages/salt/modules/git.py", line 299, in _git_run
+    raise CommandExecutionError(msg)
+CommandExecutionError: Command 'git describe 4b2527720397c0a9f4af8071b1ae65f4dd6c91ab' failed: fatal: No names found, cannot describe anything.
+```
+### Versions Report
+
+Git: 2.7.4
+
+```
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.11+ (default, Apr 17 2016, 14:00:29)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-28-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

@@ -1,0 +1,73 @@
+`salt-run cloud.create` does not even try to bootstrap new instance backed by saltify:
+
+```
+# salt-run -l debug cloud.create saltify_provider newhost ssh_host=1.2.3.4
+[DEBUG   ] Missing configuration file: /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: vagrant-ubuntu-trusty-64
+[DEBUG   ] Configuration file path: /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/cloud
+[DEBUG   ] Missing configuration file: /etc/salt/master
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: vagrant-ubuntu-trusty-64
+[DEBUG   ] Reading configuration from /etc/salt/cloud.providers
+[DEBUG   ] Reading configuration from /etc/salt/cloud.profiles
+[DEBUG   ] The 'saltify' cloud driver is unable to be optimized.
+#
+```
+
+The `saltify_provider` provider is defined:
+
+```
+# cat /etc/salt/cloud.providers
+saltify_provider:
+  provider: saltify
+  ssh_username: saltuser
+  ssh_keyfile: '/etc/salt/ssh_private.pem'
+  sudo: True
+# salt-cloud --list-providers --out=txt
+[INFO    ] salt-cloud starting
+saltify_provider: {'saltify': {}}
+```
+
+The behaviour is confirmed in the most recent Salt version:
+
+```
+# salt --versions-report
+           Salt: 2014.7.0-757-gd0258b1
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+            ZMQ: 4.0.4
+           Mako: 0.9.1
+```
+
+The root cause of this unexpected behaviour is that [salt.cloud.CloudClient.create()](https://github.com/saltstack/salt/blob/develop/salt/cloud/__init__.py#L354) method is using `map_providers_parallel()` that is filtering out providers that do not have any instances running ([L662](https://github.com/saltstack/salt/blob/develop/salt/cloud/__init__.py#L662)). By design, saltify provider returns empty list in response to `list_nodes` and does not appear as a legitimate provider in `mapper.map_providers_parallel`:
+
+``` python
+#!/usr/bin/env python
+
+import salt.cloud
+
+cc = salt.cloud.CloudClient('/etc/salt/cloud')
+mapper = salt.cloud.Map(cc._opts_defaults())
+
+print mapper.map_providers()
+print mapper.map_providers_parallel()
+```
+
+results in:
+
+```
+# python test-mapper.py
+{'saltify_provider': {'saltify': {}}}
+{}
+```
+
+I believe that now closed #11851 is related to this.

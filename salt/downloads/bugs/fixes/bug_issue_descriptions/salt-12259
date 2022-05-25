@@ -1,0 +1,108 @@
+I am using the following state to mount NFS shares and switch from a backup (static2):
+
+```
+include:
+  - lighttpd
+  - foo.nfs
+
+static1-lighttpd-stop:
+  service:
+    - dead
+    - name: lighttpd
+    - prereq:
+      - mount: nfs-var-www-static1
+
+nfs-var-www-static1:
+  mount.mounted:
+    - name: /var/www/static
+    - device: 10.10.23.74://static.foo.com
+    - fstype: nfs4
+    - opts:
+      - proto=tcp
+      - port=2049
+    - require:
+      - file: nfs-idmapd
+      - file: /var/www/static
+      - pkg: nfs-common-package
+      - service: nfs-common-service
+    - require_in:
+      - service: lighttpd
+
+nfs-fstab-no-static2:
+  file:
+    - replace
+    - name: /etc/fstab
+    - pattern: '^10.10.23.94://static.foo.com.*\n'
+    - repl: ''
+
+nfs-fstab-no-old-static1:
+  file:
+    - replace
+    - name: /etc/fstab
+    - pattern: '^10.10.42.68://static.foo.com.*\n'
+    - repl: ''
+```
+
+This state is the current one that causes the problem and differs from the one before in that it changed the device in nfs-var-www-static1 and introduced the static1-lighttpd-stop and nfs-fstab-no-old-static1 state. device in mount.mounted was using the IP from nfs-fstab-no-old-static1.
+
+As always I performed a test=True highstate run before actually performing this change and was rather unpleasantly surprised to find that the NFS share wasn't mounted anymore. Further investigation revealed the following:
+
+```
+---------- salt master ----------
+'20140424132036407438':
+  Arguments:
+  - __kwarg__: true
+    test: true
+  Function: state.highstate
+  StartTime: 2014, Apr 24 13:20:36.407438
+  Target: foo-web1.*
+  Target-type: glob
+  User: sudo_babilen
+
+---------- salt-run jobs.lookup_jid 20140424132036407438
+[...]
+
+  Name: nfs-common - Function: service.running - Result: Clean
+----------
+          ID: static1-lighttpd-stop
+    Function: service.dead
+        Name: lighttpd
+      Result: None
+     Comment: Service lighttpd is set to be killed
+     Changes:   
+----------
+          ID: nfs-var-www-static1
+    Function: mount.mounted
+        Name: /var/www/static
+      Result: None
+     Comment: /var/www/static would be mounted
+     Changes:
+
+[...]
+
+  Name: /etc/fstab - Function: file.replace - Result: Clean
+----------
+          ID: nfs-fstab-no-old-static1
+    Function: file.replace
+        Name: /etc/fstab
+      Result: True
+     Comment: Changes were made
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -5,4 +5,4 @@
+                   devpts          /dev/pts        devpts  rw,noexec,nosuid,gid=5,mode=620 0  0
+                   /dev/xvda1 / ext4 errors=remount-ro 0 1
+                   /var/swapfile1  none            swap    sw           0       0
+                  -10.10.42.68://static.foo.com     /var/www/static nfs4    proto=tcp,port=2049 0 0
+                  +
+[...]
+```
+
+Which clearly shows that the nfs-fstab-no-old-static1 file.replace state actually performed changes despite the fact that the highstate run was executed with `test=True`.
+
+I consider this to be quite suboptimal behaviour and would strongly prefer if highstate runs with `test=True` wouldn't actually change anything.
+
+This is on a 2014.1.3 master and 2014.1.1 minion.

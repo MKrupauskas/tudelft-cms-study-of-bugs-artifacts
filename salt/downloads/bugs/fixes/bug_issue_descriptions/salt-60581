@@ -1,0 +1,206 @@
+**Description**
+Using a NAPALM proxy it is sometime necessary to disable a persistent connection by setting the proxy pillar key 'keep_alive' to False. This means once a connection is opened it will be allowed to timeout or close instead of keeping it alive. 
+
+In this instance, the current behavior is that a connection to a device times out after the SSH timeout period configured and a connection is reestablished ad-hoc when required (such as calling certain execution modules). 
+
+The bug filed here is an exception to that behavior when calling `saltutil` commands, the main one being `saltutil.refresh_grains()`. In this instance, if a connection has already closed, it is never re-opened and an exception occurs. The grains collected are all set to `None` and the proxy cannot refresh its grains until it is restarted.
+
+**Note:** I believe I have found the cause of this issue and would like to complete a PR with a fixed solution. 
+
+The cause appears to be in the napalm util package `salt/utils/napalm.py`:
+
+**`salt/utils/napalm.py**:
+```
+try:
+    # will try to import NAPALM
+    # https://github.com/napalm-automation/napalm
+    # pylint: disable=W0611
+    import napalm
+    import napalm.base as napalm_base
+    # pylint: enable=W0611
+    HAS_NAPALM = True
+    HAS_NAPALM_BASE = False  # doesn't matter anymore, but needed for the logic below
+    try:
+        NAPALM_MAJOR = int(napalm.__version__.split('.')[0])
+    except AttributeError:
+        NAPALM_MAJOR = 0
+except ImportError:
+    HAS_NAPALM = False
+    try:
+        import napalm_base
+        HAS_NAPALM_BASE = True
+    except ImportError:
+        HAS_NAPALM_BASE = False
+
+try:
+    # try importing ConnectionClosedException
+    # from napalm-base
+    # this exception has been introduced only in version 0.24.0
+    from napalm.base.exceptions import ConnectionClosedException
+    HAS_CONN_CLOSED_EXC_CLASS = True
+except ImportError:
+    = False
+```
+
+In the above, the exception `ConnectionClosedException` is unable to load as an ImportError is raised when trying import a package from an aliased one.
+
+```
+>>> import napalm.base as napalm_base
+>>> from napalm_base.exceptions import ConnectionClosedException
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+ModuleNotFoundError: No module named 'napalm_base'
+>>>
+>>> import napalm_base
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+ModuleNotFoundError: No module named 'napalm_base'
+>>>
+>>> from napalm.base.exceptions import ConnectionClosedException
+```
+
+Since the module cannot be imported, the flag `HAS_CONN_CLOSED_EXC_CLASS` is always False which causes an issue further down in the `call()` function where the logic to determine if a connection is closed and re-establish it is never caught:
+
+`elif retry and HAS_CONN_CLOSED_EXC_CLASS and isinstance(error, ConnectionClosedException):`
+
+If I import the module explicitly with `from napalm.base.exceptions import ConnectionClosedException` it works!
+
+```
+/run # salt -I 'realm:WSC' grains.get model
+c40988df-1a86-4ff0-bf8d-e018cc6c55bd:
+    C891-24X/K9
+
+
+-------------------------------------------
+Summary
+-------------------------------------------
+# of minions targeted: 1
+# of minions returned: 1
+# of minions that did not return: 0
+# of minions with errors: 0
+-------------------------------------------
+/run # salt -I 'realm:WSC' saltutil.refresh_grains
+c40988df-1a86-4ff0-bf8d-e018cc6c55bd:
+    True
+
+
+-------------------------------------------
+Summary
+-------------------------------------------
+# of minions targeted: 1
+# of minions returned: 1
+# of minions that did not return: 0
+# of minions with errors: 0
+-------------------------------------------
+/run # salt -I 'realm:WSC' grains.get model
+c40988df-1a86-4ff0-bf8d-e018cc6c55bd:
+    C891-24X/K9
+
+
+-------------------------------------------
+Summary
+-------------------------------------------
+# of minions targeted: 1
+# of minions returned: 1
+# of minions that did not return: 0
+# of minions with errors: 0
+-------------------------------------------
+```
+
+**Setup**
+Proxy SLS file:
+```
+proxy:
+  global_delay_factor: 5
+  proxytype: napalm
+  driver: ios
+  # DO NOT CHANGE THIS - (See article: <internal link>) this mitigates an IOS CVE Bug.
+  always_alive: False
+```
+
+**Steps to Reproduce the behavior**
+```
+/run # salt -I 'realm:WSC' grains.get model
+c40988df-1a86-4ff0-bf8d-e018cc6c55bd:
+    model:
+        C891-24X/K9
+
+/run # salt 'c40988df-1a86-4ff0-bf8d-e018cc6c55bd' saltutil.refresh_grains
+c40988df-1a86-4ff0-bf8d-e018cc6c55bd:
+    True
+
+/run # salt 'c40988df-1a86-4ff0-bf8d-e018cc6c55bd' grains.get model
+c40988df-1a86-4ff0-bf8d-e018cc6c55bd:
+    None
+```
+
+Proxy Log:
+```
+[ERROR   ] Cannot execute "cli" on <redacted> as Salt. Reason: Socket is closed!
+[ERROR   ] Traceback (most recent call last):
+  File "/usr/lib/python3.9/site-packages/napalm/ios/ios.py", line 205, in _send_command
+    output = self.device.send_command(command)
+  File "/usr/lib/python3.9/site-packages/netmiko/utilities.py", line 500, in wrapper_decorator
+    return func(self, *args, **kwargs)
+  File "/usr/lib/python3.9/site-packages/netmiko/base_connection.py", line 1475, in send_command
+    prompt = self.find_prompt(delay_factor=delay_factor)
+  File "/usr/lib/python3.9/site-packages/netmiko/base_connection.py", line 1179, in find_prompt
+    self.write_channel(self.RETURN)
+  File "/usr/lib/python3.9/site-packages/netmiko/base_connection.py", line 459, in write_channel
+    self._write_channel(out_data)
+  File "/usr/lib/python3.9/site-packages/netmiko/base_connection.py", line 417, in _write_channel
+    self.remote_conn.sendall(write_bytes(out_data, encoding=self.encoding))
+  File "/usr/lib/python3.9/site-packages/paramiko/channel.py", line 846, in sendall
+    sent = self.send(s)
+  File "/usr/lib/python3.9/site-packages/paramiko/channel.py", line 801, in send
+    return self._send(s, m)
+  File "/usr/lib/python3.9/site-packages/paramiko/channel.py", line 1198, in _send
+    raise socket.error("Socket is closed")
+OSError: Socket is closed
+```
+
+**Expected behavior**
+When `keep_alive` option is set to False in the proxy pillar, the connection should close/timeout and remain closed until it subsequent jobs call for a reconnect. The same behavior should be observed when refreshing grains, if the connection is closed at the time of refresh, a connection should be opened to the device.
+
+**Versions Report**
+```
+/run # salt-proxy --versions-report
+Salt Version:
+          Salt: 3003
+
+Dependency Versions:
+          cffi: 1.14.5
+      cherrypy: 18.6.1
+      dateutil: 2.8.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 3.0.1
+       libgit2: 1.1.0
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 1.0.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.20
+      pycrypto: 3.10.1
+  pycryptodome: 3.10.1
+        pygit2: 1.4.0
+        Python: 3.9.5 (default, May 12 2021, 20:44:22)
+  python-gnupg: Not Installed
+        PyYAML: 5.4.1
+         PyZMQ: 19.0.2
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+```
+
+```
+/run # pip3 freeze | grep napalm
+napalm==3.3.1
+nornir-napalm==0.1.2
+```
+
+I created a bug under the napalm-salt project but I think this is the correct place for it: https://github.com/napalm-automation/napalm-salt/issues/69
+Apologies if it is not.

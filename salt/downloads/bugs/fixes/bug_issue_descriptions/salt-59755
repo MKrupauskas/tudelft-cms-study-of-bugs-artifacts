@@ -1,0 +1,81 @@
+**Description**
+The `aws_encode()` method in `boto3_route53` has some Python2 assumptions that break in Python3.
+
+```
+[ERROR   ] Couldn't encode saltstack.org. using either 'unicode_escape' or 'idna' codecs
+Error running 'boto3_route53.find_hosted_zone': cannot use a string pattern on a bytes-like object
+```
+
+The bug appears to be a result of this line of code:
+```
+        ret = re.sub(r"\\x([a-f0-8]{2})", _hexReplace, x.encode("unicode_escape"))
+```
+
+In Python2 the `unicode_escape` returned a string, in Python3 it returns a byte array.
+
+Decoding the escaped string into latin-1 appears to resolve the issue:
+```
+        ret = re.sub(r"\\x([a-f0-8]{2})", _hexReplace, x.encode("unicode_escape").decode("latin-1"))
+```
+
+**Setup**
+Reprodicible from from the CLI w/out any special configurations.
+
+**Steps to Reproduce the behavior**
+```
+salt-call  boto3_route53.find_hosted_zone Name=saltstack.org.
+```
+
+**Expected behavior**
+Expected a response about valid or invalid zones.
+
+**Screenshots**
+N/A
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+alt Version:
+          Salt: 3002.5
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.6
+     gitpython: 3.0.7
+        Jinja2: 2.10.1
+       libgit2: 0.28.3
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: 2.6.1
+  pycryptodome: 3.6.1
+        pygit2: 1.0.3
+        Python: 3.8.5 (default, Jan 27 2021, 15:41:15)
+  python-gnupg: 0.4.5
+        PyYAML: 5.3.1
+         PyZMQ: 18.1.1
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.2
+ 
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: aarch64
+       release: 5.4.0-1037-aws
+        system: Linux
+       version: Ubuntu 20.04 focal 
+```
+</details>
+
+**Additional context**
+Add any other context about the problem here.

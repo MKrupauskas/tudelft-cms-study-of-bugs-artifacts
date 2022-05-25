@@ -1,0 +1,76 @@
+### Setup
+
+We are running a semi-mixed environment of Salt 2015.8.8 on the master and most of the minions. Some minions still run on 2015.5.3 since they are not ours to update (shared environment with dual-minions). 
+
+We use a returner to feed the highstate details to [salt-eventsd](https://github.com/felskrone/salt-eventsd) running on the master. From our monitoring system we are checking the last modified date of `highstate.cache.p` on the minions to see when this has been last changed.
+### Description of Issue/Question
+
+Recently some of the minions (both 2015.8.8 and 2015.5.3) suddenly stop running the highstate schedule. The cache file on the minion is not being updated and the returner isn't returning any data, so the highstate isn't running.
+
+In such cases, the minion should be restarted and then immediately executes its highstate. 
+When it is "stuck" (not highstating) there are always 3 salt-minion processes running of which two are older (the actual minions) and the launchtime of the third matches the last highstate executed (in the strace details below its `14276`).
+
+The strace itself isn't particularly showing much details:
+
+```
+Process 14276 attached
+Process 14989 attached
+Process 14993 attached
+[pid 14989] wait4(14993,  <unfinished ...>
+[pid 14993] restart_syscall(<... resuming interrupted call ...> <unfinished ...>
+[pid 14276] read(106,  <unfinished ...>
+[pid 14993] <... restart_syscall resumed> ) = 0
+[pid 14993] poll([{fd=23, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=20, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}, {fd=20, events=POLLIN}], 2, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=20, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}, {fd=20, events=POLLIN}], 2, 1000) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=20, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}, {fd=20, events=POLLIN}], 2, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=20, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}, {fd=20, events=POLLIN}], 2, 1000) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=20, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}, {fd=20, events=POLLIN}], 2, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=20, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}, {fd=20, events=POLLIN}], 2, 1000) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=20, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}, {fd=20, events=POLLIN}], 2, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=20, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}, {fd=20, events=POLLIN}], 2, 1000) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=20, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}, {fd=20, events=POLLIN}], 2, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=20, events=POLLIN}], 1, 0) = 0 (Timeout)
+[pid 14993] poll([{fd=23, events=POLLIN}, {fd=20, events=POLLIN}], 2, 1000^C
+Process 14276 detached
+Process 14989 detached
+Process 14993 detached
+ <detached ...>
+```
+
+When the minion is not highstating anymore, nothing is being written to the minion log either. 
+The minion however remains functional and can still be queried from the master (e.g. `salt 'themachine' test.ping`)
+
+Triggering the highstate manually from the commandline using `salt-call state.highstate` results in it preventing the execution:
+
+```
+local:
+    Data failed to compile:
+----------
+    The function "state.highstate" is running as PID 14276 and was started at 2016, Apr 01 14:55:49.418261 with jid 20160401145549418261
+```
+
+Something is causing the highstate to be stuck, which results in no new one's being executed. Looking up the jid on the master yields no results.
+
+Out of our minions approx 4% of the minions are affected by this particular issue.
+### Versions Report
+
+Mixed 2015.8.8 / 2015.5.3 minions connecting to 2015.8.8 master.

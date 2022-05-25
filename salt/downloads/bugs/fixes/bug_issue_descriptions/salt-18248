@@ -1,0 +1,50 @@
+This on 2014.7.0
+
+I've noticed the following on two occasions, but haven't had the time to investigate this further when it occurred. (It only happened twice, on the exact same appliances, with the exact same states which normally work fine, so it certainly looks like some kind of race condition.)
+
+When looking at "ps aux" output the last time this occurred I noted two salt-ssh lines, one of which was defunct. Killing the other made the salt-ssh stop hanging. (And exit with non-0 exit code.)
+
+This is the traceback, the first one is where it hangs (and comes from salt-ssh), the second doesn't appear until you kill the process (and is from my code, not from salt):
+
+```
+Process Process-8:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/multiprocessing/process.py", line 258, in _bootstrap
+    self.run()
+  File "/usr/lib/python2.7/multiprocessing/process.py", line 114, in run
+    self._target(*self._args, **self._kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/client/ssh/__init__.py", line 315, in handle_routine
+    stdout, stderr, retcode = single.run()
+  File "/usr/lib/python2.7/dist-packages/salt/client/ssh/__init__.py", line 630, in run
+    stdout = self.run_wfunc()
+  File "/usr/lib/python2.7/dist-packages/salt/client/ssh/__init__.py", line 675, in run_wfunc
+    opts_pkg = pre_wrapper['test.opts_pkg']()
+  File "/usr/lib/python2.7/dist-packages/salt/client/ssh/wrapper/__init__.py", line 62, in caller
+    stdout, stderr, _ = single.cmd_block()
+  File "/usr/lib/python2.7/dist-packages/salt/client/ssh/__init__.py", line 818, in cmd_block
+    cmd_str = self._cmd_str()
+  File "/usr/lib/python2.7/dist-packages/salt/client/ssh/__init__.py", line 755, in _cmd_str
+    thin_sum = salt.utils.thin.thin_sum(cachedir, 'sha1')
+  File "/usr/lib/python2.7/dist-packages/salt/utils/thin.py", line 182, in thin_sum
+    thintar = gen_thin(cachedir)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/thin.py", line 172, in gen_thin
+    tfp.add('version')
+  File "/usr/lib/python2.7/tarfile.py", line 1995, in add
+    self.addfile(tarinfo, f)
+  File "/usr/lib/python2.7/tarfile.py", line 2024, in addfile
+    copyfileobj(fileobj, self.fileobj, tarinfo.size)
+  File "/usr/lib/python2.7/tarfile.py", line 279, in copyfileobj
+    raise IOError("end of file reached")
+IOError: end of file reached
+
+Traceback (most recent call last):
+  File "./install.py", line 415, in <module>
+    for output in run():
+  File "./install.py", line 331, in run
+    for output in bootstrap('*'):
+  File "./install.py", line 181, in bootstrap
+    yield check_output(['salt-ssh', minion_id, 'state.sls', 'bootstrap'])
+  File "/usr/lib/python2.7/subprocess.py", line 573, in check_output
+    raise CalledProcessError(retcode, cmd, output=output)
+subprocess.CalledProcessError: Command '['salt-ssh', '*', 'state.sls', 'bootstrap']' returned non-zero exit status -15
+```

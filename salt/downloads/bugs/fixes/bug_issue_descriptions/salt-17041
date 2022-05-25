@@ -1,0 +1,48 @@
+[The function _parse_powershell_list](https://github.com/saltstack/salt/blob/develop/salt/modules/win_servermanager.py#L27) does not parse errors returned by PowerShell or the ServerManager PS module, which results in confusing error messages in the Salt user interface.  For example, instead of telling the Salt user that a computer is in a post-restart-pending-action state (e.g., after removing a server role), the Salt user interface reports an IndexError [in an assignment operation in _parse_powershell_list](https://github.com/saltstack/salt/blob/develop/salt/modules/win_servermanager.py#L35).  Instead, Salt should relay the PowerShell error message (e.g., that a particular user needs to log into the computer and run Server Manager to complete the configuration change), as this clearly indicates what went wrong and how to remediate the error condition.
+
+**Steps to Reproduce**
+
+Given a computer running a full installation of Windows Server 2008 R2 Standard Edition (with all patches applied) and version 2014.1.11 of the Salt minion (latest version at time of writing), with the minion ID of _minion-id_:
+1. Install the Web Server role interactively via Server Manager.
+2. Remove the Web Server role interactively via Server Manager.
+3. Reboot when prompted.
+4. Do not log into the computer once it finishes booting.
+5. From the Salt master, run the following command to re-install the Web Server role:
+   
+   `salt minion-id state.single win_servermanager.installed name=Web-Server`
+6. The above command will return the following error:
+   
+   ```
+         ID: Web-Server
+   Function: win_servermanager.installed
+     Result: False
+    Comment: An exception occurred in this state: Traceback (most recent call last):
+               File "salt/state.py", line 1379, in call
+               File "salt/states/win_servermanager.py", line 51, in installed
+               File "c:\salt\var\cache\salt\minion\extmods\modules\win_servermanager.py", line 97, in install
+                 return _parse_powershell_list(out)
+               File "c:\salt\var\cache\salt\minion\extmods\modules\win_servermanager.py", line 35, in _parse_powershell_list
+                 ret[splt[0]] = splt[2]
+             IndexError: list index out of range
+    Changes:
+   ```
+7. From the Salt master, run the following PowerShell command to re-install the Web Server role (which simulates the behavior of the _win_servermanager.installed_ state):
+   
+   `salt minion-id cmd.run 'Import-Module ServerManager ; Add-WindowsFeature -Name Web-Server  -erroraction silentlycontinue | format-list' shell=powershell`
+8. The above command will return the following error:
+   
+   ```
+   Add-WindowsFeature : A configuration started by EXAMPLE\Administrator is current
+   ly in progress. Before you can start a configuration, EXAMPLE\Administrator must
+    log in to complete the current configuration or the configuration in progress
+   must be canceled.
+   At line:1 char:49
+   + Import-Module ServerManager ; Add-WindowsFeature <<<<  -Name Web-Server  -err
+   oraction silentlycontinue | format-list
+       + CategoryInfo          : OperationStopped: (:) [Add-WindowsFeature], Exce
+      ption
+       + FullyQualifiedErrorId : PostRestartPendingAction,Microsoft.Windows.Serve
+      rManager.Commands.AddWindowsFeatureCommand
+   ```
+9. Log into the computer and acknowledge the Server Manager role removal.
+10. Re-run the _win_servermanager.installed_ state.  It will complete successfully.

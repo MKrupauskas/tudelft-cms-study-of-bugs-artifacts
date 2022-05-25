@@ -1,0 +1,69 @@
+I have a trigger written in Cobbler that is trying to use the salt python API to throw an event back to the master.
+
+Both the master and minion running on the Cobbler server are on 2015.8.3.
+
+The trigger function is rather simple:
+
+```
+import salt.client
+import salt.config
+
+def run(api, args, logger):
+    (objtype, name, ip) = args
+    if objtype != 'system':
+        # something bad happened here, so get out
+        return 0
+
+    system = api.find_system(name)
+    if not system:
+        # something worse - we couldn't find the system
+        # that just called us, so bail
+        return 0
+
+    opts = salt.config.minion_config('/etc/salt/minion')
+    caller = salt.client.Caller(mopts=opts)
+    rid = system.ks_meta['rid']
+    if logger:
+        logger.info('Updating quickbase for record {0}'.format(rid))
+    caller.cmd('event.send', 'hes/prov/v1/pxe_done/{0}'.format(rid))
+    return 0
+```
+
+However, it often ends up throwing this:
+
+```
+Tue Dec 29 13:22:14 2015 - DEBUG | running python trigger cobbler.modules.install_pre_pxedone
+Tue Dec 29 13:22:14 2015 - INFO | Exception occured: <type 'exceptions.TypeError'>
+Tue Dec 29 13:22:14 2015 - INFO | Exception value: string indices must be integers, not str
+Tue Dec 29 13:22:14 2015 - INFO | Exception Info:
+  File "/usr/lib/python2.6/site-packages/cobbler/remote.py", line 2080, in _dispatch
+    return method_handle(*params)
+   File "/usr/lib/python2.6/site-packages/cobbler/remote.py", line 1397, in run_install_triggers
+    utils.run_triggers(self.api, None, "/var/lib/cobbler/triggers/install/%s/*" % mode, additional=[objtype,name,ip],logger=self.logger)
+   File "/usr/lib/python2.6/site-packages/cobbler/utils.py", line 944, in run_triggers
+    rc = m.run(api, arglist, logger)
+   File "/usr/lib/python2.6/site-packages/cobbler/modules/install_pre_pxedone.py", line 33, in run
+    caller = salt.client.Caller(mopts=opts)
+   File "/usr/lib/python2.6/site-packages/salt/client/__init__.py", line 1571, in __init__
+    self.sminion = salt.minion.SMinion(self.opts)
+   File "/usr/lib/python2.6/site-packages/salt/minion.py", line 518, in __init__
+    self.gen_modules(initial_load=True)
+   File "/usr/lib/python2.6/site-packages/salt/minion.py", line 529, in gen_modules
+    pillarenv=self.opts.get('pillarenv'),
+   File "/usr/lib/python2.6/site-packages/salt/pillar/__init__.py", line 163, in compile_pillar
+    dictkey='pillar',
+   File "/usr/lib/python2.6/site-packages/salt/utils/async.py", line 73, in wrap
+    ret = self._block_future(ret)
+   File "/usr/lib/python2.6/site-packages/salt/utils/async.py", line 83, in _block_future
+    return future.result()
+   File "/usr/lib64/python2.6/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+   File "/usr/lib64/python2.6/site-packages/tornado/gen.py", line 879, in run
+    yielded = self.gen.send(value)
+   File "/usr/lib/python2.6/site-packages/salt/transport/zeromq.py", line 160, in crypted_transfer_decode_dictentry
+    aes = cipher.decrypt(ret['key'])
+```
+
+Now, it doesn't do this all the time, but it does it pretty often.  I can send the events manually with no issue via salt-call.  The cobbler daemon is running as root, although the apache daemon that runs the web portion of it isn't.  I've added a few debug statements though and the effective user is root in context of the function.
+
+Was going to start digging into the stacktrace, but figured I'd post this in the meantime if someone had seen this before and had a suggestion.

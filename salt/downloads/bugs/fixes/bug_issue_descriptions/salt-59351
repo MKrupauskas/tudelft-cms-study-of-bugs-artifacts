@@ -1,0 +1,230 @@
+**Description**
+
+After calling `salt.matchers.compound_match.match` either directly or through `match.compound` execution module my salt-proxy minion stops responding.
+
+**Setup**
+
+I have a salt-proxy minion running as a non-root user:
+
+```
+salt-proxy --proxyid=jo-walkthrough
+           --config-dir=/srv/proxy
+           --pid-file=/srv/proxy/jo-walkthrough.pid
+           --log-level=debug
+           --log-file-level=debug
+           --log-file=/srv/proxy/var/log/salt/jo-walkthrough.log
+```
+
+proxy minion configuration file:
+```
+# /srv/proxy/proxy
+root_dir: /srv/proxy/
+
+append_minionid_config_dirs:
+- cachedir
+- pki_dir
+- extension_modules
+
+transport: tcp
+
+# Disable multiprocessing otherwise import_yaml and import_json fail to work
+multiprocessing: False
+```
+
+proxy minion pillar file:
+```
+proxy:
+  proxytype: rapyutaio
+```
+
+[rapyutaio proxy module source](https://github.com/hemebond/salt-rapyutaio/blob/main/_proxy/rapyutaio.py)
+
+**Steps to Reproduce the behavior**
+
+If I pass the proxy minion ID as `minion_id`, it works fine.
+
+```
+$ salt jo-walkthrough match.compound "jo-walkthrough and G@kernel:proxy" minion_id="jo-walkthrough"
+jo-walkthrough:
+    True
+
+$ salt jo-walkthrough match.compound "rrjp73 and G@kernel:proxy" minion_id="jo-walkthrough"
+jo-walkthrough:
+    False
+```
+
+The first time I pass a different value for minion_id, it also works:
+
+```
+$ salt jo-walkthrough match.compound "jo-walkthrough and G@kernel:proxy" minion_id="rrjp73"
+jo-walkthrough:
+    False
+```
+
+However all commands sent to the proxy minion after that will timeout with no response:
+
+```
+$ salt jo-walkthrough match.compound "jo-walkthrough and G@kernel:proxy" minion_id="rrjp73"
+jo-walkthrough:
+    Minion did not return. [Not connected]
+```
+
+The proxy minion is still connected and will reconnect if the master is restarted, but the only way to get the proxy minion working again is to restart it.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+$ salt --versions-report
+Salt Version:
+          Salt: 3002.2
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.8.1
+     docker-py: 4.1.0
+         gitdb: 4.0.5
+     gitpython: 3.1.12
+        Jinja2: 2.11.2
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: 1.1.3
+       msgpack: 1.0.0
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: 2.6.1
+  pycryptodome: 3.9.7
+        pygit2: Not Installed
+        Python: 3.9.1+ (default, Jan 20 2021, 14:49:22)
+  python-gnupg: Not Installed
+        PyYAML: 5.3.1
+         PyZMQ: 20.0.0
+         smmap: 3.0.4
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.3
+ 
+System Versions:
+          dist: debian testing bullseye
+        locale: utf-8
+       machine: x86_64
+       release: 5.10.0-1-amd64
+        system: Linux
+       version: Debian GNU/Linux testing bullseye
+
+$ salt-proxy --versions-report
+Salt Version:
+          Salt: 3002.2
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.8.1
+     docker-py: 4.1.0
+         gitdb: 4.0.5
+     gitpython: 3.1.12
+        Jinja2: 2.11.2
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: 1.1.3
+       msgpack: 1.0.0
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: 2.6.1
+  pycryptodome: 3.9.7
+        pygit2: Not Installed
+        Python: 3.9.1+ (default, Jan 20 2021, 14:49:22)
+  python-gnupg: Not Installed
+        PyYAML: 5.3.1
+         PyZMQ: 20.0.0
+         smmap: 3.0.4
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.3
+ 
+System Versions:
+          dist: debian testing bullseye
+        locale: utf-8
+       machine: x86_64
+       release: 5.10.0-1-amd64
+        system: Linux
+       version: Debian GNU/Linux testing bullseye
+
+```
+</details>
+
+**Additional context**
+
+<details><summary>salt-proxy log on first match.compound call with different minion_id</summary>
+
+```
+[ERROR   ] No metaproxy key found in opts for id jo-walkthrough. Defaulting to standard proxy minion
+[DEBUG   ] LazyLoaded proxy.handle_payload
+[ERROR   ] No metaproxy key found in opts for id jo-walkthrough. Defaulting to standard proxy minion
+[DEBUG   ] LazyLoaded proxy.target_load
+[ERROR   ] No metaproxy key found in opts for id jo-walkthrough. Defaulting to standard proxy minion
+[DEBUG   ] LazyLoaded proxy.handle_decoded_payload
+[INFO    ] User sudo_james Executing command match.compound with jid 20210123142423269507
+[DEBUG   ] Command details {'fun': 'match.compound', 'arg': ['rrjp73 and G@kernel:proxy', {'__kwarg__': True, 'minion_id': 'rrjp73'}], 'tgt': 'jo-walkthrough', 'jid': '20210123142423269507', 'ret': '', 'tgt_type': 'glob', 'user': 'sudo_james'}
+[DEBUG   ] Subprocess 20210123142423269507-Job-20210123142423269507 added
+[ERROR   ] No metaproxy key found in opts for id jo-walkthrough. Defaulting to standard proxy minion
+[DEBUG   ] LazyLoaded proxy.target
+[ERROR   ] No metaproxy key found in opts for id jo-walkthrough. Defaulting to standard proxy minion
+[DEBUG   ] LazyLoaded proxy.thread_return
+[INFO    ] Starting a new job with PID 1907233
+[DEBUG   ] Could not LazyLoad direct_call.allow_missing_func: 'direct_call.allow_missing_func' is not available.
+[DEBUG   ] LazyLoaded compound_match.match
+[DEBUG   ] compound_match: rrjp73 ? rrjp73 and G@kernel:proxy
+[DEBUG   ] LazyLoaded glob_match.match
+[DEBUG   ] LazyLoaded grain_match.match
+[DEBUG   ] grains target: kernel:proxy
+[DEBUG   ] Attempting to match 'proxy' in 'kernel' using delimiter ':'
+[DEBUG   ] compound_match rrjp73 ? "rrjp73 and G@kernel:proxy" => "True and True"
+[DEBUG   ] Minion return retry timer set to 10 seconds (randomized)
+[INFO    ] Returning information for job: 20210123142423269507
+[DEBUG   ] Initializing new AsyncTCPReqChannel for ('/srv/proxy/etc/salt/pki/proxy/jo-walkthrough', 'jo-walkthrough', 'tcp://127.0.0.1:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/srv/proxy/etc/salt/pki/proxy/jo-walkthrough', 'jo-walkthrough', 'tcp://127.0.0.1:4506')
+[DEBUG   ] Closing AsyncTCPReqChannel instance
+[DEBUG   ] tcp stream to 127.0.0.1:4506 closed, unable to recv
+[DEBUG   ] minion return: {'success': True, 'return': True, 'retcode': 0, 'jid': '20210123142423269507', 'fun': 'match.compound', 'fun_args': ['rrjp73 and G@kernel:proxy', {'minion_id': 'rrjp73'}]}
+[DEBUG   ] Subprocess 20210123142423269507-Job-20210123142423269507 cleaned up
+```
+</details>
+
+<details><summary>salt-proxy log after minion has stopped responding</summary>
+
+```
+[ERROR   ] No metaproxy key found in opts for id jo-walkthrough. Defaulting to standard proxy minion
+[DEBUG   ] LazyLoaded proxy.handle_payload
+[ERROR   ] No metaproxy key found in opts for id jo-walkthrough. Defaulting to standard proxy minion
+[DEBUG   ] LazyLoaded proxy.target_load
+[ERROR   ] No metaproxy key found in opts for id jo-walkthrough. Defaulting to standard proxy minion
+[DEBUG   ] LazyLoaded proxy.handle_payload
+[ERROR   ] No metaproxy key found in opts for id jo-walkthrough. Defaulting to standard proxy minion
+[DEBUG   ] LazyLoaded proxy.target_load
+[DEBUG   ] LazyLoaded list_match.match
+[ERROR   ] No metaproxy key found in opts for id jo-walkthrough. Defaulting to standard proxy minion
+[DEBUG   ] LazyLoaded proxy.handle_decoded_payload
+[INFO    ] User sudo_james Executing command saltutil.find_job with jid 20210123142616626129
+[DEBUG   ] Command details {'fun': 'saltutil.find_job', 'arg': ['20210123142611611614'], 'tgt': ['jo-walkthrough'], 'jid': '20210123142616626129', 'ret': '', 'tgt_type': 'list', 'user': 'sudo_james'}
+[DEBUG   ] Subprocess 20210123142616626129-Job-20210123142616626129 added
+[ERROR   ] No metaproxy key found in opts for id jo-walkthrough. Defaulting to standard proxy minion
+[DEBUG   ] LazyLoaded proxy.target
+[ERROR   ] No metaproxy key found in opts for id jo-walkthrough. Defaulting to standard proxy minion
+[DEBUG   ] LazyLoaded proxy.thread_return
+[INFO    ] Starting a new job with PID 1907233
+[DEBUG   ] Could not LazyLoad direct_call.allow_missing_func: 'direct_call.allow_missing_func' is not available.
+[DEBUG   ] LazyLoaded saltutil.find_job
+[DEBUG   ] Minion return retry timer set to 5 seconds (randomized)
+[INFO    ] Returning information for job: 20210123142616626129
+[DEBUG   ] Initializing new AsyncTCPReqChannel for ('/srv/proxy/etc/salt/pki/proxy/jo-walkthrough', 'jo-walkthrough', 'tcp://127.0.0.1:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/srv/proxy/etc/salt/pki/proxy/jo-walkthrough', 'jo-walkthrough', 'tcp://127.0.0.1:4506')
+[DEBUG   ] Closing AsyncTCPReqChannel instance
+[DEBUG   ] tcp stream to 127.0.0.1:4506 closed, unable to recv
+[DEBUG   ] minion return: {'success': True, 'return': {}, 'retcode': 0, 'jid': '20210123142616626129', 'fun': 'saltutil.find_job', 'fun_args': ['20210123142611611614']}
+[DEBUG   ] Subprocess 20210123142616626129-Job-20210123142616626129 cleaned up
+```
+</details>

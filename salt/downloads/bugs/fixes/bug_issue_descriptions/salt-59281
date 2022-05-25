@@ -1,0 +1,92 @@
+**Description**
+
+The `boto_vpc.route_table_present` state can fail in ordinary cases now (since 3002 AFAICT):
+
+```
+[ERROR ] An exception occurred in this state: Traceback (most recent call last):
+File "/usr/lib/python3.6/site-packages/salt/state.py", line 2154, in call
+*cdata["args"], **cdata["kwargs"]
+File "/usr/lib/python3.6/site-packages/salt/loader.py", line 2106, in wrapper
+return f(*args, **kwargs)
+File "/usr/lib/python3.6/site-packages/salt/states/boto_vpc.py", line 1123, in route_table_present
+profile=profile,
+File "/usr/lib/python3.6/site-packages/salt/states/boto_vpc.py", line 1438, in _subnets_present
+assoc_ids = [x["subnet_id"] for x in route_table["associations"]]
+TypeError: list indices must be integers or slices, not str
+```
+
+https://github.com/saltstack/salt/commit/f78706934ffb83c8d215c7c7ec12bcbdd7d8bd45#diff-1f72651468451cc4bde8de43a9b68cdf21e63dcf0f2f5804943bb92a7f780c70R1491 in #58636 broke this AFAICT.  The deprecated method and the new method have different returns and so a drop-in replacement was not appropriate.  The new method returns a list.  Other places in the code do... https://github.com/saltstack/salt/blob/da6819735ce055f16e326472cb1768faece72ad6/salt/states/boto_vpc.py#L1216 ... to handle this.
+
+**Setup**
+
+`foo.sls`:
+
+```sls
+create_route_table:
+  boto_vpc.route_table_present:
+    - name: foo
+    - vpc_id: vpc-4321dbca
+    - routes:
+      - destination_cidr_block: 0.0.0.0/0
+        instance_id: i-abcd1234
+```
+
+**Steps to Reproduce the behavior**
+
+AWS setup, then `state.apply foo`.
+
+**Expected behavior**
+
+No exception, state completes.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+Also includes latest `boto` and `boto3`.
+
+```text
+Salt Version:
+          Salt: 3002.2
+ 
+Dependency Versions:
+          cffi: 1.14.4
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.6
+     gitpython: 3.0.7
+        Jinja2: 2.10.1
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.20
+      pycrypto: 2.6.1
+  pycryptodome: 3.6.1
+        pygit2: Not Installed
+        Python: 3.8.5 (default, Jul 28 2020, 12:59:40)
+  python-gnupg: 0.4.5
+        PyYAML: 5.3.1
+         PyZMQ: 18.1.1
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.2
+ 
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 5.4.0-60-generic
+        system: Linux
+       version: Ubuntu 20.04 focal
+```
+</details>
+
+**Additional context**
+
+ZD-6200.
+
+Workaround is to directly patch `salt/states/boto_vpc.py` with `route_table = route_table[0]` above the problem line.

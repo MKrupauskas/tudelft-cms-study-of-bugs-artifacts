@@ -1,0 +1,68 @@
+Hi,
+
+This is possible a bug of release 2014.1. Refers to commit 56f01ea 
+
+The pkg.installed can't find the package properly sometimes. This is due to the **salt**['avail'] cache dict is not reloaded in some situations. In my test case, I have a private yum repository managed. I installed epel repository rpm package from my private repository and managed a new postgresql-9.2 repository. And then I'm trying to install something from the epel and postgresql9.2 repositories, and it failed. Here's my script and the error messages:
+
+```
+# This is my private repository.
+private-repo:
+  pkgrepo.managed:
+    - humanname: Private repository
+    - baseurl: http://192.168.129.242/megaphone/centos/$releasever/$basearch
+    - gpgcheck: 0
+    - enabled: 1
+
+# I was trying to install epel repository from my private repository.
+epel-repo:
+  pkg.installed:
+    - name: epel-release
+    - require:
+      - pkgrepo: private-repo
+
+# Then I installed something.
+syslog-ng:
+  pkg.installed:
+    - refresh: True
+    - require:
+      - pkg: epel-repo
+
+# Then I added another postgresql9.2 repository.
+postgresql92-repo:
+  pkgrepo.managed:
+    - humanname: PostgreSQL 9.2 $releasever - $basearch
+    - baseurl: http://yum.postgresql.org/9.2/redhat/rhel-$releasever-$basearch
+    - gpgcheck: 0
+    - enabled: 1
+
+# Now I want to install postgresql92 server.
+postgresql92-server:
+  pkg.installed:
+    - refresh: True
+    - require:
+      - pkgrepo: postgresql92-repo
+```
+
+There are two failure states:
+## ...
+
+```
+      ID: syslog-ng
+Function: pkg.installed
+  Result: False
+ Comment: Package 'syslog-ng' not found (possible matches: syslog-ng)
+ Changes:
+```
+## ...
+
+```
+      ID: postgresql92-server
+Function: pkg.installed
+  Result: False
+ Comment: Package 'postgresql92-server' not found (possible matches: postgresql92-server)
+ Changes:
+```
+
+If I run the same script for another time, the failed states will work.
+
+After dive into the code, I found you recently added a global cache dict for available packages `(__salt__['avail'])`, and it was not reloaded correctly in this situation (used the old cache). Currently I just removed the cache dict as a quick work around (removed line 391-393 from yumpkg.py). Please review this issue, thanks a lot.

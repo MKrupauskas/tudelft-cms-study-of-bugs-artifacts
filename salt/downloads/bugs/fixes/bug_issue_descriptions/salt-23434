@@ -1,0 +1,150 @@
+The pip.installed state is not very smart when using a requirements file instead of enumerating the python packages to be installed statically:
+
+Here's a pretty small example exhibiting the problem:
+
+```
+/root/troposphere-requirements.txt:
+  file.managed:
+    - contents: troposphere
+
+troposphere:
+  pip.installed:
+    - requirements: /root/troposphere-requirements.txt
+
+cmd using watch requisite:
+  cmd.wait:
+    - name: /bin/true
+    - watch:
+      - pip: troposphere
+
+cmd using onchanges requisite:
+  cmd.wait:
+    - name: /bin/true
+    - onchanges:
+      - pip: troposphere
+```
+
+Here are the results when running is on a server that **doesn't** have the troposphere python package installed:
+
+```
+local:
+----------
+          ID: /root/troposphere-requirements.txt
+    Function: file.managed
+      Result: True
+     Comment: File /root/troposphere-requirements.txt updated
+     Started: 22:54:18.152715
+    Duration: 1.68 ms
+     Changes:   
+              ----------
+              diff:
+                  New file
+----------
+          ID: troposphere
+    Function: pip.installed
+      Result: True
+     Comment: Successfully processed requirements file /root/troposphere-requirements.txt.
+     Started: 22:54:18.154598
+    Duration: 264.612 ms
+     Changes:   
+              ----------
+              requirements:
+                  True
+----------
+          ID: cmd using watch requisite
+    Function: cmd.wait
+        Name: /bin/true
+      Result: True
+     Comment: Command "/bin/true" run
+     Started: 22:54:18.420640
+    Duration: 6.357 ms
+     Changes:   
+              ----------
+              pid:
+                  18947
+              retcode:
+                  0
+              stderr:
+              stdout:
+----------
+          ID: cmd using onchanges requisite
+    Function: cmd.wait
+        Name: /bin/true
+      Result: True
+     Comment: 
+     Started: 22:54:18.427280
+    Duration: 0.656 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 4 (changed=3)
+Failed:    0
+------------
+Total states run:     4
+```
+
+Here are the results when running is on a server that **does** have the troposphere python package installed:
+
+```
+local:
+----------
+          ID: /root/troposphere-requirements.txt
+    Function: file.managed
+      Result: True
+     Comment: File /root/troposphere-requirements.txt is in the correct state
+     Started: 22:55:27.020815
+    Duration: 1.393 ms
+     Changes:   
+----------
+          ID: troposphere
+    Function: pip.installed
+      Result: True
+     Comment: Successfully processed requirements file /root/troposphere-requirements.txt.
+     Started: 22:55:27.022418
+    Duration: 263.529 ms
+     Changes:   
+              ----------
+              requirements:
+                  True
+----------
+          ID: cmd using watch requisite
+    Function: cmd.wait
+        Name: /bin/true
+      Result: True
+     Comment: Command "/bin/true" run
+     Started: 22:55:27.287346
+    Duration: 5.949 ms
+     Changes:   
+              ----------
+              pid:
+                  18996
+              retcode:
+                  0
+              stderr:
+              stdout:
+----------
+          ID: cmd using onchanges requisite
+    Function: cmd.wait
+        Name: /bin/true
+      Result: True
+     Comment: 
+     Started: 22:55:27.293592
+    Duration: 0.654 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 4 (changed=2)
+Failed:    0
+------------
+Total states run:     4
+```
+
+Notice that in both states, the troposphere state is reported as changed. Also, note that the "cmd using watch requisite" state executes both times, but the "cmd using onchanges requisite" state never executes. FWIW, I also tried with "service.running" instead of "cmd.run" with the same results.
+
+It appears that using a requirements file with pip.installed makes the state always report changes. However, those changes to not appear to affect other states watching that state with the onchanges requisite.
+
+Also, the pip.installed does not report changes accurately when using a requirements file. I would have expected it to report that troposphere was installed on the first run and that there were no changes on the second.
+
+Also, the pkgs argument for pip.installed does not appear to do anything, so the only requirement that I have come up with is to create states for each of the libs installed by the requirements file. Do you have any suggestions for work arounds other than enumerating the packages in the requirements file in the sate

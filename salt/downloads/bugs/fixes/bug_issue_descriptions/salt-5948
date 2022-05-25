@@ -1,0 +1,139 @@
+Hi, 
+
+we have a rather large salt-framework setup with currently around 12.000 minions. All 12.000 are connected to the same saltmaster which is a DELL 610 Quadcore with 12GB of RAM. I should mention, that connecting all 12.000 to the same server was not the initial idea and its also not a production environment (yet). We were just testing when and why the saltmaster would tip over for whatever reason: too many connections, excessive ram-usage, etc.
+
+Our aim is to turn it into a production environment within the next few months with at least redundant salt-masters, keepalived for balancing and drbd-setup for job-cache, key-store etc. and a http-api. I think this kind of setup would be very desirable to show, how scalable saltstack really is.
+
+The challenge we're currently facing is the restart of the saltmaster. In a production enviroment this has to work absolutely reliably which it currently does not. At least not in larger environments. Here is what happens if i try restarting it:
+- saltmaster comes up fine
+- a few seconds later dmesg says:
+### 
+
+[1470404.829071] TCP: TCP: Possible SYN flooding on port 4505. Dropping request.  Check SNMP counters.
+[1470405.003482] TCP: TCP: Possible SYN flooding on port 4506. Dropping request.  Check SNMP counters.
+### 
+
+This is reproducable on every restart. Not very surprising considering the 12.000 minions. I tried to play a little with:
+### 
+
+net.core.somaxconn = 65536
+net.ipv4.tcp_max_syn_backlog = 65536
+### 
+
+but that does not help.
+
+But what really bugs me is, that the saltmaster never seems to reach a workable state.
+
+I started it in screen with "-l trace" and for the last 60min all im seeing is this lines over and over only with different minion-ids:
+### 
+
+[INFO    ] Clear payload received with command _auth
+[DEBUG   ] Gathering reactors for tag auth
+[DEBUG   ] This salt-master instance has accepted 12363 minion keys.
+[INFO    ] Authentication request from server2302.salt.my-internal.domain
+[DEBUG   ] This salt-master instance has accepted 12363 minion keys.
+[INFO    ] Authentication accepted from server2302.salt.my-internal.domain
+[INFO    ] Authentication request from server0824.salt.my-internal.domain
+[INFO    ] Authentication accepted from server0824.salt.my-internal.domain
+[DEBUG   ] This salt-master instance has accepted 12363 minion keys.
+[DEBUG   ] This salt-master instance has accepted 12363 minion keys.
+[INFO    ] Authentication request from server7582.salt.my-internal.domain
+[INFO    ] Authentication accepted from server7582.salt.my-internal.domain
+[INFO    ] Authentication request from server5352.salt.my-internal.domain
+[INFO    ] Authentication accepted from server5352.salt.my-internal.domain
+[DEBUG   ] Gathering reactors for tag auth
+[INFO    ] Clear payload received with command _auth
+[DEBUG   ] This salt-master instance has accepted 12363 minion keys.
+[INFO    ] Authentication request from server0666.salt.my-internal.domain
+[INFO    ] Authentication accepted from server0666.salt.my-internal.domain
+[DEBUG   ] Gathering reactors for tag auth
+[INFO    ] Clear payload received with command _auth
+[DEBUG   ] This salt-master instance has accepted 12363 minion keys.
+[INFO    ] Authentication request from server10518.salt.my-internal.domain
+[INFO    ] Authentication accepted from server10518.salt.my-internal.domain
+[DEBUG   ] This salt-master instance has accepted 12363 minion keys.
+[INFO    ] Authentication request from server7156.salt.my-internal.domain
+[INFO    ] Authentication accepted from server7156.salt.my-internal.domain
+[DEBUG   ] Gathering reactors for tag auth
+[DEBUG   ] This salt-master instance has accepted 12363 minion keys.
+[INFO    ] Authentication request from server8446.salt.my-internal.domain
+[INFO    ] Authentication accepted from server8446.salt.my-internal.domain
+[DEBUG   ] Gathering reactors for tag auth
+[INFO    ] Clear payload received with command _auth
+[INFO    ] Clear payload received with command _auth
+[DEBUG   ] Gathering reactors for tag auth
+[INFO    ] Clear payload received with command _auth
+[DEBUG   ] This salt-master instance has accepted 12363 minion keys.
+[INFO    ] Authentication request from server0927.salt.my-internal.domain
+...
+### 
+
+This is the second time im seeing this. Last time the only way i could get it to work was to stop/restart the master and all minions on all servers and slowly reconnect them in groups of 500 or so. 
+
+The reason im mentioning "loop" in the subject is because even servers that are not running a minion anymore still show up in the saltmaster debug log with:
+### 
+
+[INFO    ] Authentication request from server8446.salt.my-internal.domain
+[INFO    ] Authentication accepted from server8446.salt.my-internal.domain
+### 
+
+I double checked about 20 servers and even though they still show up in the saltmaster log with auth-attempts, they are definately not running a minion anymore. Even after making sure that about 10.000 minions dont have a running minion, the saltmasters logs are still filled with their minion-ids.
+
+Some debug info for the salt-master in this state:
+
+Load is constantly around ~12 but i guess this depends on the hardware:
+### 
+
+top - 14:16:43 up 17 days,  1:22,  7 users,  load average: 12.76, 12.49, 12.14
+### 
+
+Ram-usage of the saltmaster processes increases over time, this shows approx. 60 minutes:
+### 
+
+Private      +   Shared      =   RAM used    Program
+2.24 gb      +   22.62 mb        =   2.27 gb     salt-master(17)
+7.84 gb      +   22.62 mb        =   7.86 gb     salt-master(17)
+8.13 gb      +   22.49 mb        =   8.15 gb     salt-master(17)
+8.24 gb      +   21.88 mb        =   8.27 gb     salt-master(17)
+8.38 gb      +   20.55 mb        =   8.40 gb     salt-master(17)
+8.54 gb      +   22.39 mb        =   8.56 gb     salt-master(17)
+8.69 gb      +   21.25 mb        =   8.71 gb     salt-master(17)
+8.93 gb      +   22.49 mb        =   8.95 gb     salt-master(17)
+9.55 gb      +   21.80 mb        =   9.57 gb     salt-master(17)
+...
+### 
+
+Sorry about the gap between 2GB and 7GB, but i think it still shows the problem. Eventually the server goes out of memory and the salt-master process is killed by the oom-killer.
+
+I straced a couple of the salt-master processes for about 60 seconds into a logfile and it seems to be totaly consumed with stat' ing the key-store.
+### 
+
+stat("/etc/salt/pki/master/minions/server9249.my-internal.domain", {st_mode=S_IFREG|0640, st_size=796, ...}) = 0
+stat("/etc/salt/pki/master/minions/server7288.my-internal.domain", {st_mode=S_IFREG|0640, st_size=796, ...}) = 0
+stat("/etc/salt/pki/master/minions/server0267.my-internal.domain", {st_mode=S_IFREG|0644, st_size=796, ...}) = 0
+stat("/etc/salt/pki/master/minions/server5000.my-internal.domain", {st_mode=S_IFREG|0640, st_size=796, ...}) = 0
+...
+### 
+### 
+
+salt:~/tmp# grep ^stat saltmaster-strace.log | wc -l
+380761
+### 
+
+This is true for all salt-master processes. Looking at 380.000 stats within 60 seconds \* 12 master-processes sum up to about 76000 stats per second which probably explains the load of ~12.
+
+salt:~# salt --versions-report
+           Salt: 0.15.0-1097-g2084ed5
+         Python: 2.6.6 (r266:84292, Dec 26 2010, 22:31:48)
+         Jinja2: 2.5.5
+       M2Crypto: 0.20.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.1.0
+         PyYAML: 3.09
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.3
+
+Im not sure where to go from here. I will continually update this issue with info i gather along the way.. :-)
+
+I have trace-logs of the saltmaster (/var/log/salt/master), a screen-log of the console-output and the 60sec strace log and can supply all of them if desired (they will be anonymized).

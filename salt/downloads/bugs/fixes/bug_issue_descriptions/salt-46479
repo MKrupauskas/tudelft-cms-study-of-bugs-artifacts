@@ -1,0 +1,136 @@
+### Description of Issue/Question
+
+`boto_ec2.instance_present` throws KeyError exception when it's set to associate an EIP to an existing instance. The code was executed on the instance where EIP was to be associated.
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+This is a masterless setup and the code was executed on the minion where the EIP was to be associated with it.
+
+`eip_allocation_id` is defined in pillar:
+
+```
+# salt-call --local pillar.get eip_allocation_id
+local:
+    eipalloc-0da12345
+```
+
+eip.sls:
+```
+#!py
+
+def run():
+    config = {}
+    eip_allocation_id = __salt__['pillar.get']('eip_allocation_id')
+    eip = __salt__['pillar.get']('eip')
+    instance_id = __salt__['grains.get']('ec2:instance_id')
+    image_id = __salt__['grains.get']('ec2:image_id')
+
+    if eip_allocation_id:
+        config['associate_eip'] = {
+                'boto_ec2.instance_present': [
+                    {'instance_id': instance_id},
+                    {'image_id': image_id},
+                    {'allocation_id': eip_allocation_id}
+                    ]
+                }
+    elif eip:
+        config['associate_eip'] = {
+                'boto_ec2.instance_present': [
+                    {'instance_id': instance_id},
+                    {'image_id': image_id},
+                    {'public_ip': eip}
+                    ]
+                }
+
+    return config
+```
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+
+salt-call --local state.highstate -l trace
+
+output:
+----------
+          ID: associate_eip
+    Function: boto_ec2.instance_present
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/site-packages/salt/state.py", line 1851, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1795, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/states/boto_ec2.py", line 889, in instance_present
+                  ret['changes']['new']['public_ip'] = ip
+              KeyError: 'new'
+     Started: 00:59:55.594010
+    Duration: 542.195 ms
+     Changes:
+     
+     
+ Trace log:
+
+```
+[DEBUG   ] LazyLoaded boto_ec2.instance_present
+[INFO    ] Running state [associate_eip] at time 00:59:55.594009
+[INFO    ] Executing state boto_ec2.instance_present for [associate_eip]
+[DEBUG   ] The filters criteria {'instance_ids': ['i-02f8ae3a41298910f'], 'filters': {}} matched the following instances:[Instance:i-02f8ae3a41298910f]
+[DEBUG   ] Limiting instance matches to those in the requested states: [Instance:i-02f8ae3a41298910f]
+[INFO    ] Instance exists.
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 1851, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1795, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/states/boto_ec2.py", line 889, in instance_present
+    ret['changes']['new']['public_ip'] = ip
+KeyError: 'new'
+
+[INFO    ] Completed state [associate_eip] at time 00:59:56.136205 duration_in_ms=542.195
+```
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+```
+Salt Version:
+           Salt: 2017.7.4
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8.1
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.14 (default, Jan 31 2018, 02:12:13)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 6.9 Final
+         locale: UTF-8
+        machine: x86_64
+        release: 2.6.32-696.20.1.el6.x86_64
+         system: Linux
+        version: CentOS 6.9 Final
+```

@@ -1,0 +1,114 @@
+**Description of Issue/Question**  
+When using salt-api for weeks I found some jobs are no result So I checked the salt-master log and I found the error appears  as followed
+```
+2017-03-20 15:58:15,317 [salt.utils.event                         ][DEBUG   ][28048] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc2017-03-20 15:58:15,318 [salt.utils.event                         ][DEBUG   ][28048] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy/app.py", line 507, in hypermedia_handler
+  File "/usr/lib/python2.6/site-packages/cherrypy/_cpdispatch.py", line 34, in __call__
+  File "/usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy/app.py", line 933, in POST
+  File "/usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy/app.py", line 775, in exec_lowstate
+  File "/usr/lib/python2.6/site-packages/salt/netapi/__init__.py", line 70, in run
+  File "/usr/lib/python2.6/site-packages/salt/netapi/__init__.py", line 98, in local
+  File "/usr/lib/python2.6/site-packages/salt/client/__init__.py", line 535, in cmd
+  File "/usr/lib/python2.6/site-packages/salt/client/__init__.py", line 290, in run_job
+SaltClientError: [Errno 24] Too many open files
+2017-03-20 15:58:15,751 [salt.utils.process                       ][INFO    ][28040] Process <function start at 0x1ce6b18> (28048) died with exit status None, restarting...
+2017-03-20 15:58:16,757 [salt.utils.process                       ][DEBUG   ][28040] Started 'salt.loaded.int.netapi.rest_cherrypy.start' with pid 20716
+```
+**Steps to Reproduce Issue**
+
+After the salt-api restart automaticlly, I have beening  monitoring  the salt-api process 
+In the beginning the fd number is very small
+```
+ll /proc/${salt-api_id}/fd|wc -l
+300
+```
+But with salt-api jobs running, the fd files are growing rapidly
+```
+ll /proc/${salt-api_id}/fd|wc -l
+6112
+```
+After a few days with salt-api jobs executingcmd.run/cmd.script/test.ping on minions , the fd files number will go even higer. The fd files are almost eventpoll or eventfd
+```
+#ll /proc/${salt-api_id}/fd
+
+lrwx------ 1 root root 64 Mar 22 01:59 990 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Mar 22 01:59 991 -> anon_inode:[eventpoll]
+lrwx------ 1 root root 64 Mar 22 00:01 992 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Mar 22 00:01 993 -> socket:[444176582]
+lrwx------ 1 root root 64 Mar 22 01:59 994 -> socket:[444269960]
+lrwx------ 1 root root 64 Mar 22 01:59 995 -> anon_inode:[eventfd]
+...
+lrwx------ 1 root root 64 Mar 22 01:58 997 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Mar 22 01:58 998 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Mar 22 01:58 999 -> anon_inode:[eventpoll]
+```
+The system **ulimit** info
+```
+#ulimit -a
+core file size          (blocks, -c) 0
+data seg size           (kbytes, -d) unlimited
+scheduling priority             (-e) 0
+file size               (blocks, -f) unlimited
+pending signals                 (-i) 2066283
+max locked memory       (kbytes, -l) 64
+max memory size         (kbytes, -m) unlimited
+**open files                      (-n) 51200**
+pipe size            (512 bytes, -p) 8
+POSIX message queues     (bytes, -q) 819200
+real-time priority              (-r) 0
+stack size              (kbytes, -s) 10240
+cpu time               (seconds, -t) unlimited
+max user processes              (-u) 10240
+virtual memory          (kbytes, -v) unlimited
+file locks                      (-x) unlimited
+```
+**the system openfile max are almost cost by salt**
+```
+#lsof | awk '{ print $2 " " $1; }' | sort -rn | uniq -c | sort -rn
+   opening files   pid
+   6220            ${salt-api_pid}  /usr/bin/
+   1645            ${salt-master_ventPublisher_pid}   /usr/bin/
+```
+
+**Versions Report**
+And here is the salt version info:
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2015.8.12
+ 
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+         Python: 2.6.6 (r266:84292, Nov 22 2013, 12:16:22)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+ 
+System Versions:
+           dist: redhat 6.3 Santiago
+        machine: x86_64
+        release: 2.6.32-279.el6.x86_64
+         system: Red Hat Enterprise Linux Server 6.3 Santiago
+```

@@ -1,0 +1,128 @@
+### Description of Issue
+salt.states.postgres_user.present fails to properly update user password if credentials contain the symbol: **"**
+
+### Setup
+Jinja code pillar snippet used for an example user:
+```
+postgres:
+  roles:
+    user1:
+      superuser: True
+      groups: dba
+      login: True
+      refresh_password: True
+      password: |
+        -----BEGIN PGP MESSAGE-----
+        ...REDACTED PGP...
+        -----END PGP MESSAGE-----
+``` 
+Actual code which uses pillar info to generate key-value pairs for PostgreSQL user creation:
+``` 
+{% for role, args in salt['pillar.get']('postgres:roles', {}).items() %}
+postgres_role_{{role}}:
+  postgres_user.present:
+    - name: {{ role }}
+    {% if args is iterable -%}
+    {% for key, value in args.items() -%}
+    - {{key}}: "{{value}}"
+    - runas: postgres
+    - onlyif: "/usr/bin/psql -c 'select pg_is_in_recovery();' template1 | grep f"
+    - require:
+      {% if key == 'groups' %}
+      {% for group in value.split(',') -%}
+      - postgres_role_{{group}}
+      {% endfor -%}
+      {% endif %}
+      - pkg: pgsql
+    {% endfor -%}
+    {% endif -%}
+{% endfor -%}
+``` 
+
+### Steps to Reproduce Issue
+- Create a top secret password which has the symbol **"** in it and save it into SECRETFILE on your Saltmaster
+- Covert it into pillar-friendly encrypted PGP message: `sudo bash -c 'cat SECRETFILE | tr -d "\n" | gpg --armor --homedir /etc/salt/gpgkeys --batch --trust-model always --encrypt -r "saltmaster"'`
+- Put the generated key into a pillar
+- Refer to the pillar key when deploying the PostgreSQL user into the DB
+
+### Versions Report
+MASTER:
+```
+Salt Version:
+          Salt: 3003.1
+
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.5
+     gitpython: 2.1.11
+        Jinja2: 2.10
+       libgit2: 0.27.7
+      M2Crypto: 0.31.0
+          Mako: Not Installed
+       msgpack: 0.5.6
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.19
+      pycrypto: 2.6.1
+  pycryptodome: 3.6.1
+        pygit2: 0.27.4
+        Python: 3.7.3 (default, Jan 22 2021, 20:04:44)
+  python-gnupg: Not Installed
+        PyYAML: 3.13
+         PyZMQ: 17.1.2
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.1
+
+System Versions:
+          dist: debian 10 buster
+        locale: UTF-8
+       machine: x86_64
+       release: 5.4.88-47de98a95f4b
+        system: Linux
+       version: Debian GNU/Linux 10 buster
+```
+MINION:
+```
+Salt Version:
+          Salt: 3003.1
+
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10
+       libgit2: Not Installed
+      M2Crypto: 0.31.0
+          Mako: Not Installed
+       msgpack: 0.5.6
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: Not Installed
+        Python: 3.7.3 (default, Jan 22 2021, 20:04:44)
+  python-gnupg: Not Installed
+        PyYAML: 3.13
+         PyZMQ: 17.1.2
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.1
+
+System Versions:
+          dist: debian 10 buster
+        locale: UTF-8
+       machine: x86_64
+       release: 5.4.134-e6e9f44abfe9
+        system: Linux
+       version: Debian GNU/Linux 10 buster
+```

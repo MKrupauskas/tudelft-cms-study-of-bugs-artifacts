@@ -1,0 +1,78 @@
+### Description of Issue/Question
+I have a `~/.ssh/known_hosts` file that already exists (it can just be empty) with 0600 permissions set. When I add an an entry to that via `ssh_known_hosts.present`, the original file is unexpectedly backed up to `~/.ssh/known_hosts.old` (not configurable or documented by the state). The permissions on the backup are correct, however the original permissions are changed to 0644.
+
+I had a quick skim through the code, and I believe the problem is here:
+https://github.com/saltstack/salt/blob/develop/salt/modules/ssh.py#L1111
+
+This was introduced in 3bbf4e2e9f8d351a140957faca11444ef82967c5 back in late 2014 (sounds about right - this has annoyed me for a long time) which just says "py3 ssh module"... so it's not clear why it's indiscriminately relaxing permissions.
+
+My gut feeling is that the code is attempting to tighten up permissions, but doesn't bother to check if it's actually doing the right thing. It is my opinion that the execution module should only be changing the file permissions if it created the file, otherwise possibly printing a warning about it being insecure, and leaving it to the user to correct.
+
+### Setup
+Something like this should show the issue:
+```
+/root/.ssh/known_hosts:
+  file.managed:
+    - mode: '0600'
+    - makedirs: True
+    - replace: False
+
+Add github.com sha256 ssh-rsa key to /root/.ssh/known_hosts
+  ssh_known_hosts.present:
+    - name: github.com
+    - user: root
+    - enc: ssh-rsa
+    - fingerprint: 16:27:ac:a5:76:28:2d:36:63:1b:56:4d:eb:df:a6:48
+    - fingerprint_hash_type: md5
+    - require:
+      - file: /root/.ssh/known_hosts
+```
+
+### Steps to Reproduce Issue
+Just run the above. It will take two state executions before the permissions are correct, instead of one.
+
+The work-around is to use `require_in` for ` file: /root/.ssh/known_hosts` in `ssh_known_hosts.present` blocks, but that would still leave the permissions relaxed briefly.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.4
+ 
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+      docker-py: Not Installed
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.4.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 8.8 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.8 
+ 
+```

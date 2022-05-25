@@ -1,0 +1,170 @@
+### Description of Issue
+Schedulers are failing to run with a `KeyError: u'run`
+
+I am testing this by running it manually with 
+`salt-call schedule.run_job test-scheduler-present -l debug`
+
+Error Ouput:
+```Python
+2019-09-25 14:06:41,391 [salt.utils.schedule:461 ][INFO    ][6910] Running Job: test-scheduler-present
+2019-09-25 14:06:41,391 [tornado.application:611 ][ERROR   ][6910] Exception in callback <functools.partial object at 0x7f5bcc528520>
+Traceback (most recent call last):
+  File "/usr/lib64/python2.7/site-packages/tornado/ioloop.py", line 591, in _run_callback
+    ret = callback()
+  File "/usr/lib64/python2.7/site-packages/tornado/stack_context.py", line 274, in null_wrapper
+    return fn(*args, **kwargs)
+  File "/usr/lib64/python2.7/site-packages/tornado/ioloop.py", line 597, in <lambda>
+    self.add_future(ret, lambda f: f.result())
+  File "/usr/lib64/python2.7/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib64/python2.7/site-packages/tornado/gen.py", line 888, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 959, in handle_event
+    yield [minion.handle_event(package) for minion in self.minions]
+  File "/usr/lib64/python2.7/site-packages/tornado/gen.py", line 882, in run
+    value = future.result()
+  File "/usr/lib64/python2.7/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib64/python2.7/site-packages/tornado/gen.py", line 668, in callback
+    result_list.append(f.result())
+  File "/usr/lib64/python2.7/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib64/python2.7/site-packages/tornado/gen.py", line 232, in wrapper
+    yielded = next(result)
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 2371, in handle_event
+    self.manage_schedule(tag, data)
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 2233, in manage_schedule
+    self.schedule.run_job(name)
+  File "/usr/lib/python2.7/site-packages/salt/utils/schedule.py", line 467, in run_job
+    datetime.datetime.now())
+  File "/usr/lib/python2.7/site-packages/salt/utils/schedule.py", line 212, in _check_max_running
+    if not data['run']:
+KeyError: u'run'
+```
+
+### Setup
+(All tests are a single Vagrant box running both Master and Minion)
+Attempting to run either of these to verify scheduler functionality and all fail with the same error.
+`scheduler.sls`
+```YAML
+httpd-scheduler-present:
+  schedule.present:
+    - function: state.sls
+    - job_args:
+      - httpd
+
+test-scheduler-present:
+  schedule.present:
+    - function: test.echo
+    - job_args: 'TESTING'
+
+biweekly-schedule-present:
+  schedule.present:
+    - function: cmd.run
+    - job_args:
+      - name: 'shutdown -r +1 "Biweekly Updates via Saltstack"'
+      - onlyif: 'test $((10#$(date +%W)%2)) -eq 0'
+    - cron: '30 1 * * 7'
+```
+(HTTP test state)
+`httpd/init.sls`
+```YAML
+httpd-pkg-installed:
+  pkg.installed:
+    - name: httpd
+```
+
+
+### Steps to Reproduce Issue
+1. Add the scheduler to the minion
+2. Run `salt-call schedule.run_job test-scheduler-present -l debug`
+3. View `/var/log/salt/minion` for error output
+
+### Versions Report
+`master`
+```YAML
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Apr  9 2019, 14:30:50)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.7.1908 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-957.12.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.7.1908 Core
+```
+
+`minion`
+```YAML
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Apr  9 2019, 14:30:50)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.7.1908 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-957.12.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.7.1908 Core
+```

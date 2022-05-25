@@ -1,0 +1,44 @@
+If a master has only `top.sls`, then a call to `state.show_top` returns the entire top data (run via `salt-call` on the host `black.virt.local`):
+
+```
+base:
+    ----------
+    black.virt.local:
+        - motd
+        - etc_hosts
+    blue.virt.local:
+        - motd
+        - etc_hosts
+```
+
+When using a `master_tops` backend, which provides the same data, `state.show_top` on `black.virt.local` returns:
+
+```
+base:
+    - motd
+    - etc_hosts
+```
+
+The reason is related to #6930: the `top()` function of a `master_tops` plugin
+is _expected_ to return only the data for a specific minion, which is
+inconsistent with how the master forwards `top.sls` data.
+
+If the `master_tops` plugin does not do any filtering (and returns the same
+data as `top.sls`, e.g. by using `ext_nodes` and `/bin/cat` in a wrapper
+script to feed `top.sls` into the `master_tops` system), then `state.show_top`
+returns nothing whatsoever.
+
+Independent of this quirk, it seems wrong to me that the minion sees different
+data for different top-sources on the master. Instead, I would expect the
+master to offer one consistent view of top data, completely shielding the
+minions of any information or hints about how those data are stored or
+generated.
+
+On a related note,
+https://salt.readthedocs.org/en/latest/topics/pillar/index.html says: "Unlike
+state tree, pillar data is only available for the targeted minion specified by
+the matcher type. This makes it useful for storing sensitive data specific to
+a particular minion."
+
+By extension, this means that the state tree should be made available to
+minions in its entirety, even if `master_tops` are being used.

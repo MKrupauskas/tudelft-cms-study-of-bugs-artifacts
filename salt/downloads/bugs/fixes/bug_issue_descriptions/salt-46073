@@ -1,0 +1,237 @@
+### Description of Issue/Question
+Recent 2017.7.3 stable of grains metadata.py is causing metadata collection failure or nested iteration depending on ```backend``` options used in configuration when salt deployed within AWS environment (possibly any cloud provider with instance metadata api). The problem occurs when metadata.py search path returns ```user-data``` containing non json format data and long cloud-init script (exceeding 100+ lines with many spaces between words). While ```tornado``` backend httplib simply fails and discards user-data/meta-data in grains, ```requests``` backend httplib gets stuck in long nested iteration, hogging up cpu when using lengthy ```user-data``` text input such as extensive ```cloud-init``` ```#cloud-config``` yaml data.
+
+### Setup
+For nested iteration, set up salt config with;
+```
+metadata_server_grains: True
+backend: requests
+```
+Include long ```#cloud-config``` yaml data (over 100+ lines and spaces) into ```user-data``` such when provisioning AWS EC2.
+
+### Steps to Reproduce Issue
+1. Simply run salt in AWS environment with user-data containing long ```cloud-init``` yaml data.
+2. set ```backend``` configuration to use ```requests``` module
+
+Sample ```cloud-init``` cloud-config yaml data to use;
+```
+#cloud-config
+
+cloud_init_modules:
+  - bootcmd
+  - growpart
+  - resizefs
+  - set_hostname
+  - update_hostname
+  - update_etc_hosts
+  - rsyslog
+  - users-groups
+  - ssh
+
+cloud_config_modules:
+  - mounts
+  - locale
+  - set-passwords
+  - yum-add-repo
+  - disable-ec2-metadata
+  - package-update-upgrade-install
+  - write-files
+  - timezone
+  - runcmd
+
+cloud_final_modules:
+  - scripts-per-once
+  - scripts-per-boot
+  - scripts-per-instance
+  - [ scripts-user, always ]
+  - ssh-authkey-fingerprints
+  - keys-to-console
+  - phone-home
+  - final-message
+  - power_state_change
+
+bootcmd:
+  - setenforce 0
+
+growpart:
+  mode: auto
+  devices: ['/']
+  ignore_growroot_disabled: false
+
+write_files:
+  - path: "/etc/gitconfig"
+    owner: "root"
+    permissions: "0600"
+    content: |
+      [credential]
+          helper = !aws codecommit credential-helper $@
+          UseHttpPath = true
+  - path: "/var/lib/cloud/instance/scripts/firstboot.sh"
+    owner: "root"
+    permissions: "0750"
+    content: |
+      #!/bin/bash
+      salt-call --log-file-level=debug --local state.top default/top.sls
+  - path: "/etc/salt/minion.d/masterless.conf"
+    owner: "root"
+    permissions: "0640"
+    content: |
+      file_client: local
+      metadata_server_grains: True
+      backend: requests
+      fileserver_backend:
+        - git
+      gitfs_provider: GitPython
+      gitfs_base: master
+      gitfs_root: salt
+      gitfs_remotes:
+        - https://private-git.com/repos/saltstack:
+          - name: all-salt-states
+          - root: salt/states
+          - base: master
+        - https://private-git.com/repos/saltstack:
+          - name: highlevel-states
+          - root: salt/highstates
+          - base: master
+      git_pillar_provider: GitPython
+      git_pillar_base: master
+      git_pillar_root: salt/roles
+      ext_pillar:
+        - git:
+          - master https://private-git.com/repos/saltstack
+      file_ignore_regex:
+        - '/\.git($|/)'
+      grains_dirs:
+        - /etc/salt/grains
+  - path: "/etc/salt/grains"
+    owner: "root"
+    permissions: "0640"
+    content: |
+      roles:
+        - default
+
+disable_root: 1
+
+locale_configfile: /etc/sysconfig/i18n
+
+mount_default_fields: [~, ~, 'auto', 'defaults,nofail', '0', '2']
+resize_rootfs_tmp: /dev
+
+ssh_deletekeys:   0
+ssh_genkeytypes:  ~
+ssh_pwauth:   0
+
+syslog_fix_perms: ~
+
+yum_repos:
+  saltstack-repo:
+      name: SaltStack repo for RHEL/Centos $releasever
+      baseurl: https://repo.saltstack.com/yum/redhat/$releasever/$basearch/latest
+      enabled: true
+      failovermethod: priority
+      gpgcheck: true
+      gpgkey: https://repo.saltstack.com/yum/redhat/$releasever/$basearch/latest/SALTSTACK-GPG-KEY.pub
+
+packages:
+  - awscli
+  - python2-boto3
+  - python-requests
+  - GitPython
+  - libmetalink
+  - m2crypto
+  - salt
+  - salt-minion
+```
+```
+$ salt-call -l debug grains.items
+...
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/masterless.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/masterless.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: ip-192-168-7-107.ec2.internal
+[DEBUG   ] Requesting URL http://169.254.169.254/latest/user-data/          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper / using GET method
+[DEBUG   ] Final URL location of Response: http://169.254.169.254/latest/user-data/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/
+[DEBUG   ] Response Status Code: 200
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/masterless.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/masterless.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: ip-192-168-7-107.ec2.internal
+[DEBUG   ] Requesting URL http://169.254.169.254/latest/user-data/          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /          helper /growpart: using GET method
+[DEBUG   ] Final URL location of Response: http://169.254.169.254/latest/user-data/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/%20%20%20%20%20%20%20%20%20%20helper%20/growpart:
+[DEBUG   ] Response Status Code: 200
+[DEBUG   ] Reading configuration from /etc/salt/minion
+....
+```
+
+-OR-
+
+1. Simply run salt in AWS environment with user-data containing cloud-init script.
+```
+$ salt-call -l debug grains.items
+...
+[CRITICAL] Failed to load grains defined in grain file metadata.metadata in function <function metadata at 0x30b0f50>, error:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 740, in grains
+    ret = funcs[key]()
+  File "/usr/lib/python2.7/site-packages/salt/grains/metadata.py", line 77, in metadata
+    return _search()
+  File "/usr/lib/python2.7/site-packages/salt/grains/metadata.py", line 61, in _search
+    ret[line] = _search(prefix=os.path.join(prefix, line + '/'))
+  File "/usr/lib/python2.7/site-packages/salt/grains/metadata.py", line 70, in _search
+    ret[line] = json.loads(retdata)
+  File "/usr/lib64/python2.7/json/__init__.py", line 338, in loads
+    return _default_decoder.decode(s)
+  File "/usr/lib64/python2.7/json/decoder.py", line 366, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+TypeError: expected string or buffer
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.3
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.24.6
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.24.2
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-514.26.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+```
+
+python-requests module version
+```
+$ rpm -q python-requests
+python-requests-2.6.0-1.el7_1.noarch
+```

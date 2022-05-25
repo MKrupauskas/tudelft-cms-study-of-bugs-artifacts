@@ -1,0 +1,254 @@
+### Description of Issue
+
+We are having issues with the following modules
+partition.mklabel
+partition.mkpart
+blockdev.formatted
+mount.mounted
+We traced back into the python file `/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py ` which has the below function which is tracing back to salt libraries. We need help finding out what the issue is.
+
+```
+ if not isinstance(cmd, list):
+        return cmd.split()[0].strip()
+```
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+This is what we have in the SLS file.
+
+```
+set_disk_label:
+  module.run:
+    - partition.mklabel:
+      - device: /dev/{{ disk_map }}b
+      - label_type: msdos
+
+create_disk_partition:
+  module.run:
+    - partition.mkpart:
+      - device: /dev/{{ disk_map }}b
+      - part_type: 'primary'
+      - fs_type: xfs
+      # using percent permit to have maximum size
+      - start: '0%'
+      - end: '100%'
+
+format_data_disk:
+  blockdev.formatted:
+    - name: /dev/{{ disk_map }}b1
+    - fs_type: xfs
+    - require: 
+      - create_disk_partition
+      
+mount_data_disk:
+  mount.mounted:
+    - name: /data
+    - device: /dev/{{ disk_map }}b1
+    - mkmnt: True
+    - fstype: xfs
+    - require: 
+      - format_data_disk
+```
+Set_disk_label fails and the rest of them fail because of that.
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+Debug log contains the same error, nothing different from the output we get when we run the salt state.
+```
+2021-03-09 10:32:37,155 [salt.utils.decorators:351 ][ERROR   ][14471] Unhandled exception occurred in function "run: 'tuple' object has no attribute 'split'
+2021-03-09 10:32:37,155 [salt.state       :1987][DEBUG   ][14471] An exception occurred in this state: 'tuple' object has no attribute 'split'
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 1981, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1977, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 650, in _decorate
+    return self._call_function(kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 353, in _call_function
+    six.reraise(*sys.exc_info())
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 340, in _call_function
+    return self._function(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/states/module.py", line 421, in run
+    func_args=kwargs.get(func))
+  File "/usr/lib/python2.7/site-packages/salt/states/module.py", line 450, in _call_function
+    mret = salt.utils.functools.call_function(__salt__[name], *func_args)
+  File "/usr/lib/python2.7/site-packages/salt/utils/functools.py", line 142, in call_function
+    return salt_function(*function_args, **function_kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/parted_partition.py", line 450, in mklabel
+    out = __salt__['cmd.run'](cmd, python_shell=False).splitlines()
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 1177, in run
+    **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 387, in _run
+    _log_cmd(cmd),
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 81, in _log_cmd
+    return cmd.split()[0].strip()
+AttributeError: 'tuple' object has no attribute 'split'
+2021-03-09 10:32:37,158 [salt.state       :322 ][ERROR   ][14471] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 1981, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1977, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 650, in _decorate
+    return self._call_function(kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 353, in _call_function
+    six.reraise(*sys.exc_info())
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 340, in _call_function
+    return self._function(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/states/module.py", line 421, in run
+    func_args=kwargs.get(func))
+      File "/usr/lib/python2.7/site-packages/salt/states/module.py", line 450, in _call_function
+    mret = salt.utils.functools.call_function(__salt__[name], *func_args)
+  File "/usr/lib/python2.7/site-packages/salt/utils/functools.py", line 142, in call_function
+    return salt_function(*function_args, **function_kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/parted_partition.py", line 450, in mklabel
+    out = __salt__['cmd.run'](cmd, python_shell=False).splitlines()
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 1177, in run
+    **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 387, in _run
+    _log_cmd(cmd),
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 81, in _log_cmd
+    return cmd.split()[0].strip()
+AttributeError: 'tuple' object has no attribute 'split'
+
+2021-03-09 10:32:37,159 [salt.state       :2045][INFO    ][14471] Completed state [set_disk_label] at time 10:32:37.158947 (duration_in_ms=8.915)
+2021-03-09 10:32:37,159 [salt.state       :1867][INFO    ][14471] Running state [create_disk_partition] at time 10:32:37.159224
+2021-03-09 10:32:37,159 [salt.state       :1900][INFO    ][14471] Executing state module.run for [create_disk_partition]
+2021-03-09 10:32:37,160 [salt.utils.decorators:351 ][ERROR   ][14471] Unhandled exception occurred in function "run: 'tuple' object has no attribute 'split'
+2021-03-09 10:32:37,160 [salt.state       :1987][DEBUG   ][14471] An exception occurred in this state: 'tuple' object has no attribute 'split'
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 1981, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1977, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 650, in _decorate
+    return self._call_function(kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 353, in _call_function
+    six.reraise(*sys.exc_info())
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 340, in _call_function
+    return self._function(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/states/module.py", line 421, in run
+    func_args=kwargs.get(func))
+  File "/usr/lib/python2.7/site-packages/salt/states/module.py", line 450, in _call_function
+    mret = salt.utils.functools.call_function(__salt__[name], *func_args)
+  File "/usr/lib/python2.7/site-packages/salt/utils/functools.py", line 142, in call_function
+    return salt_function(*function_args, **function_kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/parted_partition.py", line 492, in mkpart
+    out = __salt__['cmd.run'](cmd, python_shell=False).splitlines()
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 1177, in run
+    **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 387, in _run
+    _log_cmd(cmd),
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 81, in _log_cmd
+    return cmd.split()[0].strip()
+AttributeError: 'tuple' object has no attribute 'split'
+2021-03-09 10:32:37,161 [salt.state       :322 ][ERROR   ][14471] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 1981, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1977, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 650, in _decorate
+    return self._call_function(kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 353, in _call_function
+   six.reraise(*sys.exc_info())
+  File "/usr/lib/python2.7/site-packages/salt/utils/decorators/__init__.py", line 340, in _call_function
+    return self._function(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/states/module.py", line 421, in run
+    func_args=kwargs.get(func))
+  File "/usr/lib/python2.7/site-packages/salt/states/module.py", line 450, in _call_function
+    mret = salt.utils.functools.call_function(__salt__[name], *func_args)
+  File "/usr/lib/python2.7/site-packages/salt/utils/functools.py", line 142, in call_function
+    return salt_function(*function_args, **function_kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/parted_partition.py", line 492, in mkpart
+    out = __salt__['cmd.run'](cmd, python_shell=False).splitlines()
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 1177, in run
+    **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 387, in _run
+    _log_cmd(cmd),
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 81, in _log_cmd
+    return cmd.split()[0].strip()
+AttributeError: 'tuple' object has no attribute 'split'
+
+2021-03-09 10:32:37,161 [salt.state       :2045][INFO    ][14471] Completed state [create_disk_partition] at time 10:32:37.161346 (duration_in_ms=2.122)
+```
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+Mater:
+Salt Version:
+           Salt: 3000
+```
+Dependency Versions:
+           cffi: 1.14.5
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.3
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.20
+       pycrypto: 2.6.1
+   pycryptodome: 3.10.1
+         pygit2: Not Installed
+         Python: 3.7.10 (default, Feb 25 2021, 02:08:18)
+   python-gnupg: Not Installed
+         PyYAML: 5.4.1
+          PyZMQ: 19.0.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1160.11.1.el7.x86_64
+         system: Linux
+        version: Not Installed
+```
+-------------------------------------------------------------------
+
+Minion:
+    Salt Version:
+               Salt: 3000.8
+```
+    Dependency Versions:
+               cffi: 1.6.0
+           cherrypy: Not Installed
+           dateutil: Not Installed
+          docker-py: 1.10.6
+              gitdb: Not Installed
+          gitpython: Not Installed
+             Jinja2: 2.7.2
+            libgit2: Not Installed
+           M2Crypto: Not Installed
+               Mako: Not Installed
+       msgpack-pure: Not Installed
+     msgpack-python: 0.6.2
+       mysql-python: Not Installed
+          pycparser: 2.14
+           pycrypto: 2.6.1
+       pycryptodome: Not Installed
+             pygit2: Not Installed
+             Python: 2.7.5 (default, Nov 16 2020, 22:23:17)
+       python-gnupg: Not Installed
+             PyYAML: 3.11
+              PyZMQ: 15.3.0
+              smmap: Not Installed
+            timelib: Not Installed
+            Tornado: 4.5.3
+                ZMQ: 4.1.4
+
+    System Versions:
+               dist: centos 7.9.2009 Core
+             locale: UTF-8
+            machine: x86_64
+            release: 3.10.0-1160.11.1.el7.x86_64
+             system: Linux
+            version: CentOS Linux 7.9.2009 Core
+```

@@ -1,0 +1,361 @@
+**Description**
+not able to load custom returner while in-build returners are working fine.
+
+**Setup**
+* master config file configuration
+file_roots:
+  base:
+    - /root/srv/salt/  
+sqlite3.database: /root/salt.db
+sqlite3.timeout: 5.0
+master_job_cache: test2
+* minion configuration file
+master: localhost
+
+**Steps to Reproduce the behavior**
+*define configuration file as given above.
+* define returner in /root/srv/salt/_returners/test2.py
+* my returner is copy of sqlite returner.
+```from __future__ import absolute_import, print_function, unicode_literals
+
+import datetime
+
+# Import python libs
+import logging
+
+import salt.returners
+
+# Import Salt libs
+import salt.utils.jid
+import salt.utils.json
+
+# Import 3rd-party libs
+from salt.ext import six
+
+# Better safe than sorry here. Even though sqlite3 is included in python
+try:
+    import sqlite3
+
+    HAS_SQLITE3 = True
+except ImportError:
+    HAS_SQLITE3 = False
+
+log = logging.getLogger(__name__)
+
+# Define the module's virtual name
+__virtualname__ = "test2"
+
+
+def __virtual__():
+    if not HAS_SQLITE3:
+        return False, "Could not import sqlite3 returner; sqlite3 is not installed."
+    return __virtualname__
+
+
+def _get_options(ret=None):
+    """
+    Get the SQLite3 options from salt.
+    """
+    attrs = {"database": "database", "timeout": "timeout"}
+
+    _options = salt.returners.get_returner_options(
+        __virtualname__, ret, attrs, __salt__=__salt__, __opts__=__opts__
+    )
+    log.debug("dev>>>>>>>>>>>>>>>>>>>>>>>>>>")
+    return _options
+
+
+def _get_conn(ret=None):
+    """
+    Return a sqlite3 database connection
+    """
+    # Possible todo: support detect_types, isolation_level, check_same_thread,
+    # factory, cached_statements. Do we really need to though?
+    _options = _get_options(ret)
+    database = _options.get("database")
+    timeout = _options.get("timeout")
+    if not database:
+        raise Exception('sqlite3 config option "sqlite3.database" is missing')
+    if not timeout:
+        raise Exception('sqlite3 config option "sqlite3.timeout" is missing')
+    log.debug("Connecting the sqlite3 database: %s timeout: %s", database, timeout)
+    conn = sqlite3.connect(database, timeout=float(timeout))
+    return conn
+
+
+def _close_conn(conn):
+    """
+    Close the sqlite3 database connection
+    """
+    log.debug("Closing the sqlite3 database connection")
+    conn.commit()
+    conn.close()
+
+
+def returner(ret):
+    """
+    Insert minion return data into the sqlite3 database
+    """
+    log.debug("sqlite3 returner <returner> called with data: %s", ret)
+    log.debug("this is the point of focus")
+    conn = _get_conn(ret)
+    cur = conn.cursor()
+    sql = """INSERT INTO salt_returns
+             (fun, jid, id, fun_args, date, full_ret, success)
+             VALUES (:fun, :jid, :id, :fun_args, :date, :full_ret, :success)"""
+    cur.execute(
+        sql,
+        {
+            "fun": ret["fun"],
+            "jid": ret["jid"],
+            "id": ret["id"],
+            "fun_args": six.text_type(ret["fun_args"]) if ret.get("fun_args") else None,
+            "date": six.text_type(datetime.datetime.now()),
+            "full_ret": salt.utils.json.dumps(ret["return"]),
+            "success": ret.get("success", ""),
+        },
+    )
+    _close_conn(conn)
+
+
+def save_load(jid, load, minions=None):
+    """
+    Save the load to the specified jid
+    """
+    log.debug("sqlite3 returner <save_load> called jid: %s load: %s", jid, load)
+    conn = _get_conn(ret=None)
+    cur = conn.cursor()
+    sql = """INSERT INTO jids (jid, load) VALUES (:jid, :load)"""
+    cur.execute(sql, {"jid": jid, "load": salt.utils.json.dumps(load)})
+    _close_conn(conn)
+
+
+def save_minions(jid, minions, syndic_id=None):  # pylint: disable=unused-argument
+    """
+    Included for API consistency
+    """
+
+
+def get_load(jid):
+    """
+    Return the load from a specified jid
+    """
+    log.debug("sqlite3 returner <get_load> called jid: %s", jid)
+    conn = _get_conn(ret=None)
+    cur = conn.cursor()
+    sql = """SELECT load FROM jids WHERE jid = :jid"""
+    cur.execute(sql, {"jid": jid})
+    data = cur.fetchone()
+    if data:
+        return salt.utils.json.loads(data[0].encode())
+    _close_conn(conn)
+    return {}
+
+
+def get_jid(jid):
+    """
+    Return the information returned from a specified jid
+    """
+    log.debug("sqlite3 returner <get_jid> called jid: %s", jid)
+    conn = _get_conn(ret=None)
+    cur = conn.cursor()
+    sql = """SELECT id, full_ret FROM salt_returns WHERE jid = :jid"""
+    cur.execute(sql, {"jid": jid})
+    data = cur.fetchone()
+    log.debug("query result: %s", data)
+    ret = {}
+    if data and len(data) > 1:
+        ret = {six.text_type(data[0]): {"return": salt.utils.json.loads(data[1])}}
+        log.debug("ret: %s", ret)
+    _close_conn(conn)
+    return ret
+
+
+def get_fun(fun):
+    """
+    Return a dict of the last function called for all minions
+    """
+    log.debug("sqlite3 returner <get_fun> called fun: %s", fun)
+    conn = _get_conn(ret=None)
+    cur = conn.cursor()
+    sql = """SELECT s.id, s.full_ret, s.jid
+            FROM salt_returns s
+            JOIN ( SELECT MAX(jid) AS jid FROM salt_returns GROUP BY fun, id) max
+            ON s.jid = max.jid
+            WHERE s.fun = :fun
+            """
+    cur.execute(sql, {"fun": fun})
+    data = cur.fetchall()
+    ret = {}
+    if data:
+        # Pop the jid off the list since it is not
+        # needed and I am trying to get a perfect
+        # pylint score :-)
+        data.pop()
+        for minion, ret in data:
+            ret[minion] = salt.utils.json.loads(ret)
+    _close_conn(conn)
+    return ret
+
+
+def get_jids():
+    """
+    Return a list of all job ids
+    """
+    log.debug("sqlite3 returner <get_jids> called")
+    conn = _get_conn(ret=None)
+    cur = conn.cursor()
+    sql = """SELECT jid, load FROM jids"""
+    cur.execute(sql)
+    data = cur.fetchall()
+    ret = {}
+    for jid, load in data:
+        ret[jid] = salt.utils.jid.format_jid_instance(jid, salt.utils.json.loads(load))
+    _close_conn(conn)
+    return ret
+
+
+def get_minions():
+    """
+    Return a list of minions
+    """
+    log.debug("sqlite3 returner <get_minions> called")
+    conn = _get_conn(ret=None)
+    cur = conn.cursor()
+    sql = """SELECT DISTINCT id FROM salt_returns"""
+    cur.execute(sql)
+    data = cur.fetchall()
+    ret = []
+    for minion in data:
+        ret.append(minion[0])
+    _close_conn(conn)
+    return ret
+
+
+def prep_jid(nocache=False, passed_jid=None):  # pylint: disable=unused-argument
+    """
+    Do any work necessary to prepare a JID, including sending a custom id
+    """
+    return passed_jid if passed_jid is not None else salt.utils.jid.gen_jid(__opts__)
+```
+* I am executing 
+salt '*' test.ping --return test2
+
+**Expected behavior**
+my expectation is it should behave as sqlite returner.
+
+**Screenshots**
+* error on terminal
+```(saltenv) root@test:~/srv/salt# salt '*' test.ping --return test2
+[ERROR   ] Message timed out
+Salt request timed out. The master is not responding. You may need to run your command with `--async` in order to bypass the congested event bus. With `--async`, the CLI tool will print the job id (jid) and exit immediately without listening for responses. You can then use `salt-run jobs.lookup_jid` to look up the results of the job in the job cache later.
+```
+* error in master log file
+```
+2020-12-29 12:32:52,913 [salt.master                                                              :2404][ERROR   ][648860] Failed to allocate a jid. The requested returner 'test2' could not be loaded.
+2020-12-29 12:32:52,914 [salt.transport.zeromq                                                    :876 ][ERROR   ][648860] Some exception handling a payload from minion
+Traceback (most recent call last):
+  File "/root/saltenv/lib/python3.8/site-packages/salt/transport/zeromq.py", line 872, in handle_message
+    ret, req_opts = yield self.payload_handler(payload)
+  File "/root/saltenv/lib/python3.8/site-packages/salt/ext/tornado/gen.py", line 1056, in run
+    value = future.result()
+  File "/root/saltenv/lib/python3.8/site-packages/salt/ext/tornado/concurrent.py", line 249, in result
+    raise_exc_info(self._exc_info)
+  File "<string>", line 4, in raise_exc_info
+  File "/root/saltenv/lib/python3.8/site-packages/salt/ext/tornado/gen.py", line 294, in wrapper
+    result = func(*args, **kwargs)
+  File "/usr/lib/python3.8/types.py", line 278, in wrapped
+    coro = func(*args, **kwargs)
+  File "/root/saltenv/lib/python3.8/site-packages/salt/master.py", line 1131, in _handle_payload
+    ret = {"aes": self._handle_aes, "clear": self._handle_clear}[key](load)
+  File "/root/saltenv/lib/python3.8/site-packages/salt/master.py", line 1172, in _handle_clear
+    ret = method(load), {"fun": "send_clear"}
+  File "/root/saltenv/lib/python3.8/site-packages/salt/master.py", line 2355, in publish
+    payload = self._prep_pub(minions, jid, clear_load, extra, missing)
+  File "/root/saltenv/lib/python3.8/site-packages/salt/master.py", line 2442, in _prep_pub
+    self.event.fire_event({"minions": minions}, clear_load["jid"])
+  File "/root/saltenv/lib/python3.8/site-packages/salt/utils/event.py", line 755, in fire_event
+    salt.utils.stringutils.to_bytes(tag),
+  File "/root/saltenv/lib/python3.8/site-packages/salt/utils/stringutils.py", line 62, in to_bytes
+    raise TypeError("expected str, bytes, or bytearray not {}".format(type(s)))
+TypeError: expected str, bytes, or bytearray not <class 'dict'>
+2020-12-29 12:32:52,916 [tornado.general                                                          :473 ][ERROR   ][648860] Uncaught exception in zmqstream callback
+Traceback (most recent call last):
+  File "/root/saltenv/lib/python3.8/site-packages/zmq/sugar/socket.py", line 526, in send_multipart
+    memoryview(msg)
+TypeError: memoryview: a bytes-like object is required, not 'str'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/root/saltenv/lib/python3.8/site-packages/zmq/eventloop/zmqstream.py", line 466, in _handle_events
+    self._handle_send()
+  File "/root/saltenv/lib/python3.8/site-packages/zmq/eventloop/zmqstream.py", line 505, in _handle_send
+    status = self.socket.send_multipart(msg, **kwargs)
+  File "/root/saltenv/lib/python3.8/site-packages/zmq/sugar/socket.py", line 531, in send_multipart
+    raise TypeError(
+TypeError: Frame 0 ('Some exception handling minion ...) does not support the buffer interface.
+2020-12-29 12:32:52,916 [tornado.application                                                      :640 ][ERROR   ][648860] Exception in callback functools.partial(<function wrap.<locals>.null_wrapper at 0x7fa47c5d0e50>)
+Traceback (most recent call last):
+  File "/root/saltenv/lib/python3.8/site-packages/zmq/sugar/socket.py", line 526, in send_multipart
+    memoryview(msg)
+TypeError: memoryview: a bytes-like object is required, not 'str'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/root/saltenv/lib/python3.8/site-packages/salt/ext/tornado/ioloop.py", line 606, in _run_callback
+    ret = callback()
+  File "/root/saltenv/lib/python3.8/site-packages/salt/ext/tornado/stack_context.py", line 278, in null_wrapper
+    return fn(*args, **kwargs)
+  File "/root/saltenv/lib/python3.8/site-packages/zmq/eventloop/zmqstream.py", line 548, in <lambda>
+    self.io_loop.add_callback(lambda : self._handle_events(self.socket, 0))
+  File "/root/saltenv/lib/python3.8/site-packages/zmq/eventloop/zmqstream.py", line 466, in _handle_events
+    self._handle_send()
+  File "/root/saltenv/lib/python3.8/site-packages/zmq/eventloop/zmqstream.py", line 505, in _handle_send
+    status = self.socket.send_multipart(msg, **kwargs)
+  File "/root/saltenv/lib/python3.8/site-packages/zmq/sugar/socket.py", line 531, in send_multipart
+    raise TypeError(
+TypeError: Frame 0 ('Some exception handling minion ...) does not support the buffer interface.
+2020-12-29 12:33:06,573 [salt.client      :1846][ERROR   ][650274] Message timed out
+```
+**Versions Report**
+```
+Salt Version:                                                                                                                              
+          Salt: 3002.2                                                                                                                     
+                                                                                                                                           
+Dependency Versions:                                                                                                                       
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.2
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 1.0.1
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.9.9
+        pygit2: Not Installed
+        Python: 3.8.5 (default, Jul 28 2020, 12:59:40)
+  python-gnupg: Not Installed
+        PyYAML: 5.3.1
+         PyZMQ: 20.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.3
+  
+System Versions:
+          dist: ubuntu 20.04 focal 
+        locale: utf-8
+       machine: x86_64
+       release: 5.4.0-56-generic
+        system: Linux
+       version: Ubuntu 20.04 focal
+```

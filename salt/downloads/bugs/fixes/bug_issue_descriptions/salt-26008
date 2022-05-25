@@ -1,0 +1,58 @@
+Occasionally on the 2015.8 and the develop branches the CLI will return early without waiting for job completion on the minion.  I cannot reproduce this reliably, but in my experience it happens once every 5-8 salt commands.  There doesn't seem to be anything special in the logs.  The minion continues on successfully, but the CLI terminates prematurely with this message:
+
+``` console
+# salt jmoney-main salt_cluster.create_node jmoney-node linode-centos-7
+Failed to authenticate! This is most likely because this user is not permitted to execute commands, but there is a small possibility that a disk error occurred (check disk/inode usage).
+```
+
+```
+# master log
+[DEBUG   ] Sending event - data = {'_stamp': '2015-08-04T18:29:32.467847', 'minions': ['jmoney-main']}
+[DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150804122932467587', 'tgt': 'jmoney-main', '_stamp': '2015-08-04T18:29:32.468269', 'user': 'root', 'arg': ['jmoney-node', 'linode-centos-7'], 'fun': 'salt_cluster.create_node', 'minions': ['jmoney-main']}
+[INFO    ] User root Published command salt_cluster.create_node with jid 20150804122932467587
+[DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20150804122932467587', 'tgt': 'jmoney-main', 'ret': '', 'user': 'root', 'arg': ['jmoney-node', 'linode-centos-7'], 'fun': 'salt_cluster.create_node'}
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[DEBUG   ] Sending event - data = {'_stamp': '2015-08-04T18:29:37.484897', 'minions': ['jmoney-main']}
+[DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20150804122937484513', 'tgt': 'jmoney-main', '_stamp': '2015-08-04T18:29:37.486205', 'user': 'root', 'arg': ['20150804122932467587'], 'fun': 'saltutil.find_job', 'minions': ['jmoney-main']}
+[INFO    ] User root Published command saltutil.find_job with jid 20150804122937484513
+[DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20150804122937484513', 'tgt': 'jmoney-main', 'ret': '', 'user': 'root', 'arg': ['20150804122932467587'], 'fun': 'saltutil.find_job'}
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[INFO    ] Got return from jmoney-main for job 20150804122937484513
+[DEBUG   ] Sending event - data = {'fun_args': ['20150804122932467587'], 'jid': '20150804122937484513', 'return': {'tgt_type': 'glob', 'jid': '20150804122932467587', 'tgt': 'jmoney-main', 'pid': 13804, 'ret': '', 'user': 'root', 'arg': ['jmoney-node', 'linode-centos-7'], 'fun': 'salt_cluster.create_node'}, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2015-08-04T18:29:37.519159', 'fun': 'saltutil.find_job', 'id': 'jmoney-main'}
+```
+
+```
+# minion log
+[INFO    ] User root Executing command salt_cluster.create_node with jid 20150804122932467587
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20150804122932467587', 'tgt': 'jmoney-main', 'ret': '', 'user': 'root', 'arg': ['jmoney-node', 'linode-centos-7'], 'fun': 'salt_cluster.create_node'}
+[INFO    ] Starting a new job with PID 13804
+[DEBUG   ] LazyLoaded salt_cluster.create_node
+[INFO    ] Executing command ['salt-cloud', '--output=json', '--assume-yes', '--no-deploy', '--profile', 'linode-centos-7', 'jmoney-node'] in directory '/root'
+[INFO    ] User root Executing command saltutil.find_job with jid 20150804122937484513
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20150804122937484513', 'tgt': 'jmoney-main', 'ret': '', 'user': 'root', 'arg': ['20150804122932467587'], 'fun': 'saltutil.find_job'}
+[INFO    ] Starting a new job with PID 13847
+[DEBUG   ] LazyLoaded saltutil.find_job
+[INFO    ] Returning information for job: 20150804122937484513
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'jmoney-main', 'tcp://127.0.0.1:4506', 'aes')
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', 'jmoney-main', 'tcp://127.0.0.1:4506')
+```
+
+``` yaml
+# master config
+log_fmt_console: '%(colorlevel)s %(colormsg)s'
+
+fileserver_backend:
+  - roots
+
+file_roots:
+  base:
+    - /root/precipitate
+    - /srv/salt
+```
+
+``` yaml
+# minion config
+master: localhost
+
+log_fmt_console: '%(colorlevel)s %(colormsg)s'
+```

@@ -1,0 +1,77 @@
+**Description**
+When `pip.install` is called with a requirements file that has a comment that looks like a requirements link (i.e. `# via -r requirements.in, something`), and a `user` param, salt will parse the requirements file incorrectly and read the linked file as `requirementsin.in, something`.
+
+**Setup**
+To see the issue in latest salt:
+ - setup a virtualenv for salt to use. (I used `/venv` in a container as the example)
+ - setup a requirements file with contents: `requests  # via -r requirements.in, foo`
+ - call `pip.install` with the venv, requirements file, and a local user.
+
+**Steps to Reproduce the behavior**
+Full docker example:
+```
+docker run -i --rm amazonlinux:2 bash - <<BASH
+set -eux
+cd /root
+yum install -y python3-devel
+python3 -m pip install virtualenv salt==3002.1
+python3 -m virtualenv -p python3 /venv
+echo 'requests  # via -r requirements.in, foobar' > /root/requirements.txt
+
+salt-call --local --skip-grains pip.install requirements=/root/requirements.txt user=nobody bin_env=/venv
+BASH
+```
+Should see a stacktrace ending with: `FileNotFoundError: [Errno 2] No such file or directory: 'requirements.in, foobar'`
+
+**Expected behavior**
+expected `pip.install` to ignore the comments in requirements.txt
+
+**Screenshots**
+N/A
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+Salt Version:                                                                                                      
+           Salt: 3002.1                                                                                            
+                                                         
+Dependency Versions:                                                                                               
+           cffi: Not Installed                  
+       cherrypy: Not Installed                                                                                     
+       dateutil: Not Installed                
+      docker-py: Not Installed                                                                                     
+          gitdb: Not Installed          
+      gitpython: Not Installed                                                                                     
+         Jinja2: 2.11.2                                                                                            
+        libgit2: Not Installed                   
+       M2Crypto: Not Installed                                                                                     
+           Mako: Not Installed                      
+   msgpack-pure: Not Installed                                                                                     
+ msgpack-python: 1.0.0                                   
+   mysql-python: Not Installed                           
+      pycparser: Not Installed                                                                                     
+       pycrypto: Not Installed                                                                                     
+   pycryptodome: 3.9.9                                   
+         pygit2: Not Installed                                                                                     
+         Python: 3.7.9 (default, Aug 27 2020, 21:59:41)                                                            
+   python-gnupg: Not Installed                                                                                     
+         PyYAML: 5.3.1                                   
+          PyZMQ: 20.0.0  
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.3
+ 
+System Versions:
+           dist: amzn 2 
+         locale: utf-8
+        machine: x86_64
+        release: 5.4.0-52-generic
+         system: Linux
+        version: Amazon Linux 2
+```
+</details>
+
+**Additional context**
+Wrote a fix and a test: https://github.com/saltstack/salt/pull/58945

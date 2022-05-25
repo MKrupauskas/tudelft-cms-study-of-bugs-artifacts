@@ -1,0 +1,47 @@
+The function [get_uid](https://github.com/saltstack/salt/blob/develop/salt/modules/file.py#L211) returns false on broken symlinks instead of returning the owner uid of the broken symlink. This is caused by calling `os.path.exists(path)` which will return False, which is technically correct since the symlink is broken. 
+
+The broken symlink _does_ have its group and user changed, but we need to run lstat instead of stat in this case and catch the potential OSError that `lstat` could raise in the case that a file truly does not exist at that path.
+
+``` python
+def get_uid(path):
+    '''
+    Return the id of the user that owns a given file
+
+    CLI Example::
+
+        salt '*' file.get_uid /etc/passwd
+    '''
+    if not os.path.exists(path):
+        try:
+            uid = os.lstat(path).st_uid
+            log.warn("Encountered broken symlink at '%s'", path)
+            return uid
+        except OSError:
+            pass
+        return False
+    return os.stat(path).st_uid
+```
+
+This also applies to [get_gid](https://github.com/saltstack/salt/blob/develop/salt/modules/file.py#L146) with identical logic.
+
+``` python
+def get_gid(path):
+    '''
+    Return the id of the group that owns a given file
+
+    CLI Example::
+
+        salt '*' file.get_gid /etc/passwd
+    '''
+    if not os.path.exists(path):
+        try:
+            gid = os.lstat(path).st_gid
+            log.warn("Encountered broken symlink at '%s'", path)
+            return gid
+        except OSError:
+            pass
+        return -1
+    return os.stat(path).st_gid
+```
+
+Sorry for no pull requests and tests for this one.

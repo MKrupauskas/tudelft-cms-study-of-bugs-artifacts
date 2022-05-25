@@ -1,0 +1,80 @@
+When previously building network interfaces with saltstack 2014.7.5
+
+``` yaml
+eth1:
+ network.managed:
+  - enabled: True
+  - type: slave
+  - mtu: 9000
+  - master: bond0 
+```
+
+The following would create in the /etc/network/interfaces file
+
+```
+auto eth1
+iface eth1 inet manual
+mtu 9000
+bond_master bond0
+```
+
+After upgrading to 2015.5.0 it will build the interfaces file as such
+
+```
+auto eth1
+iface eth1 inet manual
+mtu 9000
+bond-master bond0
+```
+
+The dash in bond-master then breaks interface parsing
+
+``` console
+# salt-call ip.get_interface eth1
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 227, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/call.py", line 69, in run
+    caller.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 236, in run
+    ret = self.call()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 138, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/debian_ip.py", line 1641, in get_interface
+    adapters = _parse_interfaces()
+  File "/usr/lib/python2.7/dist-packages/salt/modules/debian_ip.py", line 584, in _parse_interfaces
+    opt = attr.split('_', 1)[1]
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 227, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/call.py", line 69, in run
+    caller.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 236, in run
+    ret = self.call()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 138, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/debian_ip.py", line 1641, in get_interface
+    adapters = _parse_interfaces()
+  File "/usr/lib/python2.7/dist-packages/salt/modules/debian_ip.py", line 584, in _parse_interfaces
+    opt = attr.split('_', 1)[1]
+IndexError: list index out of range
+```
+
+Correcting the dash back to an underscore restores proper functionality, but states using bond attempt to get re-applied with a dash instead of an underscore
+
+``` console
+# salt-call ip.get_interface eth1
+local:
+    - auto eth1
+    - iface eth1 inet manual
+    -     mtu 9000
+    -     bond-master bond0
+    -
+```

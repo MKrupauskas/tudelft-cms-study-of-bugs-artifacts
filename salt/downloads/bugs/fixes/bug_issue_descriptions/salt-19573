@@ -1,0 +1,45 @@
+The `ssh_known_hosts` state is available on Windows, yet it depends on the `ssh` module which is not. More specifically, the `__virtual__()` in the `ssh` module prevents it from being available on Windows directly, however no such guard exists on the `ssh_known_hosts` state. As a result, the `ssh_known_hosts` state may still use the `ssh` module on Windows, which should not be possible until the `ssh` module is supported on Windows.
+
+From `salt/modules/ssh.py`
+
+```
+def __virtual__():
+# TODO: This could work on windows with some love
+if salt.utils.is_windows():
+    return False
+return True
+```
+
+Attempt to use `ssh` module:
+
+```
+$ salt 'windows-minion' ssh.check_known_host WinUser github.com fingerprint='16:27:ac:a5:76:28:2d:36:63:1b:56:4d:eb:df:a6:48'
+windows-minion:
+    'ssh.check_known_host' is not available.
+```
+
+Attempt to use `ssh_known_hosts` state:
+
+```
+# State declaration
+github.com:
+  ssh_known_hosts.present:
+    - fingerprint: '16:27:ac:a5:76:28:2d:36:63:1b:56:4d:eb:df:a6:48'
+    - config: 'C:\Program Files\git\.ssh\known_hosts'
+    - require:
+      - pkg: git
+
+# Output from running highstate
+ID: github.com
+Function: ssh_known_hosts.present
+  Result: False
+ Comment: An exception occurred in this state: Traceback (most recent call last):
+            File "salt/state.py", line 1533, in call
+            File "salt/states/ssh_known_hosts.py", line 119, in present
+          KeyError: 'ssh.set_known_host'
+ Started: 10:52:10.576000
+Duration: 16.0 ms
+ Changes:
+```
+
+As we can see, the `ssh_known_hosts` state executes until an exception is thrown in the `ssh` module.

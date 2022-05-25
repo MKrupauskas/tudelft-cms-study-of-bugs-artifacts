@@ -1,0 +1,77 @@
+### Description of Issue/Question
+`ISSUE 1`
+While running a state x509.certificate_managed on the current x509 of the branches 2019.2 (not the one from the .deb which already fail before that). I got the following error:
+
+```----------
+          ID: mongodb_generate_cert_mongodb
+    Function: x509.certificate_managed
+        Name: /etc/ssl/mongodb.pem
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/salt/state.py", line 1933, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 1939, in wrapper
+                  return f(*args, **kwargs)
+                File "/var/cache/salt/minion/extmods/states/x509.py", line 556, in certificate_managed
+                  file_args['contents'] += salt.utils.stringutils.to_str(certificate)
+              TypeError: can't concat str to bytes
+     Started: 15:25:42.075799
+    Duration: 697.928 ms
+     Changes:   
+----------
+```
+The state is including a "managed_private_key" on the same file which is the use case at the origin of the previous error cause it will try to concatenate both certificates in a same file.
+
+I was able to fix it by adding a .decode() on the following line:
+https://github.com/saltstack/salt/pull/52014/commits/32ed6d438f51d741d74b81d0717c8c3b623fa977#diff-5499a295a50d60a761c34f4080e4014bR459
+
+The certificate was then generated now.. but it's regenerated and replaced at each execution due to an other issue.
+
+`ISSUE 2`
+To decide if x509 is going to replace the local certificate or not, it will compare some elements of the certificate including the Issuer public key..  The local one, when read with the module will return a bytes type while the new generated one will be in str... Then the comparison fail and the certificate replaced...
+
+I proposed the following fix:
+https://github.com/saltstack/salt/pull/52014/commits/32ed6d438f51d741d74b81d0717c8c3b623fa977#diff-4dc56ad912db8d1856c286cd18fc6cdeR729
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.32.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.7 (default, Oct 22 2018, 11:32:17)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-1027-gcp
+         system: Linux
+```

@@ -1,0 +1,126 @@
+### Description of Issue/Question
+
+Every few days (4 or 5 days) salt-master stops responding and we need to restart salt-master.
+### Setup
+
+We have a number of salt-syndics that connect to this salt-master. Syndics are very old version (2014.7.5). We get a fair number of "Salt minion claiming to be <redacted> has attempted tocommunicate with the master and could not be verified" messages in the logs but functionally everything works until salt-master crashes.
+### Steps to Reproduce Issue
+
+```
+2016-06-22 08:31:39,001 [salt.master                                          ][ERROR   ][7815] Unable to decrypt token: Unable to decrypt message
+2016-06-22 08:31:39,006 [salt.master                                          ][ERROR   ][7815] Salt minion claiming to be <redacted> has attempted tocommunicate with the master and could not be verified
+2016-06-22 08:31:39,006 [salt.master                                          ][WARNING ][7815] Minion id <redacted> is not who it says it is!
+2016-06-22 08:31:39,455 [salt.transport.ipc                                   ][ERROR   ][7786] Exception occurred in Subscriber while handling stream: Already reading
+2016-06-22 08:31:39,456 [salt.utils.process                                   ][ERROR   ][7786] An un-handled exception from the multiprocessing process 'Reactor-6' was caught:
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/utils/process.py", line 613, in _run
+    return self._original_run()
+  File "/usr/lib/python2.6/site-packages/salt/utils/reactor.py", line 215, in run
+    for data in self.event.iter_events(full=True):
+  File "/usr/lib/python2.6/site-packages/salt/utils/event.py", line 620, in iter_events
+    data = self.get_event(tag=tag, full=full, match_type=match_type)
+  File "/usr/lib/python2.6/site-packages/salt/utils/event.py", line 579, in get_event
+    ret = self._get_event(wait, tag, match_func, no_block)
+  File "/usr/lib/python2.6/site-packages/salt/utils/event.py", line 484, in _get_event
+    raw = self.subscriber.read_sync(timeout=wait)
+  File "/usr/lib/python2.6/site-packages/salt/transport/ipc.py", line 654, in read_sync
+    return ret_future.result()
+  File "/usr/lib64/python2.6/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib64/python2.6/site-packages/tornado/gen.py", line 230, in wrapper
+    yielded = next(result)
+  File "/usr/lib/python2.6/site-packages/salt/transport/ipc.py", line 631, in _read_sync
+    raise exc_to_raise  # pylint: disable=E0702
+AssertionError: Already reading
+2016-06-22 08:31:39,475 [salt.master                                          ][ERROR   ][7814] Error in function _minion_event:
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 1540, in run_func
+    ret = getattr(self, func)(load)
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 1306, in _minion_event
+    self.masterapi._minion_event(load)
+  File "/usr/lib/python2.6/site-packages/salt/daemons/masterapi.py", line 752, in _minion_event
+    self.event.fire_event(event, event['tag'])  # old dup event
+  File "/usr/lib/python2.6/site-packages/salt/utils/event.py", line 662, in fire_event
+    self.io_loop.run_sync(lambda: self.pusher.send(msg))
+  File "/usr/lib64/python2.6/site-packages/tornado/ioloop.py", line 444, in run_sync
+    return future_cell[0].result()
+  File "/usr/lib64/python2.6/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib64/python2.6/site-packages/tornado/gen.py", line 876, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python2.6/site-packages/salt/transport/ipc.py", line 389, in send
+    yield self.stream.write(pack)
+  File "/usr/lib64/python2.6/site-packages/tornado/gen.py", line 870, in run
+    value = future.result()
+  File "/usr/lib64/python2.6/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+  File "<string>", line 3, in raise_exc_info
+StreamClosedError
+```
+
+and the StreamClosedError exception keeps repeating about 15 times (within 2 or 3 seconds) and then the log stops completely.
+### Versions Report
+
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+Salt-Master (master of masters that crashes every few days):
+
+```
+[root@salty salt]# salt --versions
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: 0.20.0
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: 0.20.3
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: 0.2.4
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 6.8 Final
+        machine: x86_64
+        release: 2.6.32-642.1.1.el6.x86_64
+         system: Linux
+        version: CentOS 6.8 Final
+```
+
+On the Salt-syndics with older versions:
+
+```
+               Salt: 2014.7.5
+             Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+             Jinja2: 2.2.1
+           M2Crypto: 0.20.2
+     msgpack-python: 0.4.6
+       msgpack-pure: Not Installed
+           pycrypto: 2.0.1
+            libnacl: Not Installed
+             PyYAML: 3.10
+              ioflo: Not Installed
+              PyZMQ: 14.3.1
+               RAET: Not Installed
+                ZMQ: 3.2.5
+               Mako: Not Installed
+```

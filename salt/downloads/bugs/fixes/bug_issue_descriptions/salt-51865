@@ -1,0 +1,116 @@
+### Description of Issue/Question
+
+I'm using a setup as described in https://github.com/saltstack/salt/issues/39457#issuecomment-282506189 to apply roles to my minions. This worked fine until I upgraded to 2019.02. 
+
+It seems like the match.search_by isn't working correctly, or maybe it's something I've missed in the release notes. Here's what I have (I've added log.debug for some variables):
+
+### Setup
+pillar/roles.jinja
+```
+{% load_yaml as role_defs %}
+salt-master:
+  - balder.mydomain.com
+
+cloud:
+  - balder.mydomain.com
+  - heimdall.mydomain.com
+  - loki.mydomain.com
+
+weechat:
+  - balder.mydomain.com
+{% endload %}
+
+{% set roles = salt.match.search_by(role_defs) %}
+
+# testing
+{% set test_roles = role_defs | yaml() %}
+{%- do salt.log.debug('MYDEBUG-role_defs: ' ~ role_defs) %}
+{%- do salt.log.debug('MYDEBUG-test: ' ~ test_roles) %}
+{%- do salt.log.debug('MYDEBUG-roles: ' ~ roles) %}
+```
+
+pillar/roles.sls
+```
+{% from "roles.jinja" import roles with context %}
+roles: {{ roles | yaml() }}
+```
+
+pillar/top.sls
+```
+{% from "roles.jinja" import roles with context %}
+
+base:
+  '*':
+    - roles
+    - users
+```
+
+### Steps to Reproduce Issue
+
+Setup like above and run "salt 'balder*' pillar.items roles". roles pillar is empty, but should contain this minions roles instead:
+```
+balder.mydomain.com:
+    ----------
+    retcode:
+        0
+    roles:
+        None
+jid:
+    20190227143040611412
+retcode:
+    0
+```
+
+This is the "extra" debug output:
+```
+2019-02-27 14:22:24,042 [salt.loaded.int.module.logmod:41  ][DEBUG   ][326] MYDEBUG-role_defs: {u'weechat': [u'balder.mydomain.com'], u'salt-master': [u'balder.mydomain.com'], u'cloud': [u'balder.mydomain.com', u'heimdall.mydomain.com', u'loki.mydomain.com']}
+2019-02-27 14:22:24,042 [salt.loaded.int.module.logmod:41  ][DEBUG   ][326] MYDEBUG-test: {cloud: [balder.mydomain.com, heimdall.mydomain.com, loki.mydomain.com], salt-master: [balder.mydomain.com],
+2019-02-27 14:22:24,042 [salt.loaded.int.module.logmod:41  ][DEBUG   ][326] MYDEBUG-roles: None
+```
+So role_defs is populated (MYDEBUG-role_defs) and it can be rendered as yaml (MYDEBUG-test). However roles get 'Null' as it seems that `{% set roles = salt.match.search_by(role_defs) %}` is not working.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: 3.2.1
+          gitdb: 2.0.0
+      gitpython: 2.1.1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: 1.3.7
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.6.1
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Sep 26 2018, 18:42:22)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.1
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.8 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.19.0-0.bpo.2-amd64
+         system: Linux
+        version: debian 9.8 
+```
+
+Master and minions have the same version.

@@ -1,0 +1,32 @@
+alternatives.show_current and alternatives.check_installed use os.path.realpath, which will normally recursively follow symlinks until something that isn't a symlink is found. With that in mind, take this state example:
+
+<pre>
+emacs23-nox:
+  pkg.installed
+
+{% if salt['alternatives.show_current']('editor') != '/usr/bin/emacs23' %}
+update-editor:
+  cmd.run:
+    - name: update-alternatives --set editor /usr/bin/emacs23
+    - require:
+      - pkg: emacs23-nox
+{% endif %}
+</pre>
+
+
+We should update this state to to use the new built-in alternatives module, but regardless this should work. However, here's the thing:
+
+<pre>
+$ python -c 'import os ; print os.path.realpath("/etc/alternatives/editor")'
+/usr/bin/emacs23-nox
+$ python -c 'import os ; print os.readlink("/etc/alternatives/editor")'
+/usr/bin/emacs23
+$ update-alternatives --list editor | grep emacs
+/usr/bin/emacs23
+$ 
+</pre>
+
+
+The salt module will return /usr/bin/emacs23-nox (since that's the binary), but there is no actual "alternative" option by that name - it has to be /usr/bin/emacs23 to be valid.
+
+As such, my state example will always run the update-alternatives command even when it is set correctly, causing my state.highstate runs to incorrectly indicate that things have changed unexpectedly.

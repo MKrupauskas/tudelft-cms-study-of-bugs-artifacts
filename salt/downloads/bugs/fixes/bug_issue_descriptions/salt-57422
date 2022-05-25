@@ -1,0 +1,175 @@
+**Description**
+Machines randomly throw "Bad file descriptor" errors when going highstate or calling state.sls.
+The machines affected appear to always be FreeBSD.  They usually work normally if I wait a few minutes and run the command again.
+
+Occasionally one or two minions will simply return ```Minion did not return. [No response]``` and they are offline for good until I SSH in and restart the salt_minion service.  This "minion did not return" error will also affect non-FreeBSD minions (Debian 10) from time to time.
+
+I have run a lot of network tests between the master and the minions (all on public IPs) and haven't found any connectivity issues.  For example, I set up smokeping on the master to ping the minion machines every second and graph latency, packet loss, etc...  Latency averages 40 msec for all the nodes and packet loss is almost always zero.  Occasionally it's been ~0.8% or less, but it doesn't line up with the disconnects.
+
+The only thing logged that appears to be related to the minions not returning a response is:
+```
+2020-05-22 04:18:24,551 [salt.minion                                                  :1742][WARNING ][4000] The minion function caused an exception
+```
+
+Nothing is logged when the bad file descriptor error is returned.
+
+**Setup**
+```
+[root@salt ~]# grep -hvr '^#' /usr/local/etc/salt/master* | grep -v '^$'
+interface: 0.0.0.0
+ipv6: False
+publish_port: 4505
+ret_port: 4506
+verify_env: True
+timeout: 30
+show_timeout: True
+color: True
+strip_colors: False
+cli_summary: True
+enable_gpu_grains: True
+job_cache: True
+minion_data_cache: True
+worker_threads: 8
+file_recv: True
+state_top: top.sls
+state_output: changes
+file_roots:
+  base:
+    - /srv/salt/base
+    - /srv/salt/files
+    - /srv/salt/formulas/*
+top_file_merging_strategy: same
+default_top: base
+hash_type: sha256
+fileserver_backend:
+  - roots
+  - git
+gitfs_ssl_verify: True
+gitfs_root: /srv/salt/formulas
+pillar_roots:
+  base:
+    - /srv/salt/pillar
+pillar_opts: False
+pillar_safe_render_error: True
+pillar_source_merging_strategy: smart
+pillar_merge_lists: True
+peer:
+  .*:
+    - x509.sign_remote_certificate
+mine_enabled: True
+log_file: /var/log/salt/master
+log_level: info
+log_level_logfile: info
+[root@salt ~]#
+```
+
+**Steps to Reproduce the behavior**
+```while true; do salt '*' state.highstate; sleep 120; done```
+I will usually get different failing minions with each run, but some are the same for several runs in a row.
+
+This also occurs with very simple states like:
+```
+test:
+  cmd.run:
+    - name: "echo this is a test"
+```
+...and then calling:
+```while true; do salt '*' state.sls test; sleep 120; done```
+
+**Versions Report**
+# master
+```
+[root@salt ~]# salt --versions-report
+Salt Version:
+           Salt: 2019.2.5
+ 
+Dependency Versions:
+           cffi: 1.14.0
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.7.7 (default, Apr  2 2020, 01:25:33)
+   python-gnupg: Not Installed
+         PyYAML: 5.3.1
+          PyZMQ: 18.1.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: amd64
+        release: 12.1-RELEASE-p3
+         system: FreeBSD
+        version: Not Installed
+ 
+[root@salt ~]# 
+```
+
+# minion
+```
+saroot@usrlfsdrtr01:~ # salt --versions-report
+Salt Version:
+           Salt: 2019.2.3
+ 
+Dependency Versions:
+           cffi: 1.14.0
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.7.7 (default, Apr 23 2020, 01:19:26)
+   python-gnupg: Not Installed
+         PyYAML: 5.3.1
+          PyZMQ: 18.1.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: amd64
+        release: 12.1-RELEASE-p3
+         system: FreeBSD
+        version: Not Installed
+ 
+root@usrlfsdrtr01:~ # 
+```
+
+**Additional context**
+I noticed the minion is running 2019.2.3 whereas the server is running 2019.2.5.  I can't say for certain if these errors are only affecting 2019.2.3 or are also affecting 2019.2.4 or 2019.2.5.  Just to rule it out, I just upgraded all the FreeBSD minions to 2019.2.5 to match the master and will report back in the next day or two when I go highstate again and see if it still occurs.

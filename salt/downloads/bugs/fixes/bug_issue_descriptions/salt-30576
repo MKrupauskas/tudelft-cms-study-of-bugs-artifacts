@@ -1,0 +1,74 @@
+Hi there,
+I'm fairly new at salt and still a bit confused about runners, modules, etc. But I think I stumbled over a bug when trying to initialize a LXC container via salt-cloud. The following holds for both the salt-master and the host i try to create the container on:
+
+```
+# salt --version
+salt 2015.8.3 (Beryllium)
+# lsb_release -a
+No LSB modules are available.
+Distributor ID: Ubuntu
+Description:    Ubuntu 15.10
+Release:        15.10
+Codename:       wily
+```
+
+I have the following files:
+
+``` yaml
+# /etc/salt/cloud.providers.d:
+host03_lxc:
+  target: host-03.example.com
+  driver: lxc
+```
+
+and
+
+``` yaml
+#  /etc/salt/cloud.profiles.d/lxc.profile.conf
+ubuntu_trusty:
+  lxc_profile:
+    template: download
+    options:
+      dist: ubuntu
+      release: trusty
+      arch: amd64
+    backing: btrfs
+    # config: /etc/lxc/default.conf
+  minion:
+    master: 10.0.3.131
+```
+
+The given configuration works as expected. But if I comment out the `config` line in `lxc.profile.conf` I get the following error:
+
+```
+[INFO    ] Creating container(s) '['bar']' on host 'host-03.example.com'
+Exception occurred in runner lxc.cloud_init: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/client/mixins.py", line 337, in low
+    data['return'] = self.functions[fun](*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/runners/lxc.py", line 429, in cloud_init
+    saltcloud_mode=True, quiet=quiet, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/runners/lxc.py", line 319, in init
+    name = kw.pop('name', name)
+AttributeError: 'str' object has no attribute 'pop'
+```
+
+My first guess is that it has to do with some parameter overlapping in `lxc.create` and `lxc.init`. Because this one succeeds:
+
+```
+# salt host-03.example.com lxc.create foo template=download options='{"dist": "ubuntu", "release": "trusty", "arch": "amd64"}' backing=btrfs config=/etc/lxc/default.conf
+```
+
+But this one fails:
+
+```
+# salt host-03.example.com lxc.init foo template=download options='{"dist": "ubuntu", "release": "trusty", "arch": "amd64"}' backing=btrfs config=/etc/lxc/default.conf
+host-03.example.de:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1039, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/lxc.py", line 1379, in init
+        salt_config = _get_salt_config(config, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/lxc.py", line 221, in _get_salt_config
+        config.setdefault('master',
+    AttributeError: 'str' object has no attribute 'setdefault'
+```

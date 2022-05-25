@@ -1,0 +1,105 @@
+### Description of Issue/Question
+
+After the setup described in the setup section, `salt-call` will give the following output:
+
+```
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'hawaii.<company tld>', 'tcp://<ip 1>:4506')
+[INFO    ] Master salt.<company tld> could not be reached, trying next master (if any)
+[WARNING ] Master ip address changed from <ip 1> to <ip 2>
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'hawaii.<company tld>', 'tcp://<ip 2>:4506')
+```
+IPs/hosts scrubbed. Note that while I have not included the next few lines of log, the next master it tries fails in exactly the same way.
+
+In `salt/minion.py`, adding these lines:
+```diff
+                     except SaltClientError as exc:
+                         last_exc = exc
++                        import traceback
++                        traceback.print_exc()
+                         msg = ('Master {0} could not be reached, trying '
+                                'next master (if any)'.format(opts['master']))
+                         log.info(msg)
+                         continue
+```
+
+Causes the real error to appear:
+```
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'hawaii.<company tld>', 'tcp://<ip 1>:4506')
+Traceback (most recent call last):
+  File "/usr/local/Cellar/saltstack/2016.11.3/libexec/lib/python2.7/site-packages/salt/minion.py", line 563, in eval_master
+    pub_channel = salt.transport.client.AsyncPubChannel.factory(opts, **factory_kwargs)
+  File "/usr/local/Cellar/saltstack/2016.11.3/libexec/lib/python2.7/site-packages/salt/transport/client.py", line 162, in factory
+    return salt.transport.zeromq.AsyncZeroMQPubChannel(opts, **kwargs)
+  File "/usr/local/Cellar/saltstack/2016.11.3/libexec/lib/python2.7/site-packages/salt/transport/zeromq.py", line 298, in __init__
+    self.auth = salt.crypt.AsyncAuth(self.opts, io_loop=self.io_loop)
+  File "/usr/local/Cellar/saltstack/2016.11.3/libexec/lib/python2.7/site-packages/salt/crypt.py", line 342, in __new__
+    new_auth.__singleton_init__(opts, io_loop=io_loop)
+  File "/usr/local/Cellar/saltstack/2016.11.3/libexec/lib/python2.7/site-packages/salt/crypt.py", line 381, in __singleton_init__
+    self.get_keys()
+  File "/usr/local/Cellar/saltstack/2016.11.3/libexec/lib/python2.7/site-packages/salt/crypt.py", line 634, in get_keys
+    salt.utils.verify.check_path_traversal(self.opts['pki_dir'], user)
+  File "/usr/local/Cellar/saltstack/2016.11.3/libexec/lib/python2.7/site-packages/salt/utils/verify.py", line 400, in check_path_traversal
+    raise SaltClientError(msg)
+SaltClientError: Could not access /etc/salt/pki. Path does not exist.
+[INFO    ] Master salt.<company tld> could not be reached, trying next master (if any)
+[WARNING ] Master ip address changed from <ip 1> to <ip 2>
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'hawaii.<company tld>', 'tcp://<ip 2>:4506')
+```
+
+This is a bug in two parts:
+
+1. `salt-call` is not creating the requisite directory structure (though it will happily generate the keys and save them once the directories exist)
+2. The error logged is misleading (claiming that a master cannot be reached, but the actual error is a missing directory on the minion)
+
+I would argue that the error message is the more important part of the bug, because with a correct error message, a sufficiently literate operator can solve the problem by themselves.
+
+### Setup
+
+* Install salt 2016.11.3 via brew on OSX
+* Drop in the minion configs for communicating with the masters
+* Ensure that the `/etc/salt/pki` directory does not exist (it was not automatically created for me)
+
+### Steps to Reproduce Issue
+
+* `salt-call test.ping -l trace`
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.3
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.5
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.6
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: 1.2.5
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Sep  9 2014, 15:04:36)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.2.2
+ 
+System Versions:
+           dist:   
+        machine: x86_64
+        release: 14.0.0
+         system: Darwin
+        version: 10.10.1 x86_64
+```

@@ -1,0 +1,113 @@
+### Description of Issue/Question
+I am using Vault with KV Secrets Engine - Version 2. This breaks things with SDB since the response from vault is different than KV Secrets Engine - Version 1.
+
+### Setup
+Make sure you have Vault configured and enable KV Secrets Engine - Version 2:
+
+```
+vault secrets enable -version=2 kv
+vault kv enable-versioning secret/
+vault kv patch secret/salt/pillar_data wew=lad
+```
+
+/etc/salt/master.d/vault.conf:
+```
+sdb_vault:
+  driver: vault
+
+vault:
+  url: https://vault_host:8200
+  verify: False
+  auth:
+      method: token
+      token: wewladwewladwewlad
+  policies:
+      - saltstack/minions
+      - saltstack/minions/{minion}
+```
+
+This patches the sdb.get function to work correctly. I haven't looked into the other sdb functions yet.
+```
+diff --git a/salt/sdb/vault.py b/salt/sdb/vault.py
+index 5980543..81fedbb 100644
+--- a/salt/sdb/vault.py
++++ b/salt/sdb/vault.py
+@@ -108,7 +108,9 @@ def get(key, profile=None):
+             response.raise_for_status()
+         data = response.json()['data']
+
+-        return data[key]
++        # If you're using KV Secrets Engine - Version 2
++        # The data is inside the 'data' key
++        return data[key] if data.get(key) else data['data'][key]
+     except Exception as e:
+         log.error('Failed to read secret! %s: %s', type(e).__name__, e)
+         raise salt.exceptions.CommandExecutionError(e)
+```
+
+Here's what the response looks like from Vault with kv2, from the data = response.json()['data'] in /opt/saltstack/lib/python2.7/site-packages/salt/sdb/vault.py:get()
+```
+{u'data': {u'wew': u'lad',}, u'metadata': {u'created_time': u'2018-10-23T20:21:55.042755098Z', u'destroyed': False, u'version': 13, u'deletion_time': u''}}
+```
+
+You'll get an error like the following when running the command below:
+```
+$ sudo salt-run sdb.get 'sdb://sdb_vault/secret/data/salt/pillar_data/wew'
+[ERROR   ] Failed to read secret! KeyError: u'wew'
+Exception occurred in runner sdb.get: Traceback (most recent call last):
+  File "/opt/saltstack/lib/python2.7/site-packages/salt/client/mixins.py", line 387, in _low
+    data['return'] = self.functions[fun](*args, **kwargs)
+  File "/opt/saltstack/lib/python2.7/site-packages/salt/runners/sdb.py", line 27, in get
+    return salt.utils.sdb.sdb_get(uri, __opts__, __utils__)
+  File "/opt/saltstack/lib/python2.7/site-packages/salt/utils/sdb.py", line 46, in sdb_get
+    return loaded_db[fun](query, profile=profile)
+  File "/opt/saltstack/lib/python2.7/site-packages/salt/sdb/vault.py", line 122, in get
+    raise salt.exceptions.CommandExecutionError(e)
+CommandExecutionError: u'wew'
+[INFO    ] Runner completed: 20181023165316837868
+```
+
+### Steps to Reproduce Issue
+sudo salt-run sdb.get 'sdb://sdb_vault/secret/data/salt/pillar_data/wew'
+
+### Versions Report
+Salt Version:
+           Salt: 2018.3.2-1735-g84e2dcf
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: 3.5.0
+          gitdb: 2.0.4
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.27.4
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.27.2
+         Python: 2.7.15 (default, Aug 24 2018, 16:24:40)
+   python-gnupg: 0.4.3
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: 2.0.4
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.11.6.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core

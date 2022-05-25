@@ -1,0 +1,54 @@
+line 156 in salt/states/mount.py should be changed from
+
+```
+           if real_device not in device_list:
+```
+
+to
+
+```
+           if real_device not in [n.rstrip('/') for n in device_list]:
+```
+
+This would strip all trailing '/'  from all devices in device_list before comparing it with real_device, which has its trailing slash stripped.
+
+Reason:
+
+NFS mounts, which are already existing, are not matched with the specified name, this gives the following output:
+
+```
+          ID: /old_data
+    Function: mount.mounted
+      Result: True
+     Comment: Target was successfully mounted. Entry already exists in the fstab.
+     Started: 13:16:31.518986
+    Duration: 234.084 ms
+     Changes:   
+              ----------
+              mount:
+                  True
+              umount:
+                  Forced unmount because devices don't match. Wanted: 192.168.0.207:/data1, current: 192.168.0.207:/data1/, /192.168.0.207:/data1
+```
+
+Note the trailing slash  of the first and leading slash of the second device name after `current:`
+Both do not match the real device. 
+
+netmount.sls file:
+
+```
+/old_data:
+  mount.mounted:
+    - device: 192.168.0.207:/data1
+    - fstype: nfs4
+    - opts: _netdev,noatime,soft,intr,ro,timeo=120,rsize=65536,wsize=65536
+    - dump: 0
+    - pass_num: 0
+    - persist: True
+    - mkmnt: True
+
+```
+
+Salt version: '2014.7.1' 
+OS: Debian GNU/Linux Wheezy
+Salt package installed: 2014.7.1+ds-2~bpo70i+1

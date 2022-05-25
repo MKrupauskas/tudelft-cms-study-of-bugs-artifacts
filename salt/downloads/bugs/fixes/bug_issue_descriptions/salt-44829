@@ -1,0 +1,202 @@
+### Description of Issue/Question
+
+I discovered this today after I spent several hours trying to see the error in my setup for a new node which was running a stable version of salt-minion (as supplied by salt-cloud) while my master was running develop.  It seems that there is a problem with the master which is freaking out the minion.
+
+I figured it might be a good idea to raise a red flag for someone to look into it.
+
+### Setup
+
+Create a master using `sudo sh bootstrap-salt.sh git develop`
+
+Create a minion using `sudo sh bootstrap-salt.sh stable`
+
+### Steps to Reproduce Issue
+
+vernoncole@bevymaster:~$ sudo salt \* test.version
+```
+$ sudo salt \* test.version
+vc-ddell:
+    2017.7.0-764-g19e2743
+bevymaster:
+    2017.7.0-890-g8e2e1f9
+x_hw:
+    2017.7.2
+vernoncole@bevymaster:~$ sudo salt \* saltutil.sync_grains
+vc-ddell:
+bevymaster:
+x_hw:
+    Passed invalid arguments to saltutil.sync_grains: 'bool' object is not iterable
+    
+        .. versionadded:: 0.10.0
+    
+        Sync grains modules from ``salt://_grains`` to the minion
+    
+        saltenv
+            The fileserver environment from which to sync. To sync from more than
+            one environment, pass a comma-separated list.
+    
+            If not passed, then all environments configured in the :ref:`top files
+            <states-top>` will be checked for grains modules to sync. If no top
+            files are found, then the ``base`` environment will be synced.
+    
+        refresh : True
+            If ``True``, refresh the available execution modules and recompile
+            pillar data for the minion. This refresh will be performed even if no
+            new grains modules are synced. Set to ``False`` to prevent this
+            refresh.
+    
+        extmod_whitelist : None
+            comma-seperated list of modules to sync
+    
+        extmod_blacklist : None
+            comma-seperated list of modules to blacklist based on type
+    
+        CLI Examples:
+    
+        .. code-block:: bash
+    
+            salt '*' saltutil.sync_grains
+            salt '*' saltutil.sync_grains saltenv=dev
+            salt '*' saltutil.sync_grains saltenv=base,dev
+```
+Running `sudo salt-minion --log-level=debug` on the effected minion, I pick up this clip from the area which I believe to be the problem...
+```
+    .. code-block:: bash
+
+        salt '*' saltutil.sync_grains
+        salt '*' saltutil.sync_grains saltenv=dev
+        salt '*' saltutil.sync_grains saltenv=base,dev
+    
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1470, in _thread_return
+    return_data = executor.execute()
+  File "/usr/lib/python2.7/dist-packages/salt/executors/direct_call.py", line 28, in execute
+    return self.func(*self.args, **self.kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/saltutil.py", line 422, in sync_grains
+    ret = _sync('grains', saltenv, extmod_whitelist, extmod_blacklist)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/saltutil.py", line 99, in _sync
+    saltenv = _get_top_file_envs()
+  File "/usr/lib/python2.7/dist-packages/salt/modules/saltutil.py", line 83, in _get_top_file_envs
+    envs = list(st_.top_matches(top).keys()) or 'base'
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 3152, in top_matches
+    for saltenv in ext_matches:
+TypeError: 'bool' object is not iterable
+[DEBUG   ] Minion return retry timer set to 6 seconds (randomized)
+[INFO    ] Returning information for job: 20171205062246085480
+```
+
+
+### Versions Report
+
+```
+vernoncole@bevymaster:~$ cat /srv/salt/top.sls
+#
+base:
+  '*':
+    - match: glob
+    - common
+    - administrator_user
+    - interactive_user
+    - cleanup_vagrant
+    - ensure_user_privs
+    # - sdb
+
+  bevymaster:
+    - match: glob
+    - bevy_master.define_interactive_user
+    - bevy_master
+
+  x_hw:
+    - match: glob
+    - common
+```
+
+The master looks like...
+
+```
+vernoncole@bevymaster:~$ salt --versions-report
+Salt Version:
+           Salt: 2017.7.0-890-g8e2e1f9
+ 
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: 0.24.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.24.0
+         Python: 2.7.12 (default, Nov 20 2017, 18:23:56)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-101-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+ ```
+and on the minion...
+```
+vernoncole@00-1a-4b-7c-2a-b2:~$ salt-minion --versions-report
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: 0.24.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.24.0
+         Python: 2.7.12 (default, Nov 20 2017, 18:23:56)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: ISO-8859-1
+        machine: x86_64
+        release: 4.4.0-101-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+ ```

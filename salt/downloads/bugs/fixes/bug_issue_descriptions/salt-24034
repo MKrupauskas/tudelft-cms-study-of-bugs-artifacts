@@ -1,0 +1,66 @@
+This scenario was tested on SaltStack 2014.7.5. Let's have a custom execution module called `mymod`:
+
+```
+# Import salt libs
+import salt
+import salt.loader
+import socket
+
+# Import python libs
+import logging
+
+log = logging.getLogger(__name__)
+
+def __virtual__():
+    return True
+
+def masters():
+    host = 'salt-master-' + str(__salt__['network.ipaddrs']()[0].split(',')[1])
+
+    try:
+        (hostname, aliases, addresses) = socket.gethostbyname_ex(host)
+        return addresses
+    except socket.error:
+        return 'Unabled to resolve {0}'.format(host)
+```
+
+Let's assume the module `mymod` is available on minions (installed during bootstrap process or synced from related environment and `_modules` sub-directory from masters). When I call it from a minion I get a list of masters IP addresses:
+
+```
+salt-call mymod.masters
+local:
+  - 1.2.3.4
+  - 1.2.3.5
+```
+
+Let's have a minion configured so it gets masters IPs from the module:
+
+```
+master_type: func
+master: mymod.masters
+```
+
+When I start such minion it exits with this error (when I disable exception handler on the line https://github.com/saltstack/salt/blob/develop/salt/minion.py#L695 otherwise I get error `Failed to evaluate master address from module ...` from it):
+
+```
+2015-05-21 15:07:12,955 [salt.log.setup                           ][ERROR   ] An un-handled exception was caught by salt's global exception handler:
+TypeError: string indices must be integers, not str
+Traceback (most recent call last):
+  File "/usr/bin/salt-minion", line 14, in <module>
+    salt_minion()
+  File "/usr/lib/python2.6/site-packages/salt/scripts.py", line 57, in salt_minion
+    minion.start()
+  File "/usr/lib/python2.6/site-packages/salt/__init__.py", line 262, in start
+    self.prepare()
+  File "/usr/lib/python2.6/site-packages/salt/__init__.py", line 241, in prepare
+    self.minion = salt.minion.Minion(self.config)
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 598, in __init__
+    safe)
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 697, in eval_master
+    opts['master'] = master_mod[mod + '.' + fun]()
+  File "/var/cache/salt/minion/extmods/modules/ama.py", line 34, in masters
+    host = 'salt-master-vpc' + str(__salt__['network.ipaddrs']()[0].split('.')[1])
+TypeError: string indices must be integers, not str
+```
+
+Does it mean that some Salt internal structures are initialized after the minion connects to masters? Or did I misunderstand anything else?

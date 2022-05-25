@@ -1,0 +1,134 @@
+### Jinja throws a UnicodeDecode error when rendering a Unicode string from a pillar
+
+If there's Unicode in the jinja file itself, the exception handler in salt.util.templates will throw the same exception trying to print out log messages.
+### Setup
+#### States
+
+test.sls:
+
+```
+test:
+  file.managed:
+    - name: /tmp/test.salt
+    - template: jinja
+    - source: salt://test.jinja
+```
+
+test.jinja:
+
+```
+{{ pillar.test }}
+```
+
+test2.sls
+
+```
+test:
+  file.managed:
+    - name: /tmp/test.salt
+    - template: jinja
+    - source: salt://test2.jinja
+```
+
+test2.jinja:
+
+```
+{{ pillar.test }}
+
+```
+#### Pillars
+
+top.sls:
+
+```
+base:
+    '*':
+        - test
+```
+
+test.sls:
+
+```
+test: 
+```
+### Steps to Reproduce Issue
+#### Case 1
+1. Set up test state and pillar
+2. `sudo salt-call -l debug state.sls test`
+
+```
+[ERROR   ] Unable to manage file: Jinja error: 'ascii' codec can't decode byte 0xe3 in p osition 0: ordinal not in range(128)
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/templates.py", line 366, in render_j inja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python2.7/dist-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python2.7/dist-packages/jinja2/environment.py", line 754, in handle_exc eption
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 1, in top-level template code
+UnicodeDecodeError: 'ascii' codec can't decode byte 0xe3 in position 0: ordinal not in r ange(128)
+
+; line 1
+
+---
+{{ pillar.test }}    <======================
+
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/templates.py", line 366, in render_j inja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python2.7/dist-packages/jinja2/environment.py", line 989, in render
+[...]
+```
+#### Case 2
+1. Set up state and pillar
+2. `sudo salt-call -l debug state.sls test2`
+
+```
+[ERROR   ] Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/templates.py", line 178, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/templates.py", line 408, in render_jinja_tmpl
+    log.debug("TmplStr: {0}".format(tmplstr))
+UnicodeEncodeError: 'ascii' codec can't encode characters in position 18-21: ordinal not in range(128)
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.8
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: Not Installed
+           Mako: 1.0.4
+         PyYAML: 3.11
+          PyZMQ: 15.1.0
+         Python: 2.7.11+ (default, Apr 17 2016, 14:00:29)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: 1.3.7
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: 0.3.8
+          smmap: 0.9.0
+        timelib: Not Installed
+
+System Versions:
+           dist: debian stretch/sid
+        machine: x86_64
+        release: 4.5.0-1-amd64
+         system: debian stretch/sid
+
+```

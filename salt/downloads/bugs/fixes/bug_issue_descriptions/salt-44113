@@ -1,0 +1,343 @@
+### Description of Issue/Question
+Missing certificate file inputs for some of the x509 state modules (and probably the execution modules?) trigger stack traces, even in test mode. While this is just cosmetic, I feel it negatively affects the user experience and is worth fixing.
+
+### Setup
+Example state sls file (assumes a Debian-based host) that generates one or more CAs, and then uses those to sign one or more certificates, which this also generates.
+```
+# x509 state module requirement.
+python-m2crypto:
+  pkg.installed:
+    - reload_modules: True
+
+# Provides the ssl-cert group.
+ssl-cert:
+  pkg.installed: []
+
+{%- for ca, settings in salt['pillar.get']('x509:certificate_authorities', {}).items() %}
+# Private key needs to be managed separately for now.
+# https://github.com/saltstack/salt/issues/39608
+/etc/ssl/private/{{ ca }}.key:
+  x509.private_key_managed:
+    - bits: 4096
+    - backup: True
+    - user: root
+    - group: ssl-cert
+    - mode: '0640'
+    - require:
+      - pkg: python-m2crypto
+      - pkg: ssl-cert
+
+/etc/ssl/certs/{{ ca }}.crt:
+  x509.certificate_managed:
+    - signing_private_key: /etc/ssl/private/{{ ca }}.key
+    - CN: {{ ca }}
+{%- for property, value in settings.get('properties', {}).items() %}
+    - {{ property }}: {{ value }}
+{%- endfor %}
+    - backup: True
+    - user: root
+    - group: root
+    - mode: '0644'
+    - require:
+      - x509: /etc/ssl/private/{{ ca }}.key
+{%- endfor %}
+
+{%- for cert, settings in salt['pillar.get']('x509:issue_certs', {}).items() %}
+# As above, private key needs to be managed separately for now.
+# https://github.com/saltstack/salt/issues/39608
+/etc/ssl/private/{{ cert }}.key:
+  x509.private_key_managed:
+    - bits: 4096
+    - backup: True
+    - user: root
+    - group: ssl-cert
+    - mode: '0640'
+    - require:
+      - pkg: python-m2crypto
+      - pkg: ssl-cert
+
+/etc/ssl/certs/{{ cert }}.csr:
+  x509.csr_managed:
+    - private_key: /etc/ssl/private/{{ cert }}.key
+{%- for property, value in settings.get('properties', {}).items() %}
+    - {{ property }}: {{ value }}
+{%- endfor %}
+    - backup: True
+    - user: root
+    - group: root
+    - mode: '0644'
+    - require:
+      - x509: /etc/ssl/private/{{ cert }}.key
+
+{%- if 'ca' in settings %}
+/etc/ssl/certs/{{ cert }}.crt:
+  x509.certificate_managed:
+    - signing_private_key: /etc/ssl/private/{{ settings['ca'] }}.key
+    - signing_cert: /etc/ssl/certs/{{ settings['ca'] }}.crt
+    - csr: /etc/ssl/certs/{{ cert }}.csr
+    - user: root
+    - group: root
+    - mode: '0644'
+    - require:
+      - x509: /etc/ssl/private/{{ settings['ca'] }}.key
+      - x509: /etc/ssl/certs/{{ settings['ca'] }}.crt
+      - x509: /etc/ssl/certs/{{ cert }}.csr
+{%- endif %}
+{%- endfor %}
+```
+
+Example pillar sls file for the above (assumes a Debian-based host):
+```
+x509:
+  certificate_authorities:
+    ca.dev.local:
+      properties:
+        C: AU
+        ST: Victoria
+        L: Collingwood
+        Email: developer@ca.dev.local
+        basicConstraints: "critical CA:true"
+        keyUsage: "critical cRLSign, keyCertSign"
+        subjectKeyIdentifier: hash
+        authorityKeyIdentifier: keyid,issuer:always
+        days_valid: 180
+        days_remaining: 30
+
+  issue_certs:
+    dev.local:
+      ca: ca.dev.local
+      properties:
+        C: AU
+        ST: Victoria
+        L: Collingwood
+        CN: dev.local
+        Email: developer@dev.local
+        days_valid: 180
+        days_remaining: 30
+        subjectAltName: 'DNS:dev.local'
+```
+
+### Steps to Reproduce Issue
+Re-running the above should produce something like:
+```
+local:
+----------
+          ID: python-m2crypto
+    Function: pkg.installed
+      Result: True
+     Comment: Package python-m2crypto is already installed
+     Started: 03:58:45.639799
+    Duration: 320.515 ms
+     Changes:   
+----------
+          ID: ssl-cert
+    Function: pkg.installed
+      Result: True
+     Comment: Package ssl-cert is already installed
+     Started: 03:58:45.960564
+    Duration: 6.52 ms
+     Changes:   
+----------
+          ID: /etc/ssl/private/ca.dev.local.key
+    Function: x509.private_key_managed
+      Result: True
+     Comment: File /etc/ssl/private/ca.dev.local.key is in the correct state
+     Started: 03:58:45.968036
+    Duration: 6.587 ms
+     Changes:   
+----------
+          ID: /etc/ssl/certs/ca.dev.local.crt
+    Function: x509.certificate_managed
+      Result: True
+     Comment: File /etc/ssl/certs/ca.dev.local.crt is in the correct state
+     Started: 03:58:45.975187
+    Duration: 9.685 ms
+     Changes:   
+----------
+          ID: /etc/ssl/private/dev.local.key
+    Function: x509.private_key_managed
+      Result: True
+     Comment: File /etc/ssl/private/dev.local.key is in the correct state
+     Started: 03:58:45.985174
+    Duration: 1.666 ms
+     Changes:   
+----------
+          ID: /etc/ssl/certs/dev.local.csr
+    Function: x509.csr_managed
+      Result: True
+     Comment: File /etc/ssl/certs/dev.local.csr is in the correct state
+     Started: 03:58:45.987295
+    Duration: 39.571 ms
+     Changes:   
+----------
+          ID: /etc/ssl/certs/dev.local.crt
+    Function: x509.certificate_managed
+      Result: True
+     Comment: File /etc/ssl/certs/dev.local.crt is in the correct state
+     Started: 03:58:46.027664
+    Duration: 23.381 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 7
+Failed:    0
+------------
+Total states run:     7
+Total run time: 407.925 ms
+```
+
+If I then delete the csr and associated crt file (the last two blocks in this run), I expect the files to be regenerated the next time this state sls file is executed, and that works fine. However if I delete those same files and instead run in test mode:
+```
+$ sudo rm /etc/ssl/certs/dev.local.csr /etc/ssl/certs/dev.local.crt
+$ sudo salt-call state.sls x509 test=True
+...
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1837, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1794, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/states/x509.py", line 494, in certificate_managed
+    new = __salt__['x509.create_certificate'](testrun=True, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/x509.py", line 1437, in create_certificate
+    csr = _get_request_obj(kwargs['csr'])
+  File "/usr/lib/python2.7/dist-packages/salt/modules/x509.py", line 380, in _get_request_obj
+    text = get_pem_entry(text, pem_type='CERTIFICATE REQUEST')
+  File "/usr/lib/python2.7/dist-packages/salt/modules/x509.py", line 472, in get_pem_entry
+    raise salt.exceptions.SaltInvocationError(errmsg)
+SaltInvocationError: PEM does not contain a single entry of type CERTIFICATE REQUEST:
+/etc/ssl/certs/dev.local.csr
+
+[INFO    ] Completed state [/etc/ssl/certs/dev.local.crt] at time 04:02:04.780426 duration_in_ms=1.346
+local:
+----------
+          ID: python-m2crypto
+    Function: pkg.installed
+      Result: True
+     Comment: Package python-m2crypto is already installed
+     Started: 04:02:04.390796
+    Duration: 338.073 ms
+     Changes:   
+----------
+          ID: ssl-cert
+    Function: pkg.installed
+      Result: True
+     Comment: Package ssl-cert is already installed
+     Started: 04:02:04.729092
+    Duration: 6.411 ms
+     Changes:   
+----------
+          ID: /etc/ssl/private/ca.dev.local.key
+    Function: x509.private_key_managed
+      Result: True
+     Comment: The file /etc/ssl/private/ca.dev.local.key is in the correct state
+     Started: 04:02:04.736955
+    Duration: 7.1 ms
+     Changes:   
+----------
+          ID: /etc/ssl/certs/ca.dev.local.crt
+    Function: x509.certificate_managed
+      Result: True
+     Comment: The file /etc/ssl/certs/ca.dev.local.crt is in the correct state
+     Started: 04:02:04.744570
+    Duration: 9.859 ms
+     Changes:   
+----------
+          ID: /etc/ssl/private/dev.local.key
+    Function: x509.private_key_managed
+      Result: True
+     Comment: The file /etc/ssl/private/dev.local.key is in the correct state
+     Started: 04:02:04.754784
+    Duration: 1.626 ms
+     Changes:   
+----------
+          ID: /etc/ssl/certs/dev.local.csr
+    Function: x509.csr_managed
+      Result: None
+     Comment: The file /etc/ssl/certs/dev.local.csr is set to be changed
+     Started: 04:02:04.756915
+    Duration: 21.364 ms
+     Changes:   
+----------
+          ID: /etc/ssl/certs/dev.local.crt
+    Function: x509.certificate_managed
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1837, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1794, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/x509.py", line 494, in certificate_managed
+                  new = __salt__['x509.create_certificate'](testrun=True, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/x509.py", line 1437, in create_certificate
+                  csr = _get_request_obj(kwargs['csr'])
+                File "/usr/lib/python2.7/dist-packages/salt/modules/x509.py", line 380, in _get_request_obj
+                  text = get_pem_entry(text, pem_type='CERTIFICATE REQUEST')
+                File "/usr/lib/python2.7/dist-packages/salt/modules/x509.py", line 472, in get_pem_entry
+                  raise salt.exceptions.SaltInvocationError(errmsg)
+              SaltInvocationError: PEM does not contain a single entry of type CERTIFICATE REQUEST:
+              /etc/ssl/certs/dev.local.csr
+     Started: 04:02:04.779080
+    Duration: 1.346 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 6 (unchanged=1)
+Failed:    1
+------------
+Total states run:     7
+Total run time: 385.779 ms
+```
+
+There seem to be a few instances where inputs are not checked correctly causing stack traces to be shown. As demonstrated, this is an issue in particular for test mode.
+
+I understand that the the state might want to indicate that the required input was not available, but a stack trace or even an error in test mode seems too much. Likewise, such errors could be handled in a nicer way if the input requirement was not met outside of test mode.
+
+### Versions Report
+Demonstrated here using a masterless environment.
+```
+$ sudo salt-call --versions-report
+Salt Version:
+           Salt: 2017.7.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: 2.5.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Oct 26 2016, 20:30:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: Ubuntu 14.04 trusty
+         locale: UTF-8
+        machine: x86_64
+        release: 4.13.0-1-amd64
+         system: Linux
+        version: Ubuntu 14.04 trusty
+
+$
+ ```

@@ -1,0 +1,92 @@
+### Description of Issue
+
+module [`disk.wipe`](https://docs.saltstack.com/en/latest/ref/modules/all/salt.modules.disk.html#salt.modules.disk.wipe) dont wipe. It uses `wipefs` without option, so it only displays partition informations.
+
+according the the man:
+
+```
+man wipefs
+```
+
+> wipefs does not erase the filesystem itself nor any other data from the device.  When used without options  -a  or -o, it lists all visible filesystems and the offsets of their basic signatures.
+
+Python code : [disk.wipe](https://github.com/saltstack/salt/blob/develop/salt/modules/disk.py#L312)
+### Setup
+
+executed directly on the minion.
+### Steps to Reproduce Issue
+
+```
+# create a partition and format it
+parted -m -s -- /dev/vdb mkpart primary  0% 100%
+mkfs.ext4 /dev/vdb1
+# check it
+blkid /dev/vdb1
+/dev/vdb1: UUID="7b35ed24-3d43-48b1-9274-00a1db744f80" TYPE="ext4" PARTUUID="6ff4cedb-01"
+
+# run wipefs from command line:
+wipefs /dev/vdb1
+offset               type
+----------------------------------------------------------------
+0x438                ext4   [filesystem]
+                     UUID:  7b35ed24-3d43-48b1-9274-00a1db744f80
+
+# twice or more the partition is still here
+```
+
+same with salt same code see description above:
+
+```
+salt-call -ldebug disk.wipe /dev/vdb1
+```
+
+part of output:
+
+```
+[INFO    ] Executing command 'wipefs /dev/vdb1' in directory '/root'
+```
+### Versions Report
+
+```
+salt-call --versions-report
+Salt Version:
+           Salt: 2016.3.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.5 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.5 
+```
+## Suggested fix
+
+use `wipefs -a` instead.

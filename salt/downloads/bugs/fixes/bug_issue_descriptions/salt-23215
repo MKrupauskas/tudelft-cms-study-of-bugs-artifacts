@@ -1,0 +1,172 @@
+Was working with previous salt versions... 
+Now I just get this error message when installing gems (f.e. backup gem, but also others are not working. Rbenv install works fine).:
+
+``` salt
+# vagrant@minion1:~$ sudo salt-call state.sls rubygems -l debug
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: minion1
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Mako not available
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://rubygems.sls'
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/rubygems.sls:
+backup:
+  gem.installed:
+    - name: backup
+    - ruby: "2.1.5"
+    - user: vagrant
+
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('backup', OrderedDict([('gem.installed', [OrderedDict([('name', 'backup')]), OrderedDict([('ruby', '2.1.5')]), OrderedDict([('user', 'vagrant')])])]))])
+[INFO    ] Running state [backup] at time 13:41:02.716832
+[INFO    ] Executing state gem.installed for backup
+[INFO    ] Executing command 'gem list backup' as user 'vagrant' in directory '/home/vagrant'
+[INFO    ] Executing command '/home/vagrant/.rbenv/bin/rbenv rehash ' as user 'vagrant' in directory '/home/vagrant'
+[INFO    ] Executing command 'gem install backup --no-rdoc --no-ri' as user 'vagrant' in directory '/home/vagrant'
+[ERROR   ] Command 'gem install backup --no-rdoc --no-ri' failed with return code: 1
+[ERROR   ] stderr: ERROR:  While executing gem ... (Gem::FilePermissionError)
+    You don't have write permissions into the /opt/vagrant_ruby/lib/ruby/gems/1.8 directory.
+[ERROR   ] retcode: 1
+[ERROR   ] Could not install gem.
+[INFO    ] Completed state [backup] at time 13:43:04.510638
+[DEBUG   ] File /var/cache/salt/minion/accumulator/66534096 does not exist, no need to cleanup.
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+local:
+----------
+          ID: backup
+    Function: gem.installed
+      Result: False
+     Comment: Could not install gem.
+     Started: 13:41:02.716832
+    Duration: 121793.806 ms
+     Changes:
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+```
+
+``` salt
+Ubuntu 12.4.5 LTS via vagrant machine (config below)
+
+# salt --versions-report
+           Salt: 2015.2.0rc2-203-g0407892
+         Python: 2.7.9 (default, Jan  7 2015, 11:50:42)
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+ msgpack-python: 0.4.6
+   msgpack-pure: 0.1.3
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: 1.2.1
+          PyZMQ: 14.6.0
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: 1.0.1
+
+```
+
+``` ruby
+# vagrant file
+# -*- mode: ruby -*-
+Vagrant.configure(2) do |config|
+  config.vm.box = "precise64"
+  config.vm.hostname = "minion1"
+  config.vm.network :private_network, ip: "192.168.33.10"
+  config.vm.provider "virtualbox" do |vb|
+    vb.memory = "2048"
+    vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
+    vb.customize ["modifyvm", :id, "--natdnsproxy1", "on"]
+  end
+  config.vm.provision :salt do |salt|
+    salt.run_highstate = true
+    salt.minion_config = "./minion1.conf"
+    salt.minion_key = "./minion1.pem"
+    salt.minion_pub = "./minion1.pub"
+    salt.colorize = true
+  end
+end
+```
+
+``` yaml
+# minion1.conf#
+file_client: remote
+master: 10.0.2.2
+```
+
+``` yaml
+# ruby.sls
+rbenv_deps:
+  pkg.latest:
+    - names:
+      - autoconf
+      - automake
+      - bison
+      - build-essential
+      - curl
+      - git
+      - libc6-dev
+      - libncurses5-dev
+      - libreadline-dev
+      - libreadline-gplv2-dev 
+      - libsqlite3-0
+      - libsqlite3-dev
+      - libssl-dev
+      - libtool
+      - libxml2 
+      - libxml2-dev 
+      - libxslt1-dev
+      - libyaml-dev
+      - openssl
+      - sqlite3
+      - subversion
+      - tklib 
+      - zlib1g
+      - zlib1g-dev 
+
+myrbenv:
+  rbenv.install_rbenv:
+    - name: "install_rbenv"
+    - user: vagrant
+
+ruby-2.1.5:
+  rbenv.installed:
+    #- default: True
+    - user: vagrant
+    - require:
+      - pkg: rbenv_deps
+
+```
+
+``` yaml
+# rubygems.sls
+backup:
+  gem.installed:
+    - name: backup
+    - ruby: 2.1.5
+    - user: vagrant
+```
+
+``` yaml
+# top.sls
+base:
+  '*':
+    - ruby
+    - rubygems
+```

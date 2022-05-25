@@ -1,0 +1,107 @@
+### Description of the issue
+
+I am creating a new postgres roles using `states.postgres_user.present`
+It has a `default_password` argument:
+
+> **default_passwoord**
+> The password used only when creating the user, unless password is set.
+
+However, when salt creates the user, `default_password` does not seem to affect anything, at all. (The `password` is not set neither.)
+### The setup
+
+```
+install:
+    pkg.installed:
+      - name: postgresql
+    service.running:
+      - name: postgresql
+        enable: True
+
+foobar_user:
+    postgres_user.present:
+      - name: foobar
+        default_password: password
+        login: True
+        groups: postgres
+```
+### Reproducing:
+
+Use the sls above.
+User does NOT exist in the database.
+Everything is made inside of a fresh box with `salt 2016.3.1 (Boron)`
+Postgres settings are nearly default and the changes are irrelevant to the issue (`log_statement = 'all'` and rules in pg_hba.conf).
+
+```
+          ID: foobar_user
+    Function: postgres_user.present
+        Name: foobar
+      Result: True
+     Comment: The user foobar has been created
+     Started: 16:29:42.831371
+    Duration: 748.714 ms
+     Changes:   
+              ----------
+              foobar:
+                  Present
+```
+
+Now let's see the postgres log:
+
+``````
+CREATE ROLE "foobar" WITH  INHERIT LOGIN; GRANT "postgres" TO "foobar"```
+``````
+
+Or, more full log just in case (everything during whole the state.apply run)
+
+```
+SELECT setting FROM pg_catalog.pg_settings WHERE name = 'server_version'
+COPY (SELECT pg_roles.rolname as "name",pg_roles.rolsuper as "superuser", pg_roles.rolinherit as "inherits privileges", pg_roles.rolcreaterole as "can create roles", pg_roles.rolcreatedb as "can create databases", pg_roles.rolcatupdate as "can update system catalogs", pg_roles.rolcanlogin as "can login", pg_roles.rolreplication as "replication", pg_roles.rolconnlimit as "connections", pg_roles.rolvaliduntil::timestamp(0) as "expiry time", pg_roles.rolconfig  as "defaults variables" , COALESCE(pg_shadow.passwd, pg_authid.rolpassword) as "password" FROM pg_roles LEFT JOIN pg_authid ON pg_roles.oid = pg_authid.oid LEFT JOIN pg_shadow ON pg_roles.oid = pg_shadow.usesysid) TO STDOUT WITH CSV HEADER
+COPY (select rolname from pg_user join pg_auth_members      on (pg_user.usesysid=pg_auth_members.member) join pg_roles       on (pg_roles.oid=pg_auth_members.roleid) where pg_user.usename='postgres') TO STDOUT WITH CSV HEADER
+SELECT setting FROM pg_catalog.pg_settings WHERE name = 'server_version'
+COPY (SELECT pg_roles.rolname as "name",pg_roles.rolsuper as "superuser", pg_roles.rolinherit as "inherits privileges", pg_roles.rolcreaterole as "can create roles", pg_roles.rolcreatedb as "can create databases", pg_roles.rolcatupdate as "can update system catalogs", pg_roles.rolcanlogin as "can login", pg_roles.rolreplication as "replication", pg_roles.rolconnlimit as "connections", pg_roles.rolvaliduntil::timestamp(0) as "expiry time", pg_roles.rolconfig  as "defaults variables" FROM pg_roles) TO STDOUT WITH CSV HEADER
+COPY (select rolname from pg_user join pg_auth_members      on (pg_user.usesysid=pg_auth_members.member) join pg_roles       on (pg_roles.oid=pg_auth_members.roleid) where pg_user.usename='postgres') TO STDOUT WITH CSV HEADER
+CREATE ROLE "foobar" WITH  INHERIT LOGIN; GRANT "postgres" TO "foobar"
+```
+### Versions Report
+
+Salt master report is below. The minion shouldn't be any differences except of the postgress and salt installed without arguments (`-NM` on the master).
+
+```
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.5 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.5 
+```

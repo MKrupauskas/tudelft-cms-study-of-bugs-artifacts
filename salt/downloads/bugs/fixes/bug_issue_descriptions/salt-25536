@@ -1,0 +1,105 @@
+Hello
+Ive been unable to get the Windows salt-minion to install when launching windows openstack (private cloud) instances via salt-cloud.
+
+Issue appears to be that salt-cloud is trying to connect on port 22 instead of smb 445, here are the log entries showing this:
+
+```
+[DEBUG   ] Deploying 10.13.102.1 at 1437382943.0 (Windows)
+[DEBUG   ] Attempting connection to host 10.13.102.1 on port 22
+[DEBUG   ] Caught exception in wait_for_port: [Errno 113] No route to host
+```
+
+_(linux instances work correctly)_
+
+From what I can tell, this appears to be because I have this line in the providers config:
+
+``` yaml
+    ssh_interface: private_ips
+```
+
+This is because Im only using private IP's, no public IP's.
+
+Without this line in the providers config, I get this error:
+
+```
+Error: There was a profile error: There are no more floating IP addresses available, please create some more
+```
+
+This error is OK, I dont have any floating public IP's available, so Im not worried about that.
+
+Here are my provider and profile configs:
+
+``` yaml
+    # Provider
+    openstack:
+      # Set the location of the salt-master
+      minion:
+        master: somemasterserver
+      # Configure the OpenStack driver
+      identity_url: http://10.13.100.20:5000/v2.0/tokens
+      compute_name: nova
+      protocol: ipv4
+      compute_region: RegionOne
+      # Configure Openstack authentication credentials
+      user: someuser
+      password: somepass
+      # tenant is the project name
+      tenant: sometenant
+      provider: openstack
+      # skip SSL certificate validation (default false)
+      insecure: false
+      # added for private IPs
+      ssh_interface: private_ips
+```
+
+``` yaml
+    # Profile
+    windows2012r2:
+        provider: openstack
+        size: m1.medium
+        image: somewinimage
+        # minion installer
+        win_installer: /srv/salt/software/windows/Salt-Minion-2015.5.0-2-AMD64-Setup.exe
+        win_username: somewinadmin
+        win_password: somewinpass
+        smb_port: 445
+```
+
+version:
+
+``` yaml
+salt --versions-report
+           Salt: 2015.5.2
+         Python: 2.7.5 (default, Jun 24 2015, 00:41:19)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+```
+
+```
+salt-master:
+CentOS Linux release 7.1.1503 (Core)
+```
+
+(running as an instance in openstack)
+
+Steps to replicate:
+1. salt / salt-master (Lithium) installed on Centos7 server
+2. have openstack private cloud available (or rackspace public cloud?)
+3. have 'ssh_interface: private_ips' in providers config
+4. create an instance with the windows profile i.e. **salt-cloud -p windows2012r2 win01 -l debug**
+5. observe DEBUG messages, and see _Attempting connection to host x.x.x.x on port 22_
+
+I think this is a bug, please let me know if there's any more info required for this to be looked at.
+
+Thanks
+Aled

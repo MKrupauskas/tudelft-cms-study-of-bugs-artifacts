@@ -1,0 +1,90 @@
+### Description of Issue/Question
+
+(Note that I haven't tested this to see if this affects other providers as well. Will try to do so tomorrow)
+
+The example in the docs for Digital Ocean (https://docs.saltstack.com/en/latest/topics/cloud/config.html#digitalocean) shows an example where the `location` key is specified in the cloud provider config (instead of the VM profile config). To cater for multiple locations, one would be tempted to use multiple providers, with the only difference being `location`. This works, and we get no problems when creating VMs, but when you try to delete a VM, `salt-cloud` erroneously sees _one_ VM as being connected to 2 providers (the key here is both providers have the same `personal_access_token`):
+
+```
+The following virtual machines are set to be destroyed:
+  do-sg:
+    digital_ocean:
+      vm1
+  do-ny:
+    digital_ocean:
+      vm1
+
+Proceed? [N/y] 
+```
+### Setup
+
+cloud.providers.d/do-provider.conf:
+
+```
+do-sg:
+  driver: digital_ocean
+  personal_access_token: REUSE_SAME_TOKEN
+  ssh_key_file: /some/key/file
+  ssh_key_names: somekeyname
+  location: Singapore 1
+
+do-ny:
+  driver: digital_ocean
+  personal_access_token: REUSE_SAME_TOKEN
+  ssh_key_file: /some/key/file
+  ssh_key_names: somekeyname
+  location: New York 1
+```
+
+cloud.profiles.d/do-profiles.conf:
+
+```
+do-sg-ubuntu:
+  provider: do-sg
+  image: 14.04.4 x64
+  size: 2gb
+```
+### Steps to Reproduce Issue
+
+`salt-cloud -p do-sg-ubuntu vm1; salt-cloud -d vm1`
+
+If the token for `do-ny` is changed, so that both providers are using different tokens, `salt-cloud -d vm1` will delete the VM properly without any error messages.
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.10
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-86-generic
+         system: Ubuntu 14.04 trusty
+```

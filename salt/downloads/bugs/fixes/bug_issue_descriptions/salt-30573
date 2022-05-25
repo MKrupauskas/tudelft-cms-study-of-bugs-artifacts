@@ -1,0 +1,78 @@
+Given the state
+
+```
+Ensure elb exists:
+  boto_elb.present:
+    - name: apache-ap-southeast-2
+    - region: ap-southeast-2
+    - listeners:
+        - elb_port: 80
+          instance_port: 80
+          elb_protocol: TCP
+        - elb_port: 443
+          instance_port: 443
+          elb_protocol: TCP
+    - health_check:
+        target: 'TCP:80'
+        healthy_threshold: 2
+        unhealthy_threshold: 2
+    - attributes:
+        cross_zone_load_balancing:
+          enabled: true
+    - cnames:
+      - name: test.my.domain.
+        zone: my.domain.
+    - subnets:
+      - subnet-xxxxxxxx
+      - subnet-yyyyyyyy
+    - security_groups:
+      - sg-zzzzzzzz
+```
+
+running it with test=True (assuming the ELB hasn't already been created) gives the stack trace
+
+```
+          ID: Ensure elb exists
+    Function: boto_elb.present
+        Name: apache-ap-southeast-2
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.6/site-packages/salt/state.py", line 1594, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.6/site-packages/salt/loader.py", line 1491, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib64/python2.6/contextlib.py", line 34, in __exit__
+                  self.gen.throw(type, value, traceback)
+                File "/usr/lib/python2.6/site-packages/salt/utils/context.py", line 42, in func_globals_inject
+                  yield
+                File "/usr/lib/python2.6/site-packages/salt/loader.py", line 1491, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.6/site-packages/salt/states/boto_elb.py", line 340, in present
+                  value=lb['dns_name'],
+              TypeError: list indices must be integers, not str
+     Started: 11:18:01.407996
+    Duration: 257.715 ms
+     Changes:   
+
+```
+
+The relevant code in boto_elb.py is:
+
+```
+    if cnames:
+        lb = __salt__['boto_elb.get_elb_config'](
+            name, region, key, keyid, profile
+        )
+        for cname in cnames:
+            _ret = __states__['boto_route53.present'](
+                name=cname.get('name'),
+                value=lb['dns_name'],
+                zone=cname.get('zone'),
+                record_type='CNAME',
+
+```
+
+If test=True and the ELB hasn't yet been created, then lb is an empty list (for some reason get_elb_config returns an empty list, not an empty dict), hence the error. I think the fix is just to check that len(lb)>0 before running the for loop (that seems to work for me). Happy to send a pull request along those lines if you concur.
+
+cheers,
+Tim

@@ -1,0 +1,101 @@
+Salt 0.17.0 changed the way that calls are made to create users.  The new mechanism no longer passes in the '-g' option to **useradd** on Debian based systems which can lead to a failure in creating the user account.
+- salt-call --versions-report
+
+```
+           Salt: 0.17.0
+         Python: 2.7.3 (default, Apr 20 2012, 22:39:59)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```
+- salt-call state.sls states.users.test (salt 0.17.0)
+
+```
+[INFO    ] Executing command 'ps -efH' in directory '/root'
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file ** skipped **, latest already in cache 'salt://states/users/test.sls'
+[INFO    ] Executing state group.absent for puppet
+[INFO    ] Group not present
+[INFO    ] Executing state group.absent for vboxsf
+[INFO    ] Group not present
+[INFO    ] Executing state group.present for testers
+[INFO    ] Executing command 'groupadd testers' in directory '/root'
+[INFO    ] {'passwd': 'x', 'gid': 1001, 'name': 'testers', 'members': []}
+[INFO    ] Executing state group.present for jdoe
+[INFO    ] Executing command 'groupadd jdoe' in directory '/root'
+[INFO    ] {'passwd': 'x', 'gid': 1002, 'name': 'jdoe', 'members': []}
+[INFO    ] Executing state user.present for jdoe
+[INFO    ] Executing command 'useradd -s /bin/bash -u 5000 -m -d /home/jdoe jdoe' in directory '/root'
+[ERROR   ] Command 'useradd -s /bin/bash -u 5000 -m -d /home/jdoe jdoe' failed with return code: 9
+[ERROR   ] stderr: useradd: group jdoe exists - if you want to add this user to that group, use -g.
+[ERROR   ] Failed to create new user jdoe
+```
+- salt-call state.sls states.users.test (salt 0.16.4)
+
+```
+[INFO    ] Executing command 'ps -efH' in directory '/root'
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file 'salt://states/users/test.sls'
+[INFO    ] Executing state group.present for testers
+[INFO    ] Executing command 'groupadd testers' in directory '/root'
+[INFO    ] {'passwd': 'x', 'gid': 1001, 'name': 'testers', 'members': []}
+[INFO    ] Executing state group.present for jdoe
+[INFO    ] Executing command 'groupadd jdoe' in directory '/root'
+[INFO    ] {'passwd': 'x', 'gid': 1002, 'name': 'jdoe', 'members': []}
+[INFO    ] Executing state group.absent for puppet
+[INFO    ] No changes made for puppet
+[INFO    ] Executing state group.absent for vboxsf
+[INFO    ] No changes made for vboxsf
+[INFO    ] Executing state user.present for jdoe
+[INFO    ] Executing command 'useradd -s /bin/bash -u 5000 -g 1002 -m -d /home/jdoe jdoe' in directory '/root'
+[INFO    ] Executing command 'usermod -G "jdoe,testers" jdoe' in directory '/root'
+[INFO    ] Executing command 'usermod -c "John Doe,,," jdoe' in directory '/root'
+[INFO    ] {'shell': '/bin/bash', 'workphone': '', 'uid': 5000, 'passwd': 'x', 'roomnumber': '', 'groups': ['jdoe', 'testers'], 'home': '/home/jdoe', 'name': 'jdoe', 'gid': 1002, 'fullname': 'John Doe', 'homephone': ''}
+[INFO    ] Executing state file.directory for /home/jdoe/.ssh
+[INFO    ] {'/home/jdoe/.ssh': 'New Dir'}
+```
+- cat states/users/test.sls
+
+```
+puppet:
+    group.absent
+
+vboxsf:
+    group.absent
+
+testers:
+    group:
+        - present
+
+jdoe:
+    file:
+        - directory
+        - name: /home/jdoe/.ssh
+        - mode: '700'
+        - user: jdoe
+        - group: jdoe
+        - require:
+            - user: jdoe
+    group:
+        - present
+    user:
+        - present
+        - name: jdoe
+        - shell: /bin/bash
+        - fullname: John Doe
+        - home: /home/jdoe
+        - uid: 5000
+        - groups:
+            - jdoe
+            - testers
+        - require:
+            - group: testers
+            - group: jdoe
+            - group: puppet
+            - group: vboxsf
+```

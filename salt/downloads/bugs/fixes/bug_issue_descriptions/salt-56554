@@ -1,0 +1,133 @@
+### Description of Issue
+<!-- Note: Please direct questions to the salt-users google group. Only post issues and feature requests here -->
+
+```
+server.example.com_master:
+----------
+          ID: command_1
+    Function: salt.function
+        Name: cmd.run
+      Result: True
+     Comment: Function ran successfully. Function cmd.run ran on cloud.
+     Started: 05:11:33.376113
+    Duration: 441.463 ms
+     Changes:   
+              cloud:
+                  file1
+              file2
+              file3
+```
+In this output you can the that ```file1``` was indented, but ```file2``` and ```file3``` were not.
+
+### Steps to Reproduce Issue
+
+run an orchestration state that uses ```cmd.run``` that results in multiple ```Changes``` lines for a minion in the output.
+
+ie 
+```
+command_1:
+  salt.function:
+    - name: cmd.run
+    - tgt: 'server'
+    - arg:
+      - ls /etc
+```
+
+```salt-run state.orch orch.test --out highstate```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 3000
+ 
+Dependency Versions:
+           cffi: 1.12.3
+       cherrypy: Not Installed
+       dateutil: 2.8.0
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.1
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: Not Installed
+   pycryptodome: 3.9.7
+         pygit2: Not Installed
+         Python: 3.7.6 (default, Jan 30 2020, 09:44:41)
+   python-gnupg: Not Installed
+         PyYAML: 5.3.1
+          PyZMQ: 18.0.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+ 
+System Versions:
+           dist: fedora 31 Thirty One
+         locale: UTF-8
+        machine: x86_64
+        release: 5.5.13-200.fc31.x86_64
+         system: Linux
+        version: Fedora 31 Thirty One
+```
+
+### Resolution:
+This issue can be resolved with the following patch:
+```
+--- /usr/lib/python3.7/site-packages/salt/output/highstate.py.orig	2020-04-09 21:20:11.099958656 +0200
++++ /usr/lib/python3.7/site-packages/salt/output/highstate.py		2020-04-09 20:26:55.524264605 +0200
+@@ -186,13 +186,18 @@ def _format_host(host, data, indent_leve
+     nchanges = 0
+     strip_colors = __opts__.get("strip_colors", True)
+ 
+-    if isinstance(data, int) or isinstance(data, six.string_types):
++    if isinstance(data, int):
++        nchanges = 1
++        hstrs.append(("{0}    {1}{2[ENDC]}".format(hcolor, data, colors)))
++        hcolor = colors["CYAN"]  # Print the minion name in cyan
++    elif isinstance(data, six.string_types):
+         # Data in this format is from saltmod.function,
+         # so it is always a 'change'
+         nchanges = 1
+-        hstrs.append(("{0}    {1}{2[ENDC]}".format(hcolor, data, colors)))
++        for data in data.splitlines():
++            hstrs.append(("{0}    {1}{2[ENDC]}".format(hcolor, data, colors)))
+         hcolor = colors["CYAN"]  # Print the minion name in cyan
+-    if isinstance(data, list):
++    elif isinstance(data, list):
+         # Errors have been detected, list them in RED!
+         hcolor = colors["LIGHT_RED"]
+         hstrs.append(("    {0}Data failed to compile:{1[ENDC]}".format(hcolor, colors)))
+@@ -202,7 +207,7 @@ def _format_host(host, data, indent_leve
+             hstrs.append(
+                 ("{0}----------\n    {1}{2[ENDC]}".format(hcolor, err, colors))
+             )
+-    if isinstance(data, dict):
++    elif isinstance(data, dict):
+         # Verify that the needed data is present
+         data_tmp = {}
+         for tname, info in six.iteritems(data):
+```
+**this is roughly equivalent to how ```nested.py``` accomplishes this (which doesn't suffer from the same issue)
+
+for comparison:
+**nested.py** utilizes a ```for``` loop, separates the lines using ```splitlines``` and uses an ```indent``` variable for spacing.
+```
+        elif isinstance(ret, six.string_types):
+            first_line = True
+            for line in ret.splitlines():
+                line_prefix = ' ' * len(prefix) if not first_line else prefix
+                ....          
+                out.append(
+                    self.ustring(
+                        indent,
+                        self.GREEN,
+                        line,
+                        prefix=line_prefix
+```

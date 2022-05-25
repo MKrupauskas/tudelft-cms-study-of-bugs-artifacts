@@ -1,0 +1,36 @@
+The code that should restart the minion when it can't successfully ping the master is never called.
+
+Config as suggested:
+
+```
+# To auto recover minions if master changes IP address (DDNS)
+auth_tries: 10
+auth_safemode: False
+ping_interval: 1
+```
+
+Steps to reproduce:
+
+Wait until the master changes its IP address or setup a firewall rule that prohibits communication between client and master.
+
+The client will log `fire_master failed: master could not be contacted. Request timed out.` but not restart.
+
+I think this bug was introduced in partly in 8a4969b7 when an additional except clause without return was added and partly later when a default `return True` was added to the end of `_fire_master`.
+
+Because of this, `_fire_master` returns `True` on a timeout and the restart code farther down is skipped:
+
+```
+        # schedule the stuff that runs every interval
+        ping_interval = self.opts.get('ping_interval', 0) * 60
+        if ping_interval > 0 and self.connected:
+            def ping_master():
+                try:
+                    if not self._fire_master('ping', 'minion_ping'):   # <----- True on timeout
+                        if not self.opts.get('auth_safemode', True):
+                            log.error('** Master Ping failed. Attempting to restart minion**')
+
+```
+
+I would suggest adding a `return False` after line 1154 (as of bc0f902), but I have no idea what unintended consequences there might be.
+
+Also, I suspect the async code has the same problem, but I'm not familiar enough with tornado.

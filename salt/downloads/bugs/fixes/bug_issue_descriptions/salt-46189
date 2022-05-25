@@ -1,0 +1,143 @@
+### Description of Issue/Question
+
+When using check_cmd on the installation of a configuration file with file.managed, salt installs a temporary file using the standard python call tempfile.mkstemp() before running the check_cmd. This call defaults the temp dir to /tmp. But some apparmor profiles prevent the daemon from accessing /tmp for security reasons (failing with EPERM -- permission denied).
+
+This is the case on e.g. Ubuntu 16.04 and isc-dhcp-server:
+
+```
+# apt install isc-dhcp-server
+# touch /tmp/salt
+# dhcpd -t -cf /tmp/salt
+Internet Systems Consortium DHCP Server 4.3.3
+Copyright 2004-2015 Internet Systems Consortium.
+All rights reserved.
+For info, please visit https://www.isc.org/software/dhcp/
+Can't open /tmp/salt: Permission denied
+```
+
+This is how salt creates the temporary file:
+```
+salt/states/file.py (line 2398):
+    tmp_filename = salt.utils.files.mkstemp(suffix=tmp_ext)
+
+salt/utils/__init__.py (line 3489):
+def mkstemp(*args, **kwargs):
+    ...
+    fd_, fpath = tempfile.mkstemp(*args, **kwargs)
+    ...
+```
+
+There are several ways to resolve or workaround this issue, nr. 1 seems to me the most effective.
+
+1. Allow users to set the temp directory using a tmp_dir statement similar to the existing tmp_ext statement in file.managed.
+1. Make upstream fix the apparmor profile so that checking a new config file doesn't violate it.
+1. Add a statement to the apparmor profile allowing config files to be read from /tmp:
+```
+# touch /tmp/salt
+# echo "/tmp/salt r," > /etc/apparmor.d/dhcpd.d/allow.tmp
+# apparmor_parser -r /etc/apparmor.d/usr.sbin.dhcpd
+# dhcpd -t -cf /tmp/salt
+# echo $?
+0
+```
+1. Use a mini script to copy the config file to an allowed directory before running the check command:
+```
+    - check_cmd: |
+        sh -c '
+        export TMPDIR=$(dirname "{{ dhcpd.config }}") ;
+        TMPFILE="$(mktemp)" ;
+        cp "$0" "${TMPFILE}" ;
+        dhcpd -t -cf "${TMPFILE}" ;
+        ERROR="$?" ;
+        rm -f "${TMPFILE}" ;
+        exit $ERROR '
+```
+
+### Setup
+On Ubuntu 16.04 in /tmp/srv:
+
+top.sls:
+```
+base:
+  '*':
+    - checkcmd
+```
+
+checkcmd.sls:
+```
+isc-dhcp-server:
+  pkg.installed
+
+/etc/dhcp/dhcpd.conf:
+  file.managed:
+    - contents: ""
+    - check_cmd: dhcpd -t -cf
+    - require:
+      - pkg: isc-dhcp-server
+```
+
+### Steps to Reproduce Issue
+```
+# salt-call --local --file-root=/tmp/srv state.highstate
+...
+----------
+          ID: /etc/dhcp/dhcpd.conf
+    Function: file.managed
+      Result: False
+     Comment: check_cmd execution failed
+              Internet Systems Consortium DHCP Server 4.3.3
+              Copyright 2004-2015 Internet Systems Consortium.
+              All rights reserved.
+              For info, please visit https://www.isc.org/software/dhcp/
+              Can't open /tmp/tmp5Yxp6o: Permission denied
+
+              If you think you have received this message due to a bug rather
+              than a configuration issue please read the section on submitting
+              bugs on either our web page at www.isc.org or in the README file
+              before submitting a bug.  These pages explain the proper
+              process and the information we find helpful for debugging..
+
+              exiting.
+     Started: 11:34:05.877477
+    Duration: 13.902 ms
+     Changes:
+```
+### Versions Report
+```
+Salt Version:
+           Salt: 2015.8.8
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+         Python: 2.7.12 (default, Dec  4 2017, 14:50:18)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-72-generic
+         system: Ubuntu 16.04 xenial
+```

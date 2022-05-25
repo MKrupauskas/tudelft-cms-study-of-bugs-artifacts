@@ -1,0 +1,120 @@
+### Description of Issue/Question
+When managing a file or a folder which permission contains an unknown SID the operation fails if the underlying logic checks the permissions.
+
+Example:
+
+Given a folder C:/Deployment, which has rights set for the user "ALL_APP_PACKAGES" (Well-Known SID "S-1-15-2-1", see https://msdn.microsoft.com/en-us/library/cc980032.aspx) on a Windows Server 2008 R2, the following call will fail:
+
+`salt 'myServer' file.manage_file C:/Deployment/im_a_cool_file '' '' '' '' '' '' '' '' ''`
+
+It will return with the following stack:
+
+```
+myServer:                                                                                                                                                                                                          
+    The minion function caused an exception: Traceback (most recent call last):                                                                                                                                           
+      File "c:\salt\bin\lib\site-packages\salt\minion.py", line 1470, in _thread_return                                                                                                                                   
+        return_data = executor.execute()                                                                                                                                                                                  
+      File "c:\salt\bin\lib\site-packages\salt\executors\direct_call.py", line 28, in execute                                                                                                                             
+        return self.func(*self.args, **self.kwargs)                                                                                                                                                                       
+      File "c:\salt\bin\lib\site-packages\salt\modules\file.py", line 4906, in manage_file                                                                                                                                
+        kwargs.get('win_inheritance'))                                                                                                                                                                                    
+      File "c:\salt\bin\lib\site-packages\salt\modules\win_file.py", line 1588, in check_perms                                                                                                                            
+        cur_perms = salt.utils.win_dacl.get_permissions(path)                                                                                                                                                             
+      File "c:\salt\bin\lib\site-packages\salt\utils\win_dacl.py", line 1514, in get_permissions                                                                                                                          
+        return obj_dacl.list_aces()                                                                                                                                                                                       
+      File "c:\salt\bin\lib\site-packages\salt\utils\win_dacl.py", line 831, in list_aces                                                                                                                                 
+        user, a_type, a_prop, a_perms, inh = self._ace_to_dict(ace)                                                                                                                                                       
+      File "c:\salt\bin\lib\site-packages\salt\utils\win_dacl.py", line 873, in _ace_to_dict                                                                                                                              
+        principal = get_name(sid)                                                                                                                                                                                         
+      File "c:\salt\bin\lib\site-packages\salt\utils\win_dacl.py", line 1139, in get_name                                                                                                                                 
+        return win32security.LookupAccountSid(None, sid_obj)[0]                                                                                                                                                           
+    error: (1332, 'LookupAccountSid', 'No mapping between account names and security IDs was done.')   
+```
+
+The issue can be easily reproduced using the minion win_dacl implementation together with win32security:
+```python
+import win32security
+import salt.utils.win_dacl
+dacl = salt.utils.win_dacl.dacl(obj_name="C:/Deployment",obj_type='file')
+win32security.LookupAccountSid(None,dacl.dacl.GetAce(0)[2])
+```
+results in
+```
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+pywintypes.error: (1332, 'LookupAccountSid', 'No mapping between account names and security IDs was done.')                                                                                                                                                  
+```
+
+Thus, this is some sort of issue with the Windows API. Powershell experiences the same issue (see snippet below). SysInternals tools will show the same.:
+```powershell
+PS C:\Users\my_user> $objSID = New-Object System.Security.Principal.SecurityIdentifier ("S-1-15-2-1")
+PS C:\Users\my_user> $objUser = $objSID.Translate( [System.Security.Principal.NTAccount])
+Exception calling "Translate" with "1" argument(s): "Some or all identity references could not be translated."
+At line:1 char:1
++ $objUser = $objSID.Translate( [System.Security.Principal.NTAccount])
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [], MethodInvocationException
+    + FullyQualifiedErrorId : IdentityNotMappedException
+```
+
+I suspect this issue is isolated to Windows Server 2008R2/Windows 8 when patches or AMI building (we are on AWS) introduce these unknown SIDs. 
+
+### Steps to Reproduce Issue
+1.) On Windows Server 2008 R2 create a folder with an unknown SID (I didn't investigate how exactly this is doable. I myself cannot just reuse the aforementioned SID/User on folders).
+2.) Manage a file inside that folder using file.manage_file
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.2
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 10.2.1
+       dateutil: 2.6.0
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.3
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.6
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (v2.7.13:a06454b1afa1, Dec 17 2016, 20:53:40) [MSC v.1500 64 bit (AMD64)]
+   python-gnupg: 0.4.0
+         PyYAML: 3.11
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: 0.2.4
+        Tornado: 4.5.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+         locale: cp1252
+        machine: AMD64
+        release: 2008ServerR2
+         system: Windows
+        version: 2008ServerR2 6.1.7601 SP1 Multiprocessor Free
+```
+
+Master is on same version, but issue is unrelated to master
+
+### Proposal for possible fix
+I will provide a PR later. I think there are two things that could be done to prevent this issue from happening.
+1.) In the win_file execution module the function check_perms and set_perms always call `salt.utils.win_dacl.get_permissions` - even if permissions are not changed. The permissions should instead be loaded as late as possible
+2.) When list_aces in the win_dacl implementation one could intercept the `ERROR_NONE_MAPPED` exception and just skip this entry
+
+### Related Issues
+https://github.com/djberg96/win32-security/issues/6
+https://tickets.puppetlabs.com/browse/PUP-2985
+https://tickets.puppetlabs.com/browse/MODULES-1226

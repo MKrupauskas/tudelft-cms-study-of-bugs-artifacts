@@ -1,0 +1,60 @@
+This is similar to https://github.com/saltstack/salt/issues/10954
+
+I have in my /etc/salt/grains:
+
+```
+roles:
+  - default
+  - timeserver
+  - hypervisor
+datacenter: home
+```
+
+on nodes hv1, and hv2.
+
+I have an ntp pillar that fails this segment and instead provides the data in else:
+
+```
+ntp:
+  {# ## Assign NTP Servers Based On Environment ## #}
+  {% if 'timeserver' in grains['roles'] %}
+  {% if grains['id'] == 'hv1.home.ld' %}
+  ntpservers: 
+    - 0.us.pool.ntp.org iburst
+    - 1.us.pool.ntp.org iburst
+    - 2.us.pool.ntp.org iburst
+    - 3.us.pool.ntp.org iburst
+  comment: ''                      
+
+  {# Secondary NTP Servers Get Data From Primary #}
+  {% elif grains['id'] == 'hv2.home.ld' %}
+  ntpservers:
+    - hv1.home.ld iburst prefer true
+    - 0.us.pool.ntp.org iburst
+    - 1.us.pool.ntp.org iburst
+    - 2.us.pool.ntp.org iburst
+    - 3.us.pool.ntp.org iburst
+  comment: ''
+
+  {% endif %}
+  {# Otherwise This Is Just An Internal Box #}
+  {% else %}
+  comment: '#'
+
+  ntpservers: 
+    - hv1.home.ld prefer
+    - hv2.home.ld prefer
+  {% endif %}
+
+  {# ### Network #}
+  {% if 'home' in salt['grains.get']('datacenter', []) %}
+  {# if 'home' in grains['datacenter'] #}
+  localnetworks:
+    - 172.17.0.0 mask 255.255.0.0
+  {% else %}
+  localnetworks:
+    - 172.17.0.0 mask 255.255.0.0
+  {% endif %}
+```
+
+If I use `grains['roles']` it works, but `salt['grains.get']('roles', [])` fails. This functionally worked in 0.17.1-0.17.4, and only upgrading to 2014.1.1 causes this to fail, completely changing several things that have been using the more reliable grains.get method!

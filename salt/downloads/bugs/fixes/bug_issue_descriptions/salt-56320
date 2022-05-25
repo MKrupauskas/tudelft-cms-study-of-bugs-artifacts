@@ -1,0 +1,131 @@
+### Description of Issue
+I am using a state win_dns_client.dns_exists to setup DNS Servers in Network Interface of a Windows Server 2016. This state works perfectly when I run "salt '*' state.apply", but when I using a schedule through Pillar, the following error is reported:
+```
+2020-03-06 15:32:08,164 [salt.state       :322 ][ERROR   ][4036] An exception occurred in this state: Traceback (most recent call last):
+  File "c:\salt\bin\lib\site-packages\salt-3000-py3.5.egg\salt\state.py", line 1981, in call
+    **cdata['kwargs'])
+  File "c:\salt\bin\lib\site-packages\salt-3000-py3.5.egg\salt\loader.py", line 1977, in wrapper
+    return f(*args, **kwargs)
+  File "c:\salt\bin\lib\site-packages\salt-3000-py3.5.egg\salt\states\win_dns_client.py", line 48, in dns_exists
+    configured_list = __salt__['win_dns_client.get_dns_servers'](interface)
+  File "c:\salt\bin\lib\site-packages\salt-3000-py3.5.egg\salt\modules\win_dns_client.py", line 44, in get_dns_servers
+    with salt.utils.winapi.Com():
+AttributeError: module 'salt.utils' has no attribute 'winapi'
+```
+
+### Setup
+Schedule in Pillar:
+```
+schedule:
+  state_dns:
+    function: state.apply
+    minutes: 1
+```
+
+State dns:
+```
+{% from "lib/tofs.jinja" import file_switch with context -%}
+{% if pillar.get('dns_state', True) != False %}
+
+{% if grains['kernel'] == 'Windows' %}
+  {% if pillar.get('dns_static', False) == True %}
+config_dns_servers:
+  win_dns_client.dns_exists:
+    - interface: Ethernet0
+    - replace: True #remove any servers not in the "servers" list, defau
+    - servers:
+        {% for dnsserver in pillar.get('dns-servers', {}) %}
+      - {{ dnsserver }}
+        {% endfor %}
+  {% endif %}
+{% endif %}
+{% endif %}
+```
+
+### Steps to Reproduce Issue
+1. Create a state dns;
+2. Create a schedule through Pillar;
+3. Wait the schedule to run.
+
+### Versions Report
+```
+SALT-MASTER:
+Salt Version:
+           Salt: 3000
+
+Dependency Versions:
+           cffi: 1.14.0
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.1
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 2.6.1
+   pycryptodome: 3.9.7
+         pygit2: Not Installed
+         Python: 3.7.6 (default, Jan 18 2020, 02:49:59)
+   python-gnupg: Not Installed
+         PyYAML: 5.3
+          PyZMQ: 19.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1062.12.1.el7.x86_64
+         system: Linux
+        version: Not Installed
+```
+
+SALT-MINION:
+```
+Salt Version:
+           Salt: 3000
+
+Dependency Versions:
+           cffi: 1.12.2
+       cherrypy: 17.4.1
+       dateutil: 2.8.0
+      docker-py: Not Installed
+          gitdb: 2.0.6
+      gitpython: Not Installed
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: Not Installed
+   pycryptodome: 3.8.1
+         pygit2: Not Installed
+         Python: 3.5.4 (v3.5.4:3f56838, Aug  8 2017, 02:17:05) [MSC v.1900 64 bit (AMD64)]
+   python-gnupg: 0.4.4
+         PyYAML: 5.1.2
+          PyZMQ: 18.0.1
+          smmap: 2.0.5
+        timelib: 0.2.4
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+
+System Versions:
+           dist:
+         locale: cp1252
+        machine: AMD64
+        release: 2016Server
+         system: Windows
+        version: 2016Server 10.0.14393 SP0 Multiprocessor Free
+```

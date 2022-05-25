@@ -1,0 +1,62 @@
+When using git as a backend and the environment is not explicitly specified, salt may select an environment/branch other than the base/master. I've specifically seen this with state.show_top and state.highstate.
+
+Here's the (truncated) top file for the main branch:
+
+```
+root@SALT:/srv/salt# cat top.sls 
+base:
+  '*':
+    - salt
+    - users
+    - log
+    - ssh
+    - snmp
+```
+
+One of the servers (it's affecting all servers)
+
+```
+root@SERVER1:~# salt-call state.show_top
+[INFO    ] Configuration file path: /etc/salt/minion
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file 'salt://top.sls'
+[INFO    ] Fetching file 'salt://top.sls'
+[INFO    ] Fetching file 'salt://top.sls'
+[INFO    ] Fetching file 'salt://top.sls'
+[INFO    ] Fetching file 'salt://top.sls'
+[INFO    ] Fetching file 'salt://top.sls'
+[INFO    ] Fetching file 'salt://top.sls'
+base:
+    ----------
+    *:
+        - salt
+        - users
+        - log
+
+[truncated]
+```
+
+It's missing the last two states, ssh and snmp. It seems to be picking up the top.sls file from an env/branch other than the base/master. It matched two branches, so I removed both of them from git and tested it again. It picked a different branch this time, still not the master. It's not picking the newest branch or the earliest in the alphabet, I'm unsure how it decides what to use.
+
+Here are select parts of the salt master conf file:
+
+```
+file_roots:
+  base:
+    - /srv/salt
+fileserver_backend:
+  #- roots
+  - git
+gitfs_remotes:
+  - git://[servername]/salt
+pillar_roots:
+  base:
+    - /srv/pillar
+```
+
+Running state.sls with env=branchname works just fine and uses the environment specified.
+
+I'm using Salt 0.15.1, but I'm reasonably sure I've seen similar behavior in earlier versions. The master is on Ubuntu 12.04 LTS with git 1.7.9.5 and python-git 0.1.6.
+
+Original mailing list post here
+https://groups.google.com/d/msg/salt-users/HMQ1sZxB2sY/Ylc6uFuhpGQJ

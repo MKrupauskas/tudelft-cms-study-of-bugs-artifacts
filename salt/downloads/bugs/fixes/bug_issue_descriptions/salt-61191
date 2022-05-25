@@ -1,0 +1,126 @@
+**Description**
+After upgrading to 3004, I'm getting an error reading secrets which works on minions that are not upgraded.
+
+```
+ERROR: Failed to read secret! KeyError: 'namespace'
+```
+
+**Setup**
+
+Salt master and minion on 3004. Vault version 1.6.0, NOT enterprise.
+
+The state that is being run actually configures salt and sets up an apikey in the salt minion config. That apikey is stored in Vault and being read at state render time in a jinja template of the salt minion config.
+
+The same error is returned though when just running `vault.read_secret` with the same secret path.
+  
+**Steps to Reproduce the behavior**
+
+Run `sudo salt 'MINIONID' vault.read_secret SECRETPATH` against a minion that worked before.
+
+```
+2021-11-05 17:06:40,410 [salt.loaded.int.utils.vault                                     ][DEBUG   ] Fetching metadata for SECRETPATH
+2021-11-05 17:06:40,411 [salt.loaded.int.utils.vault                                     ][DEBUG   ] Token has not expired 1636153382 > 1636150000
+2021-11-05 17:06:40,411 [salt.loaded.int.utils.vault                                     ][ERROR   ] Failed to get secret metadata KeyError: 'namespace'
+2021-11-05 17:06:40,411 [salt.loaded.int.module.vault                                    ][DEBUG   ] Reading Vault secret for MINIONID at SECRETPATH
+2021-11-05 17:06:40,411 [salt.loaded.int.utils.vault                                     ][DEBUG   ] Token has not expired 1636153382 > 1636150000
+2021-11-05 17:06:40,420 [salt.utils.templates                                            ][ERROR   ] Rendering exception occurred
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/modules/vault.py", line 220, in read_secret
+    response = __utils__["vault.make_request"]("GET", url)
+  File "/usr/lib/python3.6/site-packages/salt/loader/lazy.py", line 149, in __call__
+    return self.loader.run(run_func, *args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/loader/lazy.py", line 1201, in run
+    return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/contextvars/__init__.py", line 38, in run
+    return callable(*args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/loader/lazy.py", line 1216, in _run_as
+    return _func_or_method(*args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/utils/vault.py", line 314, in make_request
+    namespace = namespace or connection["namespace"]
+KeyError: 'namespace'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 502, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 1090, in render
+    self.environment.handle_exception()
+  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 832, in handle_exception
+    reraise(*rewrite_traceback_stack(source=source))
+  File "/usr/lib/python3.6/site-packages/jinja2/_compat.py", line 28, in reraise
+    raise value.with_traceback(tb)
+  File "<template>", line 27, in top-level template code
+  File "/usr/lib/python3.6/site-packages/jinja2/sandbox.py", line 462, in call
+    return __context.call(__obj, *args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/loader/lazy.py", line 149, in __call__
+    return self.loader.run(run_func, *args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/loader/lazy.py", line 1201, in run
+    return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/contextvars/__init__.py", line 38, in run
+    return callable(*args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/loader/lazy.py", line 1216, in _run_as
+    return _func_or_method(*args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/modules/vault.py", line 240, in read_secret
+    "Failed to read secret! {}: {}".format(type(err).__name__, err)
+salt.exceptions.CommandExecutionError: Failed to read secret! KeyError: 'namespace'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 261, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 530, in render_jinja_tmpl
+    tmplstr,
+salt.exceptions.SaltRenderError: Problem running salt function in Jinja template: Failed to read secret! KeyError: 'namespace'; line 27
+```
+
+**Expected behavior**
+
+The secret should be read.
+
+**Versions Report**
+
+```
+Salt Version:
+          Salt: 3004
+
+Dependency Versions:
+          cffi: 1.14.5
+      cherrypy: unknown
+      dateutil: 2.8.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.1
+       libgit2: Not Installed
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: 1.4.6
+     pycparser: 2.20
+      pycrypto: 3.10.1
+  pycryptodome: Not Installed
+        pygit2: Not Installed
+        Python: 3.6.8 (default, Aug  7 2019, 17:28:10)
+  python-gnupg: Not Installed
+        PyYAML: 5.4.1
+         PyZMQ: 17.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.1.4
+
+System Versions:
+          dist: centos 7 Core
+        locale: UTF-8
+       machine: x86_64
+       release: 3.10.0-1062.4.1.el7.x86_64
+        system: Linux
+       version: CentOS Linux 7 Core
+```
+
+**Additional context**
+
+It looks like https://github.com/saltstack/salt/issues/58585 added the Vault Enterprise namespace feature.

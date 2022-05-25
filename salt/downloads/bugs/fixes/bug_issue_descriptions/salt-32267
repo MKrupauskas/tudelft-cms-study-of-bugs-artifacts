@@ -1,0 +1,168 @@
+### Description of Issue/Question
+
+Using mako for state and pillar data, I am running into the following error:
+
+```
+    Data failed to compile:
+----------
+    Rendering SLS 'base:cppv3.test' failed: Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/utils/templates.py", line 178, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/usr/lib/python2.7/site-packages/salt/utils/templates.py", line 424, in render_mako_tmpl
+    import mako.exceptions
+ImportError: No module named mako.exceptions
+```
+
+While running the following command (redacted = alpha-numeric string):
+
+```
+salt '<REDACTED>*' state.sls cppv3.test pillar='{event_data: {host: '<REDACTED>', users: 'DC1\\<REDACTED>' }}'
+```
+### Setup
+
+/srv/salt/cppv3/test.sls
+
+```
+#!mako|yaml
+
+<%!
+import urllib2
+import re
+import ast
+
+def add_filter(text):
+    return re.sub('\\\\', '\\\\\\\\', text)
+
+def remove_filter(text):
+    return re.sub('\\\\\\\\', '\\\\', text)
+
+state_data = salt['pillar.get']('event_data', '')
+os_tenant_name = salt['pillar.get']('makemaster-secrets:nova-credentials:os_tenant_name', '')
+os_username = salt['pillar.get']('makemaster-secrets:nova-credentials:os_username', '')
+os_password = salt['pillar.get']('makemaster-secrets:nova-credentials:os_password', '')
+os_tenant_name = salt['pillar.get']('makemaster-secrets:nova-credentials:os_auth_url', '')
+hostmetadata = urllib2.urlopen("http://169.254.169.254/openstack/latest/meta_data.json").read()
+hostlogin = ast.literal_eval(hostmetadata)['meta']['login_users']
+hostsudo = ast.literal_eval(hostmetadata)['meta']['sudo_users']
+loginusers = add_filter(hostlogin) + ',' + state_data['users']
+sudousers = add_filter(hostsudo) + ',' + state_data['users']
+%>
+
+setup_env_variables_adduser:
+  environ.setenv:
+    - value:
+        OS_TENANT_NAME: ${os_tenant_name}
+        OS_USERNAME: ${os_username}
+        OS_PASSWORD: ${os_password}
+        OS_AUTH_URL: ${os_auth_url}
+    - update_minion: True
+
+wait_for_vars:
+  module.run:
+    - name: test.sleep
+    - length: 2
+
+update_ad_users:
+  cmd.run:
+    - name: nova meta ${state_data['host']} set login_users=${remove_filter(loginusers)} sudo_users=${remove_filter(sudousers)}
+    - require:
+      - module: wait_for_vars
+```
+
+/srv/pillar/cppv3/init.sls
+
+```
+#!mako|yaml
+<%page expression_filter='n'/>
+'makemaster-secrets':
+  'nova-credentials':
+  % if salt['grains.get']('master', '').startswith('p3prp'):
+    % if 'dsm0' in salt['grains.get']('master', ''):
+    'os_tenant_name': 'phx3dev-playground'
+    % elif 'tsm0' in salt['grains.get']('master', ''):
+    'os_tenant_name': 'phx3test-playground'
+    % elif 'osm0' in salt['grains.get']('master', ''):
+    'os_tenant_name': 'phx3ote-playground'
+    % elif 'psm0' in salt['grains.get']('master', ''):
+    'os_tenant_name': 'phx3prod-playground'
+    % endif
+    'os_username': '<REDACTED>'
+    'os_password': '<REDACTED>'
+    'os_auth_url': 'https://openstack.int.<REDACTED>.com:5000/v2.0'
+  % elif salt['grains.get']('master', '').startswith('a2prp'):
+    % if 'dsm0' in salt['grains.get']('master', ''):
+    'os_tenant_name': 'iad2dev-playground'
+    % elif 'tsm0' in salt['grains.get']('master', ''):
+    'os_tenant_name': 'iad2test-playground'
+    % elif 'osm0' in salt['grains.get']('master', ''):
+    'os_tenant_name': 'iad2ote-playground'
+    % elif 'psm0' in salt['grains.get']('master', ''):
+    'os_tenant_name': 'iad2prod-playground'
+    % endif
+    'os_username': '<REDACTED>'
+    'os_password': '<REDACTED>'
+    'os_auth_url': 'https://iad-private.openstack.int.<REDACTED>.com:5000/v2.0'
+  % elif salt['grains.get']('master', '').startswith('n3prp'):
+    % if 'dsm0' in salt['grains.get']('master', ''):
+    'os_tenant_name': 'ams3dev-playground'
+    % elif 'tsm0' in salt['grains.get']('master', ''):
+    'os_tenant_name': 'ams3test-playground'
+    % elif 'osm0' in salt['grains.get']('master', ''):
+    'os_tenant_name': 'ams3ote-playground'
+    % elif 'psm0' in salt['grains.get']('master', ''):
+    'os_tenant_name': 'ams3prod-playground'
+    % endif
+    'os_username': '<REDACTED>'
+    'os_password': '<REDACTED>'
+    'os_auth_url': 'https://ams-private.openstack.int.<REDACTED>.com:5000/v2.0'
+  % endif
+  'windows-account':
+    'win_username': '<REDACTED>'
+    'win_password': '<REDACTED>'
+  'api-specifics':
+    'ssl_crt': '/etc/pki/tls/certs/localhost.crt'
+    'ssl_key': '/etc/pki/tls/certs/localhost.key'
+```
+### Steps to Reproduce Issue
+
+Set up a Salt-Master and a Salt-Minion, add the above config files, run a command similar to the state.sls command above. May not be possible to duplicate outside of my environment due to openstack overlay and AD specifics. (not the issue, because this works in jinja, can provide files for that if needed). It is deff there though as I can import it exactly as it is in the error message via the python repl.
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.8
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: 1.0.4
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: 3.2.3
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: 0.21.0
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.21.4
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.10.1.el7.x86_64
+         system: CentOS Linux 7.2.1511 Core
+```

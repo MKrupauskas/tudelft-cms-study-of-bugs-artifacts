@@ -1,0 +1,70 @@
+### Description of Issue
+<!-- Note: Please direct questions to the salt-users google group. Only post issues and feature requests here -->
+In mariadb 10.4, the empty root password was removed, so the default is socket only as root or the mariadb owner (mysql).  When running a highstate this will fail if you try to write the config file during a running minion, and if you try a local reload, i've run into either race conditions or a bad idea :).
+
+I have added this to my custom bootstrap script, directly after salt is installed and i patch mysql.py per my comments here - https://github.com/saltstack/salt/issues/56124, then i restart salt, sleep and run the highstate (i do this through terraform and custom code)
+
+```
+# This is required for mariadb 10.4+ as root only has socket access, no more empty passwords"
+  cat <<db > /etc/salt/minion.d/database-access.conf
+mysql.host: 'localhost'- 
+mysql.user: 'root'
+mysql.unix_socket: '/var/run/mysqld/mysqld.sock'
+mysql.db: 'mysql'
+mysql.charset: 'utf8'
+db
+```
+### Setup
+Basic setup, as this is a change to behaviour of the database engine not salt.  
+### Steps to Reproduce Issue
+Using state files:
+-  file.managed (database-acccess.conf)
+   - This sets what i'm putting on disc, so no changes
+-  pkg.installed (mariadb 10.4+)
+- Run a highstate, which contains your user and grant states
+
+It will fail b/c root is still trying to login with `mysql -u root`.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 3000
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.9 (default, Nov  7 2019, 10:44:02)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-1058-aws
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```
+I have been installing the pure python mysql via pip for years, which is why there is not one installed, but this has never mattered.
+
+No major, or even minor differences between this minion and the master.

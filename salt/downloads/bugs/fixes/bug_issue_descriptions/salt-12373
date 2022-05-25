@@ -1,0 +1,56 @@
+This is somehow related to #10620.
+We store our ssh keys in a pillar (yaml).
+The line consists of the pure key (no ssh-rsa or something) and a comment (usally the email address of the key owner).
+
+We iterate over a pillar structure with absent and present line in this form:
+
+``` yaml
+sshkeys:
+  username:
+    absent:
+      - keyowner1
+      - keyowner3
+    present:
+      - keyowner2
+      - keyowner4
+```
+
+our ssh key state looks like this:
+
+``` yaml
+{%- for user,state in salt['pillar.get']('sshkeys', {}).items() -%}
+{%- for state,uidlist in state.items() %}
+{{user}}_{{state}}:
+  ssh_auth:
+    - {{state}}
+    - user: {{user}}
+    - names:
+    {%- for uid in uidlist %}
+    {%- for key in salt['pillar.get']('users:'~uid~':sshPublicKey', ['none'~uid]) %}
+        - {{ key }}
+    {%- endfor %}
+    {%- endfor %}
+{%- endfor %}
+{%- endfor %}
+```
+
+The actual ssh keys are found in the pillar:
+
+``` yaml
+users:
+  keyowner1:
+    sshPublicKey:
+      - AAAAB3NzaC1yc2EAAAADAQABAAABAQDBiqxXZvlL+SFQ1wSAAl3RC06ml3NI9QPumlG7s/hRxkg2af9Gls/b5IJaO4wuYHQukX1BUqktBeJB2DqcUgBUpLb5+soeV/buMh3DfctrT92KeFhOiVD1XBDi9UshpcE9fgesQ2esRc9nILVThjL/Haqgln2nicDRdUoQ9NStcxWWG4wzxej05ZFwG/zbbeEKT5LZAWq9LQSPECbzL2BjKiaFYnOXN2ZbolGxEfeRtM+06c/KASAP7OKydaprMgCp+XDTXfXn8seFa9OdkKIqCKjqB0HVogtY8V24JD7dOXHb/XqUEFaWqeYtHvHwtyQDBvywanbTVN+mt6xJValz keyowner1@ourdomain
+```
+
+We can add keys to the authorized keys file with the _present_ function but cannot remove the same key (based on the same pillar data) with the _absent_ function.
+
+I think the function should treat the same key material data the same way.
+I looked into the code and see that a lot of key handling is doubled and it is often just assumed how a key might look like and then split by the string.split function.
+
+In states/ssh_auth.py the _present_ function matches key material with a regex.
+This looks good. But in the _absent_ function the _name_ parameter is handled completely different.
+
+I have made a patch in my repository. Here is the pull request:
+
+https://github.com/saltstack/salt/pull/12372

@@ -1,0 +1,19 @@
+We've recently identified an issue with pkg.latest, that it fails to update packages in ubuntu intermittently.
+
+I've been doing some digging and it turns out that with apt_pkg, `version_compare` returns integer values (per [this document](https://apt.alioth.debian.org/python-apt-doc/library/apt_pkg.html)), while `salt.utils.compare_versions` only accept -1, 0 and 1.
+
+Take our case today as an example, a package that's been updated from 1.2-12-gf27225d to 1.2-18-g45016fd. `apt_pkg.version_compare` returns -6 with these two versions, indicating an update is in order. However, `salt.utils.compare_versions` doesn't believe -6 is a proper code for operation `<` and thus returns False.
+
+BTW the code level we've been using is
+
+```
+root@server3:~# dpkg -l 'salt*'
+Desired=Unknown/Install/Remove/Purge/Hold
+| Status=Not/Inst/Conf-files/Unpacked/halF-conf/Half-inst/trig-aWait/Trig-pend
+|/ Err?=(none)/Reinst-required (Status,Err: uppercase=bad)
+||/ Name                                   Version                  Architecture             Description
++++-======================================-========================-========================-=================================================================================
+ii  salt-common                            2015.5.3+ds-1trusty1     all                      shared libraries that salt requires for all packages
+un  salt-doc                               <none>                   <none>                   (no description available)
+ii  salt-minion                            2015.5.3+ds-1trusty1     all                      client package for salt, the distributed remote execution system
+```

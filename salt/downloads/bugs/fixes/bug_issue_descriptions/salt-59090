@@ -1,0 +1,140 @@
+**Description**
+
+If there are duplicate configuration arguments in a yum/dnf configuration, e.g. `/etc/yum.conf`, various pkg repo-related commands will fail with exceptions like:
+
+```
+configparser.DuplicateOptionError: While reading from '/etc/yum.conf' [line  7]: option 'http_caching' in section 'main' already exists
+```
+
+The comparable CLI commands will succeed.  E.g. `yum repolist --all` will work, while `pkg.list_repos` will fail.  This leads to failures in things as basic as `pkg.installed` states.
+
+**Setup**
+
+Set up `/etc/yum.conf` on RHEL8 for example with a duplicate entry:
+
+```
+[main]
+gpgcheck=1
+installonly_limit=3
+clean_requirements_on_remove=True
+best=True
+http_caching=packages
+http_caching=packages
+```
+
+**Steps to Reproduce the behavior**
+
+```bash
+salt-call pkg.list_repos
+```
+
+```text
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+DuplicateOptionError: While reading from '/etc/yum.conf' [line  7]: option 'http_caching' in section 'main' already exists
+Traceback (most recent call last):
+  File "/bin/salt-call", line 11, in <module>
+    load_entry_point('salt==3002.2', 'console_scripts', 'salt-call')()
+  File "/usr/lib/python3.6/site-packages/salt/scripts.py", line 449, in salt_call
+    client.run()
+  File "/usr/lib/python3.6/site-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/lib/python3.6/site-packages/salt/cli/caller.py", line 112, in run
+    ret = self.call()
+  File "/usr/lib/python3.6/site-packages/salt/cli/caller.py", line 220, in call
+    self.opts, data, func, args, kwargs
+  File "/usr/lib/python3.6/site-packages/salt/executors/direct_call.py", line 12, in execute
+    return func(*args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/modules/yumpkg.py", line 2695, in list_repos
+    basedirs = _normalize_basedir(basedir)
+  File "/usr/lib/python3.6/site-packages/salt/modules/yumpkg.py", line 410, in _normalize_basedir
+    basedir = _get_yum_config_value("reposdir")
+  File "/usr/lib/python3.6/site-packages/salt/modules/yumpkg.py", line 387, in _get_yum_config_value
+    conf = _get_yum_config()
+  File "/usr/lib/python3.6/site-packages/salt/modules/yumpkg.py", line 364, in _get_yum_config
+    cp.read(fn)
+  File "/usr/lib64/python3.6/configparser.py", line 697, in read
+    self._read(fp, filename)
+  File "/usr/lib64/python3.6/configparser.py", line 1092, in _read
+    fpname, lineno)
+configparser.DuplicateOptionError: While reading from '/etc/yum.conf' [line  8]: option 'http_caching' in section 'main' already exists
+Traceback (most recent call last):
+  File "/bin/salt-call", line 11, in <module>
+    load_entry_point('salt==3002.2', 'console_scripts', 'salt-call')()
+  File "/usr/lib/python3.6/site-packages/salt/scripts.py", line 449, in salt_call
+    client.run()
+  File "/usr/lib/python3.6/site-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/lib/python3.6/site-packages/salt/cli/caller.py", line 112, in run
+    ret = self.call()
+  File "/usr/lib/python3.6/site-packages/salt/cli/caller.py", line 220, in call
+    self.opts, data, func, args, kwargs
+  File "/usr/lib/python3.6/site-packages/salt/executors/direct_call.py", line 12, in execute
+    return func(*args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/modules/yumpkg.py", line 2695, in list_repos
+    basedirs = _normalize_basedir(basedir)
+  File "/usr/lib/python3.6/site-packages/salt/modules/yumpkg.py", line 410, in _normalize_basedir
+    basedir = _get_yum_config_value("reposdir")
+  File "/usr/lib/python3.6/site-packages/salt/modules/yumpkg.py", line 387, in _get_yum_config_value
+    conf = _get_yum_config()
+  File "/usr/lib/python3.6/site-packages/salt/modules/yumpkg.py", line 364, in _get_yum_config
+    cp.read(fn)
+  File "/usr/lib64/python3.6/configparser.py", line 697, in read
+    self._read(fp, filename)
+  File "/usr/lib64/python3.6/configparser.py", line 1092, in _read
+    fpname, lineno)
+configparser.DuplicateOptionError: While reading from '/etc/yum.conf' [line  8]: option 'http_caching' in section 'main' already exists
+```
+
+**Expected behavior**
+
+Commands should succeed in this scenario.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+          Salt: 3002.2
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.6.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10.1
+       libgit2: Not Installed
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: Not Installed
+        pygit2: Not Installed
+        Python: 3.6.8 (default, Aug 18 2020, 08:33:21)
+  python-gnupg: Not Installed
+        PyYAML: 3.12
+         PyZMQ: 19.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.3
+ 
+System Versions:
+          dist: rhel 8.3 Ootpa
+        locale: UTF-8
+       machine: x86_64
+       release: 4.18.0-240.el8.x86_64
+        system: Linux
+       version: Red Hat Enterprise Linux 8.3 Ootpa
+```
+</details>
+
+**Additional context**
+
+* The original reporter observed this on a "brand new RHEL 8 build from Azure Cloud", so this may be something other users will encounter through no fault of their own.
+* Updating the `ConfigParser` instantiation at https://github.com/saltstack/salt/blob/6cb22d64c57af4c50d3af3b3cf24834934f98f8d/salt/modules/yumpkg.py#L362 [to use `strict=False`](https://docs.python.org/3.8/library/configparser.html#configparser.ConfigParser) seems to fix the problem. 

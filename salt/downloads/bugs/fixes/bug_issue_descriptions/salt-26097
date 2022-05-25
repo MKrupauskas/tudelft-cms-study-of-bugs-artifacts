@@ -1,0 +1,105 @@
+When using the latest RC3 of the windows salt-minion `Salt-Minion-2015.8.0rc3-AMD64-Setup.exe` or the `Salt-Minion-2015.8.0rc3-x86-Setup.exe` for the Berryllium release **some** of the sls files **do not give the correct and expected output** on **`pkg.remove`**.
+
+Here are two sls files one that does give the correct output and one that doesn't. 
+(BTW they are both taken from the `WIP_Berryllium+jinja` branch of the `salt-winrepo`, that I am working on.)
+
+xming.sls
+
+```
+```
+
+for Notepad++ on pkg install I `correctly` get:  (pkg file: npp.sls)
+
+```
+C:\salt>salt-call --local pkg.install npp -l info
+[WARNING ] Specified file https://notepad-plus-plus.org/repository/6.x/6.8.1/npp.6.8.1.Installer.exe is not present to generate hash
+[INFO    ] Executing command ['c:\\salt\\var\\cache\\salt\\minion\\extrn_files\\base\\notepad-plus-plus.org\\repository\\6.x\\6.8.1\\npp.6.8.1.Installer.exe', '/S'] in directory 'c:\\salt\\var\\cache\\salt\\minion\\extrn_files\\base\\notepad-plus-plus.org\\repository\\6.x\\6.8.1'
+local:
+    ----------
+    npp:
+        ----------
+        new:
+            6.8.1
+        old:
+```
+
+But on un-install, I get nothing, but the pkg is being un-installed:
+
+```
+C:\salt>salt-call --local pkg.remove npp -l info
+[INFO    ] Executing command ['C:\\Program Files (x86)\\Notepad++\\uninstall.exe', '/S'] in directory 'C:\\Users\\sysadmin.uk'
+local:
+    ----------
+```
+
+Whereas if I do the same for `xming pkg`, it does give me proper expected output for both install and un-install.
+
+```
+C:\salt>salt-call --local pkg.install xming
+[WARNING ] Specified file http://downloads.sourceforge.net/project/xming/Xming/6.9.0.31/Xming-6-9-0-31-setup.exe is not present to generate hash
+[INFO    ] Executing command ['c:\\salt\\var\\cache\\salt\\minion\\extrn_files\\base\\downloads.sourceforge.net\\project\\xming\\Xming\\6.9.0.31\\Xming-6-9-0-31-setup.exe', '/SP-', '/verysilent', '/suppressmsgboxes', '/norestart'] in directory 'c:\\salt\\var\\cache\\salt\\minion\\extrn_files\\base\\downloads.sourceforge.net\\project\\xming\\Xming\\6.9.0.31'
+local:
+    ----------
+    Xming 6.9.0.31:
+        ----------
+        new:
+            6.9.0.31
+        old:
+
+
+C:\salt>salt-call --local pkg.remove xming
+[INFO    ] Executing command ['C:\\Program Files (x86)\\Xming\\unins000.exe', '/SP-', '/verysilent', '/norestart'] in directory 'C:\\Users\\sysadmin.uk'
+local:
+    ----------
+    Xming 6.9.0.31:
+        ----------
+        new:
+        old:
+            6.9.0.31
+
+C:\salt>
+```
+
+The two sls files are as follows:
+
+xming.sls:
+
+``` saltstack
+# http://www.straightrunning.com/XmingNotes/setupcmdline.htm
+# just 32-bit x86 installer available
+{% if grains['cpuarch'] == 'AMD64' %}
+    {% set PROGRAM_FILES = "C:\Program Files (x86)" %}
+{% else %}
+    {% set PROGRAM_FILES = "C:\Program Files" %}
+{% endif %}
+xming:
+  6.9.0.31:
+    installer: 'http://downloads.sourceforge.net/project/xming/Xming/6.9.0.31/Xming-6-9-0-31-setup.exe'
+    full_name:  'xming'
+    reboot: False
+    install_flags: '/SP- /verysilent /suppressmsgboxes /norestart'
+    uninstaller: '{{ PROGRAM_FILES }}\Xming\unins000.exe'
+    uninstall_flags: '/SP- /verysilent /norestart'
+```
+
+npp.sls:
+
+``` saltstack
+# just 32-bit x86 installer available
+{% if grains['cpuarch'] == 'AMD64' %}
+    {% set PROGRAM_FILES = "C:\Program Files (x86)" %}
+{% else %}
+    {% set PROGRAM_FILES = "C:\Program Files" %}
+{% endif %}
+npp:
+   6.8.1:
+      full_name: Notepad++
+      installer: 'https://notepad-plus-plus.org/repository/6.x/6.8.1/npp.6.8.1.Installer.exe'
+      install_flags: '/S'
+      uninstaller: '{{ PROGRAM_FILES }}\Notepad++\uninstall.exe'
+      uninstall_flags: '/S'
+      locale: en_US
+      reboot: False
+```
+
+@twangboy do you have any idea why this gives empty output  for some types of un-installs.

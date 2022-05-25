@@ -1,0 +1,119 @@
+### Description of Issue/Question
+The postgres.has_privileges module uses the .sort() method when checking 'ALL' privileges:
+https://github.com/saltstack/salt/blob/develop/salt/modules/postgres.py#L2829
+
+This is not supported in Python 3: https://docs.python.org/3/whatsnew/3.0.html thereby breaking.
+
+If the proposed fix below is acceptable, I can make a PR.
+
+### Setup
+Ubuntu 18.04 server running salt minion 2018.3.2
+
+Example state that will break: https://github.com/haam3r/cuckoo-salt/blob/master/cuckoo/deps.sls#L71-L80
+
+```
+cuckoodb_priv:
+  postgres_privileges.present:
+    - name: {{ salt['pillar.get']('db:name', 'cuckoo') }}
+    - object_name: {{ salt['pillar.get']('db:user', 'cuckoo') }}
+    - object_type: database
+    - privileges:
+      - ALL
+    - require:
+      - postgres_database: cuckoodb
+      - postgres_user: cuckoodb_user
+```
+
+### Steps to Reproduce Issue
+```
+----------
+          ID: db_priv
+    Function: postgres_privileges.present
+        Name: cuckoo
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/salt/state.py", line 1851, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 1795, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/states/postgres_privileges.py", line 180, in present
+                  name, object_name, object_type, **kwargs):
+                File "/usr/lib/python3/dist-packages/salt/modules/postgres.py", line 2827, in has_privileges
+                  retval = perms.sort() == _privileges[name].keys().sort()
+              AttributeError: 'dict_keys' object has no attribute 'sort'
+     Started: 08:43:19.595202
+    Duration: 560.033 ms
+     Changes:   
+----------
+```
+### Fix
+
+Change line https://github.com/saltstack/salt/blob/develop/salt/modules/postgres.py#L2829 to use the sorted method:
+
+```python
+retval = sorted(perms) == sorted(_privileges[name].keys())
+```
+After change:
+
+```python
+----------
+          ID: db_priv
+    Function: postgres_privileges.present
+        Name: cuckoo
+      Result: True
+     Comment: The privilege(s): ALL have been granted to cuckoo
+     Started: 09:33:41.933012
+    Duration: 1429.773 ms
+     Changes:   
+              ----------
+              cuckoo:
+                  Present
+```
+### Versions Report
+
+Salt master is running 2018.3.2 with Python 2 on Ubuntu 16.04
+
+Versions report for the affected minion:
+```
+salt-call --versions-report
+Salt Version:
+           Salt: 2018.3.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.5 (default, Apr  1 2018, 05:46:30)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-112-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```

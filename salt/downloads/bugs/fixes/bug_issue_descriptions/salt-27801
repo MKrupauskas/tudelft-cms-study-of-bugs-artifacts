@@ -1,0 +1,76 @@
+Hi !
+
+It looks like the `show_diff = False` attribute for `file.managed` is not honored if a state is called with `test=True`.
+
+Here is an example state (in `salt://api/init.sls`)
+
+``` salt
+/etc/somepath/api/secrets.conf:
+  file.managed:
+    - source: salt://api/secrets.conf
+    - template: jinja
+    - makedirs: True
+    - show_diff: False
+```
+
+Here is a sample shell session, with salt 5.3.0 : 
+
+``` salt
+$ salt '*' state.sls_id /etc/somepath/api/secrets.conf api test=True
+someminion:
+----------
+          ID: /etc/somepath/api/secrets.conf
+    Function: file.managed
+      Result: None
+     Comment: The file /etc/somepath/api/secrets.conf is set to be changed
+     Started: 15:41:20.174988
+    Duration: 27.7 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -1,7 +1,8 @@
+                   # Sample secrets.configuration file
+
+                  -[CORE]
+                  -API_KEY_INTERNAL_APPS = randomstuff
+                  +[API_KEY_INTERNAL_APPS]
+                  +LIVE = randomstuffalso
+                  +SANDBOX = anotherrandomstuff
+
+                   [DATABASE]
+                   PASSWORD = stillarandompasswd
+
+Summary
+------------
+Succeeded: 1 (unchanged=1, changed=1)
+
+$ salt '*' state.sls_id /etc/somepath/api/secrets.conf api          
+someminion:
+----------
+          ID: /etc/somepath/api/secrets.conf
+    Function: file.managed
+      Result: True
+     Comment: File /etc/somepath/api/secrets.conf updated
+     Started: 15:42:00.904822
+    Duration: 50.47 ms
+     Changes:   
+              ----------
+              diff:
+                  <show_diff=False>
+
+Summary
+------------
+Succeeded: 1 (changed=1)
+```
+
+As you can see, the diff is actually printed despite the `show_diff = False` attribute ! 
+
+This is bad from a security point of vue ; I store my secrets encrypted with the salt master public key in a pillar, so that I can share my configuration without worrying about sensitive datas.
+
+With this vulnerability, any user who has the permissions to execute a salt call on the master will be able to read secrets encrypted with the salt master public key, and globally will be able to read unautorized data.
+
+Please, let me know if you need extra information.
+
+Arthur

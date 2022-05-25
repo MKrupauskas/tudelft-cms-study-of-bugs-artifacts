@@ -1,0 +1,98 @@
+If the SMTP Returner is used without the optional parameter "smtp.renderer", you will get
+the following error message by running arbitrary commands on a Minion, for example:
+
+```
+salt-call state.apply test.ping --return smtp -l debug
+```
+
+```
+[DEBUG] compile template:: string:
+[DEBUG] Could not LazyLoad .render
+[ERROR] The renderer "" is not available
+[DEBUG] smtp_return: Subject is '{}'
+[DEBUG] compile template:: string:
+[DEBUG] Could not LazyLoad .render
+[ERROR] The renderer "" is not available
+```
+
+The e-mail subject and the e-mail body are empty.
+
+The cause is the function  _options_browser in
+
+_/usr/lib/python2.7/dist-packages/salt/returners/**init**.py_
+
+This generator iterates over the desired attributes, and provides for the
+function _get_returner_options_ a dictionary _options:  'name' -> 'value'
+This leads to a dictionary which includes keys with empty value, in  my case
+'renderer' : ''
+
+```
+def _options_browser
+
+    for option in options:
+
+        # Default place for the option in the config
+        value = _fetch_option (CFG, ret_config, virtual name, options [option])
+
+        IF value:
+            yield option value
+            continue
+
+        # Attributes not found, check for a default value
+        IF defaults:
+            IF option to defaults:
+                log.info ('Using default for% s% s', virtual name, option)
+                yield option defaults [option]
+                continue
+
+        # Fallback (implicit else for all ifs)
+        yield option, ''
+```
+
+In this case, in _smtp_return.py_ the desired default value ('yaml_jinja') is not set,
+because indeed a key 'renderer' was found in _options.
+
+_/usr/lib/python2.7/dist-packages/salt/returners/smtp_return.py_
+
+```
+def returner (ret):
+    '' '
+    Send an email with the data
+    '' '
+
+    _options = _get_options (ret)
+    ...
+
+    renderer = _options.get ('Renderer', __opts __. get ('Renderer', 'yaml_jinja'))
+```
+
+The variable renderer remains empty, subject and body are not rendered.
+
+A solution could be in _def  _options_browser_ as a fallback rather than 
+
+```
+yield option, ''
+```
+
+the statement
+
+```
+continue
+```
+
+to use.
+
+In this case, the dictionary contains only really existing configuration values.
+
+```
+diff --git a/salt/returners/__init__.py b/salt/returners/__init__.py
+index db63775..9d35453 100644
+--- a/salt/returners/__init__.py
++++ b/salt/returners/__init__.py
+@@ -186,7 +186,7 @@ def _options_browser(cfg, ret_config, defaults, virtualname, options):
+                 continue
+
+         # fallback (implicit else for all ifs)
+-        yield option, ''
++        continue
+```

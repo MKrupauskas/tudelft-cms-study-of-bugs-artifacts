@@ -1,0 +1,192 @@
+I recently used apt to upgrade from salt-master 2015.8.1 to 2015.8.3 and discovered that my master could no longer see any of my gitfs-backed state files. It appears to be a silent failure that doesn't appear in the logs, and fileserver.update reports success. We use dulwich for gitfs because there's an easy-to-install python package.
+
+pip show dulwich
+
+```
+
+---
+Name: dulwich
+Version: 0.11.2
+Location: /usr/local/lib/python2.7/dist-packages
+```
+
+Relevant master config:
+
+```
+fileserver_backend:
+  - git
+  - roots # nothing in /srv/salt though
+gitfs_provider: dulwich
+gitfs_remotes:
+  - git+ssh://git@github.com/our-supersweet-saltstates-repo
+gitfs_env_whitelist:
+  - base*
+  - master*
+gitfs_base: master
+```
+
+salt --versions-report::
+
+```
+Salt Version:
+       Salt: 2015.8.1
+
+Dependency Versions:
+     Jinja2: 2.7.2
+   M2Crypto: 0.21.1
+       Mako: 0.9.1
+     PyYAML: 3.10
+      PyZMQ: 14.0.1
+     Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+       RAET: Not Installed
+    Tornado: 4.2.1
+        ZMQ: 4.0.4
+       cffi: Not Installed
+   cherrypy: Not Installed
+   dateutil: 1.5
+      gitdb: 0.5.4
+  gitpython: 0.3.2 RC1
+      ioflo: Not Installed
+    libnacl: Not Installed
+ msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+ mysql-python: 1.2.3
+  pycparser: Not Installed
+   pycrypto: 2.6.1
+     pygit2: Not Installed
+python-gnupg: Not Installed
+      smmap: 0.8.2
+    timelib: Not Installed
+
+System Versions:
+       dist: Ubuntu 14.04 trusty
+    machine: x86_64
+    release: 3.13.0-32-generic
+     system: Ubuntu 14.04 trusty
+```
+
+update the gitfs backend:
+
+```
+sudo salt-run fileserver.update
+```
+
+run a test state successfully:
+
+```
+sudo salt-call state.sls base.packages test=true
+
+... etc. etc. ...
+```
+
+Success!
+
+```
+Summary for local
+-------------
+Succeeded: 21 (unchanged=12)
+Failed:     0
+```
+
+Install salt-master @ 2015.8.3
+
+```
+sudo apt-get update && sudo apt-get install salt-master=2015.8.3+ds-1
+
+Setting up salt-common (2015.8.3+ds-1) ...
+Setting up salt-minion (2015.8.3+ds-1) ...
+Installing new version of config file /etc/salt/minion ...
+salt-minion start/running, process 11751
+Setting up salt-master (2015.8.3+ds-1) ...
+Installing new version of config file /etc/salt/master ...
+salt-master start/running, process 11787
+```
+
+new versions:
+
+pip show dulwich
+
+```
+
+---
+Name: dulwich
+Version: 0.11.2
+Location: /usr/local/lib/python2.7/dist-packages
+```
+
+sudo salt --versions-report
+
+```
+Salt Version:
+       Salt: 2015.8.3
+
+Dependency Versions:
+     Jinja2: 2.7.2
+   M2Crypto: 0.21.1
+       Mako: 0.9.1
+     PyYAML: 3.10
+      PyZMQ: 14.0.1
+     Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+       RAET: Not Installed
+    Tornado: 4.2.1
+        ZMQ: 4.0.4
+       cffi: Not Installed
+   cherrypy: Not Installed
+   dateutil: 1.5
+      gitdb: 0.5.4
+  gitpython: 0.3.2 RC1
+      ioflo: Not Installed
+    libnacl: Not Installed
+msgpack-pure: Not Installed
+  msgpack-python: 0.3.0
+  mysql-python: 1.2.3
+   pycparser: Not Installed
+   pycrypto: 2.6.1
+     pygit2: Not Installed
+python-gnupg: Not Installed
+      smmap: 0.8.2
+    timelib: Not Installed
+
+System Versions:
+       dist: Ubuntu 14.04 trusty
+    machine: x86_64
+    release: 3.13.0-32-generic
+     system: Ubuntu 14.04 trusty
+```
+
+re-update fileserver and try again:
+    sudo salt-run fileserver.update
+    True
+
+```
+sudo salt-call state.sls base.packages test=true
+
+[INFO    ] Loading fresh modules for state activity
+[ERROR   ] Template was specified incorrectly: False
+local:
+  Data failed to compile:
+----------
+  No matching sls found for 'base.packages' in env 'base'
+```
+
+Bummer! Roll back and try again:
+
+```
+apt-get install salt-master=2015.8.1+ds-1
+
+sudo salt-call state.sls base.packages test=true
+
+
+... etc etc. ...
+
+Summary for local
+-------------
+Succeeded: 21 (unchanged=12)
+Failed:     0
+-------------
+```
+
+Phew!
+
+p.s.
+Thanks for your time and all your hard work!

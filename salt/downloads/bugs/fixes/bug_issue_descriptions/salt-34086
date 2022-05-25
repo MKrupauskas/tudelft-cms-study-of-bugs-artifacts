@@ -1,0 +1,254 @@
+## Summary
+
+`salt-cloud`, when managing LXC containers, calls `lxc-clone` when told to _"clone_from"_ an existing container. Since LXC 2.0, this command no longer exists, so `salt-cloud` fails to create containers. The `lxc-clone` command has been replaced by `lxc-copy` with different options, so the module _lxc_ would have to be updated.
+## Details
+### LXC 2.0
+
+In LXC **version >= 2.0**, the `lxc-clone` command used to clone existing containers previously has been replaced by a `lxc-copy` command with different optinos.
+
+This is confirmed in the [LXC 2.0 release announcement](https://linuxcontainers.org/lxc/news/#highlights):
+
+> All main LXC commands have now been rewritten in C [...] lxc-copy
+> New lxc-copy command taking over the role of lxc-clone and lxc-start-ephemeral
+
+Here are the links to the relevant man pages of old `lxc-clone` and new `lxc-copy` commands :
+- [man lxc-copy](https://linuxcontainers.org/lxc/manpages//man1/lxc-copy.1.html)
+- [man lxc-clone](https://linuxcontainers.org/lxc/manpages//man1/lxc-clone.1.html)
+### Salt-Cloud
+- salt-cloud initial [create()](https://github.com/saltstack/salt/blob/develop/salt/cloud/clouds/lxc.py#L414)
+
+```
+    salt.utils.cloud.fire_event(
+        'event', 'starting create',
+        'salt/cloud/{0}/creating'.format(vm_['name']),
+        {'name': vm_['name'], 'profile': profile,
+         'provider': vm_['driver'], },
+        transport=__opts__['transport'])
+```
+- ... calls _utils/cloud_ [fire_event()](https://github.com/saltstack/salt/blob/develop/salt/utils/cloud.py#L1719)
+- ... which calls _utils/event_ [fire_event()](https://github.com/saltstack/salt/blob/develop/salt/utils/event.py#L629)
+- ... and I kinda lost the track here
+
+At the end it ends up calling _modules/lxc_ [clone()](https://github.com/saltstack/salt/blob/b642b951802f0e421323f485c6272c0eb8c63f68/salt/modules/lxc.py#L1999) which directly [calls `lxc-clone`](https://github.com/saltstack/salt/blob/b642b951802f0e421323f485c6272c0eb8c63f68/salt/modules/lxc.py#L2091), which doesn't exist on LXC 2.0 as explained above.
+
+It's confirmed by the command output :
+
+> Container could not be created with cmd 'lxc-clone  -o my-lxc-existing-container-name -n my-new-container-name -B dir'
+
+The links to the code refer to the current HEAD of develop; on the version I'm using (2015.5.10) the code is slightly different (with `cmd = 'lxc-clone {0} -o {1} -n {2}'.format(snapshot, orig, name)` instead of building it incrementaly for example) but the problem is still the same.
+## Suggested fix
+- Gather an _lxc_version_ grain (I don't think it's already the case, isn't it ?)
+- Change behavior depending on this grain value : `lxc-clone` when < 2.0; and `lxc-copy` with adapted arguments when >= 2.0. There is, in my opinion, 2 ways to do this :
+  - Implement this conditionnal behavior right in the existing `clone()` function
+  - Implement another `copy()` function to keep the existing LXC distinction, and call it conditionnaly (but I'm no idea where the `clone()` is currently being clone from :( )
+
+**I'm ready and would like to implement this and submit the PR for it if that's ok with you guys/girls.**
+
+In this case, I would to know what option you prefer regarding the implementation of the conditional behavior.
+## Informations/Context
+### Setup
+- LXC 2.0
+- Salt-Cloud creating LXC containers through cloning
+### Steps to Reproduce Issue
+#### Provider
+
+```
+$ cat /etc/salt/cloud.providers.d/my-lxc-provider.conf
+my-lxc-provider:
+  target: my-server-with-saltminion-and-lxc.example.org
+  provider: lxc
+  driver: lxc
+```
+#### Profile
+
+```
+$ cat /etc/salt/cloud.profiles.d/my-lxc-profile.conf
+my-lxc-profile:
+  provider: my-lxc-provider
+  lxc_profile:
+    clone_from: my-lxc-existing-container-name
+  minion:
+    master: my-master.example.org
+```
+#### Command
+
+```
+salt-cloud -p my-lxc-profile my-new-container-name
+```
+#### Output
+
+```
+$ salt-cloud -p my-lxc-profile my-new-container-name
+[INFO    ] salt-cloud starting
+[INFO    ] Runner completed: 20160617152523365256
+my-server-with-saltminion-and-lxc.example.org:
+    True
+[INFO    ] Runner completed: 20160617152524651550
+my-server-with-saltminion-and-lxc.example.org:
+    True
+my-server-with-saltminion-and-lxc.example.org:
+    ----------
+    [list of existing containers]
+[INFO    ] Searching for LXC Hosts
+[INFO    ] Creating container(s) '['my-new-container-name']' on host 'my-server-with-saltminion-and-lxc.example.org'
+[INFO    ] Runner completed: 20160617152527517415
+event:
+    ----------
+    message:
+        ----------
+        comment:
+        done:
+        my-server-with-saltminion-and-lxc.example.org:
+        errors:
+            ----------
+            my-server-with-saltminion-and-lxc.example.org:
+                ----------
+                my-new-container-name:
+                    |_
+                      ----------
+                      changes:
+                          ----------
+                      comment:
+                          Container could not be created with cmd 'lxc-clone  -o my-lxc-existing-container-name -n my-new-container-name -B dir': 
+                      name:
+                          my-new-container-name
+                      result:
+                          False
+        ping_status:
+            False
+        result:
+            False
+suffix:
+    progress
+comment:
+done:
+my-server-with-saltminion-and-lxc.example.org:
+errors:
+    ----------
+    my-server-with-saltminion-and-lxc.example.org:
+        ----------
+        my-new-container-name:
+            |_
+              ----------
+              changes:
+                  ----------
+              comment:
+                  Container could not be created with cmd 'lxc-clone  -o my-lxc-existing-container-name -n my-new-container-name -B dir': 
+              name:
+                  my-new-container-name
+              result:
+                  False
+ping_status:
+    False
+result:
+    False
+my-new-container-name:
+    ----------
+    Error:
+        Error while creating my-new-container-name,
+    changes:
+        ----------
+    comment:
+    name:
+        my-new-container-name
+    result:
+        False
+    runner_return:
+        ----------
+        comment:
+        done:
+        my-server-with-saltminion-and-lxc.example.org:
+        errors:
+            ----------
+            my-server-with-saltminion-and-lxc.example.org:
+                ----------
+                my-new-container-name:
+                    |_
+                      ----------
+                      changes:
+                          ----------
+                      comment:
+                          Container could not be created with cmd 'lxc-clone  -o my-lxc-existing-container-name -n my-new-container-name -B dir': 
+                      name:
+                          my-new-container-name
+                      result:
+                          False
+        ping_status:
+            False
+        result:
+            False
+```
+## Versions Report
+### Salt Master
+
+Running on Fedora 23 :
+
+```
+$ salt --versions-report
+           Salt: 2015.5.10
+         Python: 2.7.10 (default, Sep  8 2015, 17:20:17)
+         Jinja2: 2.8
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.7
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: 1.4.5
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.7.0
+           RAET: Not Installed
+            ZMQ: 4.1.2
+           Mako: Not Installed
+        Tornado: Not Installed
+        timelib: Not Installed
+       dateutil: Not Installed
+```
+#### Salt Minion
+
+Running on Arch Linux :
+
+```
+Salt Version:
+           Salt: 2015.8.10
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+         Python: 2.7.11 (default, Mar 31 2016, 06:18:34)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: 1.4.5
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist:   
+        machine: x86_64
+        release: 4.5.4-1-ARCH
+```
+### LXC
+
+On targeted minion (Arch Linux) :
+
+```
+$ lxc-info --version
+2.0.1
+```

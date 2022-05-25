@@ -1,0 +1,153 @@
+### Description of Issue/Question
+
+Getting a traceback on RedHat-based systems when applying a `network.system` state that includes `retain_settings: True` and the values in `/etc/sysconfig/network` are surrounded by quotes (which is valid syntax).
+
+The exception message is `TypeError: sequence item 4: expected string, bool found`.
+
+Looking at the code, this is occurring because the ["true" and "false" values](https://github.com/saltstack/salt/blob/2016.11/salt/modules/rh_ip.py#L67-L68) do not contain quoted equivalents (`'"yes"'`), and neither the [config parser](https://github.com/saltstack/salt/blob/2016.11/salt/modules/rh_ip.py#L113-L127) nor the [validity tests](https://github.com/saltstack/salt/blob/2016.11/salt/modules/rh_ip.py#L800-L827) strip the quoted values. I.e. `'"yes"' != 'yes'`.
+
+### Setup
+
+`# cat /etc/sysconfig/network`:
+```
+NETWORKING="yes"
+NETWORKING_IPV6="no"
+HOSTNAME="localhost.localdomain"
+```
+
+`# cat /srv/salt/test.sls`:
+```
+set hostname:
+  network.system:
+    - hostname: foo
+    - apply_hostname: True
+    - retain_settings: True
+```
+
+### Steps to Reproduce Issue
+
+`# salt-call --local state.sls test -l debug`:
+
+```
+# ... <elided> ...
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] In saltenv 'base', looking at rel_path 'test.sls' to resolve 'salt://test.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/test.sls' to resolve 'salt://test.sls'
+[DEBUG   ] compile template: /var/cache/salt/minion/files/base/test.sls
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/test.sls' using 'jinja' renderer: 0.000791072845459
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/test.sls:
+set hostname:
+  network.system:
+    - hostname: foo
+    - apply_hostname: True
+    - retain_settings: True
+
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('set hostname', OrderedDict([('network.system', [OrderedDict([('hostname', 'foo')]), OrderedDict([('apply_hostname', True)]), OrderedDict([('retain_settings', True)])])]))])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/test.sls' using 'yaml' renderer: 0.0252919197083
+[DEBUG   ] LazyLoaded ip.get_interface
+[DEBUG   ] LazyLoaded network.system
+[INFO    ] Running state [set hostname] at time 12:20:55.473338
+[INFO    ] Executing state network.system for set hostname
+[INFO    ] Using existing setting -- Setting: networking Value: "yes"
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/state.py", line 1746, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.6/site-packages/salt/loader.py", line 1704, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/states/network.py", line 528, in system
+    new = __salt__['ip.build_network_settings'](**kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/modules/rh_ip.py", line 1209, in build_network_settings
+    opts = _parse_network_settings(settings, current_network_settings)
+  File "/usr/lib/python2.6/site-packages/salt/modules/rh_ip.py", line 806, in _parse_network_settings
+    _raise_error_network('networking', valid)
+  File "/usr/lib/python2.6/site-packages/salt/modules/rh_ip.py", line 848, in _raise_error_network
+    msg = _error_msg_network(option, expected)
+  File "/usr/lib/python2.6/site-packages/salt/modules/rh_ip.py", line 105, in _error_msg_network
+    return msg.format(option, '|'.join(expected))
+TypeError: sequence item 4: expected string, bool found
+
+[INFO    ] Completed state [set hostname] at time 12:20:55.475410 duration_in_ms=2.073
+[DEBUG   ] File /var/cache/salt/minion/accumulator/52678352 does not exist, no need to cleanup.
+[DEBUG   ] LazyLoaded config.option
+[DEBUG   ] LazyLoaded highstate.output
+local:
+----------
+          ID: set hostname
+    Function: network.system
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.6/site-packages/salt/state.py", line 1746, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.6/site-packages/salt/loader.py", line 1704, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.6/site-packages/salt/states/network.py", line 528, in system
+                  new = __salt__['ip.build_network_settings'](**kwargs)
+                File "/usr/lib/python2.6/site-packages/salt/modules/rh_ip.py", line 1209, in build_network_settings
+                  opts = _parse_network_settings(settings, current_network_settings)
+                File "/usr/lib/python2.6/site-packages/salt/modules/rh_ip.py", line 806, in _parse_network_settings
+                  _raise_error_network('networking', valid)
+                File "/usr/lib/python2.6/site-packages/salt/modules/rh_ip.py", line 848, in _raise_error_network
+                  msg = _error_msg_network(option, expected)
+                File "/usr/lib/python2.6/site-packages/salt/modules/rh_ip.py", line 105, in _error_msg_network
+                  return msg.format(option, '|'.join(expected))
+              TypeError: sequence item 4: expected string, bool found
+     Started: 12:20:55.473337
+    Duration: 2.073 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:   2.073 ms
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.5
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8.1
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.4.3
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Aug 18 2016, 15:13:37)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 6.9 Final
+        machine: x86_64
+        release: 2.6.32-696.1.1.el6.x86_64
+         system: Linux
+        version: CentOS 6.9 Final
+```

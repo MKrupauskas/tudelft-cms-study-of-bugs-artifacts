@@ -1,0 +1,73 @@
+I've got a state which is dependent on the postgres.owner_to module to reset database ownership after running an initialization SQL script (executed by postgres user), though the module does not seem to work (at all).
+
+the state (and the error output) is a little messy, so I'll run through a foobar example here:
+
+```
+root@oidc-qa:~# salt-call --local postgres.db_create name=foobar runas=postgres
+[INFO    ] Executing command '/usr/bin/psql --no-align --no-readline --dbname postgres -c \'CREATE DATABASE "foobar"\'' as user 'postgres' in directory '/var/lib/postgresql'
+local:
+    True
+root@oidc-qa:~# salt-call --local postgres.user_create name=foobar runas=postgres
+[INFO    ] Executing command '/usr/bin/psql --no-align --no-readline --dbname postgres -c \'SELECT setting FROM pg_catalog.pg_settings WHERE name = \'"\'"\'server_version\'"\'"\'\' -t' as user 'postgres' in directory '/var/lib/postgresql'
+[INFO    ] Executing command '/usr/bin/psql --no-align --no-readline --dbname postgres -v datestyle=ISO,MDY -c \'COPY (SELECT rolname as "name", rolsuper as "superuser", rolinherit as "inherits privileges", rolcreaterole as "can create roles", rolcreatedb as "can create databases", rolcatupdate as "can update system catalogs", rolcanlogin as "can login", rolreplication as "replication", rolconnlimit as "connections", rolvaliduntil::timestamp(0) as "expiry time", rolconfig  as "defaults variables" FROM pg_roles) TO STDOUT WITH CSV HEADER\'' as user 'postgres' in directory '/var/lib/postgresql'
+[INFO    ] Executing command '/usr/bin/psql --no-align --no-readline --dbname postgres -c \'CREATE USER "name=foobar"\'' as user 'postgres' in directory '/var/lib/postgresql'
+local:
+    CREATE ROLE
+```
+
+now let's run postgres.owner_to:
+
+```
+root@oidc-qa:~# salt-call --local postgres.owner_to 'foobar' 'foobar'
+[INFO    ] Executing command "/usr/bin/psql --no-align --no-readline --dbname foobar -v datestyle=ISO,MDY -c 'COPY (select quote_ident(schema_name) as n from information_schema.schemata) TO STDOUT WITH CSV HEADER'" as user 'postgres' in directory '/var/lib/postgresql'
+[INFO    ] Executing command '/usr/bin/psql --no-align --no-readline --dbname foobar -v datestyle=ISO,MDY -c \'COPY (select quote_ident(table_schema)||\'"\'"\'.\'"\'"\'||quote_ident(table_name) as n from information_schema.tables where table_schema not in (\'"\'"\'pg_catalog\'"\'"\', \'"\'"\'information_schema\'"\'"\')) TO STDOUT WITH CSV HEADER\'' as user 'postgres' in directory '/var/lib/postgresql'
+[INFO    ] Executing command '/usr/bin/psql --no-align --no-readline --dbname foobar -v datestyle=ISO,MDY -c \'COPY (select p.oid::regprocedure::text as n from pg_catalog.pg_proc p join pg_catalog.pg_namespace ns on p.pronamespace=ns.oid where ns.nspname not in (\'"\'"\'pg_catalog\'"\'"\', \'"\'"\'information_schema\'"\'"\')  and not p.proisagg) TO STDOUT WITH CSV HEADER\'' as user 'postgres' in directory '/var/lib/postgresql'
+[INFO    ] Executing command '/usr/bin/psql --no-align --no-readline --dbname foobar -v datestyle=ISO,MDY -c \'COPY (select p.oid::regprocedure::text as n from pg_catalog.pg_proc p join pg_catalog.pg_namespace ns on p.pronamespace=ns.oid where ns.nspname not in (\'"\'"\'pg_catalog\'"\'"\', \'"\'"\'information_schema\'"\'"\') and p.proisagg) TO STDOUT WITH CSV HEADER\'' as user 'postgres' in directory '/var/lib/postgresql'
+[INFO    ] Executing command '/usr/bin/psql --no-align --no-readline --dbname foobar -v datestyle=ISO,MDY -c \'COPY (select quote_ident(sequence_schema)||\'"\'"\'.\'"\'"\'||quote_ident(sequence_name) as n from information_schema.sequences) TO STDOUT WITH CSV HEADER\'' as user 'postgres' in directory '/var/lib/postgresql'
+[INFO    ] Executing command '/usr/bin/psql --no-align --no-readline --dbname foobar -f /tmp/tmpZXjAak' as user 'postgres' in directory '/var/lib/postgresql'
+pid:
+    2059
+retcode:
+    0
+stderr:
+    psql:/tmp/tmpZXjAak:2: ERROR:  role "foobar" does not exist
+    psql:/tmp/tmpZXjAak:3: ERROR:  syntax error at or near "$"
+    LINE 1: alter schema $pg_toast owner to $foobar;
+                         ^
+    psql:/tmp/tmpZXjAak:4: ERROR:  syntax error at or near "$"
+    LINE 1: alter schema $pg_temp_1 owner to $foobar;
+                         ^
+    psql:/tmp/tmpZXjAak:5: ERROR:  syntax error at or near "$"
+    LINE 1: alter schema $pg_toast_temp_1 owner to $foobar;
+                         ^
+    psql:/tmp/tmpZXjAak:6: ERROR:  syntax error at or near "$"
+    LINE 1: alter schema $pg_catalog owner to $foobar;
+                         ^
+    psql:/tmp/tmpZXjAak:7: ERROR:  syntax error at or near "$"
+    LINE 1: alter schema $public owner to $foobar;
+                         ^
+    psql:/tmp/tmpZXjAak:8: ERROR:  syntax error at or near "$"
+    LINE 1: alter schema $information_schema owner to $foobar;
+                         ^
+stdout:
+    BEGIN
+    ROLLBACK
+```
+
+and we can confirm (with psql) that nothing has changed:
+
+```
+oidc=# \c foobar
+You are now connected to database "foobar" as user "postgres".
+foobar=# \dp
+                          Access privileges
+ Schema | Name | Type | Access privileges | Column access privileges 
+--------+------+------+-------------------+--------------------------
+(0 rows)
+```
+
+though I am not 100% sure this is the correct way to check the ownership change.. but the docs for psql \dp suggest so:
+
+```
+  \dp     [PATTERN]      list table, view, and sequence access privileges
+```

@@ -1,0 +1,109 @@
+Option "tty:" in salt-cloud (salt/utils/cloud.py) is not recognized in my setup. I do not understand why.
+### Setup
+- Ubuntu 14.04 Master, Salt 2015.8.7 installed from saltstack repo
+- salt-cloud driver: vsphere
+- My salt-cloud profile:
+
+```
+vsphere-ubuntu16:
+  provider: vsphere-vc1
+  image: ubuntu1604
+  folder: XxXxX
+  resourcepool: resgroup-XxXxX
+  minion:
+    master: salt.XxXxX.de
+  template_user: salt
+  template_password: XxXxX
+  sudo: True
+  sudo_password: XxXxX
+  tty: True
+```
+
+If I look into the source (/usr/lib/python2.7/dist-packages/salt/utils/cloud.py, starting from line 2019) i would expect that ssh_args would be extended with  "-t -t", because the option "tty:" is set in my cloud profile. Small code snippet from the source:
+
+```
+if tty:
+    # Use double `-t` on the `ssh` command, it's necessary when `sudo` has
+    # `requiretty` enforced.
+    ssh_args.extend(['-t', '-t'])
+```
+
+But this does not happen.
+### Steps to Reproduce Issue
+- install a minion via salt-cloud and vsphere driver (ubuntu 16.04 pre-release minion in my case)
+
+command:  # salt-cloud -p vsphere-ubuntu16 myminion --keep-tmp -l all
+
+```
+...snip...
+[DEBUG   ] Do 17. Mär 15:19:37 CET 2016
+[DEBUG   ] Logging into 10.206.9.45:22 as salt
+[DEBUG   ] Using sudo to run command sudo -S "XXX-REDACTED-XXX" test -e '/tmp/.saltcloud-4f999f4d-7ff1-48f7-bfd3-a9c0cf8d65f0'
+[DEBUG   ] SSH command: 'ssh -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -p 22 salt@10.206.9.45 sudo -S "XXX-REDACTED-XXX" test -e \'/tmp/.saltcloud-4f999f4d-7ff1-48f7-bfd3-a9c0cf8d65f0\''
+```
+
+Expected result with my setup is that salt-cloud enforces tty allocation (i.e: "ssh -t"). So i would expect a debug line similar to this (faked) output:
+`[DEBUG   ] SSH command: 'ssh -t -t -oStrictHostKeyChecking=no -oUser...`
+
+But this does not happen. So the install of the minion will fail, because sudo requires a tty in my case.
+
+My workaround to this issue is a ugly hack in salt/utils/cloud.py:
+
+``` diff
+...
+     if known_hosts_file != '/dev/null':
+         host_key_checking = 'yes'
+
+     ssh_args.extend([
++        # always enforce a tty
++        '-t '
+         # Don't add new hosts to the host key database
+         '-oStrictHostKeyChecking={0}'.format(host_key_checking),
+         # Set hosts key database path to /dev/null, i.e., non-existing
+...
+```
+
+This is not a permanent solution, but fixes my issue at the moment.
+I think I did something wrong in my cloud profile setup, but cant find the incorrect definition there. Whats wrong? Or have I really found a bug?
+### Versions Report
+
+```
+# salt-cloud  --versions-report
+Salt Version:
+            Salt: 2015.8.7
+
+Dependency Versions:
+ Apache Libcloud: 0.15.1
+          Jinja2: 2.7.2
+        M2Crypto: Not Installed
+            Mako: 0.9.1
+          PyYAML: 3.10
+           PyZMQ: 14.0.1
+          Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+            RAET: Not Installed
+         Tornado: 4.2.1
+             ZMQ: 4.0.4
+            cffi: Not Installed
+        cherrypy: 3.2.2
+        dateutil: 1.5
+           gitdb: 0.5.4
+       gitpython: 0.3.2 RC1
+           ioflo: Not Installed
+         libgit2: Not Installed
+         libnacl: Not Installed
+    msgpack-pure: Not Installed
+  msgpack-python: 0.3.0
+    mysql-python: 1.2.3
+       pycparser: Not Installed
+        pycrypto: 2.6.1
+          pygit2: Not Installed
+    python-gnupg: Not Installed
+           smmap: 0.8.2
+         timelib: Not Installed
+
+System Versions:
+            dist: Ubuntu 14.04 trusty
+         machine: x86_64
+         release: 3.13.0-79-generic
+          system: Ubuntu 14.04 trusty
+```

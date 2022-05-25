@@ -1,0 +1,149 @@
+### Description of Issue
+When setting permissions using `file.directory` and `follow_symlinks: True`, the paths that symlinks point to are not being updated with the permissions I expect. The symlinks _themselves_ are updated, but not the contents to which the symlink _points._
+
+### Setup
+I am using this state file:
+
+```
+set_jboss_root_dir_permissions:
+  file.directory:
+    - name: /opt/rh/eap7/root/usr/share/wildfly
+    - user: root
+    - group: dev
+    - follow_symlinks: True
+    - recurse:
+      - user
+      - group
+```
+
+### Steps to Reproduce Issue
+After applying it, I can see that all files and folders are updated:
+```
+$ cd /opt/rh/eap7/root/usr/share/wildfly; ls -l
+drwxr-xr-x. 2 root dev    27 Mar 12 15:06 appclient
+drwxr-xr-x. 3 root dev  4096 Mar 12 15:06 bin
+drwxr-xr-x. 2 root dev    52 Mar 12 15:06 docs
+drwxr-xr-x. 2 root dev    76 Mar 12 15:06 domain
+-rw-r--r--. 1 root dev   419 Dec 15 10:39 JBossEULA.txt
+lrwxrwxrwx. 1 root dev    50 Mar 12 15:06 jboss-modules.jar -> /opt/rh/eap7/root/usr/share/java/jboss-modules.jar
+-rw-r--r--. 1 root dev 26530 Dec 15 10:39 LICENSE.txt
+drwxr-xr-x. 2 root dev    44 Mar 12 15:06 migration
+drwxr-xr-x. 3 root dev    20 Dec 15 10:39 modules
+drwxr-xr-x. 2 root dev    91 Mar 12 15:06 standalone
+-rw-r--r--. 1 root dev    65 Dec 15 10:39 version.txt
+drwxr-xr-x. 4 root dev   158 Mar 12 15:06 welcome-content
+```
+
+Including the contents of the `standalone` directory which are all symlinks:
+```
+$ cd standalone; ls -l
+lrwxrwxrwx. 1 root dev 35 Mar 12 15:06 configuration -> /etc/opt/rh/eap7/wildfly/standalone
+lrwxrwxrwx. 1 root dev 44 Mar 12 15:06 data -> /var/opt/rh/eap7/lib/wildfly/standalone/data
+lrwxrwxrwx. 1 root dev 51 Mar 12 15:06 deployments -> /var/opt/rh/eap7/lib/wildfly/standalone/deployments
+lrwxrwxrwx. 1 root dev 43 Mar 12 15:06 lib -> /var/opt/rh/eap7/lib/wildfly/standalone/lib
+lrwxrwxrwx. 1 root dev 39 Mar 12 15:06 log -> /var/opt/rh/eap7/log/wildfly/standalone
+lrwxrwxrwx. 1 root dev 45 Mar 12 15:06 tmp -> /var/opt/rh/eap7/cache/wildfly/standalone/tmp
+```
+
+However, the permissions on the path the symlink points to (`/etc/opt/rh/eap7/wildfly/standalone`) are not updated:
+```
+$ ls -l configuration/
+-rw-------. 1 root root   711 Dec 15 10:39 application-roles.properties
+-rw-------. 1 root root   935 Dec 15 10:39 application-users.properties
+drwxr-xr-x. 2 root root    42 Mar 12 15:37 config_backups
+-rw-------. 1 root root  2537 Dec 15 10:39 logging.properties
+-rw-------. 1 root root   669 Dec 15 10:39 mgmt-groups.properties
+-rw-------. 1 root root  1112 Dec 15 10:39 mgmt-users.properties
+-rw-rw-r--. 1 root root 37244 Dec 15 10:39 standalone-full-ha.xml
+-rw-rw-r--. 1 root root 33360 Dec 15 10:39 standalone-full.xml
+-rw-rw-r--. 1 root root 33623 Dec 15 10:39 standalone-ha.xml
+-rw-rw-r--. 1 root root 13181 Dec 15 10:39 standalone-load-balancer.xml
+-rw-rw-r--. 1 root root 29971 Dec 15 10:39 standalone.xml
+```
+
+If I change my state to update permissions specifically on that symlink:
+
+```
+set_jboss_root_dir_permissions:
+  file.directory:
+    - name: /opt/rh/eap7/root/usr/share/wildfly/standalone/configuration
+    - user: root
+    - group: dev
+    - follow_symlinks: True
+    - recurse:
+      - user
+      - group
+```
+Then apply it, the permissions are updated:
+```
+$ ls -l configuration/
+total 180
+-rw-------. 1 root dev   711 Dec 15 10:39 application-roles.properties
+-rw-------. 1 root dev   935 Dec 15 10:39 application-users.properties
+drwxr-xr-x. 2 root dev    42 Mar 12 15:37 config_backups
+-rw-------. 1 root dev  2537 Dec 15 10:39 logging.properties
+-rw-------. 1 root dev   669 Dec 15 10:39 mgmt-groups.properties
+-rw-------. 1 root dev  1112 Dec 15 10:39 mgmt-users.properties
+-rw-rw-r--. 1 root dev 37244 Dec 15 10:39 standalone-full-ha.xml
+-rw-rw-r--. 1 root dev 33360 Dec 15 10:39 standalone-full.xml
+-rw-rw-r--. 1 root dev 33623 Dec 15 10:39 standalone-ha.xml
+-rw-rw-r--. 1 root dev 13181 Dec 15 10:39 standalone-load-balancer.xml
+-rw-rw-r--. 1 root dev 29971 Dec 15 10:39 standalone.xml
+```
+
+However, I really don't want to have to do this for every directory inside of standalone, although I will if it's necessary. Maybe I am misunderstanding how the `follow_symlinks` argument works, but the `file.directory` documentation has this to say about it:
+```
+If the desired path is a symlink (or recurse is defined and a symlink is encountered while recursing), follow it and check the permissions of the directory/file to which the symlink points.
+```
+
+### Versions Report
+We are running a pretty dated version of Salt on the master:
+```
+Salt Version:
+           Salt: 2018.3.3
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: unknown
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.26.3
+        libnacl: Not Installed
+       M2Crypto: 0.28.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, May 31 2018, 09:41:32)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: redhat 7.5 Maipo
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.11.6.el7.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 7.5 Maipo
+```
+
+And the minion I am testing against:
+```
+$ salt-minion --version
+/usr/lib/python2.7/site-packages/salt/scripts.py:212: DeprecationWarning: Python 2.7 will reach the end of its life on January 1st, 2020. Please upgrade your Python as Python 2.7 won't be maintained after that date.  Salt will drop support for Python 2.7 in the Sodium release or later.
+salt-minion 3000.6
+```

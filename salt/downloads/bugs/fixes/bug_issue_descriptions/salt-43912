@@ -1,0 +1,38 @@
+### Description of Issue/Question
+The firewalld execution module always enables masquerading when using `firewalld.add_port` or `firewalld.add_port_fwd`. This behavior is undocumented and causes issues when you want to keep masquerading disabled and add ports or port forwards to a zone.
+
+The both functions in the execution module check to see if masquerading is enabled and enable it if it isn't:
+```diff
+@@ -629,8 +629,6 @@ def add_port(zone, port, permanent=True):
+ 
+         salt '*' firewalld.add_port internal 443/tcp
+     '''
+-    if not get_masquerade(zone):
+-        add_masquerade(zone)
+ 
+     cmd = '--zone={0} --add-port={1}'.format(zone, port)
+ 
+@@ -692,8 +690,6 @@ def add_port_fwd(zone, src, dest, proto='tcp', dstaddr='', permanent=True):
+ 
+         salt '*' firewalld.add_port_fwd public 80 443 tcp
+     '''
+-    if not get_masquerade(zone):
+-        add_masquerade(zone, permanent)
+ 
+     cmd = '--zone={0} --add-forward-port=port={1}:proto={2}:toport={3}:toaddr={4}'.format(
+         zone,
+```
+
+This affects the firewalld state module as well, since it calls the execution module.
+
+I'm working on a pull request for this issue. 
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+### Steps to Reproduce Issue
+1. Call `firewalld.add_port` or `firewalld.add_port_fwd` on a minion in a zone where masquerade is set to 'no'
+2. Call `firewalld.list_all` on that minion. Masquerade will now be set to 'yes' even though we didn't call `firewalld.add_masquerade`
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)

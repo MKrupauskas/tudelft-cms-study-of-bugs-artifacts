@@ -1,0 +1,20 @@
+After stressing 2015.8 I ran into a few issues with returns not getting back as expected. After digging into what I thought was a zmq bug, it seems that the culprit might be #27286
+
+That change basically makes returns go from a 60s timeout to a 1-4s timeout. This incurs a lot of change in how this handles especially at scale. Before if the master was innundated with requests it had 60s to handle the response before the minion resends. With this patch we've made it so the minions can give up as early as 1s-- which for a loaded master can be quite a problem. This will not only incur retries on the minion, this also means that the master will potentially have to handle N returns for the same minion because it wasn't "fast enough" for the minion.
+
+To get the old behavior you'd have to set `return_retry_timer` to 60 and `return_retry_random` to false. So I think we can make a more compatible (read: less intrusive) change to get comparable results.
+
+With that in mind I'm thinking we should change a couple of things-- so here are my thoughts:
+
+(1) longer default timeout
+A range of 1-4 is probably a bit optimistic for cluster of size (at least as of today). Maybe a range more like 3-5? Just trying to increase that lower number.
+
+(2) Configurable low-end
+Right not the 1 at the bottom of the range is hard coded-- meaning even if i set the timeout to 60s Its still a spread of 1-60, where I may want to configure 30-60 or something similar.
+
+(3) configurable retries
+Since we're in here making some config options it might be nice to add an option to set the number of retries a minion will attempt for a pub return. Right now it uses the channel default (3), so maybe we add an option for that?
+
+IMO 1 and 2 are more or less required but 3 is a nice-to-have. Any thoughts? If that all sounds well and good I can put together a PR with the necessary changes.
+
+cc: @terminalmage 

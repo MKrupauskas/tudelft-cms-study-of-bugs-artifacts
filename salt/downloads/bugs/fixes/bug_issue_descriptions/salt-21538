@@ -1,0 +1,65 @@
+The following testing was done on an non installed services (ypserv) and compared between RHEL and SLES.
+
+The debug-log of the module output reads (a bit shorted) on SLES:
+
+```
+root@sles:~# salt-call -l debug service.available ypserv
+[INFO    ] Executing command '/sbin/chkconfig --list ypserv' in directory '/root'
+[DEBUG   ] output: ypserv: unknown service
+[INFO    ] fun=service.available jid=20150311090952362729 retcode=0 success=True fun_args='ypserv' 
+local:
+    True
+```
+
+I tested SALT versions 2014.7.1 and versions 2014.7.2, and the result is the same. Notably the command behaves different on RHEL. The corresponding output on RHEL is:
+
+```
+root@rhel:~# salt-call -l debug service.available ypserv
+[INFO    ] Executing command '/sbin/chkconfig --list ypserv' in directory '/root'
+[DEBUG   ] output: error reading information on service ypserv: No such file or directory
+[INFO    ] fun=service.available jid=20150311100051580602 retcode=1 success=True fun_args='ypserv' 
+local:
+    False
+```
+
+To underline: In either case, the service "ypserv" is not installed.
+
+As reason I isolated, that "chkconfig" behaves different between RHEL and SLES, where on SLES it always returns 0, even on "non-installed" services. However, the behavior on SLES is identical ranging from the backlevel SLES 11 SP2 to the current SLES 12 (this is the range where I currently have access to). 
+If the service is not existing on RHEL there, the "chkconfig" returns 1.
+
+The RHEL log (expected behavior):
+
+```
+2015-03-11 08:38:03,701 [salt.state                                  ][INFO    ] Executing state service.dead for ypserv
+2015-03-11 08:38:03,701 [salt.loaded.int.module.cmdmod               ][INFO    ] Executing command '/sbin/chkconfig --list ypserv' in directory '/root'
+2015-03-11 08:38:03,712 [salt.loaded.int.module.cmdmod               ][DEBUG   ] output: error reading information on service ypserv: No such file or directory
+2015-03-11 08:38:03,713 [salt.state                                  ][INFO    ] The named service ypserv is not available
+```
+
+The SLES log (errornous behavior):
+
+```
+2015-03-11 10:09:41,964 [salt.state                                  ][INFO    ] Executing state service.dead for ypserv
+2015-03-11 10:09:41,965 [salt.loaded.int.module.cmdmod               ][INFO    ] Executing command '/sbin/chkconfig --list ypserv' in directory '/root'
+2015-03-11 10:09:42,026 [salt.loaded.int.module.cmdmod               ][DEBUG   ] output: ypserv: unknown service
+2015-03-11 10:09:42,028 [salt.loaded.int.module.cmdmod               ][INFO    ] Executing command '/sbin/service ypserv status' in directory '/root'
+```
+
+Note: The absence of the service was not discovered, so the subsequent command to evaluate the status was executed.
+
+The state executed is rather generic:
+
+``` yaml
+default_test_ypserv:
+  service:
+    - name: ypserv
+    - dead
+    - enable: False
+```
+
+To explain the need for this: When doing hardening following CIS standards, a number of services must be _provable_ disabled, so there is a state to ensure this - regardless if the related software is installed or not. The aim there is to disable it, if it got "illegally" installed _and_ to really actively _prove_ that the status _is_ "dead".
+So: the check for this on RHEL behaves graceful, where the same state on SuSE runs into a rather hard "IndexError: list index out of range" because the "available" got wrongly evaluated.
+
+The request is to handle the "no such file or directory" (error) output on SuSE, so the state behaves identical on all platforms. I understand that the behavior was triggered from the OS by returning "0" - I think it is bogus to return 0 on "no such file or directory". However, I do not expect that this is going to be fixed by SuSE, because it is there this way since very backlevel versions up to the current version.
+
+Saying this, I strongly assume that the salt version has no relevance, however the tested versions are 2014.7.1 and .2

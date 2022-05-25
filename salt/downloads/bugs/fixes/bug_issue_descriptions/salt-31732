@@ -1,0 +1,208 @@
+Up to 2015.8.3, s3.get was able to use a role from EC2 metadata. As of 2015.8.5 it no longer handles that properly and causes a 403 to be returned from the AWS call. I tested this with both 2015.8.5 and 2015.8.7 with the same failure.
+### logs on 2015.8.5:
+
+``` bash
+salt-call s3.get [bucket] [key] location=us-east-1 return_bin=True
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', '[minion id]', 'tcp://[master IP]:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (9454)
+[DEBUG   ] Setting zmq_reconnect_ivl to '9454ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', '[minion id]', 'tcp://[master IP]:4506', 'aes')
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', '[minion id]', 'tcp://[master IP]:4506')
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', '[minion id]', 'tcp://[master IP]:4506', 'clear')
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded s3.get
+[DEBUG   ] LazyLoaded config.option
+[INFO    ] Starting new HTTP connection (1): 169.254.169.254
+[DEBUG   ] "GET /latest/meta-data/iam/security-credentials/ HTTP/1.1" 200 8
+[INFO    ] Starting new HTTP connection (1): 169.254.169.254
+[DEBUG   ] "GET /latest/meta-data/iam/security-credentials/[role] HTTP/1.1" 200 930
+[INFO    ] Starting new HTTPS connection (1): sts.amazonaws.com
+[DEBUG   ] "GET /?Action=AssumeRole&DurationSeconds=3600&Policy=%7B%22Version%22%3A%222012-10-17%22%2C%22Statement%22%3A%5B%7B%22Sid%22%3A%22Stmt1%22%2C%20%22Effect%22%3A%22Allow%22%2C%22Action%22%3A%22%2A%22%2C%22Resource%22%3A%22%2A%22%7D%5D%7D&RoleArn=&RoleSessionNam
+e=ip-10-47-176-85.ec2.internal&Version=2011-06-15 HTTP/1.1" 403 235
+[INFO    ] AssumeRole response: {"Error":{"Code":"AccessDenied","Message":"User arn:aws:sts::[account id]:assumed-role/[role]/[instance ID] is not authorized to perform: sts:AssumeRole on resource: ","Type":"Sender"},"RequestId":"810cdd6a-e4b7-11e5-b517-f796c5923a29"}
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+HTTPError: 403 Client Error: Forbidden for url: https://sts.amazonaws.com/?Action=AssumeRole&DurationSeconds=3600&Policy=%7B%22Version%22%3A%222012-10-17%22%2C%22Statement%22%3A%5B%7B%22Sid%22%3A%22Stmt1%22%2C%20%22Effect%22%3A%22Allow%22%2C%22Action%22%3A%22%2A%22%2C%2
+2Resource%22%3A%22%2A%22%7D%5D%7D&RoleArn=&RoleSessionName=ip-10-47-176-85.ec2.internal&Version=2011-06-15
+Traceback (most recent call last):
+  File "/usr/local/bin/salt-call", line 11, in <module>
+    sys.exit(salt_call())
+  File "/usr/local/lib/python2.7/dist-packages/salt/scripts.py", line 335, in salt_call
+    client.run()
+  File "/usr/local/lib/python2.7/dist-packages/salt/cli/call.py", line 53, in run
+    caller.run()
+  File "/usr/local/lib/python2.7/dist-packages/salt/cli/caller.py", line 133, in run
+    ret = self.call()
+  File "/usr/local/lib/python2.7/dist-packages/salt/cli/caller.py", line 196, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/salt/modules/s3.py", line 169, in get
+    role_arn=role_arn)
+  File "/usr/local/lib/python2.7/dist-packages/salt/utils/s3.py", line 112, in query
+    requesturl=requesturl,
+  File "/usr/local/lib/python2.7/dist-packages/salt/utils/aws.py", line 219, in sig4
+    access_key_id, secret_access_key, token = assumed_creds(prov_dict, role_arn, location=location)
+  File "/usr/local/lib/python2.7/dist-packages/salt/utils/aws.py", line 194, in assumed_creds
+    result.raise_for_status()
+  File "/usr/local/lib/python2.7/dist-packages/requests/models.py", line 840, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+HTTPError: 403 Client Error: Forbidden for url: https://sts.amazonaws.com/?Action=AssumeRole&DurationSeconds=3600&Policy=%7B%22Version%22%3A%222012-10-17%22%2C%22Statement%22%3A%5B%7B%22Sid%22%3A%22Stmt1%22%2C%20%22Effect%22%3A%22Allow%22%2C%22Action%22%3A%22%2A%22%2C%2
+2Resource%22%3A%22%2A%22%7D%5D%7D&RoleArn=&RoleSessionName=ip-10-47-176-85.ec2.internal&Version=2011-06-15
+Traceback (most recent call last):
+  File "/usr/local/bin/salt-call", line 11, in <module>
+    sys.exit(salt_call())
+  File "/usr/local/lib/python2.7/dist-packages/salt/scripts.py", line 335, in salt_call
+    client.run()
+  File "/usr/local/lib/python2.7/dist-packages/salt/cli/call.py", line 53, in run
+    caller.run()
+  File "/usr/local/lib/python2.7/dist-packages/salt/cli/caller.py", line 133, in run
+    ret = self.call()
+  File "/usr/local/lib/python2.7/dist-packages/salt/cli/caller.py", line 196, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/salt/modules/s3.py", line 169, in get
+    role_arn=role_arn)
+  File "/usr/local/lib/python2.7/dist-packages/salt/utils/s3.py", line 112, in query
+    requesturl=requesturl,
+  File "/usr/local/lib/python2.7/dist-packages/salt/utils/aws.py", line 219, in sig4
+    access_key_id, secret_access_key, token = assumed_creds(prov_dict, role_arn, location=location)
+  File "/usr/local/lib/python2.7/dist-packages/salt/utils/aws.py", line 194, in assumed_creds
+    result.raise_for_status()
+  File "/usr/local/lib/python2.7/dist-packages/requests/models.py", line 840, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 403 Client Error: Forbidden for url: https://sts.amazonaws.com/?Action=AssumeRole&DurationSeconds=3600&Policy=%7B%22Version%22%3A%222012-10-17%22%2C%22Statement%22%3A%5B%7B%22Sid%22%3A%22Stmt1%22%2C%20%22Effect%22%3A%22Allow%22%2C%22Action
+%22%3A%22%2A%22%2C%22Resource%22%3A%22%2A%22%7D%5D%7D&RoleArn=&RoleSessionName=ip-10-47-176-85.ec2.internal&Version=2011-06-15
+```
+### logs on 2015.8.3:
+
+``` bash
+salt-call s3.get [bucket] testkey location=us-east-1 return_bin=True -ldebug                                                                                   [3569/9057]
+
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', '[minion id]', 'tcp://[master IP]:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (7917)
+[DEBUG   ] Setting zmq_reconnect_ivl to '7917ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', '[minion id]', 'tcp://[master IP]:4506', 'aes')
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', '[minion id]', 'tcp://[master IP]:4506')
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', '[minion id]', 'tcp://[master IP]:4506', 'clear')
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded s3.get
+[DEBUG   ] LazyLoaded config.option
+[INFO    ] Starting new HTTP connection (1): 169.254.169.254
+[DEBUG   ] "GET /latest/meta-data/iam/security-credentials/ HTTP/1.1" 200 8
+[INFO    ] Starting new HTTP connection (1): 169.254.169.254
+[DEBUG   ] "GET /latest/meta-data/iam/security-credentials/demo.web HTTP/1.1" 200 930
+[DEBUG   ] S3 Request: https://[bucket].s3.amazonaws.com/web_builds/master/61b6a343d29947548cc4dc20a6492ae44eaf383d.tar.gz.hash?
+[DEBUG   ] S3 Headers::
+[DEBUG   ]     Authorization: AWS4-HMAC-SHA256 Credential=[key]/20160307/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date;x-amz-security-token, Signature=0d49cdcdbf2c3690460e30c27711604dac514185c6de7760638383f551dfe43b
+[INFO    ] Starting new HTTPS connection (1): [bucket].s3.amazonaws.com
+[DEBUG   ] "GET /testkey HTTP/1.1" 200 64
+[DEBUG   ] S3 Response Status Code: 200
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', '[minion id]', 'tcp://[master IP]:4506', 'aes')
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', '[minion id]', 'tcp://[master IP]:4506')
+[DEBUG   ] LazyLoaded nested.output
+local:
+    [file contents]
+```
+### Versions Reports
+
+```
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.2
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.5.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: 0.1.3
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 4.2.0-18-generic
+         system: Ubuntu 14.04 trusty
+```
+
+```
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.2
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.5.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: 0.1.3
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 4.2.0-18-generic
+         system: Ubuntu 14.04 trusty
+```

@@ -1,0 +1,39 @@
+When running lowpkg.info against a CentOS 6.7 minion I get the following error:
+
+```
+$ salt '*' lowpkg.info salt-minion
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1036, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/python2.6/site-packages/salt/modules/rpm.py", line 470, in info
+        value = _pkg_time_to_iso(value)
+      File "/usr/lib/python2.6/site-packages/salt/modules/rpm.py", line 409, in _pkg_time_to_iso
+        ptime = time.strptime(pkg_time, '%a %d %b %Y %H:%M:%S %p %Z')
+      File "/usr/lib64/python2.6/_strptime.py", line 454, in _strptime_time
+        return _strptime(data_string, format)[0]
+      File "/usr/lib64/python2.6/_strptime.py", line 328, in _strptime
+        data_string[found.end():])
+    ValueError: unconverted data remains:       Build Host: localhost
+```
+
+I discovered this is because the rpm command being executed produced the following ouput:
+
+```
+$ rpm -qi salt-minion
+Name        : salt-minion                  Relocations: (not relocatable)
+Version     : 2015.8.1                          Vendor: (none)
+Release     : 1.el6                         Build Date: Wed 07 Oct 2015 13:08:52 PDT
+Install Date: Sun 18 Oct 2015 22:06:15 PDT      Build Host: localhost
+Group       : System Environment/Daemons    Source RPM: salt-2015.8.1-1.el6.src.rpm
+Size        : 37112                            License: ASL 2.0
+Signature   : RSA/SHA1, Wed 07 Oct 2015 14:28:23 PDT, Key ID 0e08a149de57bfbe
+URL         : http://saltstack.org/
+Summary     : Client component for Salt, a parallel remote execution system
+Description :
+The Salt minion is the agent component of Salt. It listens for instructions
+from the master, runs jobs, and returns results back to the master.
+```
+
+Note that there is multiple 'keys' per line (for example: 'Name' and 'Relocations' appear on the first line) but the code is expecting one per line. As a result when it attempts to parse the date on the 'Install Date' line it is picking up the 'Build Host' key as well. This results in the `ValueError: unconverted data remains:       Build Host: localhost` error.
+
+I downloaded the source for RPM and found that the '-i' option is a macro for the '--qf' option with a predefined format. There is also a comment stating that this is not necessarily consistent. It would therefore appear that relying on the '-i' option could result in undefined behaviour (where the resultant '--qf' is not as expected) and that a safer approach would be to use a hard-coded value for '--qf'.

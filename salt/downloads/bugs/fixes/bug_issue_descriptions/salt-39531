@@ -1,0 +1,66 @@
+### Description of Issue/Question
+
+`yaml.load` and `yaml.dump` allow arbitrary code execution when processing YAML files. I don’t think this is intended. I would propose to change those occurrences to the safe variants. Is the feature provided by the unsafe variants even used?
+
+* https://github.com/yaml/pyyaml/issues/5
+* https://security.openstack.org/guidelines/dg_avoid-dangerous-input-parsing-libraries.html
+
+The first fix iteration should be quite easy. Just run `git ls-files -z "$(git rev-parse --show-toplevel)" | xargs --null -I '{}' find '{}' -type f -print0 | xargs --null sed --in-place --regexp-extended 's/(yaml\.)(dump|load)\b/\1safe_\2/g;'` in each git repo which might use the pyyaml package.
+
+Note that this might not catch all occurrences. Maybe add a Python linting check for those functions?
+
+Related to: https://github.com/ansible/ansible/issues/21724
+
+### Setup
+https://www.qubes-os.org/doc/salt/
+
+### Steps to Reproduce Issue
+Run [`ag`](https://github.com/ggreer/the_silver_searcher)` '(yaml\.)(dump|load)\b'` in the git repo.
+
+### Expected Results
+No output and exit code 1 confirming no matches where found.
+
+### Actual Results
+
+```
+salt/wheel/config.py:42:        fp_.write(yaml.dump(data, default_flow_style=False))
+salt/modules/heat.py:212:            tpl = yaml.load(tmpl_str, Loader=YamlLoader)
+salt/modules/heat.py:215:                tpl = yaml.load(tmpl_str, Loader=yaml.SafeLoader)
+salt/modules/heat.py:233:        env = yaml.load(env_str, Loader=YamlLoader)
+salt/modules/heat.py:236:            env = yaml.load(env_str, Loader=yaml.SafeLoader)
+salt/modules/heat.py:875:        template = yaml.dump(get_template, Dumper=YamlDumper)
+salt/spm/__init__.py:698:            yaml.dump(repo_metadata, mfh, indent=4, canonical=False, default_flow_style=False)
+salt/serializers/yamlex.py:151:        return yaml.load(stream_or_string, **options)
+salt/serializers/yamlex.py:174:        response = yaml.dump(obj, **options)
+salt/serializers/yaml.py:47:        return yaml.load(stream_or_string, **options)
+salt/serializers/yaml.py:70:        response = yaml.dump(obj, **options)
+salt/output/yaml_out.py:56:        return yaml.dump(data, **params)
+salt/states/boto_apigateway.py:716:                    self._cfg = yaml.load(sf)
+salt/states/heat.py:111:            tpl = yaml.load(tmpl_str, Loader=YamlLoader)
+salt/states/heat.py:114:                tpl = yaml.load(tmpl_str, Loader=yaml.SafeLoader)
+salt/states/heat.py:223:                            template_new = yaml.dump(template_parse, Dumper=YamlDumper)
+salt/minion.py:683:                fp_.write(yaml.dump(cache_top))
+salt/minion.py:687:                fp_.write(yaml.dump(self.opts['pillar']))
+salt/pillar/consul_pillar.py:254:    pillar_value = yaml.load(value)
+salt/pillar/pepa.py:439:                    results = yaml.load(results_jinja)
+salt/pillar/pepa.py:532:        schema = yaml.load(template.render(data))
+salt/pillar/pepa.py:554:        __opts__.update(yaml.load(fh_.read()))
+salt/pillar/pepa.py:567:        __grains__.update(yaml.load(args.grains))
+salt/pillar/pepa.py:574:        __pillar__.update(yaml.load(args.pillar))
+salt/returners/slack_returner.py:214:        returns = yaml.dump(returns)
+salt/utils/schema.py:870:    #        yamled_default_value = yaml.dump(self.default, default_flow_style=False).split('\n...', 1)[0]
+salt/utils/schedule.py:457:                        yaml.dump({'schedule': self.option('schedule')})
+salt/utils/jinja.py:720:        yaml_txt = yaml.dump(value, default_flow_style=flow_style,
+salt/utils/args.py:102:        # >>> yaml.load('') is None
+salt/utils/args.py:104:        # >>> yaml.load('      ') is None
+salt/utils/yamlloader.py:16:# This function is safe and needs to stay as yaml.load. The load function
+salt/utils/yamlloader.py:20:load = yaml.load  # pylint: disable=C0103
+salt/utils/parsers.py:2024:            sys.stdout.write(yaml.dump(cfg, default_flow_style=False))
+salt/utils/cloud.py:287:    return yaml.dump(configuration,
+doc/man/salt.7:23969:    data = yaml.load(yaml_data)
+doc/ref/renderers/index.rst:151:        data = yaml.load(yaml_data)
+[tests/ truncated]
+```
+
+### Versions Report
+develop

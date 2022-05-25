@@ -1,0 +1,30 @@
+I think `states.keystone.user_present()` is broken in 2014.7.4 because this wasn't a problem before I updated to 2014.7.4:
+
+```
+          ID: cinder-user in Keystone
+    Function: keystone.user_present
+        Name: cinder
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1539, in call
+                  **cdata['kwargs'])
+                File "/var/cache/salt/minion/extmods/states/keystone.py", line 193, in user_present
+                  for role in roles[tenant_role]:
+              TypeError: list indices must be integers, not OrderedDict
+     Started: 15:36:12.849284
+    Duration: 101.783 ms
+     Changes:   
+```
+
+So I hacked a tiny bit of debugging\* into `user_present()` (just above [line 180](https://github.com/saltstack/salt/blob/26acc5c1d476284174ba988439a2cc08ce66dc61/salt/states/keystone.py#L180) and got this:
+
+```
+DEBUG: Roles for user "cinder": [OrderedDict([('service', ['admin'])])]
+```
+
+A list with a OrderedDict with a list with a tuple consisting of a string and a list with the string 'admin'?
+Seems like the return of `user_role_list()` in [modules.keystone](https://github.com/saltstack/salt/blob/44c7eb4d4bb6794a2f00d7c207bc88ad7e78aead/salt/modules/keystone.py#L966) changed quite a bit...
+
+btw: I tried the keystone modules from branches develop and 2014.7. 
+
+*) And I suspect logging is broken, too, because I had to print to stderr...

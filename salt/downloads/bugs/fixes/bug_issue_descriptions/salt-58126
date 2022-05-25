@@ -1,0 +1,82 @@
+**Description**
+
+The [tls execution module](https://docs.saltstack.com/en/latest/ref/modules/all/salt.modules.tls.html#module-salt.modules.tls) creates private keys which are world readable, this includes the CA key. I have been able to reproduce the issue using the CLI examples from the documentation.
+
+**Setup**
+No config files and/or SLS files required to reproduce, other than a working Salt setup.
+
+**Steps to Reproduce the behavior**
+
+```
+# salt-call tls.create_ca my_little days=5 CN='My Little CA' C=US ST=Utah L='Salt Lake City' O=Saltstack emailAddress=pleasedontemail@example.com
+local:
+    Created Private Key: "/etc/pki/my_little/my_little_ca_cert.key." Created CA "my_little": "/etc/pki/my_little/my_little_ca_cert.crt."
+#  ls -l /etc/pki/my_little/my_little_ca_cert.key
+-rw-r--r--  1 root  wheel  1704 Aug  4 19:13 /etc/pki/my_little/my_little_ca_cert.key
+# salt-call tls.create_csr my_little CN=www.example.com
+local:
+    Created Private Key: "/etc/pki/my_little/certs/www.example.com.key." Created CSR for "www.example.com": "/etc/pki/my_little/certs/www.example.com.csr."
+# ls -l /etc/pki/my_little/certs/www.example.com.key
+-rw-r--r--  1 root  wheel  1704 Aug  4 19:14 /etc/pki/my_little/certs/www.example.com.key
+```
+
+As you can see the newly created CA key as well as the key belonging to `www.example.com` are world readable. This is even more a problem due to the fact the parent directory (i.e. `/etc/pki/my_little`) is also created world readable which allows any user to navigate to it and obtain a directory listing.
+
+**Expected behavior**
+Sensitive material such as private keys should not be created world readable; see [CWE-732](https://cwe.mitre.org/data/definitions/732.html).
+
+**Screenshots**
+N/A
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+salt:2010 ~ % salt --versions-report
+Salt Version:
+           Salt: 3001
+
+Dependency Versions:
+           cffi: 1.13.2
+       cherrypy: Not Installed
+       dateutil: 2.8.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.2
+        libgit2: Not Installed
+       M2Crypto: 0.36.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 3.9.8
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.8.3 (default, Jul  4 2020, 14:11:38)
+   python-gnupg: Not Installed
+         PyYAML: 5.3.1
+          PyZMQ: 18.0.1
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+
+System Versions:
+           dist: openbsd 6.7
+         locale: utf-8
+        machine: amd64
+        release: 6.7
+         system: OpenBSD
+        version: OpenBSD 6.7
+
+salt:2011 ~ %
+```
+</details>
+
+No difference in versions between the master and minions.
+
+**Additional context**
+It seems there is [code already present](https://github.com/saltstack/salt/blob/master/salt/modules/tls.py#L844) to handle the case of an existing CA key  but this was not extended to apply to all private key material.

@@ -1,0 +1,166 @@
+**Description**
+On salt-minon 3001.1 on Windows, using file.directory with `win_perms_reset`  but not setting `win_deny_perms` results in an exception
+
+**Setup**
+
+```yaml
+C:/Test:
+  file.directory:
+    - makedirs: True
+    - win_perms:
+        "S-1-5-32-544":  # Administrators
+            perms: "full_control"
+        "S-1-1-0":  # Everyone
+            perms:
+             - "traverse_folder"
+             - "list_folder"
+    - win_perms_reset: yes
+```
+
+*Edit*: Corrected state. 
+
+**Steps to Reproduce the behavior**
+
+Applying the above state.
+
+**Expected behavior**
+
+Either no errors or a proper error message that explicetly says setting deny permissions is required.
+
+**Screenshots**
+
+```
+root@...:/srv/salt# salt 'DC*' state.apply win_perms_reset_exception
+[WARNING ] /usr/lib/python3/dist-packages/salt/transport/zeromq.py:42: VisibleDeprecationWarning: zmq.eventloop.minitornado is deprecated in pyzmq 14.0 and will be removed.
+    Install tornado itself to use zmq with the tornado IOLoop.
+
+  import zmq.eventloop.ioloop
+
+DC1TW.test.de:
+----------
+          ID: C:/Test
+    Function: file.directory
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "c:\salt\bin\lib\site-packages\salt-3001.1-py3.7.egg\salt\state.py", line 2154, in call
+                  *cdata["args"], **cdata["kwargs"]
+                File "c:\salt\bin\lib\site-packages\salt-3001.1-py3.7.egg\salt\loader.py", line 2087, in wrapper
+                  return f(*args, **kwargs)
+                File "c:\salt\bin\lib\site-packages\salt-3001.1-py3.7.egg\salt\states\file.py", line 3724, in directory
+                  win_perms_reset=win_perms_reset,
+                File "c:\salt\bin\lib\site-packages\salt-3001.1-py3.7.egg\salt\states\file.py", line 956, in _check_directory_win
+                  if user_name not in win_deny_perms:
+              TypeError: argument of type 'NoneType' is not iterable
+     Started: 15:31:51.056696
+    Duration: 15.625 ms
+     Changes:
+
+Summary for DC1TW.test.de
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:  15.625 ms
+ERROR: Minions returned with non-zero exit code
+```
+
+**Versions Report**
+
+Master: 2019.2.5
+Minion: 3001.1
+
+<details><summary>Master: salt --versions-report</summary>
+
+```
+Salt Version:
+           Salt: 2019.2.5
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.11
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.27.7
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.27.4
+         Python: 3.7.3 (default, Jul 25 2020, 13:03:44)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: 2.0.5
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+
+System Versions:
+           dist: debian 10.5
+         locale: UTF-8
+        machine: x86_64
+        release: 4.19.0-10-amd64
+         system: Linux
+        version: debian 10.5
+```
+</details>
+
+<details><summary>Minion: salt-call test.versions_report</summary>
+
+```
+    Salt Version:
+               Salt: 3001.1
+
+    Dependency Versions:
+               cffi: 1.12.2
+           cherrypy: 17.4.1
+           dateutil: 2.8.0
+          docker-py: Not Installed
+              gitdb: 2.0.5
+          gitpython: 2.1.10
+             Jinja2: 2.10.1
+            libgit2: Not Installed
+           M2Crypto: Not Installed
+               Mako: 1.0.7
+       msgpack-pure: Not Installed
+     msgpack-python: 1.0.0
+       mysql-python: Not Installed
+          pycparser: 2.19
+           pycrypto: Not Installed
+       pycryptodome: 3.9.7
+             pygit2: Not Installed
+             Python: 3.7.4 (tags/v3.7.4:e09359112e, Jul  8 2019, 20:34:20) [MSC v.1916 64 bit (AMD64)]
+       python-gnupg: 0.4.4
+             PyYAML: 5.3.1
+              PyZMQ: 18.0.1
+              smmap: 2.0.5
+            timelib: 0.2.4
+            Tornado: 4.5.3
+                ZMQ: 4.3.1
+
+    System Versions:
+               dist:
+             locale: cp1252
+            machine: AMD64
+            release: 2012ServerR2
+             system: Windows
+            version: 2012ServerR2 6.3.9600 SP0
+```
+</details>
+
+**Additional context**
+
+Salt calculates the changes in permissions if `win_perms_reset` is true at lines 955-973 of file.py: https://github.com/saltstack/salt/blob/master/salt/states/file.py#L955-L973
+
+If `win_perms_reset` is true but `win_deny_perms` is not, the latter is `None`. Thus the `if user_name not in win_deny_perms:` in line 955 fails with the above error.

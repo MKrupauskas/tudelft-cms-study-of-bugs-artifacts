@@ -1,0 +1,159 @@
+```
+root@salt:~# salt-call --version
+salt-call 2015.8.3 (Beryllium)
+root@salt:~# pip install | grep boto
+root@salt:~# pip list | grep boto
+boto (2.38.0)
+botocore (1.3.9)
+```
+
+Tested with a simple setup taken from your documentation:
+
+in state elb.present:
+
+```
+    - alarms_from_pillar: elb_alarm-static-{{ aws_region }}
+    # override UnHealthyHostCount:attributes:threshold
+    #- alarms:
+    #    UnHealthyHostCount:
+    #      attributes:
+    #        threshold: 2.0
+```
+
+in pillar:
+
+```
+elb_alarm-static-eu-central-1:
+  ELB-UnHealthyHostCount:
+    name: 'ELB-static-High-Unhealthy-Hosts'
+    attributes:
+      metric: UnHealthyHostCount
+      namespace: AWS/ELB
+      statistic: Average
+      comparison: '>='
+      threshold: 1.0
+      period: 600
+      evaluation_periods: 6
+      unit: null
+      description: ELB UnHealthyHostCount
+      alarm_actions: ['arn:aws:sns:eu-central-1:123456789012:SysOps-Notification']
+      insufficient_data_actions: []
+      ok_actions: ['arn:aws:sns:eu-central-1:123456789012:SysOps-Notification']
+```
+1. documentation is wong... period:600 generates 10 minute time period which amazon migrates to 60 min. => period: 60   (allowd periods are: 1 min, 5 min, 15min, 60min, 1h, 6h, 1day)
+
+1st run gone luckily through without errors...
+From log it looks mostly ok but where came the state name in front of my name / description?
+
+```
+2015-12-23 16:21:53,660 [salt.state       ][INFO    ][30682] Running state [static-production] at time 16:21:53.660415
+2015-12-23 16:21:53,661 [salt.state       ][INFO    ][30682] Executing state boto_elb.present for static-production
+2015-12-23 16:21:53,970 [salt.utils.lazy  ][DEBUG   ][30682] LazyLoaded boto_route53.get_record
+2015-12-23 16:21:53,971 [salt.utils.lazy  ][DEBUG   ][30682] LazyLoaded boto_route53.present
+2015-12-23 16:21:54,548 [salt.utils.lazy  ][DEBUG   ][30682] LazyLoaded boto_cloudwatch.get_alarm
+2015-12-23 16:21:54,548 [salt.utils.lazy  ][DEBUG   ][30682] LazyLoaded boto_cloudwatch_alarm.present
+2015-12-23 16:21:54,655 [salt.loaded.int.module.boto_cloudwatch][INFO    ][30682] Created/updated alarm static-production ELB-euc1-High-Unhealthy-Hosts
+2015-12-23 16:21:54,656 [salt.state       ][INFO    ][30682] {'static-production ELB-euc1-High-Unhealthy-Hosts': {'new': {'comparison': '>=', 'alarm_actions': ['arn:aws:sns:eu-central-1:123456789012:SysOps-Notification'], 'ok_actions': ['arn:aws:sns:eu-central-1:123456789012:SysOps-Notification'], 'description': 'static-production ELB UnHealthyHostCount', 'evaluation_periods': 2, 'metric': 'UnHealthyHostCount', 'namespace': 'AWS/ELB', 'period': 60, 'insufficient_data_actions': [], 'statistic': 'Average', 'threshold': 1.0, 'unit': None, 'dimensions': {'LoadBalancerName': ['static-production']}}}}
+2015-12-23 16:21:54,656 [salt.state       ][INFO    ][30682] Completed state [static-production] at time 16:21:54.655905
+2015-12-23 16:21:54,657 [salt.utils.lazy  ][DEBUG   ][30682] LazyLoaded cmd.run
+2015-12-23 16:21:54,657 [salt.state       ][INFO    ][30682] Running state [/bin/sleep 2] at time 16:21:54.656782
+2015-12-23 16:21:54,657 [salt.state       ][INFO    ][30682] Executing state cmd.run for /bin/sleep 2
+2015-12-23 16:21:56,665 [salt.state       ][INFO    ][30682] {'pid': 30959, 'retcode': 0, 'stderr': '', 'stdout': ''}
+2015-12-23 16:21:56,666 [salt.state       ][INFO    ][30682] Completed state [/bin/sleep 2] at time 16:21:56.665657
+2015-12-23 16:21:56,666 [salt.state       ][INFO    ][30682] Running state [static-staging] at time 16:21:56.665925
+2015-12-23 16:21:56,666 [salt.state       ][INFO    ][30682] Executing state boto_elb.present for static-staging
+2015-12-23 16:21:57,269 [salt.loaded.int.module.boto_cloudwatch][INFO    ][30682] Created/updated alarm static-staging static-production ELB-euc1-High-Unhealthy-Hosts
+2015-12-23 16:21:57,269 [salt.state       ][INFO    ][30682] {'static-staging static-production ELB-euc1-High-Unhealthy-Hosts': {'new': {'comparison': '>=', 'alarm_actions': ['arn:aws:sns:eu-central-1:123456789012:SysOps-Notification'], 'ok_actions': ['arn:aws:sns:eu-central-1:123456789012:SysOps-Notification'], 'description': 'static-staging static-production ELB UnHealthyHostCount', 'evaluation_periods': 2, 'metric': 'UnHealthyHostCount', 'namespace': 'AWS/ELB', 'period': 60, 'insufficient_data_actions': [], 'statistic': 'Average', 'threshold': 1.0, 'unit': None, 'dimensions': {'LoadBalancerName': ['static-staging']}}}}
+2015-12-23 16:21:57,269 [salt.state       ][INFO    ][30682] Completed state [static-staging] at time 16:21:57.269393
+```
+
+But output shows (as on AWS console) a bigger problem... my 2nd state got the values from 1st state, too:
+
+```
+local:
+----------
+          ID: ELB-static-production-eu-central-1
+    Function: boto_elb.present
+        Name: static-production
+      Result: True
+     Comment: ELB static-production present. security_groups already set on ELB static-production.  Availability zones already set on ELB static-production. Attributes already set on ELB static-production. Health check already set on ELB
+     Started: 16:21:53.660415
+    Duration: 995.49 ms
+     Changes:
+              ----------
+              static-production ELB-euc1-High-Unhealthy-Hosts:
+                  ----------
+                  new:
+                      ----------
+                      alarm_actions:
+                          - arn:aws:sns:eu-central-1:123456789012:SysOps-Notification
+                      comparison:
+                          >=
+                      description:
+                          static-staging static-production ELB UnHealthyHostCount
+                      dimensions:
+                          ----------
+                          LoadBalancerName:
+                              - static-staging
+                      evaluation_periods:
+                          2
+                      insufficient_data_actions:
+                      metric:
+                          UnHealthyHostCount
+                      namespace:
+                          AWS/ELB
+                      ok_actions:
+                          - arn:aws:sns:eu-central-1:123456789012:SysOps-Notification
+                      period:
+                          60
+                      statistic:
+                          Average
+                      threshold:
+                          1.0
+                      unit:
+                          None
+----------
+          ID: ELB-static-staging-eu-central-1
+    Function: boto_elb.present
+        Name: static-staging
+      Result: True
+     Comment: ELB static-staging present. security_groups already set on ELB static-staging.  Availability zones already set on ELB static-staging. Attributes already set on ELB static-staging. Health check already set on ELB static-stag
+     Started: 16:21:56.665925
+    Duration: 603.468 ms
+     Changes:
+              ----------
+              static-staging static-production ELB-euc1-High-Unhealthy-Hosts:
+                  ----------
+                  new:
+                      ----------
+                      alarm_actions:
+                          - arn:aws:sns:eu-central-1:123456789012:SysOps-Notification
+                      comparison:
+                          >=
+                      description:
+                          static-staging static-production ELB UnHealthyHostCount
+                      dimensions:
+                          ----------
+                          LoadBalancerName:
+                              - static-staging
+                      evaluation_periods:
+                          2
+                      insufficient_data_actions:
+                      metric:
+                          UnHealthyHostCount
+                      namespace:
+                          AWS/ELB
+                      ok_actions:
+                          - arn:aws:sns:eu-central-1:123456789012:SysOps-Notification
+                      period:
+                          60
+                      statistic:
+                          Average
+                      threshold:
+                          1.0
+                      unit:
+                          None
+----------
+```
+
+The problem is really shown when we try to use the override (2nd post). ;)

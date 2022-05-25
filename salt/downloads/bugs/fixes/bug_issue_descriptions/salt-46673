@@ -1,0 +1,168 @@
+### Description of Issue/Question
+Cumulus Linux (based on Debian 8.9) seems to fall back to systemv/init scripts for services in salt though it uses systemd and grains show systemd as the init type.  When checking for a service it reports the service is not available if the service is not in /etc/init.d/
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+Using default configuration for the minion (this works just fine in my current environment) and the ntp formula https://github.com/saltstack-formulas/ntp-formula  general ntp state
+
+pillar data
+minion:
+    ----------
+    ntp:
+        ----------
+        lookup:
+            ----------
+            service:
+                ntpd@mgmt
+        servers:
+            - ntp.local.server
+
+grains 
+
+minion:
+    ----------
+    init:
+        systemd
+    ----------
+    systemd:
+        ----------
+        features:
+            +PAM +AUDIT +SELINUX +IMA +SYSVINIT +LIBCRYPTSETUP +GCRYPT +ACL +XZ -SECCOMP -APPARMOR
+        version:
+            215
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+
+sudo salt minion state.apply ntp
+
+output
+
+----------
+          ID: ntp
+    Function: pkg.installed
+      Result: True
+     Comment: All specified packages are already installed
+     Started: 15:00:40.188452
+    Duration: 1318.864 ms
+     Changes:
+----------
+          ID: ntp_conf
+    Function: file.managed
+        Name: /etc/ntp.conf
+      Result: True
+     Comment: File /etc/ntp.conf is in the correct state
+     Started: 15:00:41.515548
+    Duration: 152.252 ms
+     Changes:
+----------
+          ID: ntp_running
+    Function: service.running
+        Name: ntp@mgmt
+      Result: False
+     Comment: The named service ntp@mgmt is not available
+     Started: 15:00:41.670473
+    Duration: 2.384 ms
+     Changes:
+
+sudo salt minion service.restart ntp@mgmt
+
+minion:
+    ERROR: Unable to run command '['/etc/init.d/ntp@mgmt', 'restart']' with the context '{'timeout': None, 'with_communicate': True, 'shell': False, 'bg': False, 'stderr': -2, 'env': {'LC_NUMERIC': 'C', 'NOTIFY_SOCKET': '/run/systemd/notify', 'LC_ADDRESS': 'C', 'LC_MEASUREMENT': 'C', 'LC_CTYPE': 'C', 'LC_PAPER': 'C', 'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'en_US.UTF-8', 'LC_IDENTIFICATION': 'C', 'LC_MESSAGES': 'C', 'SHLVL': '0', 'LC_COLLATE': 'C', 'LC_TELEPHONE': 'C', 'LC_MONETARY': 'C', 'PWD': '/', 'LC_NAME': 'C', 'LC_TIME': 'C'}, 'stdout': -1, 'close_fds': True, 'stdin': None, 'cwd': '/root'}', reason: command not found
+
+this is true because it is a systemd script not an init script
+
+however if I go to the switch the service exists in /etc/systemd/system scripts and if I enter either 
+service ntp@mgmt restart
+or 
+systemctl restart ntp@mgmt.service
+the service is resarted
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+Cumulus linux minion
+Salt Version:
+           Salt: 2017.7.4
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 1.0.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.9
+         locale: UTF-8
+        machine: x86_64
+        release: 4.1.0-cl-6-amd64
+         system: Linux
+        version: debian 8.9
+
+
+Ubuntu 16.04 master
+
+Salt Version:
+           Salt: 2017.7.4
+
+Dependency Versions:
+           cffi: 1.11.0
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: 0.26.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.0
+         Python: 2.7.12 (default, Dec  4 2017, 14:50:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-116-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial

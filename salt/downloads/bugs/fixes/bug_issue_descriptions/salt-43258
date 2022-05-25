@@ -1,0 +1,180 @@
+### Description of Issue/Question
+
+Previously I was using salt-contrib's ec2_info.py custom grains to pull in the AWS instance metadata, which we use a lot in our states.  It was recommended to me now that Nitrogen has been released to start using the metadata_server_grains: True as documented here: https://docs.saltstack.com/en/latest/ref/grains/all/salt.grains.metadata.html#module-salt.grains.metadata
+
+However, now that I am attempting to use it, I am finding a variety of bugs/issues.
+
+First, if the instance you are querying does not have user data, a traceback error occurs and the meta data grains are not populated.
+
+Second, the metadata grain is not being populated with a dictionary of values, but instead it is the URL paths of where the values reside.
+
+### Setup
+```
+------------------------------------------
+# /etc/salt/minion.d/metadata_grains.conf
+------------------------------------------
+metadata_server_grains: True
+```
+### Steps to Reproduce Issue
+On an instance that DOES NOT have user-data:
+
+Run the command:
+```
+salt 'minion1' grains.items
+```
+
+And the metadata grains are not returned.  The logs show the following traceback error:
+```
+[CRITICAL] Failed to load grains defined in grain file metadata.metadata in function <function metadata at 0x1e8c320>, error:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 740, in grains
+    ret = funcs[key]()
+  File "/usr/lib/python2.7/site-packages/salt/grains/metadata.py", line 62, in metadata
+    return _search()
+  File "/usr/lib/python2.7/site-packages/salt/grains/metadata.py", line 57, in _search
+    ret[line] = http.query(os.path.join(HOST, prefix, line))['body']
+KeyError: 'body'
+```
+And the grain "metadata" is not present:
+```
+...
+    mdadm:
+    mem_total:
+        990
+...
+```
+The metadata.py module is checking http://169.254.169.254/latest/ which returns:
+
+dynamic
+user-data
+meta-data
+
+But, if there is no user-data, the query of http://169.254.169.254/latest/user-data fails with a 404 error, so it does not have a "body" in the returned dictionary, and causes a traceback failure.
+
+If the instance contains user-data, the user-data is returned as a dictionary into the user-data grain, allowing the function to proceed, and attempt to pull in the meta-data grain information.
+
+But for meta-data, the grains are not correct.  The metadata.py function is only going one level deep in the http://169.254.169.254/latest/* URL, and is returning the values of the *, so the grain data is:
+```
+    meta-data:
+        ami-id
+        ami-launch-index
+        ami-manifest-path
+        block-device-mapping/
+        hostname
+        instance-action
+        instance-id
+        instance-type
+        local-hostname
+        local-ipv4
+        mac
+        metrics/
+        network/
+        placement/
+        profile
+        public-hostname
+        public-ipv4
+        public-keys/
+        reservation-id
+        security-groups
+        services/
+```
+
+I am not a python expert, but maybe something along the lines of this would work.  Add the following lines to the _search function after the initial if statement, on line 51:
+
+```
+if line == "meta-data":
+            prefix_meta = "latest/meta-data/"
+            for line_meta in http.query(os.path.join(HOST, prefix_meta))['body'].split('\n'):
+                ret[line_meta] = http.query(os.path.join(HOST, prefix_meta, line_meta))['body']
+```
+
+If there is any other information I can provide please let me know, and thank you in advance for taking a look at this!
+
+### Versions Report
+Salt-master:
+```
+Salt Version:
+           Salt: 2017.7.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, May  3 2017, 07:55:04)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: redhat 7.4 Maipo
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.1.1.el7.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 7.4 Maipo
+```
+
+Salt-minion:
+```
+Salt Version:
+           Salt: 2017.7.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, May  3 2017, 07:55:04)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: redhat 7.4 Maipo
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.el7.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 7.4 Maipo
+```

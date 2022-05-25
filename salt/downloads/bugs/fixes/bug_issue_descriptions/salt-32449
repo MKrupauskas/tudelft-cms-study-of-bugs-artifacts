@@ -1,0 +1,43 @@
+I'm running the Xenial kernel (4.4+) on a Ubuntu Precise lxc container, and Salt fails to load the 'virtual' and 'virtual_subtype' grain as LXC.
+
+When I run salt-call grains.get 'virtual', it returns the value as 'physical' and running grains.get  for 'virtual_subtype' returns nothing.  After digging into the how Salt loads its grains, the problem lies with 
+the way the new kernel generates the /proc/1/cgroup file.  
+
+The output of a standard lxc-container /proc/1/cgroup file is similar to this:
+
+```
+11:name=systemd:/lxc/salt1.sv1
+10:perf_event:/lxc/salt1.sv1
+9:memory:/lxc/salt1.sv1
+8:hugetlb:/lxc/salt1.sv1
+7:freezer:/lxc/salt1.sv1
+6:devices:/lxc/salt1.sv1
+5:blkio:/lxc/salt1.sv1
+4:cpuacct:/lxc/salt1.sv1
+3:cpu:/lxc/salt1.sv1
+2:cpuset:/lxc/salt1.sv1
+```
+
+On a Ubuntu Precise box running a 4.4+ kernel, the output changes to this:
+
+```
+13:name=systemd:/
+12:pids:/
+11:perf_event:/
+10:net_prio:/
+9:net_cls:/
+8:hugetlb:/
+7:freezer:/
+6:devices:/
+5:memory:/
+4:blkio:/
+3:cpuacct:/
+2:cpu:/
+1:cpuset:/
+```
+
+Because of this, Salt fails to load the "virtual_subtype" grain as LXC since it tries to search that file for the 'lxc' string.
+
+To fix this, the core.py grains module can be updated to also look inside the /proc/1/environ file to check for the 'container=lxc' string.  It's what latest 'virt-what' script does when its checking for lxc containers.  Unfortunately the latest 'virt-what' package isn't available in Ubuntu Precise.
+
+I'm seeing this error on salt-minion version 2015.8.8.2, and its likely affected other versions as well based on how the cores.py grain checks for LXC containers.

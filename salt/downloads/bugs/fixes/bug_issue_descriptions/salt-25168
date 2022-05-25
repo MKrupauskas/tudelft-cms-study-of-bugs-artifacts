@@ -1,0 +1,194 @@
+Versions:
+
+```
+# salt --versions
+                  Salt: 2015.5.0
+                Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2015.5.0+ds-1trusty1
+```
+
+I set up the [ec2-autoscale reactor](https://github.com/saltstack-formulas/ec2-autoscale-reactor) but modified it to run a script rather than calling salt-cloud. When the reactor is triggered, the script doesn't run, and the debug output from the master reports a warning that says "Exception caught by reactor: cmd_async() takes at least 3 arguments (2 given)"
+
+This is the reactor which results in the warning:
+
+```
+#!py
+
+import pprint
+import os
+import time
+import json
+import requests
+import binascii
+import M2Crypto
+import salt.utils.smtp as smtp
+import salt.config as config
+
+
+def run():
+    '''
+    Run the reactor
+    '''
+    sns = data['post']
+
+    if 'SubscribeURL' in sns:
+        # This is just a subscription notification
+        msg_kwargs = {
+            'smtp.subject': 'EC2 Autoscale Subscription (via Salt Reactor)',
+            'smtp.content': '{0}\r\n'.format(pprint.pformat(sns)),
+        }
+        smtp.send(msg_kwargs, __opts__)
+        return {}
+
+    url_check = sns['SigningCertURL'].replace('https://', '')
+    url_comps = url_check.split('/')
+    if not url_comps[0].endswith('.amazonaws.com'):
+        # The expected URL does not seem to come from Amazon, do not try to
+        # process it
+        msg_kwargs = {
+            'smtp.subject': 'EC2 Autoscale SigningCertURL Error (via Salt Reactor)',
+            'smtp.content': (
+                'There was an error with the EC2 SigningCertURL. '
+                '\r\n{1} \r\n{2} \r\n'
+                'Content received was:\r\n\r\n{0}\r\n').format(
+                    pprint.pformat(sns), url_check, url_comps[0]
+                ),
+        }
+        smtp.send(msg_kwargs, __opts__)
+        return {}
+
+    if not 'Subject' in sns:
+        sns['Subject'] = ''
+
+    pem_request = requests.request('GET', sns['SigningCertURL'])
+    pem = pem_request.text
+
+    str_to_sign = (
+        'Message\n{Message}\n'
+        'MessageId\n{MessageId}\n'
+        'Subject\n{Subject}\n'
+        'Timestamp\n{Timestamp}\n'
+        'TopicArn\n{TopicArn}\n'
+        'Type\n{Type}\n'
+    ).format(**sns)
+
+    cert = M2Crypto.X509.load_cert_string(str(pem))
+    pubkey = cert.get_pubkey()
+    pubkey.reset_context(md='sha1')
+    pubkey.verify_init()
+    pubkey.verify_update(str_to_sign.encode())
+
+    decoded = binascii.a2b_base64(sns['Signature'])
+    result = pubkey.verify_final(decoded)
+
+    if result != 1:
+        msg_kwargs = {
+            'smtp.subject': 'EC2 Autoscale Signature Error (via Salt Reactor)',
+            'smtp.content': (
+                'There was an error with the EC2 Signature. '
+                'Content received was:\r\n\r\n{0}\r\n').format(
+                    pprint.pformat(sns)
+                ),
+        }
+        smtp.send(msg_kwargs, __opts__)
+        return {}
+
+    message = json.loads(sns['Message'])
+    instance_id = str(message['EC2InstanceId'])
+    instance_code = instance_id[2:]
+
+    if 'launch' in sns['Subject']:
+        # This section has been modified
+        # Instead of running salt-cloud, it will run a script to
+        #  configure the minion, and then accept the key
+        ret = {
+            'ec2_autoscale_minion_config': {
+                'cmd.run': [
+                    {'name': '/root/minion-setup ' + instance_id}
+                ]
+            },
+            'ec2_autoscale_accept_key': {
+                'wheel.key.accept': [
+                    {'match': '*' + instance_code},
+                ]
+            }
+        }
+    elif 'termination' in sns['Subject']:
+        ret = {
+            'ec2_autoscale_termination': {
+                'wheel.key.delete': [
+                    {'match': '*' + instance_code},
+                ]
+            }
+        }
+
+    return ret
+
+```
+
+I created a state with the python renderer which calls the same script, and I was able to run it successfully. Here is the state file:
+
+```
+#!py
+
+import pprint
+import os
+import time
+import json
+import requests
+import binascii
+import M2Crypto
+import salt.utils.smtp as smtp
+import salt.config as config
+
+
+def run():
+    instance_id = 'i-ed7aa63e'
+    instance_code = instance_id[2:]
+    ret = {
+        'ec2_autoscale_minion_config': {
+            'cmd.run': [
+                {'name': '/root/minion-setup ' + instance_id},
+                {'cwd': '/root'}
+            ]
+        }
+    }
+    return ret
+```
+
+For reference, this is the debug output from the salt-master when the reactor is triggered:
+
+```
+[DEBUG   ] Gathering reactors for tag salt/netapi/hook/ec2/autoscale
+[DEBUG   ] Compiling reactions for tag salt/netapi/hook/ec2/autoscale
+[INFO    ] Starting new HTTPS connection (1): sns.us-east-1.amazonaws.com
+[DEBUG   ] Setting read timeout to None
+[DEBUG   ] "GET /SimpleNotificationService-d6d679a1d18e95c2f9ffcf11f4f9e198.pem HTTP/1.1" 200 1826
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/bloom.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/bloom.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/log.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/log.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/reactor.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/reactor.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/saltapi.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/saltapi.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: salt-master-8921c95a
+[DEBUG   ] Missing configuration file: ~/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'_stamp': '2015-06-26T19:55:45.653376'}
+[WARNING ] Exception caught by reactor: cmd_async() takes at least 3 arguments (2 given)
+```

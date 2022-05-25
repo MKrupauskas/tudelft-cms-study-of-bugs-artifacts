@@ -1,0 +1,44 @@
+**Description**
+ If a name for configured Salt master cannot be resolved in DNS it silently falls back to 127.0.0.1. It might be Ok for some cases but definitely isn’t Ok of our case when we use ‘master_type=failover’.
+
+With this (see below) configuration we would expect that if minion cannot resolve `master1` it would try `master2` and then `master3`, instead it resolves `master1` to `127.0.0.1` and tries to connect there. After some timeout it proceeds to the next one and follows the same procedure, tries to resolve, if this DNS resolution fails tries 127.0.0.1 and so on. That creates following issues for use:
+
+* Unnecessary delays on minion start and salt-call operations when their primary master is down
+* On hosts that run both minion and masters that leads into undesired communication between local minion and local master. That local master not always trusts local minion and in such cases local minion fails completely it its primary master is unresolvable.
+
+The problem resides in [resolve_dns](https://github.com/saltstack/salt/blob/b95213ec903402f25c1e0aeb3990fe8452ab63ce/salt/minion.py#L128) function in [minion.py](https://github.com/saltstack/salt/blob/b95213ec903402f25c1e0aeb3990fe8452ab63ce/salt/minion.py#L128) module. It has a second parameter “fallback=True” that controls fallback to 127.0.0.0 for address that cannot be resolved. Then when minion code loops though the list of given masters it calls that function without second parameter and builds master_uri as tcp://127.0.0.1:4506 for master that cannot be resolved. 
+
+Instead it should skip such master all together and raise an exception if no master can be reached. Or that “fallback” feature has to be configurable through minion configuration file.
+
+**Setup**
+Add the following configuration to your minion configuration:
+
+```
+# master failover configuration
+master:
+- master1
+- master2
+- master3
+master_failback: False
+random_master: False
+master_shuffle: False
+master_type: failover
+master_alive_interval: 600
+# mater_type failover wants retry_dns 0
+retry_dns: 0
+```
+
+**Expected behavior**
+Masters should be attempted in order specified in minion configuration.
+
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+2018.3.2, 3000.2
+```
+</details>
+
+

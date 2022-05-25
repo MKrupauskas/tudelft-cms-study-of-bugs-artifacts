@@ -1,0 +1,143 @@
+Given the following two orchestration states to initiate 'highstate':
+
+```
+##using salt.function
+install_primary_minions:
+  salt.function:
+    - name: state.highstate
+    - tgt: 'dbarmor-acc01*'
+```
+
+```
+##using salt.state
+install_primary_minions:
+  salt.state:
+    - highstate: True
+    - tgt: 'dbarmor-acc01*'
+```
+
+The first example above works just like the command-line.  **The second throws the following error:**
+
+```
+[ERROR   ] Run failed on minions: dbarmor-acc01
+Failures:
+    dbarmor-acc01:
+        Data failed to compile:
+    ----------
+        No matching sls found for 'dbarmor' in env 'acc'
+```
+
+It doesn't appear that 'salt.state:  - highstate: True' is evaluating top.sls and/or environments properly.  The states in /srv/salt/base/\* are 'templates' that reference pillar data.  top.sls has a single 'base' environment section where minions are assigned roles using minion name.  States are assigned to minions based on the roles.  Each environment has minions that use the same roles.
+# /srv/salt/base/top.sls:
+
+```
+base:
+#ROLE Assignments:
+  'E@go-agent\..+':
+    - go.role_go_agent
+  'E@dbarmor-(dev|acc).+':
+    - dbarmor.role_processor
+  'E@dbarmor-(dev|acc)0[1-2]\..+':
+    - dbarmor.role_web
+  'E@dbarmor-(dev|acc)01\..+':
+    - dbarmor.role_primary_rabbit
+  'E@dbarmor-(dev|acc)(?!01).+':
+    - dbarmor.role_secondary_rabbit
+#STATE Assignments based on ROLE:
+  'G@role:dbarmor_processor':
+    - dbarmor.dbarmor-processor
+  'G@role:dbarmor_web':
+    - dbarmor.dbarmor-web
+  'G@role:dbarmor_primary_rabbit':
+    - dbarmor.dbarmor-rabbitmq
+  'G@role:dbarmor_secondary_rabbit':
+    - dbarmor.dbarmor-rabbitmq
+```
+
+Pillar top.sls is where minions are assigned environment environment-specific values that are used in the template state files.  
+# /srv/pillar/base/top.sls:
+
+```
+dev:
+  'rjv-test02*':
+    - dbarmor
+acc:
+  'dbarmor-acc*':
+    - dbarmor
+```
+# FILE LAYOUT
+
+```
+/srv
+ pillar
+    acc
+       dbarmor
+          globals.yml
+          init.sls
+          processor_jar.sls
+          rabbitmq_pillar.sls
+          war_file.sls
+       updater
+    base
+       dbrisklevelutils
+          init.sls
+       ratingtool
+          props.sls
+          war_file.sls
+       salt-formula
+       top.sls
+    dev
+        dbarmor
+           init.sls
+           processor_jar.sls
+           rabbitmq_pillar.sls
+           war_file.sls
+        dbrisklevelutils
+            init.sls
+ salt
+     base
+         dbarmor
+            catalina.properties
+            dbarmor-processor.conf
+            dbarmor-processor.properties
+            dbarmorProcessor.sh
+            dbarmor-processor.sls
+            dbarmor-rabbitmq.sls
+            dbarmor-web.properties
+            dbarmor-web.sls
+            erlang.cookie
+            role_primary_rabbit.sls
+            role_processor.sls
+            role_secondary_rabbit.sls
+            role_web.sls
+         openssh
+            init.sls
+            openssh-server.sls
+            ssh_config
+            sshd_config
+         oracle-java
+            oracle-java7.sls
+            oracle-java8.sls
+         orchestration
+            dbarmor
+                dbarmor.sls
+                out.txt
+         ratingtool
+            deploy_webapp.sls
+            ratingtool.properties
+         salt
+            minion
+         _states
+         test
+            shared_state_test.sls
+            test.txt
+         tomcat
+            tomcat7.sls
+            tomcat-users-template.xml
+         **top.sls**
+         ubuntu
+             default-users.sls
+             init.sls
+             open-vm-tools.sls
+             salt-minion.sls
+```

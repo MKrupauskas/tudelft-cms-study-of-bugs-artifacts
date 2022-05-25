@@ -1,0 +1,74 @@
+We were attempting to configure mine using BOTH minion config and pliiar config. We found that the pillar config was ignored.
+
+from modules/mine.py
+
+```
+def update(clear=False):
+    '''
+    Execute the configured functions and send the data back up to the master
+    The functions to be executed are merged from the master config, pillar and
+    minion config under the option "function_cache":
+
+    .. code-block:: yaml
+
+        mine_functions:
+          network.ip_addrs:
+            - eth0
+          disk.usage: []
+
+    The function cache will be populated with information from executing these
+    functions
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' mine.update
+    '''
+    m_data = __salt__['config.option']('mine_functions', {})
+
+```
+
+Note that the doc claims "merged". But config.option does NOT merge:
+
+```
+def option(
+        value,
+        default='',
+        omit_opts=False,
+        omit_master=False,
+        omit_pillar=False):
+    '''
+    Pass in a generic option and receive the value that will be assigned
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' config.option redis.host
+    '''
+    if not omit_opts:
+        if value in __opts__:
+            return __opts__[value]
+    if not omit_master:
+        if value in __pillar__.get('master', {}):
+            return __pillar__['master'][value]
+    if not omit_pillar:
+        if value in __pillar__:
+            return __pillar__[value]
+    if value in DEFAULTS:
+        return DEFAULTS[value]
+    return default
+```
+
+I believe the fix may be to go from
+
+```
+m_data = __salt__['config.option']('mine_functions', {})
+```
+
+to
+
+```
+m_data = __salt__['config.merge']('mine_functions', {})
+```

@@ -1,0 +1,133 @@
+[Please see also [#34975](https://github.com/saltstack/salt/issues/34975). You'll need to set `top_file_merging_strategy: same` on the master to see this effect, as this option currently has no effect on a minion.]
+
+The docs for `top_file_merging_strategy` say "...When set to `same`, then for each environment, only that environment's top file is processed, with the others being ignored. For example, only the `dev` environment's top file will be processed for the `dev` environment, and any SLS targets defined for `dev` in the `base` environment's (or any other environment's) top file will be ignored. If an environment does not have a top file, then the top file from the `default_top` config parameter will be used as a fallback."
+
+That doesn't appear to be true; the `default_top` is applied in _all_ cases when the minion doesn't specify an `environment` of its own, regardless of whether a corresponding top file exists on the master.
+
+See the following code within `__get_tops()` in `salt/state.py`:
+
+```
+        if self.opts['top_file_merging_strategy'] == 'same' and \
+        not self.opts['environment']:
+            if not self.opts['default_top']:
+                raise SaltRenderError('Top file merge strategy set to same, but no default_top '
+                          'configuration option was set')
+            self.opts['environment'] = self.opts['default_top']
+```
+
+The effect is that under `top_file_merging_strategy: same`, a minion always has a pinned `environment`. The effects of specifying an environment are more restrictive than  just those documented for `top_file_merging_strategy: same`. Only the pinned environment's top file will be read, and only the section matching the environment will be seen by the minion.
+
+I'm not sure whether the issue is with the documentation or with the code, but as it stands now, there does not seem to be any difference between `top_file_merging_strategy: same` and `environment: base`. The code and documentation for `top_file_merging_strategy` and `default_top` could simply be dropped without loss of generality.
+
+As an example, consider the following set of environment trees:
+
+```
+$ tree
+.
+ base
+    pillar
+    salt
+        basebase.sls
+        devbase.sls
+        prodbase.sls
+        top.sls
+ dev
+    pillar
+    salt
+        basedev.sls
+        devdev.sls
+        proddev.sls
+        top.sls
+ prod
+     pillar
+     salt
+         baseprod.sls
+         devprod.sls
+         prodprod.sls
+         top.sls
+```
+
+Each state file is named after the referencing environment + the referenced environment. For example, `dev/salt/proddev.sls` is a state mentioned only in the `dev` section of `prod/salt/top.sls`.
+
+`base/salt/top.sls` contains:
+
+```
+base:
+  '*':
+    - basebase
+development:
+  '*':
+    - basedev
+production:
+  '*':
+    - baseprod
+```
+
+I used slightly different matching patterns in each top file so they wouldn't collide, but otherwise the general layout is the same for all of them.
+
+With this configuration and the client set to `top_file_merging_strategy: same`, I would expect the following highstate:
+
+```
+$ sudo salt '*' state.show_top
+hoecackle:
+    ----------
+    base:
+        - basebase
+    development:
+        - devdev
+    production:
+        - prodprod
+```
+
+The _actual_ highstate is:
+
+```
+$ sudo salt '*' state.show_top
+Password:
+hoecackle:
+    ----------
+    base:
+        - basebase
+```
+
+$ sudo salt '*' test.versions_report
+hoecackle:
+    Salt Version:
+               Salt: 2016.3.1-147-gf23e8c5
+
+```
+    Dependency Versions:
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: 2.5.0
+              gitdb: Not Installed
+          gitpython: Not Installed
+              ioflo: Not Installed
+             Jinja2: 2.8
+            libgit2: Not Installed
+            libnacl: Not Installed
+           M2Crypto: Not Installed
+               Mako: Not Installed
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.7
+       mysql-python: Not Installed
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+             pygit2: Not Installed
+             Python: 2.7.12 (default, Jul  5 2016, 01:21:33)
+       python-gnupg: Not Installed
+             PyYAML: 3.11
+              PyZMQ: 15.2.0
+               RAET: Not Installed
+              smmap: Not Installed
+            timelib: Not Installed
+            Tornado: 4.3
+                ZMQ: 4.1.4
+
+    System Versions:
+               dist:   
+            machine: amd64
+            release: 10.2-RELEASE-p18
+             system: FreeBSD
+            version: Not Installed
+```

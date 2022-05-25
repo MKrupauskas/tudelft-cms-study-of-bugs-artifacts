@@ -1,0 +1,63 @@
+Sometimes I'll get **Error: There was a profile error: Failed to authenticate against remote windows host** errors:
+
+<pre>
+    root@ip-172-31-42-67:/srv/salt# salt-cloud -p win2008-splunk-indexer cchung-win-idx                                                                                                                          
+    [INFO    ] salt-cloud starting
+    [INFO    ] Creating Cloud VM cchung-win-idx in us-east-1
+    [INFO    ] Attempting to look up root device name for image id ami-3e168356 on VM cchung-win-idx
+    [INFO    ] Found root device name: /dev/sda1
+    [INFO    ] Created node cchung-win-idx
+    [INFO    ] Salt node data. Private_ip: 172.31.45.15
+    [INFO    ] Running command under pid 14257: 'winexe -U Administrator%pass //172.31.45.15 "hostname"'
+    Error: There was a profile error: Failed to authenticate against remote windows host
+</pre>
+
+It's raised by **wait_for_instance**  (https://github.com/saltstack/salt/blob/2014.7/salt/cloud/clouds/ec2.py#L1789), and because there is no retry mechanism in **validate_windows_cred** (https://github.com/saltstack/salt/blob/2014.7/salt/utils/cloud.py#L689).
+
+so there will be couple seconds (longer for the smaller machine) that the windows machine is ready, but the windows service isnt ready for accepting connections yet (1 & 0 are return codes from winexe command.):
+
+<pre>
+    ERROR: Failed to open connection - NT_STATUS_CONNECTION_REFUSED
+    1
+    ERROR: Failed to open connection - NT_STATUS_CONNECTION_REFUSED
+    1
+    ERROR: Failed to open connection - NT_STATUS_CONNECTION_REFUSED
+    1
+    ERROR: Failed to open connection - NT_STATUS_CONNECTION_RESET
+    1
+    WIN-97SVH1E1AAJ
+    0
+    WIN-97SVH1E1AAJ
+    0
+</pre>
+
+This causes the **validate_windows_cred** to return false, then the exception is raised. 
+Simply add the retry to **validate_windows_cred**  will resolve this issue:
+
+<pre><code>
+def validate_windows_cred(host, username='Administrator', password=None, retries=10):
+    '''    Check if the windows credentials are valid    '''
+    for i in xrange(retries):
+        retcode = win_cmd('winexe -U {0}%{1} //{2} "hostname"'.format(
+            username, password, host
+        ))
+        if retcode == 0: break
+        time.sleep(1)
+    return retcode == 0
+</code></pre>
+
+outputs (note there are two lines of winexe commands):
+<pre>
+    root@ip-172-31-42-67:/srv/salt# salt-cloud -p win2008-splunk-indexer cchung-win-idx                                                                                              
+    [INFO    ] salt-cloud starting[INFO    ] Creating Cloud VM cchung-win-idx in us-east-1
+    [INFO    ] Attempting to look up root device name for image id ami-3e168356 on VM cchung-win-idx
+    [INFO    ] Found root device name: /dev/sda1
+    [INFO    ] Created node cchung-win-idx
+    [INFO    ] Salt node data. Private_ip: 172.31.32.233
+    [INFO    ] Running command under pid 21253: 'winexe -U Administrator%pass //172.31.32.233 "hostname"'
+    [INFO    ] Running command under pid 21446: 'winexe -U Administrator%pass //172.31.32.233 "hostname"'
+    WIN-97SVH1E1AAJ
+</pre>
+
+
+Can someone help us to resolve this? It happens sometimes, but it causes our provisioning process unstable. I'll love to do a pull request if everyone is busy, thanks!

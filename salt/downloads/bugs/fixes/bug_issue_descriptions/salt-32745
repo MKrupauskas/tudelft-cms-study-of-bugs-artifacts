@@ -1,0 +1,48 @@
+### Description of Issue/Question
+
+The state group.present fails when it shall add a user to a group and the user specified in the state already exists in the group but contains a mix of lower- and uppercase characters.
+
+(On windows, usernames are case-insensitive)
+### Setup
+
+User with username **DOMAIN\admin** already exists on a computer.
+
+The following state-file are applied by salt:
+
+``` yaml
+important_group:
+  group.present:
+    - name: important_group
+    - addusers:
+      - domain\admin
+```
+
+group.present calls the method _changes to see if there are any changes that needs to be changed in order to fulfill the state.
+
+To find out if it needs to add any users to the group, it first calls:
+
+``` py
+lgrp = __salt__['group.info'](name)  # win_groupadd.info(name)
+```
+
+This method returns a list containing users that belongs to the group. After that it does the following: 
+
+``` py
+if addusers:
+        users_2add = [user for user in addusers if user not in lgrp['members']]
+        if users_2add:
+            change['addusers'] = users_2add
+```
+
+This function considers DOMAIN\admin to not equal domain\admin. This means that it will return a list to group.present that contains the user 'domain\admin'.
+
+user.present therefore tries to add the user:
+
+``` py
+ __salt__['group.adduser'](name, user) # win_groupadd.info(name)
+```
+
+The problem is that this function is case-sensitive, which is correct, and therefore returns that the user already exists, which in turn returns that the state failed, even though the _user is present in the group_.
+### Versions Report
+
+2015.8.5

@@ -1,0 +1,50 @@
+### Description of Issue
+
+The Jinja renderer accepts only a single arg using the `argline` method: `-s`. This argline is designed to allow the renderer to be able to convey to `salt.utils.templates` that the source of the data being rendered is a string rather than a file-like object. The problem here is that while the jinja renderer inspects the argline, it does not relay the result of that inspection when rendering. The result of this is that the argline is ignored.
+
+The reason an issue like this has been able to go unnoticed thus far is because there are very few use cases for it. Jinja is almost always at the _beginning_ of the render pipe, so it's nearly always receiving its input from a StringIO object. However, when one GPG-encrypts an SLS file and uses the GPG renderer to decrypt prior to rendering the jinja, rendering fails because the jinja renderer is expecting a StringIO or other file-like object.
+
+### Steps to Reproduce Issue
+
+**NOTE: I have a fix for this issue already and will be opening an accompanying PR once I have a testcase written. (EDIT: #55126)**
+
+1. Set up GPG renderer
+2. Create an SLS file with Jinja blocks in it
+3. Encrypt that file using the key set up for the GPG renderer
+4. Make sure to add a render pipeline of `#!gpg|jinja -s|yaml` at the beginning of the encrypted copy
+5. Attempt to run that SLS file.
+
+**OR**
+
+From the root of a git checkout of salt, use the Docker image I've prepared, like so:
+
+```bash
+docker run --rm -it -v $PWD:/testing terminalmage/issues:55124 salt-call state.apply encrypted
+```
+
+### Expected Behavior
+
+The SLS file executes and all is right with the world.
+
+### Actual Behavior:
+
+```
+local:
+    Data failed to compile:
+----------
+    Rendering SLS encrypted failed, render error: [Errno 20] Not a directory: u'/var/cache/salt/minion/files/base/encrypted.sls/#!gpg|jinja -s|yaml\n{#\n\n   To update the encrypted copy, run the following one-liner:\n\n   echo \'#!gpg|jinja -s|yaml\' >/srv/salt/encrypted.sls; cat /srv/salt/unencrypted.sls | gpg --homedir /etc/salt/gpgkeys --armor --batch --trust-model always --encrypt -r "GPG Renderer" >>/srv/salt/encrypted.sls\n\n#}\n\nDisplay current date:\n  cmd.run:\n    - name: echo {{ salt.cmd.run(\'date\') }}'
+Traceback (most recent call last):
+  File "/testing/salt/state.py", line 3481, in render_state
+    rendered_sls=mods
+  File "/testing/salt/template.py", line 101, in compile_template
+    ret = render(input_data, saltenv, sls, **render_kwargs)
+  File "/testing/salt/renderers/jinja.py", line 70, in render
+    **kws)
+  File "/testing/salt/utils/templates.py", line 164, in render_tmpl
+    raise exc
+IOError: [Errno 20] Not a directory: u'/var/cache/salt/minion/files/base/encrypted.sls/#!gpg|jinja -s|yaml\n{#\n\n   To update the encrypted copy, run the following one-liner:\n\n   echo \'#!gpg|jinja -s|yaml\' >/srv/salt/encrypted.sls; cat /srv/salt/unencrypted.sls | gpg --homedir /etc/salt/gpgkeys --armor --batch --trust-model always --encrypt -r "GPG Renderer" >>/srv/salt/encrypted.sls\n\n#}\n\nDisplay current date:\n  cmd.run:\n    - name: echo {{ salt.cmd.run(\'date\') }}'
+```
+
+### Versions Report
+
+This affects all salt versions I've tested and has likely been hiding under-the-radar for years.

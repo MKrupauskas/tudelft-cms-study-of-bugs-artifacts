@@ -1,0 +1,68 @@
+Because of this guy:
+https://github.com/saltstack/salt/issues/8078
+
+I'm running on the development branch right now, using a custom build package here:
+
+```
+deployment@linuxslave01:~/salt$ git show
+commit b821f6a174e67a3e1def1ba7fa16885cd985bb0c
+Merge: b4abfc3 9291c36
+Author: Thomas S Hatch <thatch45@gmail.com>
+```
+
+on salt master in base/states/top.sls
+
+```
+prod:
+  'G@env:prod and G@roles:pgpool':
+      - match : compound
+      - prodpgpool
+```
+
+Minion's salt/minion file:
+
+```
+master: saltmaster01.ourdomain.com
+grains:
+  roles:
+    - pgpool
+  app:
+    - someapp1
+  env:
+    - prod
+mine_functions:
+  network.interfaces: []
+  test.ping: []
+  grains.item:
+    - app
+    - roles
+    - env
+    - fqdn
+```
+
+on salt master in init.sls for prodpgpool:
+
+```
+/etc/pgpool2/pgpool.conf:
+  file.managed:
+    - source: salt://prodpgpool/pgpool.conf.jinja
+    - template: jinja
+    - user: postgres
+    - group: www-data
+    - mode: 664
+    - require:
+      - pkg: pgpool2-pkgs
+    - defaults:
+{% if 'app' in grains and 'someapp1' in grains['app'] %}
+      pg_md5: {{ pillar['prod.someapp1.pg.md5'] }}
+{% elif 'app' in grains and 'someapp2' in grains['app'] %}
+      pg_md5: {{ pillar['prod.someapp2.pg.md5'] }}
+{% endif %}
+```
+
+/var/log/salt/minion:
+
+```
+2013-10-31 15:36:40,949 [salt.loaded.int.module.cp][ERROR   ] Unable to cache file "salt://prodpgpool/pgpool.conf.jinja" from env "base".
+2013-10-31 15:36:40,950 [salt.state       ][ERROR   ] Source file salt://prodpgpool/pgpool.conf.jinja not found
+```

@@ -1,0 +1,149 @@
+### Description of Issue
+
+While running Salt we noticed master becoming "broken" after some period of time - it starts failing on every single operation. While looking into this issue we noticed that at some point Salt master processes log an error like:
+
+```
+Exception trying to compile reactions: 'bool' object has no attribute 'rfind'
+Traceback (most recent call last):
+  File "/opt/salt/lib/python2.7/site-packages/salt/utils/reactor.py", line 180, in reactions
+    high.update(self.render_reaction(fn_, tag, data))
+  File "/opt/salt/lib/python2.7/site-packages/salt/utils/reactor.py", line 63, in render_reaction
+    for fn_ in glob.glob(glob_ref):
+  File "/opt/python-2.7env/lib/python2.7/glob.py", line 27, in glob
+    return list(iglob(pathname))
+  File "/opt/python-2.7env/lib/python2.7/glob.py", line 38, in iglob
+    dirname, basename = os.path.split(pathname)
+  File "/opt/salt/lib/python2.7/posixpath.py", line 85, in split
+    i = p.rfind('/') + 1
+AttributeError: 'bool' object has no attribute 'rfind'
+```
+
+or
+
+```
+Rendering exception occurred: Jinja error: service/generic/macros/fleet.jinja
+Traceback (most recent call last):
+  File "/opt/salt/lib/python2.7/site-packages/salt/utils/templates.py", line 366, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+      File "/opt/salt/lib/python2.7/site-packages/jinja2/environment.py", line 989, in render
+        return self.environment.handle_exception(exc_info, True)
+      File "/opt/salt/lib/python2.7/site-packages/jinja2/environment.py", line 754, in handle_exception
+        reraise(exc_type, exc_value, tb)
+      File "<template>", line 1, in top-level template code
+      File "/opt/salt/lib/python2.7/site-packages/salt/utils/jinja.py", line 144, in get_source
+        raise TemplateNotFound(template)
+        TemplateNotFound: service/generic/macros/fleet.jinja
+
+    ; line 1
+
+    ---
+    {%- from 'service/generic/macros/fleet.jinja' import fleet_path %}    <======================
+
+    [...]
+    ---
+Failed to render "/var/cache/salt/master/files/base/service/generic/reactor/scale.sls": 
+Traceback (most recent call last):
+  File "/opt/salt/lib/python2.7/site-packages/salt/utils/reactor.py", line 68, in render_reaction
+    data=data)
+  File "/opt/salt/lib/python2.7/site-packages/salt/state.py", line 304, in render_template
+    template, self.rend, self.opts['renderer'], **kwargs)
+  File "/opt/salt/lib/python2.7/site-packages/salt/template.py", line 95, in compile_template
+    ret = render(input_data, saltenv, sls, **render_kwargs)
+  File "/opt/salt/lib/python2.7/site-packages/salt/renderers/jinja.py", line 69, in render
+    **kws)
+  File "/opt/salt/lib/python2.7/site-packages/salt/utils/templates.py", line 178, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/opt/salt/lib/python2.7/site-packages/salt/utils/templates.py", line 413, in render_jinja_tmpl
+    trace=tracestr)
+    SaltRenderError: Jinja error: service/generic/macros/fleet.jinja
+Traceback (most recent call last):
+  File "/opt/salt/lib/python2.7/site-packages/salt/utils/templates.py", line 366, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/opt/salt/lib/python2.7/site-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/opt/salt/lib/python2.7/site-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 1, in top-level template code
+  File "/opt/salt/lib/python2.7/site-packages/salt/utils/jinja.py", line 144, in get_source
+    raise TemplateNotFound(template)
+    TemplateNotFound: service/generic/macros/fleet.jinja
+
+; line 1
+
+---
+{%- from 'service/generic/macros/fleet.jinja' import fleet_path %}    <======================
+
+
+[...]
+
+---
+```
+
+It looks like that after some event the process becomes "broken" and once it's broken it cannot render any template and fails with similar error each time.
+
+After some debugging we noticed that those failures occur when `salt.utils.jinja.SaltCacheLoader` is given such `opts` that `opts['file_roots'] == opts['pillar_roots']` while it's sued to render a Jinja formula rather than pillar (we using only external pillars - no file system pillars at all).
+
+That's all we sure about. From here - only guesses.
+Our theory is that at some point some kind of failure occurs while reactor executes compiled reactions (every now and then we see `tcp stream to 192.168.2.15:4506 closed, unable to recv` in minion logs - maybe that's the reason for those failures?) and since then master becomes "broken". Maybe there are some modules that patch `file_roots` and do not restore the correct value in case of failure?... But that's only a guess.
+### Setup
+
+Master config:
+
+```
+transport: tcp
+
+worker_threads: 30
+timeout: 120
+
+file_roots:
+  base:
+    - /etc/salt/files/sys
+    - /etc/salt/files/v2
+```
+### Steps to Reproduce Issue
+
+Out "sure" way to reproduce the issue is to restart many minions at once - once they're connected to master it uses reactor to enforce some states on them.
+### Versions Report
+
+We witnessed the issue on all `2016.3.*` versions.
+
+```
+$ ./salt-master --versions-report
+Salt Version:
+           Salt: 2016.3.0
+
+Dependency Versions:
+           cffi: 1.7.0
+       cherrypy: 5.4.0
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.11 (default, Apr  5 2016, 13:41:50)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.2
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.28.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```

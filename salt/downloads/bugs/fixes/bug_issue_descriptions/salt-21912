@@ -1,0 +1,54 @@
+I have an RPM installed with with version 0.2 (foo-0.2-001.noarch). Now I have a new version available in my local customrepo but state.highstate using pkg.latest refuses to update the package.
+
+``` bash
+#  yum list foo
+Installed Packages
+foo.noarch                                                       0.2-001                                                            @customrepo
+Available Packages
+foo.noarch                                                       0.2.0.1-002                                                        customrepo
+```
+
+Yum install also identifies this as an update.
+
+``` bash
+# yum install foo
+.....
+
+==================================================================================================================================================
+Updating:
+ foo                          noarch                          0.2.0.1-002                            customrepo                          1.1 M
+
+However, Salt pkg.latest says package is already up to date even though yum check-update shows an update is available.
+
+2015-03-22 21:20:14,509 [salt.state                                          ][INFO    ] Executing state pkg.latest for foo
+2015-03-22 21:20:14,510 [salt.loaded.int.module.cmdmod                       ][INFO    ] Executing command 'yum -q clean expire-cache' in directory '/root'
+2015-03-22 21:20:14,687 [salt.loaded.int.module.cmdmod                       ][DEBUG   ] output:
+2015-03-22 21:20:14,688 [salt.loaded.int.module.cmdmod                       ][INFO    ] Executing command 'yum -q check-update ' in directory '/root'
+2015-03-22 21:20:16,739 [salt.loaded.int.module.cmdmod                       ][DEBUG   ] output:
+foo.noarch                       0.2.0.1-002                       customrepo
+2015-03-22 21:20:16,741 [salt.loaded.int.module.cmdmod                       ][INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}'   --pkgnarrow=available foo" in directory '/root'
+2015-03-22 21:20:17,222 [salt.state                                          ][INFO    ] Package foo is already up-to-date.
+```
+
+Walking through the code in salt/states/pkg.py I think the problem is in salt.utils.compare_versions  which calls version_cmp which uses distutils.version.LooseVersion:
+
+```
+>>> import distutils.version
+>>> v1="0.2-001"
+>>> v2="0.2.1-003"
+>>> distutils.version.LooseVersion(v1) < distutils.version.LooseVersion(v2)
+False
+```
+
+Obviously, yum thinks the package is an upgrade but this comparison fails so Salt does not run **salt**['pkg.install'].
+
+I think you need a different version_cmp for yumpkg.py (analogous to aptpkg.py:version_cmp) - something like the following to leverage the rpmUtils's built in compare function instead of using distutils - which is not RPM version / release semantics aware:
+
+``` python
+import rpmUtils.miscutils
+
+def version_cmp(pkg1, pkg2):
+    evr1 = rpmUtils.miscutils.stringToVersion(pkg1)
+    evr2 = rpmUtils.miscutils.stringToVersion(pkg2)
+    return rpmUtils.miscutils.compareEVR(evr1, evr2)
+```

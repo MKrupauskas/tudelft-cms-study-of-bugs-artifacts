@@ -1,0 +1,216 @@
+### Description of Issue/Question
+
+I'm building SLS Packages to deploy to windows-minions, and i noticed if i have files with an undersorce in its name that i want to copy to the minion, with cache_dir: TRUE, then the pkg.refresh_db fails.  
+
+### Setup
+
+this ist the init.sls i'm using:
+
+```sls
+{% set LOG_PATH = salt['grains.get']('SALT_TMP_LOG') %} 
+
+WinArborDemo:
+  '12.00.11':
+    full_name: 'WinArborDemo'
+    installer: salt://win/repo-ng/WinArborDemo/WinArbor.msi
+    install_flags: '/l* "{{ LOG_PATH }}WinArborDemo_inst.log"  /quiet /norestart'
+    uninstaller: salt://win/repo-ng/WinArborDemo/WinArbor.msi
+    uninstall_flags: '/l* "{{ LOG_PATH }}WinArborDemo_uninst.log"  /quiet /norestart'
+    msiexec: TRUE
+    locale: de_DE
+    reboot: FALSE
+    cache_dir: TRUE
+```
+and beside this init.sls there is the setup.exe and a source dir, wich contains stuff needed on windows, this is where the undersorces disrupt. 
+
+this is the output of the pkg.refresh_db: 
+
+```
+win7-pc01:
+    ----------
+    failed:
+        0
+    success:
+        0
+    total:
+        0
+win10-pc01:
+    ----------
+    failed:
+        0
+    success:
+        0
+    total:
+        0
+```                  
+if i move the WinArborDemo directory out of my repo-ng it all works, just fine and i get the correct amount of packages. 
+
+This is what the master logs: 
+
+```
+2017-07-12 18:17:10,944 [salt.loaded.int.fileserver.roots][TRACE   ][27908] roots: /srv/salt/win/repo-ng/WinArborDemo/source/Info-Center/Ratgeber/Daten/Werbung/Bosse/Werbung-Bosse.jpg relative path is win/repo-ng/WinArborDemo/source/Info-Center/Ratgeber/Daten/Werbung/Bosse/Werbung-Bosse.jpg
+2017-07-12 18:17:10,944 [salt.master      ][ERROR   ][27908] Error in function _file_list:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/master.py", line 1629, in run_func
+    ret = getattr(self, func)(load)
+  File "/usr/lib/python2.7/site-packages/salt/fileserver/__init__.py", line 756, in file_list
+    ret.update(self.servers[fstr](load))
+  File "/usr/lib/python2.7/site-packages/salt/fileserver/roots.py", line 421, in file_list
+    return _file_lists(load, 'files')
+  File "/usr/lib/python2.7/site-packages/salt/fileserver/roots.py", line 397, in _file_lists
+    _add_to(ret['files'], path, root, files)
+  File "/usr/lib/python2.7/site-packages/salt/fileserver/roots.py", line 343, in _add_to
+    log.trace('roots: Processing %s', abs_path)
+  File "/usr/lib/python2.7/site-packages/salt/log/mixins.py", line 35, in trace
+    self.log(getattr(logging, 'TRACE', 5), msg, *args, **kwargs)
+  File "/usr/lib64/python2.7/logging/__init__.py", line 1231, in log
+    self._log(level, msg, args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/log/setup.py", line 327, in _log
+    self, level, msg, args, exc_info=exc_info, extra=extra
+  File "/usr/lib64/python2.7/logging/__init__.py", line 1285, in _log
+    record = self.makeRecord(self.name, level, fn, lno, msg, args, exc_info, func, extra)
+  File "/usr/lib/python2.7/site-packages/salt/log/setup.py", line 361, in makeRecord
+    exc_info, func)
+  File "/usr/lib/python2.7/site-packages/salt/log/setup.py", line 208, in __init__
+    self.colormsg = '%s%s%s' % (cmsg, self.getMessage(), reset)
+  File "/usr/lib64/python2.7/logging/__init__.py", line 329, in getMessage
+    msg = msg % self.args
+UnicodeDecodeError: 'ascii' codec can't decode byte 0xc3 in position 99: ordinal not in range(128)
+```
+
+And i'm sure that it's because of the quotes because, i changed the filenames of the file that was the last logged (i made a "-" for every "_") and the error jumped to the next file with "_" in it. 
+
+### Versions Report
+
+I also tried it with Master and Minions on 2016.4.11, so they were all on the same version 
+but i had exactly the same error there, that's why i upgraded. 
+
+Master: 
+
+```
+Salt Version:
+           Salt: 2017.7.0
+ 
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: 3.6.0
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: 0.24.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.24.0
+         Python: 2.7.12 (default, Jun 28 2016, 06:57:42) [GCC]
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.2.2
+ 
+System Versions:
+           dist: SuSE 4.0 x86_64
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.27-2-default
+         system: Linux
+        version: OSS  4.0 x86_64
+```
+
+Minions: 
+
+```
+win7-pc01:
+    Salt Version:
+               Salt: 2016.11.6
+     
+    Dependency Versions:
+               cffi: 1.10.0
+           cherrypy: unknown
+           dateutil: 2.5.3
+          docker-py: Not Installed
+              gitdb: 0.6.4
+          gitpython: 2.0.8
+              ioflo: 1.5.5
+             Jinja2: 2.9.4
+            libgit2: Not Installed
+            libnacl: 1.4.5
+           M2Crypto: Not Installed
+               Mako: 1.0.4
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.8
+       mysql-python: Not Installed
+          pycparser: 2.17
+           pycrypto: 2.6.1
+       pycryptodome: Not Installed
+             pygit2: Not Installed
+             Python: 2.7.12 (v2.7.12:d33e0cf91556, Jun 27 2016, 15:19:22) [MSC v.1500 32 bit (Intel)]
+       python-gnupg: 0.3.8
+             PyYAML: 3.11
+              PyZMQ: 16.0.1
+               RAET: Not Installed
+              smmap: 0.9.0
+            timelib: 0.2.4
+            Tornado: 4.4.1
+                ZMQ: 4.1.6
+     
+    System Versions:
+               dist:   
+            machine: x86
+            release: 7
+             system: Windows
+            version: 7 6.1.7601 SP1 Multiprocessor Free
+win10-pc01:
+    Salt Version:
+               Salt: 2016.11.6
+     
+    Dependency Versions:
+               cffi: 1.10.0
+           cherrypy: unknown
+           dateutil: 2.5.3
+          docker-py: Not Installed
+              gitdb: 0.6.4
+          gitpython: 2.0.8
+              ioflo: 1.5.5
+             Jinja2: 2.9.4
+            libgit2: Not Installed
+            libnacl: 1.4.5
+           M2Crypto: Not Installed
+               Mako: 1.0.4
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.8
+       mysql-python: Not Installed
+          pycparser: 2.17
+           pycrypto: 2.6.1
+       pycryptodome: Not Installed
+             pygit2: Not Installed
+             Python: 2.7.12 (v2.7.12:d33e0cf91556, Jun 27 2016, 15:24:40) [MSC v.1500 64 bit (AMD64)]
+       python-gnupg: 0.3.8
+             PyYAML: 3.11
+              PyZMQ: 16.0.1
+               RAET: Not Installed
+              smmap: 0.9.0
+            timelib: 0.2.4
+            Tornado: 4.4.1
+                ZMQ: 4.1.6
+     
+    System Versions:
+               dist:   
+            machine: AMD64
+            release: 10
+             system: Windows
+            version: 10 10.0.14393  Multiprocessor Free
+```

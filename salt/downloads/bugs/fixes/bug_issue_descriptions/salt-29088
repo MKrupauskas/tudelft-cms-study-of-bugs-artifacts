@@ -1,0 +1,178 @@
+Hi everyone. I have been running into an issue where if one of our salt masters goes down, the Windows minion does not failover to the other masters, but instead crashes.  I believe it may have something to do with tornado.
+
+This is seen when trying to use salt-call whenever the first master goes down:
+
+```
+C:\salt>salt-call -l debug test.ping
+[DEBUG   ] Reading configuration from c:\salt\conf\minion
+[DEBUG   ] Configuration file path: c:\salt\conf\minion
+[INFO    ] Got list of available master addresses: ['salt-mastera', 'salt-masterb', 'salt-masterc', 'salt-masterd', 'salt-mastere']
+[DEBUG   ] Initializing new SAuth for ('c:\\salt\\conf\\pki\\minion', 'salt-minion-007', 'tcp://12.46.94.123:1235')
+[DEBUG   ] Generated random reconnect delay between '500ms' and '10500ms' (4813)
+[DEBUG   ] Setting zmq_reconnect_ivl to '4813ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '10500ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('c:\\salt\\conf\\pki\\minion', 'salt-minion-007', 'tcp://12.46.94.123:1235', 'aes')
+[DEBUG   ] Initializing new SAuth for ('c:\\salt\\conf\\pki\\minion', 'salt-minion-007', 'tcp://12.46.94.123:1235')
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('c:\\salt\\conf\\pki\\minion', 'salt-minion-007', 'tcp://12.46.94.123:1235', 'clear')
+Attempt to authenticate with the salt master failed
+[DEBUG   ] Error deleting fd from IOLoop
+Traceback (most recent call last):
+  File "C:\salt\bin\lib\site-packages\tornado\ioloop.py", line 715, in remove_handler
+    self._impl.unregister(fd)
+  File "C:\salt\bin\lib\site-packages\zmq\eventloop\ioloop.py", line 115, in unregister
+    return self._poller.unregister(fd)
+  File "C:\salt\bin\lib\site-packages\zmq\sugar\poll.py", line 71, in unregister
+
+    idx = self._map.pop(socket)
+KeyError: None
+[DEBUG   ] Error deleting fd from IOLoop
+Traceback (most recent call last):
+  File "C:\salt\bin\lib\site-packages\tornado\ioloop.py", line 715, in remove_handler
+    self._impl.unregister(fd)
+  File "C:\salt\bin\lib\site-packages\zmq\eventloop\ioloop.py", line 115, in unregister
+    return self._poller.unregister(fd)
+  File "C:\salt\bin\lib\site-packages\zmq\sugar\poll.py", line 71, in unregister
+
+    idx = self._map.pop(socket)
+KeyError: None
+```
+
+This is a sample Windows minion file (Windows 7):
+
+```
+ipc_mode: tcp
+root_dir: c:\salt
+pki_dir: /conf/pki/minion
+multiprocessing: False
+id: salt-minion-007
+
+master:
+  - salt-mastera
+  - salt-masterb
+  - salt-masterc
+  - salt-masterd
+  - salt-mastere
+
+master_type: failover
+master_alive_interval: 30
+recon_default: 500
+recon_max: 10000
+recon_randomize: True
+
+schedule:
+  highstate:
+    function: state.highstate
+    minutes: 60
+
+# execute highstate at start
+startup_states: highstate
+
+######      Keepalive settings        ######
+############################################
+# ZeroMQ now includes support for configuring SO_KEEPALIVE if supported by
+# the OS. If connections between the minion and the master pass through
+# a state tracking device such as a firewall or VPN gateway, there is
+# the risk that it could tear down the connection the master and minion
+# without informing either party that their connection has been taken away.
+# Enabling TCP Keepalives prevents this from happening.
+
+# Overall state of TCP Keepalives, enable (1 or True), disable (0 or False)
+# or leave to the OS defaults (-1), on Linux, typically disabled. Default True, enabled.
+tcp_keepalive: True
+
+# How long before the first keepalive should be sent in seconds. Default 300
+# to send the first keepalive after 5 minutes, OS default (-1) is typically 7200 seconds
+# on Linux see /proc/sys/net/ipv4/tcp_keepalive_time.
+tcp_keepalive_idle: 300
+
+# How many lost probes are needed to consider the connection lost. Default -1
+# to use OS defaults, typically 9 on Linux, see /proc/sys/net/ipv4/tcp_keepalive_probes.
+tcp_keepalive_cnt: -1
+
+# How often, in seconds, to send keepalives after the first one. Default -1 to
+# use OS defaults, typically 75 seconds on Linux, see
+# /proc/sys/net/ipv4/tcp_keepalive_intvl.
+tcp_keepalive_intvl: -1
+```
+
+Here is the info for one of the salt minions (all running Windows 7 64 bit):
+
+```
+C:\salt>salt-call --versions-report
+Salt Version:
+           Salt: 2015.8.1
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.10 (default, May 23 2015, 09:44:00) [MSC v.1500 64 bit (AM
+64)]
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.2
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: 0.3.7
+          smmap: Not Installed
+        timelib: Not Installed
+System Versions:
+           dist:
+        machine: AMD64
+        release: 7
+         system: 7 6.1.7601 SP1 Multiprocessor Free
+```
+
+Here is the info for the salt masters (running CentOS6):
+
+```
+salt --versions-report
+Salt Version:           
+           Salt: 2015.8.1                      
+Dependency Versions:     
+         Jinja2: 2.8
+       M2Crypto: 0.22
+           Mako: 1.0.1
+         PyYAML: 3.10
+          PyZMQ: 14.6.0
+         Python: 2.7.10 (default, Oct 21 2015, 11:16:15)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: 1.2.4
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 6.4 Final
+        machine: x86_64
+        release: 2.6.32-358.23.2.el6.x86_64
+         system: CentOS 6.4 Final
+```
+
+Thanks!

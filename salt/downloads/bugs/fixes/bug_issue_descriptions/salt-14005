@@ -1,0 +1,49 @@
+Apologies if this is addressed somewhere, but I could not find it yet.    
+
+I am trying to set up a second interface on a Windows 2008 server.   I have the mac address of the interface, so in my external pillar I am doing something like this to get the interface name:
+
+``` python
+def find_interface_name(mac_addr):
+    ifaces = __grains__.get('hwaddr_interfaces', [])
+    for iface in ifaces:
+        if str(ifaces[iface]).lower() == str(mac_addr).lower():
+            return str(iface)
+```
+
+This works as expected with linux, and will return eth0/eth1/etc.    For Windows, I will get 'Citrix PV Network Adapter #1' as an example.   This is the hwaddr_interfaces grain for a windows vm:
+
+``` yaml
+  hwaddr_interfaces: {'Citrix PV Network Adapter #1': '06:DB:14:00:3F:CB', 'Citrix PV Network Adapter #0': '02:00:69:96:00:34'}
+```
+
+Now I am also using the [win_network](http://docs.saltstack.com/en/latest/ref/states/all/salt.states.win_network.html#module-salt.states.win_network) state to try and configure the interface.   The problem is that if I use 'Citrix PV Network Adapter #1', I get an error since netsh doesn't recognize it as a valid interface name:
+
+```
+[INFO    ] Running state [Citrix PV Network Adapter] at time 14:20:58.942000
+[INFO    ] Executing state network.managed for Citrix PV Network Adapter
+[INFO    ] Executing command 'netsh interface show interface name="Citrix PV Network Adapter"' in directory 'C:\\Users\\
+Administrator'
+[ERROR   ] Command 'netsh interface show interface name="Citrix PV Network Adapter"' failed with return code: 1
+[ERROR   ] output: An interface with this name is not registered with the router.
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "salt/state.py", line 1378, in call
+  File "salt/states/win_network.py", line 275, in managed
+  File "salt/modules/win_ip.py", line 172, in is_disabled
+  File "salt/modules/win_ip.py", line 158, in is_enabled
+CommandExecutionError: Interface {0!r} not found
+
+[INFO    ] Completed state [Citrix PV Network Adapter] at time 14:20:59.051000
+```
+
+The names netsh expects are listed by `netsh interface show interface`:
+
+```
+    Admin State    State          Type             Interface Name
+    -------------------------------------------------------------------------
+    Enabled        Connected      Dedicated        Local Area Connection 2
+    Enabled        Connected      Dedicated        Local Area Connection
+```
+
+If I hard-code Local Area Connection or Local Area Connection 2 in my state file, the win_network state works perfectly.    The problem is I won't always know the name of the interface, so need to get it based on the mac address.   
+
+Does anyone have an easy work-around for this?   I assume to get the functionality I'm wanting, the core grain that returns hwaddr_interfaces would need to be modified?

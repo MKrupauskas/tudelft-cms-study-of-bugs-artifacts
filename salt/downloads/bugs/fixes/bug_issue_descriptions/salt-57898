@@ -1,0 +1,158 @@
+**Description**
+Unable to make salt-api call in 2019.2.5 or 3001
+
+**Setup**
+1. yum install salt-master salt-minion salt-api
+2. echo "master: localhost" > /etc/salt/minion.d/master.conf
+3. echo "saltapi" > /etc/salt/minion_id
+4. add master config options
+```
+/etc/salt/master.d/api.conf
+---------------------------
+external_auth:
+  pam:
+    saltapi:
+      - '@runner'
+      - '@wheel'
+      - .*
+rest_cherrypy:
+  port: 8000
+  disable_ssl: True
+```
+5. systemctl enable salt-master salt-minion salt-api
+6. systemctl start salt-master salt-minion salt-api
+7. salt-key -yA
+8. salt \* test.version
+    (confirm expected version)
+
+9. Add "saltapi" user for PAM authentication
+```
+useradd saltapi
+passwd saltapi
+(set password)
+```
+
+**Steps to Reproduce the behavior**
+```
+curl -si http://localhost:8000/login -H 'Accept: application/x-yaml' -d username=saltapi -d password=saltapi -d eauth=pam -c /tmp/saltapi_cookie.txt
+```
+
+**Expected behavior**
+Expected behavior would be a 200 response from Salt-API/CherryPy with a valid token, etc.
+
+**Screenshots**
+Output from `salt-api -l debug`
+```
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://127.0.0.1:4506
+[DEBUG   ] Trying to connect to: tcp://127.0.0.1:4506
+[DEBUG   ] SaltReqTimeoutError, retrying. (1/3)
+[DEBUG   ] SaltReqTimeoutError, retrying. (2/3)
+[DEBUG   ] SaltReqTimeoutError, retrying. (3/3)
+[DEBUG   ] Re-init ZMQ socket: Message timed out
+```
+
+Output from `/var/log/salt/master`:
+```
+2020-07-09 17:23:35,510 [salt.transport.zeromq:871 ][ERROR   ][24156] Some exception handling a payload from minion
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/transport/zeromq.py", line 867, in handle_message
+    ret, req_opts = yield self.payload_handler(payload)
+  File "/usr/lib/python3/dist-packages/salt/ext/tornado/gen.py", line 1056, in run
+    value = future.result()
+  File "/usr/lib/python3/dist-packages/salt/ext/tornado/concurrent.py", line 249, in result
+    raise_exc_info(self._exc_info)
+  File "<string>", line 4, in raise_exc_info
+  File "/usr/lib/python3/dist-packages/salt/ext/tornado/gen.py", line 294, in wrapper
+    result = func(*args, **kwargs)
+  File "/usr/lib/python3.7/types.py", line 277, in wrapped
+    coro = func(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1138, in _handle_payload
+    ret = {"aes": self._handle_aes, "clear": self._handle_clear}[key](load)
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 1179, in _handle_clear
+    ret = method(load), {"fun": "send_clear"}
+  File "/usr/lib/python3/dist-packages/salt/master.py", line 2228, in mk_token
+    token = self.loadauth.mk_token(clear_load)
+  File "/usr/lib/python3/dist-packages/salt/auth/__init__.py", line 216, in mk_token
+    if not self.authenticate_eauth(load):
+  File "/usr/lib/python3/dist-packages/salt/auth/__init__.py", line 318, in authenticate_eauth
+    if not self.time_auth(load):
+  File "/usr/lib/python3/dist-packages/salt/auth/__init__.py", line 122, in time_auth
+    ret = self.__auth_call(load)
+  File "/usr/lib/python3/dist-packages/salt/auth/__init__.py", line 106, in __auth_call
+    self.auth[fstr], _load, expected_extra_kws=AUTH_INTERNAL_KEYWORDS
+  File "/usr/lib/python3/dist-packages/salt/utils/args.py", line 474, in format_call
+    fun.__name__, args_count, args_count > 1 and "s" or "", used_args_count
+salt.exceptions.SaltInvocationError: auth takes at least 2 arguments (1 given)
+2020-07-09 17:23:35,517 [tornado.general  :462 ][ERROR   ][24156] Uncaught exception in zmqstream callback
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/zmq/sugar/socket.py", line 427, in send_multipart
+    memoryview(msg)
+TypeError: memoryview: a bytes-like object is required, not 'str'
+During handling of the above exception, another exception occurred:
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/zmq/eventloop/zmqstream.py", line 454, in _handle_events
+    self._handle_send()
+  File "/usr/lib/python3/dist-packages/zmq/eventloop/zmqstream.py", line 493, in _handle_send
+    status = self.socket.send_multipart(msg, **kwargs)
+  File "/usr/lib/python3/dist-packages/zmq/sugar/socket.py", line 434, in send_multipart
+    i, rmsg,
+TypeError: Frame 0 ('Some exception handling minion ...) does not support the buffer interface.
+2020-07-09 17:23:35,519 [tornado.application:640 ][ERROR   ][24156] Exception in callback functools.partial(<function wrap.<locals>.null_wrapper at 0x7ff2a00d0620>)
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/zmq/sugar/socket.py", line 427, in send_multipart
+    memoryview(msg)
+TypeError: memoryview: a bytes-like object is required, not 'str'
+```
+
+**Versions Report**
+```
+Salt Version:
+           Salt: 3001
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.8.1
+        libgit2: Not Installed
+       M2Crypto: 0.33.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Sep 26 2019, 11:57:09)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 17.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: rhel 7.5 Maipo
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.el7.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 7.5 Maipo
+ ```
+</details>
+
+**Additional context**
+Attempted the following `external_auth` methods:
+- pam
+- sharedsecret
+- auto
+
+Confirmed on:
+- CentOS 7.5 / Salt 3001
+- CentOS 7.7 / Salt 2019.2.5
+- Debian 10 / Salt 3001

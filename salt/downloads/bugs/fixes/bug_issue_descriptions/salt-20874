@@ -1,0 +1,95 @@
+We currently have been attempting to replace our MCollective infrastructure with Salt, but have hit one major hurdle: many of the minions after running fine for a while (usually 45-60 minutes) suddenly stop communicating with the master (have removed domain from hosts for all output/logs):
+
+```
+$ salt -E 'dpuppetklareau*' test.ping -v
+Executing job with jid 20150220111427692727
+-------------------------------------------
+
+dpuppetklareau01:
+    Minion did not return. [Not connected]
+```
+
+Restarting the minion immediately corrects the problem, but on many of the minions we have the problem recurs much of the time.  Have set the logging levels on the minions and masters (we have two in each of our environments) to debug but no useful information has been found.  It seems that authentication continues even when the minion is no longer responding... here's part of the logs from the master side:
+
+```
+2015-02-20 10:38:56,099 [salt.master                                ][INFO    ] Authentication request from dpuppetklareau01
+2015-02-20 10:38:56,117 [salt.master                                ][INFO    ] Authentication accepted from dpuppetklareau01
+2015-02-20 10:38:56,122 [salt.master                                ][INFO    ] Authentication request from dpuppetklareau01
+2015-02-20 10:38:56,142 [salt.master                                ][INFO    ] Authentication accepted from dpuppetklareau01
+2015-02-20 10:38:56,246 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'dpuppetklareau01', '_stamp': '2015-02-20T10:38:56.245430', 'result': True, 'pub': '<public key>', 'act': 'accept'}
+2015-02-20 10:38:56,258 [salt.utils.event                           ][DEBUG   ] Sending event - data = {'id': 'dpuppetklareau01', '_stamp': '2015-02-20T10:38:56.258226', 'result': True, 'pub': '<public key>', 'act': 'accept'}
+2015-02-20 11:14:27,693 [salt.utils.event                           ][DEBUG   ]
+```
+
+and the logs from the minion side:
+
+```
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+```
+
+Another thing to note is that even after the minion no longer responds to the master, one internal job still seems to run:
+
+```
+[INFO    ] Running scheduled job: __mine_interval
+[DEBUG   ] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+[DEBUG   ] schedule: This job was scheduled with a max number of 2
+[INFO    ] Running scheduled job: __mine_interval
+[DEBUG   ] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+[DEBUG   ] schedule: This job was scheduled with a max number of 2
+[DEBUG   ] schedule.handle_func: adding this job to the jobcache with data {'fun': 'mine.update', 'jid': '20150220083855680400', 'pid': 2032, 'id': 'dpuppetklareau01', 'schedule': '__mine_interval'}
+[DEBUG   ] schedule.handle_func: Checking job against fun mine.update: {'fun': 'mine.update', 'jid': '20150220083855680400', 'pid': 2032, 'id': 'dpuppetklareau01', 'schedule': '__mine_interval'}
+[DEBUG   ] schedule.handle_func: Incrementing jobcount, now 1, maxrunning is 2
+[DEBUG   ] schedule.handle_func: adding this job to the jobcache with data {'fun': 'mine.update', 'jid': '20150220083855686924', 'pid': 2037, 'id': 'dpuppetklareau01', 'schedule': '__mine_interval'}
+```
+
+We've noted that usually shortly after one of the '__mine_interval' jobs has run (usually one of the first three or four after restart) is when the minion stops responding to the master.  A lot of searching on the web for a similar issue hasn't found anything that seems to match the problem we're seeing (and some of the suggested solutions have not helped, though there still may be some strange configuration issue).
+
+The version output from one of the masters and one of the affected minions is below.  The masters are currently running 2014.7.1 as per Tom Hatch who mentioned a bug in 2014.7.0 that caused the master to prematurely give a minion's status before the minion had had a chance to respond:
+
+```
+dsalt01 (master):
+           Salt: 2014.7.1
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+         Jinja2: 2.7.2
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 2.2.0.1
+           RAET: Not Installed
+            ZMQ: 3.2.4
+           Mako: Not Installed
+```
+
+```
+dpuppetklareau01 (affected minion):
+               Salt: 2014.7.0
+             Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+             Jinja2: 2.7.3
+           M2Crypto: 0.20.2
+     msgpack-python: 0.4.0
+       msgpack-pure: Not Installed
+           pycrypto: 2.6.1
+            libnacl: Not Installed
+             PyYAML: 3.10
+              ioflo: Not Installed
+              PyZMQ: 2.2.0.1
+               RAET: Not Installed
+                ZMQ: 3.2.4
+               Mako: Not Installed
+```
+
+If some of the configuration information is needed, I can gladly give that, though I'm not sure which information would be most relevant in this case; please let me know.
+- Ken Lareau

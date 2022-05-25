@@ -1,0 +1,35 @@
+Commit d02d365 seems to have introduced a bug. It calls `ret.update()`, assuming `ret` is a dict, but it can be a string (as with `pkg.version`).
+
+I suppose `ret` should either be normalized into a dict, or an `isintance` check should be added.
+
+```
+[CRITICAL] Rendering SLS 'base:apache' failed: Jinja error: 'str' object has no attribute 'update'
+Traceback (most recent call last):
+  File "/home/andreas/dev/python/salt/salt/utils/templates.py", line 310, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/local/lib/python2.7/dist-packages/jinja2/environment.py", line 969, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/local/lib/python2.7/dist-packages/jinja2/environment.py", line 742, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 40, in top-level template code
+  File "/home/andreas/dev/python/salt/salt/client/ssh/wrapper/__init__.py", line 128, in caller
+    ret.update({'retcode': retcode})
+AttributeError: 'str' object has no attribute 'update'
+
+; line 40
+
+---
+[...]
+    - source: salt://apache/apache2.conf.jinja
+    - template: jinja
+    - context:
+        # TODO: change to version_cmp when PR is merged:
+        # https://github.com/saltstack/salt/pull/25369
+        version24plus: {{ salt['pkg.version'](pkg).startswith('2.4') }}    <======================
+    - require:
+      - pkg: apache-pkg
+
+/etc/apache2/default-vhost.conf:
+  file.managed:
+[...]
+```

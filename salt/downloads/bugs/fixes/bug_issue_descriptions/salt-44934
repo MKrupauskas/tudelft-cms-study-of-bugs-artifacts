@@ -1,0 +1,167 @@
+### Description of Issue/Question
+
+I am attempting to start a lightweight http server on a raspberry pi server. It appears as if Salt takes up all of the CPU time so that the server never actually gets started. 
+
+The [html doc](https://docs.saltstack.com/en/latest/ref/states/all/salt.states.http.html#salt.states.http.wait_for_successful_query)
+indicates that I can inject an interval in to the request processing that should
+release enough CPU cycles to fix this.
+
+When I run such a script with --log-level=debug, it is evident that the probe is not being delayed as indicated. 
+
+Very possibly I am not calling the state correctly. The example does not show how to pass the required
+keyword argument -- even though the state should normally be run with such a delay. If so, then it would be a good idea to update the documentation to show the correct calling method.
+
+P.S.: In My Humble Opinion, a short delay should be the default.
+
+### Setup
+
+The error shows up only on a limited capability machine like a Raspberry Pi. 
+The symptom can be seen on any machine by watching the output of --log-level=debug.
+
+Extract the attached files `test_html.sls` and `file_clearing_daemon.py` into Salt's `file_path`.
+
+[test_html.zip](https://github.com/saltstack/salt/files/1549680/test_html.zip)
+
+The key portion of the state reads like:
+```
+let_the_file_clearing_daemon_get_started:
+  http.wait_for_successful_query:
+    - name: http://127.0.0.1:4545/ping
+    - status: 200
+    - kwargs: {request_interval: 10.0}
+    - wait_for: 30
+```
+
+### Steps to Reproduce Issue
+
+On a Raspberry Pi Zero-W (also running the Salt Master in this case)...
+```
+vernoncole@pizero:/projects/learn-salt $ sudo salt-call state.apply test_html 
+[ERROR   ] Failed to import module sensehat, this is due most likely to a syntax error:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1438, in _load_module
+    mod = imp.load_module(mod_namespace, fn_, fpath, desc)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/sensehat.py", line 28, in <module>
+    _sensehat = SenseHat()
+  File "/usr/lib/python2.7/dist-packages/sense_hat/sense_hat.py", line 39, in __init__
+    raise OSError('Cannot detect %s device' % self.SENSE_HAT_FB_NAME)
+OSError: Cannot detect RPi-Sense FB device
+[ERROR   ] Command '/tmp/file_clearing_daemon.py' failed with return code: None
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1934, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1802, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/states/http.py", line 153, in wait_for_successful_query
+    raise caught_exception  # pylint: disable=E0702
+error: [Errno 111] Connection refused
+
+local:
+----------
+          ID: check_python3
+    Function: pkg.installed
+        Name: python3
+      Result: True
+     Comment: All specified packages are already installed
+     Started: 15:44:27.987937
+    Duration: 1411.573 ms
+     Changes:   
+----------
+          ID: create_the_file_clearing_daemon
+    Function: file.managed
+        Name: /tmp/file_clearing_daemon.py
+      Result: True
+     Comment: File /tmp/file_clearing_daemon.py is in the correct state
+     Started: 15:44:29.477777
+    Duration: 725.488 ms
+     Changes:   
+----------
+          ID: run_the_file_clearing_daemon
+    Function: cmd.run
+        Name: /tmp/file_clearing_daemon.py
+      Result: True
+     Comment: Command "/tmp/file_clearing_daemon.py" run
+     Started: 15:44:30.251466
+    Duration: 189.711 ms
+     Changes:   
+              ----------
+              pid:
+                  10665
+              retcode:
+                  None
+              stderr:
+              stdout:
+----------
+          ID: let_the_file_clearing_daemon_get_started
+    Function: http.wait_for_successful_query
+        Name: http://127.0.0.1:4545/ping
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1934, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1802, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/http.py", line 153, in wait_for_successful_query
+                  raise caught_exception  # pylint: disable=E0702
+              error: [Errno 111] Connection refused
+     Started: 15:44:30.463873
+    Duration: 30040.184 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 3 (changed=1)
+Failed:    1
+------------
+Total states run:     4
+Total run time:  32.367 s
+vernoncole@pizero:/projects/learn-salt $ PXE_File_Clearing_Daemon --> Starting server - port:4545
+PXE_File_Clearing_Daemon --> running server...
+
+```
+
+### Versions Report
+
+```
+$ salt --versions-report
+Salt Version:
+           Salt: 2017.7.0-936-g6a31628
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Sep 17 2016, 20:26:04)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.2
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 8.0 
+         locale: UTF-8
+        machine: armv6l
+        release: 4.9.35+
+         system: Linux
+        version: debian 8.0 
+ ```

@@ -1,0 +1,227 @@
+### I am finding now using file.recurse it is grabbing more folders then it should be.
+I changed the config to see if it was a matching issue, but even removing the if..then statement still sees this happen (if the path is salt://soe/etc/apt/) as it seems to grab salt://soe/etc/apt* instead.
+
+I think this might be a regression as I have this setup this way for a few years and haven't had this issue before.
+
+### Setup
+I have tried both of these, same result (so it is not a Jinja issue):
+
+```
+{% set HOSTLOCATION = grains['host'].split('-')[0] %}
+{% if 'ezproxy' in grains['id'] %}
+{% set SOURCE = 'salt://soe/etc/apt-public-repo-for-32bit/' %}
+{% elif 'tst-b2cwp01-ap-southeast-2b.think.vpc' in grains['id'] %}
+{% set SOURCE = 'salt://soe/etc/apt-php5/' %}
+{% elif ('frontier' in grains['id'] or 'phidu' in grains['id'] or 'ops-osx' in grains['id']) %}
+{% set SOURCE = 'salt://soe/etc/apt-php5/' %}
+{% else %}
+{% set SOURCE = 'salt://soe/etc/apt/' %}
+{% endif %}
+ 
+##### Packaging #######
+/etc/apt/:
+  file.recurse:
+    - name: /etc/apt/
+    - clean: True
+    - dir_mode: 755
+    - file_mode: 644
+    - user: root
+    - group: root
+    - include_empty: True
+    - source: {{ SOURCE }}
+```
+
+```
+/etc/apt/:
+  file.recurse:
+    - clean: True
+    - dir_mode: 755
+    - file_mode: 644
+    - user: root
+    - group: root
+    - include_empty: True
+    {% if 'ezproxy' in grains['id'] %}
+    - source: salt://soe/etc/apt-public-repo-for-32bit/
+    {% elif ('frontier' in grains['id'] or 'phidu' in grains['id'] or 'ops-osx' in grains['id']) %}
+    - source: salt://soe/etc/apt-php5/
+    {% elif grains['lsb_distrib_release'] == '16.04' %}
+    - source: salt://soe/etc/apt-16-04
+    {% else %}
+    - source: salt://soe/etc/apt/
+    {% endif %}
+```
+
+```
+/etc/apt/:
+  file.recurse:
+    - name: /etc/apt/
+    - clean: True
+    - dir_mode: 755
+    - file_mode: 644
+    - user: root
+    - group: root
+    - include_empty: True
+    - source: salt://soe/etc/apt/
+```
+
+
+### Steps to Reproduce Issue
+Running a highstate with a minion that matches the default source, (salt://soe/etc/apt/) the minion will also grab other salt://soe/etc/apt*/) paths.
+
+
+```
+    Function: file.recurse
+      Result: True
+     Comment: Recursively updated /etc/apt/
+     Started: 16:37:21.082248
+    Duration: 547.286 ms
+     Changes:   
+              ----------
+              /etc/apt/../apt-16-04:
+                  ----------
+                  /etc/apt/../apt-16-04:
+                      New Dir
+              /etc/apt/../apt-php5/sources.list.original:
+          ID: /etc/apt/
+          ID: /etc/apt/
+    Function: file.recurse
+      Result: True
+     Comment: Recursively updated /etc/apt/
+     Started: 16:37:21.082248
+    Duration: 547.286 ms
+     Changes:   
+              ----------
+              /etc/apt/../apt-16-04:
+                  ----------
+                  /etc/apt/../apt-16-04:
+                      New Dir
+              /etc/apt/../apt-16-04/apt.conf.d:
+                  ----------
+                  /etc/apt/../apt-16-04/apt.conf.d:
+                      New Dir
+              /etc/apt/../apt-16-04/preferences.d:
+                  ----------
+                  /etc/apt/../apt-16-04/preferences.d:
+                      New Dir
+              /etc/apt/../apt-16-04/sources.list.d:
+                  ----------
+                  /etc/apt/../apt-16-04/sources.list.d:
+                      New Dir
+              /etc/apt/../apt-16-04/sources.list.original:
+                  ----------
+                  /etc/apt/../apt-16-04/sources.list.original:
+                      New Dir
+              /etc/apt/../apt-16-04/trusted.gpg.d:
+                  ----------
+                  /etc/apt/../apt-16-04/trusted.gpg.d:
+                      New Dir
+              /etc/apt/../apt-php5:
+                  ----------
+                  /etc/apt/../apt-php5:
+                      New Dir
+              /etc/apt/../apt-php5/apt.conf.d:
+                  ----------
+                  /etc/apt/../apt-php5/apt.conf.d:
+                      New Dir
+              /etc/apt/../apt-php5/preferences.d:
+                  ----------
+                  /etc/apt/../apt-php5/preferences.d:
+                      New Dir
+              /etc/apt/../apt-php5/sources.list.d:
+                  ----------
+                  /etc/apt/../apt-php5/sources.list.d:
+                      New Dir
+              /etc/apt/../apt-php5/sources.list.original:
+                  ----------
+                  /etc/apt/../apt-php5/sources.list.original:
+                      New Dir
+              /etc/apt/../apt-php5/trusted.gpg.d:
+                  ----------
+                  /etc/apt/../apt-php5/trusted.gpg.d:
+                      New Dir
+              /etc/apt/../apt-public:
+                  ----------
+                  /etc/apt/../apt-public:
+                      New Dir
+              /etc/apt/../apt-public-repo-for-32bit:
+                  ----------
+                  /etc/apt/../apt-public-repo-for-32bit:
+                      New Dir
+              /etc/apt/../apt-public-repo-for-32bit/apt.conf.d:
+                  ----------
+                  /etc/apt/../apt-public-repo-for-32bit/apt.conf.d:
+                      New Dir
+              /etc/apt/../apt-public-repo-for-32bit/preferences.d:
+                  ----------
+                  /etc/apt/../apt-public-repo-for-32bit/preferences.d:
+                      New Dir
+              /etc/apt/../apt-public-repo-for-32bit/sources.list.original:
+                  ----------
+                  /etc/apt/../apt-public-repo-for-32bit/sources.list.original:
+                      New Dir
+```
+
+```
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://soe/etc/apt/trustdb.gpg'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'soe/etc/apt/trusted.gpg' to resolve 'salt://soe/etc/apt/trusted.gpg'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/soe/etc/apt/trusted.gpg' to resolve 'salt://soe/etc/apt/trusted.gpg'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://soe/etc/apt/trusted.gpg'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'soe/etc/apt/trusted.gpg' to resolve 'salt://soe/etc/apt/trusted.gpg'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/soe/etc/apt/trusted.gpg' to resolve 'salt://soe/etc/apt/trusted.gpg'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://soe/etc/apt/trusted.gpg'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'soe/etc/apt/trusted.gpg.d/.gitignore' to resolve 'salt://soe/etc/apt/trusted.gpg.d/.gitignore'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/soe/etc/apt/trusted.gpg.d/.gitignore' to resolve 'salt://soe/etc/apt/trusted.gpg.d/.gitignore'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://soe/etc/apt/trusted.gpg.d/.gitignore'
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] In saltenv 'base', looking at rel_path 'soe/etc/apt/trusted.gpg.d/.gitignore' to resolve 'salt://soe/etc/apt/trusted.gpg.d/.gitignore'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/soe/etc/apt/trusted.gpg.d/.gitignore' to resolve 'salt://soe/etc/apt/trusted.gpg.d/.gitignore'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://soe/etc/apt/trusted.gpg.d/.gitignore'
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] In saltenv 'base', looking at rel_path 'soe/etc/apt/trustedkeys.gpg' to resolve 'salt://soe/etc/apt/trustedkeys.gpg'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/soe/etc/apt/trustedkeys.gpg' to resolve 'salt://soe/etc/apt/trustedkeys.gpg'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://soe/etc/apt/trustedkeys.gpg'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'soe/etc/apt/trustedkeys.gpg' to resolve 'salt://soe/etc/apt/trustedkeys.gpg'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/soe/etc/apt/trustedkeys.gpg' to resolve 'salt://soe/etc/apt/trustedkeys.gpg'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://soe/etc/apt/trustedkeys.gpg'
+[INFO    ] {u'/etc/apt/../apt-16-04/trusted.gpg.d': {u'/etc/apt/../apt-16-04/trusted.gpg.d': 'New Dir'}, u'/etc/apt/../apt-public/trusted.gpg.d': {u'/etc/apt/../apt-public/trusted.gpg.d': 'New Dir'}, u'/etc/apt/../apt-php5/sources.list.d': {u'/etc/apt/../apt-php5/sources.list.d': 'New Dir'}, u'/etc/apt/../apt-public-repo-for-32bit/sources.list.original': {u'/etc/apt/../apt-public-repo-for-32bit/sources.list.original': 'New Dir'}, u'/etc/apt/../apt-public-repo-for-32bit/preferences.d': {u'/etc/apt/../apt-public-repo-for-32bit/preferences.d': 'New Dir'}, u'/etc/apt/../apt-php5/preferences.d': {u'/etc/apt/../apt-php5/preferences.d': 'New Dir'}, u'/etc/apt/../apt-16-04': {u'/etc/apt/../apt-16-04': 'New Dir'}, u'/etc/apt/../apt-php5/apt.conf.d': {u'/etc/apt/../apt-php5/apt.conf.d': 'New Dir'}, u'/etc/apt/../apt-16-04/sources.list.d': {u'/etc/apt/../apt-16-04/sources.list.d': 'New Dir'}, u'/etc/apt/../apt-public-repo-for-32bit': {u'/etc/apt/../apt-public-repo-for-32bit': 'New Dir'}, u'/etc/apt/../apt-public-repo-for-32bit/apt.conf.d': {u'/etc/apt/../apt-public-repo-for-32bit/apt.conf.d': 'New Dir'}, u'/etc/apt/../apt-php5/sources.list.original': {u'/etc/apt/../apt-php5/sources.list.original': 'New Dir'}, u'/etc/apt/../apt-php5/trusted.gpg.d': {u'/etc/apt/../apt-php5/trusted.gpg.d': 'New Dir'}, u'/etc/apt/../apt-16-04/preferences.d': {u'/etc/apt/../apt-16-04/preferences.d': 'New Dir'}, u'/etc/apt/../apt-16-04/sources.list.original': {u'/etc/apt/../apt-16-04/sources.list.original': 'New Dir'}, u'/etc/apt/../apt-php5': {u'/etc/apt/../apt-php5': 'New Dir'}, u'/etc/apt/../apt-16-04/apt.conf.d': {u'/etc/apt/../apt-16-04/apt.conf.d': 'New Dir'}}
+
+```
+
+### Versions Report
+Salt Version:
+           Salt: 2016.3.3
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.3 (default, Jun 22 2015, 19:33:41)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: Ubuntu 12.04 precise
+        machine: x86_64
+        release: 3.2.0-115-virtual
+         system: Linux
+        version: Ubuntu 12.04 precise

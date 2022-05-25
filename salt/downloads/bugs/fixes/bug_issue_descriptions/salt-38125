@@ -1,0 +1,116 @@
+### Description of Issue/Question
+
+I'm setting up salt-cloud to spin up minions with EC2/Windows, using the sample userdata in:
+
+https://docs.saltstack.com/en/latest/topics/cloud/windows.html
+
+, but the script seemingly does not execute. If I go into the box, I see that the ps1 file is present, but without any newlines. Indeed, adding `;` to each line fixes the issue
+
+### Setup
+
+Userdata:
+
+```
+<powershell>
+New-NetFirewallRule -Name "SMB445" -DisplayName "SMB445" -Protocol TCP -LocalPort 445;
+New-NetFirewallRule -Name "WINRM5986" -DisplayName "WINRM5986" -Protocol TCP -LocalPort 5986;
+
+winrm quickconfig -q;
+winrm set winrm/config/winrs '@{MaxMemoryPerShellMB="300"}';
+winrm set winrm/config '@{MaxTimeoutms="1800000"}';
+winrm set winrm/config/service/auth '@{Basic="true"}';
+
+$SourceStoreScope = 'LocalMachine';
+$SourceStorename = 'Remote Desktop';
+
+$SourceStore = New-Object  -TypeName System.Security.Cryptography.X509Certificates.X509Store  -ArgumentList $SourceStorename, $SourceStoreScope;
+$SourceStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly);
+
+$cert = $SourceStore.Certificates | Where-Object  -FilterScript {
+    $_.subject -like '*'
+};
+
+$DestStoreScope = 'LocalMachine';
+$DestStoreName = 'My';
+
+$DestStore = New-Object  -TypeName System.Security.Cryptography.X509Certificates.X509Store  -ArgumentList $DestStoreName, $DestStoreScope;
+$DestStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite);
+$DestStore.Add($cert);
+
+$SourceStore.Close();
+$DestStore.Close();
+
+winrm create winrm/config/listener?Address=*+Transport=HTTPS  `@`{Hostname=`"($certId)`"`;CertificateThumbprint=`"($cert.Thumbprint)`"`};
+
+Restart-Service winrm;
+</powershell>
+```
+
+### Steps to Reproduce Issue
+
+Running salt-cloud:
+
+```
+...
+[DEBUG   ] Sending event: tag = salt/cloud/minion1/requesting; data = {'event': 'requesting instance', '_stamp': '2016-12-07T09:31:00.037859', 'location': 'eu-west-1', 'kwargs': {'UserData': 'PHBvd2Vyc2hlbGw+IE5ldy1OZXRGaXJld2FsbFJ1bGUgLU5hbWUgIlNNQjQ0NSIgLURpc3BsYXlOYW1lICJTTUI0NDUiIC1Qcm90b2NvbCBUQ1AgLUxvY2FsUG9ydCA0NDUgTmV3LU5ldEZpcmV3YWxsUnVsZSAtTmFtZSAiV0lOUk01OTg2IiAtRGlzcGxheU5hbWUgIldJTlJNNTk4NiIgLVByb3RvY29sIFRDUCAtTG9jYWxQb3J0IDU5ODYKd2lucm0gcXVpY2tjb25maWcgLXEgd2lucm0gc2V0IHdpbnJtL2NvbmZpZy93aW5ycyAnQHtNYXhNZW1vcnlQZXJTaGVsbE1CPSIzMDAifScgd2lucm0gc2V0IHdpbnJtL2NvbmZpZyAnQHtNYXhUaW1lb3V0bXM9IjE4MDAwMDAifScgd2lucm0gc2V0IHdpbnJtL2NvbmZpZy9zZXJ2aWNlL2F1dGggJ0B7QmFzaWM9InRydWUifScKJFNvdXJjZVN0b3JlU2NvcGUgPSAnTG9jYWxNYWNoaW5lJyAkU291cmNlU3RvcmVuYW1lID0gJ1JlbW90ZSBEZXNrdG9wJwokU291cmNlU3RvcmUgPSBOZXctT2JqZWN0ICAtVHlwZU5hbWUgU3lzdGVtLlNlY3VyaXR5LkNyeXB0b2dyYXBoeS5YNTA5Q2VydGlmaWNhdGVzLlg1MDlTdG9yZSAgLUFyZ3VtZW50TGlzdCAkU291cmNlU3RvcmVuYW1lLCAkU291cmNlU3RvcmVTY29wZSAkU291cmNlU3RvcmUuT3BlbihbU3lzdGVtLlNlY3VyaXR5LkNyeXB0b2dyYXBoeS5YNTA5Q2VydGlmaWNhdGVzLk9wZW5GbGFnc106OlJlYWRPbmx5KQokY2VydCA9ICRTb3VyY2VTdG9yZS5DZXJ0aWZpY2F0ZXMgfCBXaGVyZS1PYmplY3QgIC1GaWx0ZXJTY3JpcHQgeyAkXy5zdWJqZWN0IC1saWtlICcqJyB9CiREZXN0U3RvcmVTY29wZSA9ICdMb2NhbE1hY2hpbmUnICREZXN0U3RvcmVOYW1lID0gJ015JwokRGVzdFN0b3JlID0gTmV3LU9iamVjdCAgLVR5cGVOYW1lIFN5c3RlbS5TZWN1cml0eS5DcnlwdG9ncmFwaHkuWDUwOUNlcnRpZmljYXRlcy5YNTA5U3RvcmUgIC1Bcmd1bWVudExpc3QgJERlc3RTdG9yZU5hbWUsICREZXN0U3RvcmVTY29wZSAkRGVzdFN0b3JlLk9wZW4oW1N5c3RlbS5TZWN1cml0eS5DcnlwdG9ncmFwaHkuWDUwOUNlcnRpZmljYXRlcy5PcGVuRmxhZ3NdOjpSZWFkV3JpdGUpICREZXN0U3RvcmUuQWRkKCRjZXJ0KQokU291cmNlU3RvcmUuQ2xvc2UoKSAkRGVzdFN0b3JlLkNsb3NlKCkKd2lucm0gY3JlYXRlIHdpbnJtL2NvbmZpZy9saXN0ZW5lcj9BZGRyZXNzPSorVHJhbnNwb3J0PUhUVFBTICBgQGB7SG9zdG5hbWU9YCIoJGNlcnRJZClgImA7Q2VydGlmaWNhdGVUaHVtYnByaW50PWAiKCRjZXJ0LlRodW1icHJpbnQpYCJgfQpSZXN0YXJ0LVNlcnZpY2Ugd2lucm0gPC9wb3dlcnNoZWxsPg==', 'SecurityGroup.0': 'am_offices_sg', 'ImageId': 'ami-a8592cdb', 'KeyName': 'acorcoles-saltstack-master-default', 'MaxCount': 1, 'Action': 'RunInstances', 'MinCount': 1, 'InstanceType': 't2.medium'}}
+[DEBUG   ] Using AWS endpoint: ec2.eu-west-1.amazonaws.com
+[DEBUG   ] AWS Request: https://ec2.eu-west-1.amazonaws.com/?Action=RunInstances&ImageId=ami-a8592cdb&InstanceType=t2.medium&KeyName=acorcoles-saltstack-master-default&MaxCount=1&MinCount=1&SecurityGroup.0=am_offices_sg&UserData=PHBvd2Vyc2hlbGw%2BIE5ldy1OZXRGaXJld2FsbFJ1bGUgLU5hbWUgIlNNQjQ0NSIgLURpc3BsYXlOYW1lICJTTUI0NDUiIC1Qcm90b2NvbCBUQ1AgLUxvY2FsUG9ydCA0NDUgTmV3LU5ldEZpcmV3YWxsUnVsZSAtTmFtZSAiV0lOUk01OTg2IiAtRGlzcGxheU5hbWUgIldJTlJNNTk4NiIgLVByb3RvY29sIFRDUCAtTG9jYWxQb3J0IDU5ODYKd2lucm0gcXVpY2tjb25maWcgLXEgd2lucm0gc2V0IHdpbnJtL2NvbmZpZy93aW5ycyAnQHtNYXhNZW1vcnlQZXJTaGVsbE1CPSIzMDAifScgd2lucm0gc2V0IHdpbnJtL2NvbmZpZyAnQHtNYXhUaW1lb3V0bXM9IjE4MDAwMDAifScgd2lucm0gc2V0IHdpbnJtL2NvbmZpZy9zZXJ2aWNlL2F1dGggJ0B7QmFzaWM9InRydWUifScKJFNvdXJjZVN0b3JlU2NvcGUgPSAnTG9jYWxNYWNoaW5lJyAkU291cmNlU3RvcmVuYW1lID0gJ1JlbW90ZSBEZXNrdG9wJwokU291cmNlU3RvcmUgPSBOZXctT2JqZWN0ICAtVHlwZU5hbWUgU3lzdGVtLlNlY3VyaXR5LkNyeXB0b2dyYXBoeS5YNTA5Q2VydGlmaWNhdGVzLlg1MDlTdG9yZSAgLUFyZ3VtZW50TGlzdCAkU291cmNlU3RvcmVuYW1lLCAkU291cmNlU3RvcmVTY29wZSAkU291cmNlU3RvcmUuT3BlbihbU3lzdGVtLlNlY3VyaXR5LkNyeXB0b2dyYXBoeS5YNTA5Q2VydGlmaWNhdGVzLk9wZW5GbGFnc106OlJlYWRPbmx5KQokY2VydCA9ICRTb3VyY2VTdG9yZS5DZXJ0aWZpY2F0ZXMgfCBXaGVyZS1PYmplY3QgIC1GaWx0ZXJTY3JpcHQgeyAkXy5zdWJqZWN0IC1saWtlICcqJyB9CiREZXN0U3RvcmVTY29wZSA9ICdMb2NhbE1hY2hpbmUnICREZXN0U3RvcmVOYW1lID0gJ015JwokRGVzdFN0b3JlID0gTmV3LU9iamVjdCAgLVR5cGVOYW1lIFN5c3RlbS5TZWN1cml0eS5DcnlwdG9ncmFwaHkuWDUwOUNlcnRpZmljYXRlcy5YNTA5U3RvcmUgIC1Bcmd1bWVudExpc3QgJERlc3RTdG9yZU5hbWUsICREZXN0U3RvcmVTY29wZSAkRGVzdFN0b3JlLk9wZW4oW1N5c3RlbS5TZWN1cml0eS5DcnlwdG9ncmFwaHkuWDUwOUNlcnRpZmljYXRlcy5PcGVuRmxhZ3NdOjpSZWFkV3JpdGUpICREZXN0U3RvcmUuQWRkKCRjZXJ0KQokU291cmNlU3RvcmUuQ2xvc2UoKSAkRGVzdFN0b3JlLkNsb3NlKCkKd2lucm0gY3JlYXRlIHdpbnJtL2NvbmZpZy9saXN0ZW5lcj9BZGRyZXNzPSorVHJhbnNwb3J0PUhUVFBTICBgQGB7SG9zdG5hbWU9YCIoJGNlcnRJZClgImA7Q2VydGlmaWNhdGVUaHVtYnByaW50PWAiKCRjZXJ0LlRodW1icHJpbnQpYCJgfQpSZXN0YXJ0LVNlcnZpY2Ugd2lucm0gPC9wb3dlcnNoZWxsPg%3D%3D&Version=2014-10-01
+...
+```
+
+If I run `base64 -d` on the userdata, I get:
+
+```
+<powershell> New-NetFirewallRule -Name "SMB445" -DisplayName "SMB445" -Protocol TCP -LocalPort 445 New-NetFirewallRule -Name "WINRM5986" -DisplayName "WINRM5986" -Protocol TCP -LocalPort 5986
+winrm quickconfig -q winrm set winrm/config/winrs '@{MaxMemoryPerShellMB="300"}' winrm set winrm/config '@{MaxTimeoutms="1800000"}' winrm set winrm/config/service/auth '@{Basic="true"}'
+$SourceStoreScope = 'LocalMachine' $SourceStorename = 'Remote Desktop'
+$SourceStore = New-Object  -TypeName System.Security.Cryptography.X509Certificates.X509Store  -ArgumentList $SourceStorename, $SourceStoreScope $SourceStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+$cert = $SourceStore.Certificates | Where-Object  -FilterScript { $_.subject -like '*' }
+$DestStoreScope = 'LocalMachine' $DestStoreName = 'My'
+$DestStore = New-Object  -TypeName System.Security.Cryptography.X509Certificates.X509Store  -ArgumentList $DestStoreName, $DestStoreScope $DestStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite) $DestStore.Add($cert)
+$SourceStore.Close() $DestStore.Close()
+winrm create winrm/config/listener?Address=*+Transport=HTTPS  `@`{Hostname=`"($certId)`"`;CertificateThumbprint=`"($cert.Thumbprint)`"`}
+Restart-Service winrm </powershell>
+```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.11.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.10.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```

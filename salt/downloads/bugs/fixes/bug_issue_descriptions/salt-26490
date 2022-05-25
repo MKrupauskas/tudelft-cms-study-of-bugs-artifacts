@@ -1,0 +1,53 @@
+I am still still seeing this issue on version 2015.5.0-1, which have #10006.
+On Master:
+
+```
+[root@master ~]# salt --async --subset=10 * cmd.run 'sleep 20m; echo hello'
+Executed command with job ID: 20150819121240993912
+```
+
+On minion:
+
+```
+[root@minion1 proc]# pstree -p
+systemd(1)-+-agetty(725)
+::::::::::::
+|-salt-minion(3342)---salt-minion(3345)-+-{salt-minion}(3346)
+| |-{salt-minion}(3375)
+| |-{salt-minion}(3376)
+| |-{salt-minion}(3396)
+| `-{salt-minion}(3397)
+|-salt-minion(4446)---sh(4447)---sleep(4448)
+```
+
+Kill from master:
+
+```
+[root@master ~]# salt * saltutil.kill_job 20150819121240993912
+perfdash.eng.riftio.com:
+Signal 9 sent to job 20150819121240993912 at pid 3926
+bvc.novalocal:
+Signal 9 sent to job 20150819121240993912 at pid 4446
+```
+
+After kill command check on minion:
+
+```
+systemd(1)-+-agetty(725)
+:::::::::::::
+|-salt-minion(3342)---salt-minion(3345)-+-{salt-minion}(3346)
+| |-{salt-minion}(3375)
+| |-{salt-minion}(3376)
+| |-{salt-minion}(3396)
+| `-{salt-minion}(3397)
+|-sh(4447)---sleep(4448)
+```
+
+If I understand it correctly, file /var/cache/salt/minion/proc/20150819121240993912 should have the child process ids of job 20150819121240993912, however it appears doesn't have them:
+
+```
+[root@minion1 proc]# cat /var/cache/salt/minion/proc/20150819121240993912
+tgt_typeglobjid20150819121240993912tgt*pid^retuserrootargsleep 20m; echo hellofuncmd.run
+```
+
+Please reference to old bug: https://github.com/saltstack/salt/issues/9855

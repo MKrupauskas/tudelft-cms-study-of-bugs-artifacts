@@ -1,0 +1,155 @@
+The issue I have here is that when I am using custom file_repos locations winrepo does not get searched. winrepo is only searched if my state file is in base.
+
+I've looked through the salt-users mailing list and reported issues on salt, came across #10894 which sounds similar. I am trying to install "Filezilla Server" using saltstack onto a box onto a minion that is part of the test environment. This minion has the filezilla/init.sls defined in the test file_roots and it its located here things fail. If I move the statefile to base then things work fine.
+
+There is perhaps some misunderstanding I have on how the file_roots relates to winrepo. Maybe I need to add extra locations of winrepo but I can't see it documented anywhere.
+
+My winrepo is configured as default
+
+```
+win_repo: '/srv/salt/win/repo'
+win_repo_mastercachefile: '/srv/salt/win/repo/winrepo.p'
+```
+
+My /etc/salt/master.d/file_roots.conf
+
+```
+file_roots:
+  base:
+    - /srv/salt
+  development:
+    - /srv/salt/development/states
+  test:
+    - /srv/salt/test/states
+  acceptance:
+    - /srv/salt/acceptance/states
+  production:
+    - /srv/salt/production/states
+  lab:
+    - /srv/salt/lab/states
+[root@sahsalt9358 master.d]#
+```
+
+When filezilla/init.sls is sitting in my file_roots test section it doesnt seem to search winrepo
+
+```
+----------
+          ID: filezilla
+    Function: pkg.installed
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "C:\salt\bin\lib\site-packages\salt\state.py", line 1563, in call
+                  **cdata['kwargs'])
+                File "C:\salt\bin\lib\site-packages\salt\states\pkg.py", line 947, in installed
+                  **kwargs)
+                File "C:\salt\bin\lib\site-packages\salt\modules\win_pkg.py", line 540, in install
+                  __salt__['cp.hash_file'](cached_pkg):
+                File "C:\salt\bin\lib\site-packages\salt\modules\cp.py", line 639, in hash_file
+                  return __context__['cp.fileclient'].hash_file(path, saltenv)
+                File "C:\salt\bin\lib\site-packages\salt\fileclient.py", line 1145, in hash_file
+                  path = self._check_proto(path)
+                File "C:\salt\bin\lib\site-packages\salt\fileclient.py", line 66, in _check_proto
+                  if not path.startswith('salt://'):
+              AttributeError: 'bool' object has no attribute 'startswith'
+     Started: 13:59:25.416000
+    Duration: 1250.0 ms
+     Changes:
+----------
+```
+
+When filezilla/init.sls is moved to base it works (ignore the fact that it says failed, thats another issue, it does correctly install the binary)
+
+```
+----------
+          ID: filezilla
+    Function: pkg.installed
+      Result: False
+     Comment: The following packages failed to install/update: filezilla=0.9.51
+     Started: 14:05:15.216000
+    Duration: 5129.0 ms
+     Changes:
+----------
+```
+
+salt-master
+
+```
+[root@salt-master salt]# salt --versions-report
+           Salt: 2015.5.0
+         Python: 2.7.5 (default, Jun 17 2014, 18:11:42)
+         Jinja2: 2.7.3
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+[root@sahsalt9358 salt]#
+```
+
+windows-minion
+
+```
+c:\salt>salt-call.bat --versions-report
+           Salt: 2015.5.0
+         Python: 2.7.8 (default, Jun 30 2014, 16:08:48) [MSC v.1500 64 bit (AMD64)]
+         Jinja2: 2.7.3
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.5
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+
+c:\salt>
+```
+
+My filezilla winrepo config
+
+```
+[root@salt-master repo]# cat filezilla/init.sls
+filezilla:
+  0.9.51:
+    installer: 'salt://win/repo/filezilla/FileZilla_Server-0_9_51.exe'
+    full_name: 'Filezilla Server 0.9.51'
+    locale: en_US
+    reboot: False
+    install_flags: ' /S '
+    uninstaller: 'C:\Program Files (x86)\FileZilla Server\Uninstall.exe'
+    uninstall_flags: ' /S'
+    refresh: true
+[root@salt-master repo]#
+```
+
+My filezilla/init.sls
+
+```
+filezilla:
+  pkg.installed:
+    - normalize: False
+#    - name: 'FileZilla Server'
+#    - name: 'Filezilla Server 0.9.51'
+#    - refresh: True
+
+'C:\Program Files (x86)\FileZilla Server\FileZilla Server.xml':
+  file.managed:
+    - source: salt://filezilla/filezilla_server.xml
+    - template: jinja
+
+filezillas:
+  service.running:
+    - name: 'FileZilla Server'
+    - enable: True
+#    - require:
+#      - pkg: filezilla
+```

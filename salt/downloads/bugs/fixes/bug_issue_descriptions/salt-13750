@@ -1,0 +1,79 @@
+Environment:
+- Ubuntu 12.04 64bit
+- Salt 2014.1.5 via Debian package, with manual changes to:
+  - `salt/modules/dockerio.py` - using git develop
+  - `salt/states/dockerio.py` - using git develop
+- Docker 1.0.1
+- docker-py 0.3.2
+- docker private registry 0.7.3 running on master:5000
+
+This minimal working example:
+
+```
+$ sudo salt 'master' docker.build tag=master:5000/petar/cpu_stress_test.worker path=/tmp/docker.cpu_stress_test/
+```
+
+returns:
+
+```
+master:
+    ----------
+    comment:
+
+    id:
+        None
+    out:
+        Successfully built f4ade7b3679e
+
+    status:
+        True
+```
+
+Please observe the `id` field is not populated.
+
+When used in this example:
+
+```
+cpu_stress_test_worker_image:
+  docker.built:
+    - name: "master:5000/petar/cpu_stress_test.worker"
+    - path: /tmp/docker.cpu_stress_test/
+  module.wait:
+    - name: docker.push
+    - repo: "master:5000/petar/cpu_stress_test.worker"
+    - watch:
+      - docker: cpu_stress_test_worker_image
+```
+
+this bug also prevents the `docker.built` state from populating the `changes` returner field, thus preventing the `module.wait` state from `watch`ing changes in `docker.built` as seen here:
+
+```
+          ID: cpu_stress_test_worker_image
+    Function: docker.built
+        Name: master:5000/petar/cpu_stress_test.worker
+      Result: True
+     Comment: Successfully built 723ef42810d6
+     Changes:
+----------
+          ID: cpu_stress_test_worker_image
+    Function: module.wait
+        Name: docker.push
+      Result: True
+     Comment:
+     Changes:
+```
+
+It can be additionally confirmed there was no `docker.push` call by examining the private registry log:
+
+```
+$ sudo docker logs docker-private-registry
+2014-06-26 00:47:37 [1] [INFO] Starting gunicorn 18.0
+2014-06-26 00:47:37 [1] [INFO] Listening at: http://0.0.0.0:5000 (1)
+2014-06-26 00:47:37 [1] [INFO] Using worker: gevent
+2014-06-26 00:47:37 [18] [INFO] Booting worker with pid: 18
+2014-06-26 00:47:38 [19] [INFO] Booting worker with pid: 19
+2014-06-26 00:47:38 [20] [INFO] Booting worker with pid: 20
+2014-06-26 00:47:38 [27] [INFO] Booting worker with pid: 27
+```
+
+When the original bug is resolved the second issue should go away by itself.

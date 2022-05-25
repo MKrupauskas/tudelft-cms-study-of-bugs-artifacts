@@ -1,0 +1,78 @@
+`pkgrepo.managed` (and, in particular, `aptpkg`'s `_consolidate_repo_sources()` function) leaves duplicate entries in the sources.list if a previous, otherwise identical, entry ends in a `/`.
+
+The following exemplifies that:
+
+```
+root@salttest-debian-7-6:~# salt --versions
+           Salt: 2014.7.0
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 13.1.0
+           RAET: Not Installed
+            ZMQ: 3.2.3
+           Mako: 0.7.0
+
+root@salttest-debian-7-6:~# cat /srv/salt/salttest/top.sls
+base:
+  '*':
+    - repo.wheezy_saltstack
+root@salttest-debian-7-6:~# cat /srv/salt/salttest/repo/wheezy_saltstack.sls 
+include:
+  - repo.common
+
+repo-wheezy-saltstack:
+  pkgrepo.managed:
+    - humanname: Debian Salt Backporting
+    - name: deb http://debian.saltstack.com/debian wheezy-saltstack main
+    - dist: wheezy-saltstack
+    - comps: main
+    - key_url: http://debian.saltstack.com/debian-salt-team-joehealy.gpg.key
+    - consolidate: True
+    - require:
+      - pkg: python-apt
+root@salttest-debian-7-6:~# salt '*' cmd.run "cat /etc/apt/sources.list"
+jid: 20141211130741063605
+salttest-debian-7-6:
+    deb http://debian.saltstack.com/debian/ wheezy-saltstack main
+root@salttest-debian-7-6:~# salt '*' state.highstate
+jid: 20141211130754677801
+salttest-debian-7-6:
+----------
+          ID: python-apt
+    Function: pkg.installed
+      Result: True
+     Comment: Package python-apt is already installed.
+     Started: 13:07:55.620799
+    Duration: 115.725 ms
+     Changes:   
+----------
+          ID: repo-wheezy-saltstack
+    Function: pkgrepo.managed
+        Name: deb http://debian.saltstack.com/debian wheezy-saltstack main
+      Result: True
+     Comment: Configured package repo 'deb http://debian.saltstack.com/debian wheezy-saltstack main'
+     Started: 13:07:55.736833
+    Duration: 1280.234 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total states run:     2
+root@salttest-debian-7-6:~# salt '*' cmd.run "cat /etc/apt/sources.list"
+jid: 20141211130801910384
+salttest-debian-7-6:
+    deb http://debian.saltstack.com/debian/ wheezy-saltstack main
+    deb http://debian.saltstack.com/debian wheezy-saltstack main
+```
+
+This is, naturally, rather suboptimal behaviour and it would be much preferred if `pkgrepo.managed` and `_consolidate_repo_sources()` would not leave duplicate entries in the sources.list as doing so causes warnings on `apt-get update`.

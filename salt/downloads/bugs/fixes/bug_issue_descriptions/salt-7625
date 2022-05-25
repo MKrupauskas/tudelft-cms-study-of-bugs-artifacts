@@ -1,0 +1,53 @@
+Hi, after upgrading to 0.17 I started getting an error "Undefined jinja variable; line 353 in template" when I try and set the following variable using grains. This worked before, did something change?
+
+``` yaml
+{%- set hostname = grains['id'] %}
+
+snmp-package:
+  pkg:
+    - name: {{ pillar['packages']['snmp'] }}
+    - installed
+
+snmp-service:
+  service:
+    - name: {{ pillar['packages']['snmp-service'] }}
+    - running
+    - watch:
+      - pkg: snmp-package
+      - file: /etc/snmp/snmpd.conf
+  file.managed:
+    - name: /etc/snmp/snmpd.conf
+    - user: root
+    - group: root
+    - mode: 600
+    - source: salt://linux-server/snmp/etc/snmpd.jinja
+    - template: jinja
+    - require:
+      - pkg: snmp-package
+
+{% if 'postfix' in pillar['servers'][hostname]['roles'] %}
+/etc/snmp/snmp_post_queue.sh:
+  file.managed:
+    - user: root
+    - group: root
+    - mode: 655
+    - source: salt://linux-server/snmp/etc/snmp_post_queue.sh
+    - require:
+      - pkg: snmp-package
+{% endif %}
+```
+
+``` python
+am-vm-salt01:
+    Data failed to compile:
+----------
+    Rendering SLS linux-server.snmp failed, render error: Undefined jinja variable; line 353 in template
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1929, in render_state
+    rendered_sls=mods
+  File "/usr/lib/python2.7/dist-packages/salt/template.py", line 69, in compile_template
+    ret = render(input_data, env, sls, **render_kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/renderers/jinja.py", line 42, in render
+    tmp_data.get('data', 'Unknown render error in jinja renderer')
+SaltRenderError: Undefined jinja variable; line 353 in template
+```

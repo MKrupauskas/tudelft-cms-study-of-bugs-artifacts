@@ -1,0 +1,102 @@
+Hi! I'm not sure if this has been reported before or if other users have the same issue. I tried to search but could probably have missed something.
+
+I installed the latest Windows version (2014.7.0) on my minion and are experiencing some issues with the service-module.
+
+Example:
+
+```
+[root@localhost ~]# salt 'game-test' service.status salt-minion
+game-test: 
+TypeError encountered executing service.status: argument of type 'int' is not iterable. See debug log for more info.
+```
+
+Or executed in a state-file:
+
+```
+          ID: check_service
+    Function: service.running
+        Name: 135f1bc0-6c6e-11e4-9803-0800200c9a66
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "salt/state.py", line 1533, in call
+                File "salt/states/service.py", line 290, in running
+                File "salt/modules/win_service.py", line 256, in status
+                File "subprocess.py", line 618, in list2cmdline
+              TypeError: argument of type 'int' is not iterable
+     Started: 09:06:33.825000
+    Duration: 2320.0 ms
+     Changes:
+```
+
+If i downgrade my Windows minion back to 2014.1.13 it works fine again. I looked in win_service.py and the only difference between these versions are that the sc query-command is using list2cmdline in the non-working version.
+
+I "fixed" this temporarily by comment the list2cmdline-part and paste the cmd-line from the old version in:
+
+``` python
+def status(name, sig = None):
+    """
+    Return the status for a service, returns the PID or an empty string if the
+    service is running or not, pass a signature to use to find the service via
+    ps
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' service.status <service name> [service signature]
+    """
+    #cmd = list2cmdline(['sc',
+    # 'query',
+    # name,
+    # BUFFSIZE])
+    cmd = 'sc query "{0}" {1}'.format(name, BUFFSIZE)
+    statuses = __salt__['cmd.run'](cmd).splitlines()
+    for line in statuses:
+        if 'RUNNING' in line:
+            return True
+        if 'STOP_PENDING' in line:
+            return True
+
+    return False
+```
+
+Since my programming skills aren't that good, I have no idea why list2cmdline fails. Does anyone else have the same issue as I do, or know why it fails? Or am I doing something work (not impossible)?
+
+The Windows minion is running Windows 2012 R2. Versions report:
+
+```
+C:\salt>salt-minion.exe --versions-report
+           Salt: 2014.7.0
+         Python: 2.7.5 (default, May 15 2013, 22:43:36) [MSC v.1500 32 bit (Inte
+l)]
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.1.1
+           RAET: Not Installed
+            ZMQ: 4.0.4
+           Mako: Not Installed
+Traceback (most recent call last):
+  File "<string>", line 6, in <module>
+  File "__main__.py", line 726, in <module>
+  File "__main__.py", line 332, in bootstrap
+  File "__main__.py", line 359, in chainload
+  File "__main__.py", line 715, in _chainload
+  File "__main__.py", line 128, in <module>
+  File "__main__salt-minion__.py", line 17, in <module>
+  File "salt/scripts.py", line 56, in salt_minion
+  File "salt/__init__.py", line 262, in start
+  File "salt/__init__.py", line 168, in prepare
+  File "salt/utils/parsers.py", line 126, in parse_args
+  File "salt/utils/parsers.py", line 194, in print_versions_report
+AttributeError: 'module' object has no attribute 'EX_OK'
+
+```
+
+Thanks in advance
+/Daniel

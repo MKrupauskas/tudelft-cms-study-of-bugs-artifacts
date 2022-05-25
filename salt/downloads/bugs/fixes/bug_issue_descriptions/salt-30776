@@ -1,0 +1,51 @@
+The way, the `git_pillar` cache in `/var/cache/salt/master/git_pillar` is currently maintained on the master causes trouble when an item is dropped from or changed in the Master's configuration in `ext_pillar:git`.
+Every configuration change needs to be reflected in the cache's state, otherwise various (often hard to track down) issues might occur.
+In my case, I was still seeing old pillar data from a repository (and therefore different results on Minion than expected) I stopped maintaining quite some time ago. I removed it back then from my config, but its content was still present in the cache.
+- removing an item from `ext_pillar:git` leaves a stale directory behind, which is still synced to Minions
+- changing the configuration of an item in `ext_pillar:git` doesn't update the cache directory's content accordingly (e.g. changing the remote branch from `master` to `devel` will still sync the `master` branch, although the debug output of Salt will show the correct branch. This is a result of only initialising the cache directory based on the (then) provided configuration and not verifying on each run whether the cache's state matches the current configuration
+
+By using a hash of the corresponding remote/repo definition as target directory for checking out Pillar repositories and removing those not referenced by any of them should solve this issue:
+- every configuration change will cause a new cache directory per remote/repo to be created
+- removing a remote/repo configuration will cause it's directory to be deleted as it isn't referenced by any of the config hashes anymore
+
+This happens on `2015.8.3` (packages from `repo.saltstack.com`) and manually updated `salt.utils.gitfs` (a746014f7e68926778f5fa6e95ba2e84584d4d02) and `salt.runners.git_pillar` (6981bb3be737d06ecfc9dfddd15e87fade94905c) from `2015.8`.
+- GitPython (version, see below) is used
+- The new `2015.8`-style for configuring git_pillar was used.
+
+```
+    Salt Version:
+               Salt: 2015.8.3
+
+    Dependency Versions:
+             Jinja2: 2.7.2
+           M2Crypto: Not Installed
+               Mako: 0.9.1
+             PyYAML: 3.10
+              PyZMQ: 14.4.0
+             Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+               RAET: Not Installed
+            Tornado: 4.2.1
+                ZMQ: 4.0.4
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: 1.5
+              gitdb: 0.5.4
+          gitpython: 0.3.2 RC1
+              ioflo: Not Installed
+            libnacl: Not Installed
+       msgpack-pure: Not Installed
+     msgpack-python: 0.3.0
+       mysql-python: 1.2.3
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+             pygit2: Not Installed
+       python-gnupg: 0.3.6
+              smmap: 0.8.2
+            timelib: Not Installed
+
+    System Versions:
+               dist: Ubuntu 14.04 trusty
+            machine: x86_64
+            release: 3.13.0-55-generic
+             system: Ubuntu 14.04 trusty
+```

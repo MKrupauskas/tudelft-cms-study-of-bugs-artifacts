@@ -1,0 +1,88 @@
+### Description of Issue/Question
+Importing `salt.utils.rsax931` raises `OSError("Failed to initialize OpenSSL library (OPENSSL_init_crypto failed)")` with latest version of `libopenss1_1` that comes with openSUSE Tumbleweed (`1.1.0h`).
+
+However, when the `try/except` block that calls `libcrypto.OPENSSL_init_crypto()` explicitly is removed, no error is raised, but libopenssl is initialized implicitly. Implicit initialization is mentioned in [the manpage](https://www.openssl.org/docs/man1.1.0/crypto/OPENSSL_init_crypto.html):
+
+> As of version 1.1.0 OpenSSL will automatically allocate all resources that it needs so no explicit initialisation is required. Similarly it will also automatically deinitialise as required.
+
+It also mentions, that it may be called explicitly when needed
+
+> However, there way be situations when explicit initialisation is desirable or needed, for example when some non-default initialisation is required.
+
+### Steps to Reproduce Issue
+Install `libopenssl1_1-1.1.0h` (openSUSE Tumbleweed in my case):
+```bash
+sudo zypper install libopenssl1_1=1.1.0h
+```
+Create virtual environment:
+```bash
+python -m virtualenv bugreport
+source ./bugreport/bin/activate
+pip install salt
+```
+Run `python` and try to import `salt.utils.rsax931`:
+```python
+Python 2.7.14 (default, Oct 12 2017, 15:50:02) [GCC] on linux2
+Type "help", "copyright", "credits" or "license" for more information.
+>>> import salt.utils.rsax931
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "/home/alex/programming/salt-python/bugreport/lib/python2.7/site-packages/salt/utils/rsax931.py", line 86, in <module>
+    libcrypto = _init_libcrypto()
+  File "/home/alex/programming/salt-python/bugreport/lib/python2.7/site-packages/salt/utils/rsax931.py", line 77, in _init_libcrypto
+    raise OSError("Failed to initialize OpenSSL library (OPENSSL_init_crypto failed)")
+OSError: Failed to initialize OpenSSL library (OPENSSL_init_crypto failed)
+```
+With the explicit initialization commented out:
+```python
+73     # try:                                                                                                                                                                               
+74     #     if libcrypto.OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG |                                                                                                                 
+75     #                                      OPENSSL_INIT_ADD_ALL_CIPHERS |                                                                                                                
+76     #                                      OPENSSL_INIT_ADD_ALL_DIGESTS, None) != 1:                                                                                                     
+77     #         raise OSError("Failed to initialize OpenSSL library (OPENSSL_init_crypto failed)")                                                                                         
+78     # except AttributeError:                                                                                                                                                             
+79     #     # Support for OpenSSL < 1.1 (OPENSSL_API_COMPAT < 0x10100000L)                                                                                                                 
+80     #     libcrypto.OPENSSL_no_config()                                                                                                                                                  
+81     #     libcrypto.OPENSSL_add_all_algorithms_noconf() 
+```
+```python
+>>> import salt.utils.rsax931 as rsax931
+>>> rsax931.libcrypto
+<CDLL 'libcrypto.so.1.1', handle 564d2e3396f0 at 7febe0060d10>
+```
+
+### Versions Report
+Package information on `libopenssl1_1`:
+```
+zypper if libopenssl1_1                                                                                                                                                                 
+Information for package libopenssl1_1:
+--------------------------------------
+Repository     : openSUSE-Tumbleweed-Oss                    
+Name           : libopenssl1_1                              
+Version        : 1.1.0h-1.1                                 
+Arch           : x86_64                                     
+Vendor         : openSUSE                                   
+Installed Size : 3.0 MiB                                    
+Installed      : Yes                                        
+Status         : up-to-date                                 
+Source package : openssl-1_1-1.1.0h-1.1.src                 
+Summary        : Secure Sockets and Transport Layer Security
+Description    :                                            
+    OpenSSL is a software library to be used in applications that need to
+    secure communications over computer networks against eavesdropping or
+    need to ascertain the identity of the party at the other end.
+    OpenSSL contains an implementation of the SSL and TLS protocols.
+```
+Python module information:
+```
+pip show salt
+Name: salt
+Version: 2018.3.0
+Summary: Portable, distributed, remote execution and configuration management system
+Home-page: http://saltstack.org
+Author: Thomas S Hatch
+Author-email: thatch45@gmail.com
+License: Apache Software License 2.0
+Location: /home/alex/programming/salt-python/bugreport/lib/python2.7/site-packages
+Requires: Jinja2, msgpack-python, pycrypto, futures, MarkupSafe, PyYAML, tornado, requests, pyzmq
+```

@@ -1,0 +1,114 @@
+### Description of Issue/Question
+
+salt.state.archive.extracted passes a computed filename to file.managed which may not match the name of the file actually downloaded. When using a source_hash url pointing at a file with multiple hashes in it, the correct file won't be found.
+
+For example, given the following
+
+```
+gradle-pkg:
+  archive.extracted:
+    - name: /opt/
+    - source: http://skaterat.net/software-cache/gradle-2.10-bin.zip
+    - source_hash: http://skaterat.net/software-cache/SHA256SUM
+    - archive_format: zip
+    - if_missing: /opt/gradle-2.10/
+```
+
+with SHA256SUM containing (amongst other things):
+
+```
+VALIDHOSHCODE HERE  *gradle-2.10-bin.zip
+```
+
+salt/archive.py is passing "_opt_gradle-2.10_.zip" as the name argument to file.managed (by mangling the if_missing element).  This in turn causes file.managed to download the source (gradle-2.10-bin.zip) properly but search the source_hash file for "_opt_gradle-2.10_zip".  which in turn causes the checksum to fail since _opt_gradle-2.10_zip is not present
+
+Might be able to change _filename_ (file.managed first param) to _source_match_ or just _source_ to resolve in the following archive.py code:
+
+```
+        log.debug('%s is not in cache, downloading it', source_match)
+        file_result = __salt__['state.single']('file.managed',
+                                               filename,
+                                               source=source,
+                                               source_hash=source_hash,
+                                               makedirs=True,
+                                               saltenv=__env__)
+        log.debug('file.managed: {0}'.format(file_result))
+```
+
+Several workarounds:
+1. list the hash directly via `source_hash: sha256=yada-yada
+2. use the source_hash url points at a single file feature - for example:ing at a single file  such as http://skaterat.net/software/gradle-2.10-bin.zip.SHA256
+3. use a file.managed rule to mange the zip locally, have the archive.extracted rule require the local zip file.
+### Setup
+
+SHA256SUM.salt looks like:
+
+```
+62df458bc521001cd9a947643a84810ecbaa5a16b5c8e87d80df8e34c4a16fe2  7z920-x64.msi
+c9f0ba628d79886427e05b6b2833f65630ccfc49ecceaab7cff0c6723d1d6e47  Git-2.7.0.2-64-bit.exe
+66406247f745fc6f05ab382d3f8d3e120c339f34ef54b86f6dc5f6efc18fbb13  gradle-2.10-bin.zip
+5ddedc94a222f2f2d9e3d05dbe95b4d4b993529a3355aa237791339e0b9c0717  putty-0.66-installer.exe
+4867ccab1c36f33dec005e83eef8dfb6d3b166941a72400aa3c963675c2a7dae  sha256sum.exe
+s
+```
+### Steps to Reproduce Issue
+
+add the sample rule to your env and run it.  It won't pass.
+
+log snippet:
+
+```
+[DEBUG   ] Archive file s3://erecruit-qa-us-west-1/software/gradle-2.10-bin.zip is not in cache, download it
+[INFO    ] Running state [/var/cache/salt/minion/files/base/_opt_gradle-2.10_.zip] at time 18:39:18.428351
+[INFO    ] Executing state file.managed for /var/cache/salt/minion/files/base/_opt_gradle-2.10_.zip                                                                          
+[DEBUG   ] modules.file.py - extract_hash(): Extracting hash for file named: _opt_gradle-2.10_.zip
+...
+----------
+          ID: gradle-pkg
+    Function: archive.extracted
+        Name: /opt/
+      Result: False
+     Comment: File sum set for file /var/cache/salt/minion/files/base/_opt_gradle-2.10_.zip of 62df458bc521001cd9a947643a84810ecbaa5a16b5c8e87d80df8e34c4a16fe2 does not match real sum of 66406247f745fc6f05ab382d3f8d3e120c339f34ef54b86f6dc5f6efc18fbb13
+----------
+```
+### Versions Report
+
+```
+$ salt --versions-report
+Salt Version:
+           Salt: 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.10.1.el7.x86_64
+         system: CentOS Linux 7.2.1511 Core
+```

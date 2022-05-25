@@ -1,0 +1,76 @@
+raid.present on md127 devices does not issue the correct mdadm commands to determine whether the raid exists and is active. This is on salt-2017.7.01
+
+A simple state file like this:
+```
+/dev/md127:
+  raid.present:
+    - level: 0
+    - devices:
+      - /dev/sdb
+      - /dev/sdc
+    - run: True
+
+```
+Produces the following debug output from salt-call. As you can see, `mdadm` attempts to assemble the array, this operation fails because the array is already active and busy, as indicated by previous mdadm command which shows the array state "AA" (both disks active.) This state should not attempt to assemble an array, but rather should parse the previous mdadm command to verify that the array exists and the disks are active.
+```
+
+[INFO    ] Executing state raid.present for [/dev/md127]
+[INFO    ] Executing command ['mdadm', '--detail', '--scan'] in directory '/root'
+[DEBUG   ] stdout: ARRAY /dev/md/ip-172-17-16-160:127 metadata=1.2 name=ip-172-17-16-160:127 UUID=bf8ded35:21799934:4176b8e9:b5c060c6
+[INFO    ] Executing command 'mdadm -E /dev/sdb' in directory '/root'
+[DEBUG   ] output: /dev/sdb:
+          Magic : a92b4efc
+        Version : 1.2
+    Feature Map : 0x0
+     Array UUID : bf8ded35:21799934:4176b8e9:b5c060c6
+           Name : ip-172-17-16-160:127  (local to host ip-172-17-16-160)
+  Creation Time : Tue Jun 21 19:06:03 2016
+     Raid Level : raid0
+   Raid Devices : 2
+
+ Avail Dev Size : 167749616 (79.99 GiB 85.89 GB)
+    Data Offset : 16 sectors
+   Super Offset : 8 sectors
+          State : clean
+    Device UUID : 796c1a62:6e646341:7e4b2fc1:4d5fd53a
+
+    Update Time : Tue Jun 21 19:06:03 2016
+       Checksum : 1c167489 - correct
+         Events : 0
+
+     Chunk Size : 64K
+
+   Device Role : Active device 0
+   Array State : AA ('A' == active, '.' == missing)
+[INFO    ] Executing command 'mdadm -E /dev/sdc' in directory '/root'
+[DEBUG   ] output: /dev/sdc:
+          Magic : a92b4efc
+        Version : 1.2
+    Feature Map : 0x0
+     Array UUID : bf8ded35:21799934:4176b8e9:b5c060c6
+           Name : ip-172-17-16-160:127  (local to host ip-172-17-16-160)
+  Creation Time : Tue Jun 21 19:06:03 2016
+     Raid Level : raid0
+   Raid Devices : 2
+
+ Avail Dev Size : 167749616 (79.99 GiB 85.89 GB)
+    Data Offset : 16 sectors
+   Super Offset : 8 sectors
+          State : clean
+    Device UUID : aa5da059:141b2bca:88525a53:043d9d85
+
+    Update Time : Tue Jun 21 19:06:03 2016
+       Checksum : 79570122 - correct
+         Events : 0
+
+     Chunk Size : 64K
+
+   Device Role : Active device 1
+   Array State : AA ('A' == active, '.' == missing)
+[INFO    ] Executing command ['mdadm', '-A', '/dev/md127', '-v', '--run', '/dev/sdb', '/dev/sdc'] in directory '/root'
+[ERROR   ] Command '['mdadm', '-A', '/dev/md127', '-v', '--run', '/dev/sdb', '/dev/sdc']' failed with return code: 2
+[ERROR   ] output: mdadm: looking for devices for /dev/md127
+mdadm: /dev/sdb is busy - skipping
+mdadm: /dev/sdc is busy - skipping
+[ERROR   ] Raid /dev/md127 failed to be assembled.
+```

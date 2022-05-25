@@ -1,0 +1,183 @@
+I'm trying to use reactor system to revoke keys after aws informs me about terminating one of my minion instances but I'm constantly receiving that error:
+
+```
+Exception occurred in wheel key.delete: Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/client/mixins.py", line 295, in low
+    f_call = salt.utils.format_call(self.functions[fun], low, expected_extra_kws=CLIENT_INTERNAL_KEYWORDS)
+  File "/usr/lib/python2.7/site-packages/salt/utils/__init__.py", line 799, in format_call
+    '' if 'full' not in ret else ' Please update your state files.'
+SaltInvocationError: '__id__', 'state', 'order', 'name' and 'user' are invalid keyword arguments for salt.loaded.int.wheel.key.delete. If you were trying to pass additional data to be used in a template context, please populate 'context' with 'key: value' pairs.
+
+```
+
+it looks like passing arguments is broken
+
+My version report:
+
+```
+sudo salt --versions-report
+           Salt: 2015.2.0rc1
+         Python: 2.7.5 (default, Jun 17 2014, 18:11:42)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.4
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+```
+
+my reactor config:
+
+```
+external_auth:
+  pam:
+    root:
+      - .*
+      - '@runner'
+      - '@wheel'
+    Reactor:
+      - .*
+      - '@runner'
+      - '@wheel'
+
+rest_cherrypy:
+  port: 80
+  host: 0.0.0.0
+  webhook_url: /hook
+  webhook_disable_auth: True
+
+
+
+
+reactor:
+  - 'salt/minion/*/start':
+    - '/srv/a8-salt-master/reactor/auto-highstate.sls'
+
+  - 'salt/netapi/hook/ec2/autoscale':
+    - '/srv/a8-salt-master/reactor/ec2-autoscale-reactor.sls'
+```
+
+my ec2-autoscale-reactor.sls file:
+
+```
+#!py
+
+import pprint
+import os
+import time
+import json
+import requests
+import binascii
+import M2Crypto
+import salt.config as config
+
+def a8_print(text):
+    print ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>", text
+
+def run():
+    '''
+    Run the reactor
+    '''
+    a8_print("start")
+    sns = data['post']
+
+    if 'SubscribeURL' in sns:
+        a8_print("subscribe url")
+        return {}
+
+    url_check = sns['SigningCertURL'].replace('https://', '')
+    url_comps = url_check.split('/')
+
+    if not url_comps[0].endswith('.amazonaws.com'):
+        a8_print("don't end with amazonaws")
+        return {}
+
+    if not 'Subject' in sns:
+        sns['Subject'] = ''
+
+    a8_print(sns)
+
+    pem_request = requests.request('GET', sns['SigningCertURL'])
+    pem = pem_request.text
+
+    str_to_sign = (
+        'Message\n{Message}\n'
+        'MessageId\n{MessageId}\n'
+        'Subject\n{Subject}\n'
+        'Timestamp\n{Timestamp}\n'
+        'TopicArn\n{TopicArn}\n'
+        'Type\n{Type}\n'
+    ).format(**sns)
+
+    cert = M2Crypto.X509.load_cert_string(str(pem))
+    pubkey = cert.get_pubkey()
+    pubkey.reset_context(md='sha1')
+    pubkey.verify_init()
+    pubkey.verify_update(str_to_sign.encode())
+
+    decoded = binascii.a2b_base64(sns['Signature'])
+    result = pubkey.verify_final(decoded)
+
+    if result != 1:
+        a8_print("result different than 1")
+        return {}
+
+    message = json.loads(sns['Message'])
+    instance_id = str(message['EC2InstanceId'])
+
+    if 'launch' in sns['Subject']:
+        #don't react since salt-minion is already installed
+        a8_print("launching")
+        ret = {}
+    elif 'termination' in sns['Subject']:
+        a8_print("terminating {0}".format("*{0}".format(instance_id)))
+        ret = {
+            'ec2_autoscale_termination': {
+                'wheel.key.delete': [{
+                    'match': instance_id
+                 }]
+
+            }
+        }
+
+
+    return ret
+```
+
+I also collected some debugging data so maybe it will help you guys:
+
+```
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> start
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> {'SignatureVersion': '1', 'Timestamp': '2015-03-25T00:31:32.383Z', 'Signature': 'vLg0ZQrJNYi44VhQyQlmeq2V91WoFd5Ooub0yGSUqRfbNrQh2PbKYnhwQDENe99+l6tdZ3YfVXdN/QGy9PXUxPATMSJRZG2TMdABKVqLTg2Ma4esuNRCv0CD4nPhEKnaTUZcOr9QZk5PCG+/BH51N8WT1AgTZelNftNZqaXuGSoiyy1SwZenTqhhDX0XQ/MWwl4YwYW1quPjwkQ0jbNdv17NK9E6UkKkguivEhTuQhWc5tUeryHW1e5FQGsUYPFVB0MRJOxwkirn4v43uvv3hYZEeA+N5/8cHKL0zWc+IaFEdxuFBvwsGEsflC2nVmihE2wHzFhoW5jvpk/IzCpXMA==', 'Type': 'Notification', 'SigningCertURL': 'https://sns.ap-southeast-2.amazonaws.com/SimpleNotificationService-d6d679a1d18e95c2f9ffcf11f4f9e198.pem', 'MessageId': 'f3326344-ff35-5a41-9f7a-2ec8fb1164c5', 'Message': '{"StatusCode":"InProgress","Service":"AWS Auto Scaling","AutoScalingGroupName":"salt-minions-test","Description":"Terminating EC2 instance: i-1d18c5c1","ActivityId":"9a99de77-f372-4593-8207-26fd1eef88c5","Event":"autoscaling:EC2_INSTANCE_TERMINATE","Details":{"Availability Zone":"ap-southeast-2b","Subnet ID":"subnet-1c8a5f79"},"AutoScalingGroupARN":"arn:aws:autoscaling:ap-southeast-2:227882579247:autoScalingGroup:344d1626-a5d0-45b4-91bd-762369168929:autoScalingGroupName/salt-minions-test","Progress":50,"Time":"2015-03-25T00:31:32.316Z","AccountId":"227882579247","RequestId":"9a99de77-f372-4593-8207-26fd1eef88c5","StatusMessage":"","EndTime":"2015-03-25T00:31:32.316Z","EC2InstanceId":"i-1d18c5c1","StartTime":"2015-03-25T00:30:47.758Z","Cause":"At 2015-03-25T00:30:19Z a user request update of AutoScalingGroup constraints to min: 0, max: 0, desired: 0 changing the desired capacity from 1 to 0.  At 2015-03-25T00:30:47Z an instance was taken out of service in response to a difference between desired and actual capacity, shrinking the capacity from 1 to 0.  At 2015-03-25T00:30:47Z instance i-1d18c5c1 was selected for termination."}', 'UnsubscribeURL': 'https://sns.ap-southeast-2.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=arn:aws:sns:ap-southeast-2:227882579247:test-autoscalling:c5fbd144-8ad8-40a6-96c7-d38caf65c72d', 'TopicArn': 'arn:aws:sns:ap-southeast-2:227882579247:test-autoscalling', 'Subject': 'Auto Scaling: termination for group "salt-minions-test"'}
+[INFO    ] Starting new HTTPS connection (1): sns.ap-southeast-2.amazonaws.com
+[WARNING ] /usr/lib/python2.7/site-packages/requests/packages/urllib3/util/ssl_.py:79: InsecurePlatformWarning: A true SSLContext object is not available. This prevents urllib3 from configuring SSL appropriately and may cause certain SSL connections to fail. For more information, see https://urllib3.readthedocs.org/en/latest/security.html#insecureplatformwarning.
+  InsecurePlatformWarning
+
+[DEBUG   ] "GET /SimpleNotificationService-d6d679a1d18e95c2f9ffcf11f4f9e198.pem HTTP/1.1" 200 1826
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> terminating *i-1d18c5c1
+[DEBUG   ] ThreadPool executing func: <bound method WheelClient.low of <salt.wheel.WheelClient object at 0x296bf50>> with args:('key.delete', {'name': 'ec2_autoscale_termination', 'state': 'wheel', '__id__': 'ec2_autoscale_termination', '__user__': 'Reactor', 'order': 1, 'match': 'i-1d18c5c1', 'user': 'Reactor'}) kwargs{}
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Fetching from https://github.com/saltstack-formulas/salt-cloud-reactor.git
+[DEBUG   ] Sending event - data = {'fun': 'wheel.key.delete', 'jid': '20150325003132544036', 'user': 'Reactor', '_stamp': '2015-03-25T00:31:33.545273'}
+[DEBUG   ] LazyLoaded key.delete
+[DEBUG   ] Updating fileserver cache
+[DEBUG   ] This salt-master instance has accepted 2 minion keys.
+[DEBUG   ] LazyLoaded nested.output
+Exception occurred in wheel key.delete: Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/client/mixins.py", line 295, in low
+    f_call = salt.utils.format_call(self.functions[fun], low, expected_extra_kws=CLIENT_INTERNAL_KEYWORDS)
+  File "/usr/lib/python2.7/site-packages/salt/utils/__init__.py", line 799, in format_call
+    '' if 'full' not in ret else ' Please update your state files.'
+SaltInvocationError: '__id__', 'state', 'order', 'name' and 'user' are invalid keyword arguments for salt.loaded.int.wheel.key.delete. If you were trying to pass additional data to be used in a template context, please populate 'context' with 'key: value' pairs.
+
+[DEBUG   ] Sending event - data = {'jid': '20150325003132544036', 'return': 'Exception occurred in wheel key.delete: Traceback (most recent call last):\n  File "/usr/lib/python2.7/site-packages/salt/client/mixins.py", line 295, in low\n    f_call = salt.utils.format_call(self.functions[fun], low, expected_extra_kws=CLIENT_INTERNAL_KEYWORDS)\n  File "/usr/lib/python2.7/site-packages/salt/utils/__init__.py", line 799, in format_call\n    \'\' if \'full\' not in ret else \' Please update your state files.\'\nSaltInvocationError: \'__id__\', \'state\', \'order\', \'name\' and \'user\' are invalid keyword arguments for salt.loaded.int.wheel.key.delete. If you were trying to pass additional data to be used in a template context, please populate \'context\' with \'key: value\' pairs.\n', 'success': False, '_stamp': '2015-03-25T00:31:33.567739', 'user': 'Reactor', 'fun': 'wheel.key.delete'}
+```
+
+Does anyone have any idea how to fix it?

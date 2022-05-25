@@ -1,0 +1,40 @@
+```
+2015-10-23 20:30:03,008 [salt.utils.verify][WARNING ][27274] Insecure logging configuration detected! Sensitive data may be logged.
+2015-10-23 20:30:03,009 [salt.cli.daemons ][INFO    ][27274] Setting up the Salt Minion ""
+2015-10-23 20:30:03,009 [salt.utils.parsers][INFO    ][27274] True
+2015-10-23 20:30:03,010 [salt.utils.parsers][INFO    ][27274] 27248
+2015-10-23 20:30:03,010 [salt.utils.parsers][INFO    ][27274] True
+2015-10-23 20:30:13,020 [salt.cli.daemons ][ERROR   ][27274] Salt minion is already running. Exiting.
+```
+
+I added some extra logging to get those 3 lines before the error: 
+
+``` python
+    def check_running(self):
+        '''
+        Check if a pid file exists and if it is associated with
+        a running process.
+        '''
+        logger = salt.log.setup.logging.getLogger(__name__)
+        logger.info(self.check_pidfile())
+        if self.check_pidfile():
+            logger.info(self.get_pidfile())
+            logger.info(self.is_daemonized(self.get_pidfile()))
+            import time
+            time.sleep(10)
+            return self.is_daemonized(self.get_pidfile())
+```
+
+The process in this case:
+
+```
+root     27248  5.4  0.1 174124 22448 ?        Ss   20:30   0:00 /usr/bin/python2.7 /usr/lib/python-exec/python2.7/salt-minion --log-level=debug
+root     27274 37.5  0.3 311364 50172 ?        Sl   20:30   0:01  \_ /usr/bin/python2.7 /usr/lib/python-exec/python2.7/salt-minion --log-level=debug
+root     27372  0.0  0.2 304780 47100 ?        S    20:30   0:00      \_ /usr/bin/python2.7 /usr/lib/python-exec/python2.7/salt-minion --log-level=debug
+```
+
+The problem _seems_ to be that is_daemonized() actually only checks to see if the process is running, it doesn't check to see if the process is its parent, so 27274 is finding 27248 in the pid file and thinking there's another instance running.
+
+I've had to revert to an earlier revision anyway, and it only seems to happen when launched from openrc for the moment but it's rather frustrating.
+
+Change was introduced in #27017 by @cachedout ... help?

@@ -1,0 +1,39 @@
+Using version `2015.8.0` 
+
+If the given URL results in a redirection (30X) and the redirection response includes a non empty body, this body will be included in the resulting downloaded file.
+
+I came across this when using `states.archive.extracted`, using a github url (in `source`) in the form of
+`https://github.com/MY-ORG/MY-REPO/archive/master.zip` which in turn will redirect to 
+`https://codeload.github.com/MY-ORG/MY-REPO/zip/master`
+In addition, github will add the following body to the redirection response
+
+```
+<html><body>You are being <a href="https://codeload.github.com/MY-ORG/MY-REPO/zip/master">redirected</a>.</body></html>
+```
+
+The end result was that the downloaded file included this body in the prefix of the downloaded zip file, resulting in a malformed zip file.
+
+A self contained reproduction:
+
+`server.py` (`pip install bottle` is required)
+
+``` python
+from bottle import *
+
+@route('/one')
+def one():
+    try:
+        redirect('/two')
+    except HTTPResponse as e:
+        e.body = 'redirect|'
+        raise
+
+@route('/two')
+def two():
+    return 'two'
+
+run()
+```
+1. `python server.py`
+2. `salt-call cp.get_url http://localhost:8080/one $PWD/one`
+3. `cat one` prints `redirect|two`

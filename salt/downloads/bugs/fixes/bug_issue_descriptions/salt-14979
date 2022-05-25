@@ -1,0 +1,44 @@
+I have a cron job on a minion that contains the following:
+
+```
+*/5 * * * * salt-call -l quiet --log-file-level error --out-indent 4 --out-file /var/log/salt/cron state.sls somestate
+```
+
+I also have a salt state that sets permissions on everything in /var/log/salt to lock down access. However, every time the salt-call command is executed (regardless of it being in a cron job or not), the permissions on /var/log/salt/cron get reverted to 0644 (I want them set to 0600). This means that my state is always reporting permission changes, when it should not need to.
+
+Here is a demo of the behaviour I expect (where salt-call should behave like test.sh):
+
+```
+# ls -l
+total 4
+-rw------- 1 root root  0 Aug 14 17:29 test
+-rwxr-xr-x 1 root root 60 Aug 14 17:29 test.sh
+# cat test.sh 
+#!/bin/bash
+echo test > /root/test
+echo test2 > /root/test2
+# ./test.sh 
+# ls -l
+total 12
+-rw------- 1 root root  5 Aug 14 17:29 test
+-rw-r--r-- 1 root root  6 Aug 14 17:29 test2
+-rwxr-xr-x 1 root root 60 Aug 14 17:29 test.sh
+#
+```
+
+Notice how the file that already exists (which has its contents overwritten) has the file permissions persist as 0600. The test2 file has 0644 as per the default 0022 umask for this environment.
+
+Further, I'm really surprised that --out-file is overwriting the file, as opposed to just appending to it. In order to get the expected functionality, one would have to create a salt-call wrapper script.
+
+```
+           Salt: 2014.1.7
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.3
+```

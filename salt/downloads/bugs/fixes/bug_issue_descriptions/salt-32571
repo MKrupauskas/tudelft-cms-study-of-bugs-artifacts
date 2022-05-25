@@ -1,0 +1,132 @@
+### Description of Issue/Question
+
+```
+----------
+          ID: openvpn
+    Function: pkg.installed
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "C:\salt\bin\lib\site-packages\salt\state.py", line 1626, in call
+                  **cdata['kwargs'])
+                File "C:\salt\bin\lib\site-packages\salt\loader.py", line 1492, in wrapper
+                  return f(*args, **kwargs)
+                File "c:\salt\var\cache\salt\minion\extmods\states\pkg.py", line 984, in installed
+                  **kwargs)
+                File "c:\salt\var\cache\salt\minion\extmods\states\pkg.py", line 294, in _find_install_targets
+                  cur_pkgs = __salt__['pkg.list_pkgs'](versions_as_list=True, **kwargs)
+                File "c:\salt\var\cache\salt\minion\extmods\modules\win_pkg.py", line 244, in list_pkgs
+                  name_map = _get_name_map()
+                File "c:\salt\var\cache\salt\minion\extmods\modules\win_pkg.py", line 1067, in _get_name_map
+                  name_map = get_repo_data().get('name_map', {})
+                File "c:\salt\var\cache\salt\minion\extmods\modules\win_pkg.py", line 1050, in get_repo_data
+                  'Windows repo cache doesn\'t exist, pkg.refresh_db likely '
+              CommandExecutionError: Windows repo cache doesn't exist, pkg.refresh_db likely needed
+```
+### Setup
+
+```
+openvpn:
+  file:
+    - managed
+    - name: '{{ opts['cachedir'] }}\openvpn.cer'
+    - source: salt://openvpn/client/openvpn.cer
+  cmd:
+    - wait
+    - cwd: {{ opts['cachedir'] }}
+    - name: certutil -addstore "TrustedPublisher" openvpn.cer
+    - watch:
+      - file: openvpn
+  pkg:
+    - installed
+    - require:
+      - cmd: openvpn
+  service:
+    - running
+    - name: OpenVPNService
+    - enable: True
+    - watch:
+      - pkg: openvpn
+```
+### Steps to Reproduce Issue
+- The master config file:
+
+```
+file_roots:
+  base:
+    - /srv/salt
+  windows:
+    - /path/to/windows
+
+winrepo_dir: /path/to/windows/win/repo
+winrepo_dir_ng: /path/to/windows/win/repo-ng
+...
+```
+- `salt-run winrepo.update_git_repos`
+- `salt -G 'os:windows' pkg.refresh_db saltenv='windows'`
+
+and the cache file exists in the `windows` env (not in `base`):
+
+```
+     Volume in drive C is Windows 10
+     Volume Serial Number is CA31-1C92
+
+     Directory of c:\salt\var\cache\salt\minion\files\windows\win\repo-ng
+
+    04/13/2016  10:33 PM    <DIR>          .
+    04/13/2016  10:33 PM    <DIR>          ..
+    04/13/2016  10:33 PM    <DIR>          salt-winrepo-ng
+    04/13/2016  10:33 PM           163,245 winrepo.p
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.1
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: 0.22
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.8 (default, Aug 24 2014, 21:26:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.9.2
+       cherrypy: 5.1.0
+       dateutil: 2.2
+          gitdb: 0.6.4
+      gitpython: 1.0.2
+          ioflo: Not Installed
+        libnacl: 1.4.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.13
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+
+System Versions:
+           dist:
+        machine: x86_64
+        release: 14.5.0
+         system: 10.10.5 -- x86_64
+```
+
+and on the minion:
+
+```
+    ----------
+    saltversion:
+        2015.8.8
+```
+
+The reason is missing `saltenv` when calling `get_repo_data()` and other functions:
+- https://github.com/saltstack/salt/blob/develop/salt/modules/win_pkg.py#L1112
+- https://github.com/saltstack/salt/blob/develop/salt/modules/win_pkg.py#L1068
+
+I will create a PR later to fix it.

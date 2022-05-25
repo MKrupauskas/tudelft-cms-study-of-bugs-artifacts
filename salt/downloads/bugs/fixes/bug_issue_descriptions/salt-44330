@@ -1,0 +1,83 @@
+### Description of Issue/Question
+
+Running salt-cloud with a subnetname in the profile will fail if not all subnets have tags.
+In salt/cloud/clouds/ec2.py the function def: def _get_subnetname_id(subnetname), a KeyError will be raised on this check:
+
+if tag['key'] == 'Name' and tag['value'] == subnetname:
+
+This is because tag might not be a list or dict, and might not have anything in there at all. This happens because aws.query a few lines up returns a collection of subnets, but not every subnet has tags, i.e. default subnets in a default VPC have no tags at all. This causes tagSet to be non-existent, which in turn causes the tags variable to be nothing.
+
+Adding a quick check to make sure tagSet actually exists before continuing fixes this for me. The def then looks like this:
+
+````
+    '''
+    Returns the SubnetId of a SubnetName to use
+    '''
+    params = {'Action': 'DescribeSubnets'}
+    for subnet in aws.query(params, location=get_location(),
+               provider=get_provider(), opts=__opts__, sigver='4'):
+        tags = subnet.get('tagSet', {}).get('item', {})
+        if(subnet.has_key("tagSet")):
+            if not isinstance(tags, list):
+                tags = [tags]
+            for tag in tags:
+                if tag['key'] == 'Name' and tag['value'] == subnetname:
+                    log.debug('AWS Subnet ID of {0} is {1}'.format(
+                        subnetname,
+                        subnet['subnetId'])
+                    )
+                    return subnet['subnetId']
+    return None
+````
+The added line was if(subnet.has_key("tagSet")): and I indented everything below it to skip that specific loop run.
+
+I'm not 100% sure what this is supposed to help with:
+````
+            if not isinstance(tags, list):
+                tags = [tags]
+````
+perhaps it was an earlier attempt at detecting the existence, but instead of breaking the loop it created a list of whatever tags was.
+
+### Versions Report
+````
+Salt Version:
+           Salt: 2017.7.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.10 (default, Jul 15 2017, 17:16:57)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.2
+            ZMQ: 4.2.2
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 17.2.0
+         system: Darwin
+        version: 10.13.1 x86_64
+````

@@ -1,0 +1,57 @@
+The new AWS eu-central-1/Frankfurt region supports S3 API signatures of version 4 only.  All the other regions support both versions 2 and 4. I noticed this  during Salt masters deployment and S3 pillar module configuration in Frankfurt.  As a result no pillar files will be synced in such configuration as the module supports version 2 only.  Here is HTTP connection dump which confirms it:
+
+```
+GET /?prefix= HTTP/1.1
+Content-Length: 0
+Accept-Encoding: gzip, deflate, compress
+Accept: */*
+User-Agent: python-requests/1.1.0 CPython/2.6.6 Linux/2.6.32-504.23.4.el6.x86_64
+Host: REDACTED.s3-eu-central-1.amazonaws.com
+x-amz-security-token: REDACTED
+Date: Wed, 05 Aug 2015 13:22:04 GMT
+Content-type: text/plain
+Authorization: AWS REDACTED
+
+HTTP/1.1 400 Bad Request
+x-amz-bucket-region: eu-central-1
+x-amz-request-id: REDACTED
+x-amz-id-2: REDACTED
+x-amz-region: eu-central-1
+Content-Type: application/xml
+Transfer-Encoding: chunked
+Date: Wed, 05 Aug 2015 13:22:01 GMT
+Connection: close
+Server: AmazonS3
+
+144
+<?xml version="1.0" encoding="UTF-8"?>
+<Error><Code>InvalidRequest</Code><Message>The authorization mechanism you have provided is not supported. Please use AWS4-HMAC-SHA256.</Message><RequestId>REDACTED</RequestId><HostId>REDACTED</HostId></Error>
+0
+```
+
+Here are S3 pillar module DEBUG messages (return code 400 instead of 200):
+
+```
+[DEBUG   ] Refreshing S3 buckets pillar cache file
+[DEBUG   ] Single environment per bucket mode
+[INFO    ] Starting new HTTP connection (1): 169.254.169.254
+[DEBUG   ] "GET /latest/meta-data/iam/security-credentials/ HTTP/1.1" 200 37
+[INFO    ] Starting new HTTP connection (1): 169.254.169.254
+[DEBUG   ] "GET /latest/meta-data/iam/security-credentials/REDACTED HTTP/1.1" 200 918
+[DEBUG   ] CanonicalizedResource: REDACTED
+[DEBUG   ] x-amz-security-token
+[DEBUG   ] CanonicalizedAmzHeaders: x-amz-security-token:REDACTED
+[DEBUG   ] String To Sign::
+GET
+
+text/plain
+Wed, 05 Aug 2015 12:19:09 GMT
+x-amz-security-token:REDACTED
+[DEBUG   ] S3 Request: https://REDACTED-eu-central-1.s3-eu-central-1.amazonaws.com/?prefix=
+[DEBUG   ] S3 Headers::
+[DEBUG   ]     Authorization: REDACTED
+[INFO    ] Starting new HTTPS connection (1): REDACTED-eu-central-1.s3-eu-central-1.amazonaws.com
+[DEBUG   ] "GET /?prefix= HTTP/1.1" 400 None
+[DEBUG   ] S3 Response Status Code: 400
+[DEBUG   ] Writing S3 buckets pillar cache file
+```

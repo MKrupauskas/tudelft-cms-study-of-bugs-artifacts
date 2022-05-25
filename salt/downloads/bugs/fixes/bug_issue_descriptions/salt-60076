@@ -1,0 +1,31 @@
+### Description of Issue
+Runas fails with "The RPC server is unavailable" on Windows for domain users. It fails on
+
+_, domain, _ = win32security.LookupAccountName(domain, username)
+
+If you run a simple google search for that you will find threads such as
+
+https://social.msdn.microsoft.com/Forums/windowsdesktop/en-US/f655ed3f-b634-4bdc-9376-6497da3d9f27/from-service-that-run-in-session-0-create-active-session-as-different-user-and-run-application?forum=windowsgeneraldevelopmentissues
+
+or
+
+http://python.6.x6.nabble.com/granting-SeServiceLogonRight-on-a-network-account-with-pywin32-td1956691.html
+
+You will see advice such as
+
+_As a rule, you don't want to pass the domain parameter to LookupAccountName.  The MSDN page talks a little bit about this.  Instead, try:_
+
+    userGroupSid = win32security.LookupAccountName(None, domainName+"\\"+userName)[0]
+
+They probably meant this MSDN page:
+
+https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-lookupaccountnamea
+
+I believe @twangboy got the wrong end of the stick of how to use LookupAccountName() while implementing https://github.com/saltstack/salt/commit/54be0a69b1046082eb041d53921940cec4d9d7e9. The MSDN page clearly recommends to "_Use a fully qualified string in the domain_name\user_name format to ensure that LookupAccountName finds the account in the desired domain._". Splitting it to domain and user and using the domain as the first parameter is a misconception.
+
+### Setup
+Salt 3000.8 but the affected code is in the master branch so it can't possibly work in any recent version. It worked fine in Salt 2016.11 but it just did not do win32security.LookupAccountName().
+
+
+### Steps to Reproduce Issue
+Try runas as a domain user or just run python and see that win32security.LookupAccountName() will only look them up with (None, 'Domain\\username') and for ('Domain', 'Username') it will throw "The RPC server is unavailable". This seems to work only when the domain is the local computer name - for local accounts. Maybe in some domains it does work but not in our corporate forest.

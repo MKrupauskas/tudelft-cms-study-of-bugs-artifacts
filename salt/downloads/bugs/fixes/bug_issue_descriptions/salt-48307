@@ -1,0 +1,35 @@
+### Description of Issue/Question
+
+When trying to build a [pex](/pantsbuild/pex) distribution of salt tied to the `salt-unity` script (to make it easy to use as a multipurpose distribution) we ran into an oddity.
+
+`setup.py` specifies
+```python
+salt-unity = salt.scripts:salt_unity
+```
+But the unity functions don't actually live in `salt/scripts.py`.
+This makes pex sad:
+```
+$ ./dist/salt.pex.old minion --version
+Traceback (most recent call last):
+  File ".bootstrap/_pex/pex.py", line 367, in execute
+  File ".bootstrap/_pex/pex.py", line 293, in _wrap_coverage
+  File ".bootstrap/_pex/pex.py", line 325, in _wrap_profiling
+  File ".bootstrap/_pex/pex.py", line 410, in _execute
+  File ".bootstrap/_pex/pex.py", line 468, in execute_entry
+  File ".bootstrap/_pex/pex.py", line 482, in execute_pkg_resources
+  File ".bootstrap/pkg_resources/__init__.py", line 2301, in resolve
+ImportError: 'module' object has no attribute 'salt_unity'
+```
+
+By moving the unity functions into a `salt/unity.py` and making some additional changes (pull request to follow for review) I was able to get it to work:
+```
+$ ./dist/salt.pex minion --version
+salt-minion 2018.3.0-575-g16d19ce (Oxygen)
+```
+
+I specifically didn't move the code into scripts.py because if it's in there I don't think it can properly introspect itself to get the list of functions to determine what it can safely do.
+
+The pex file was built with:
+```
+pex -c salt-unity . -o dist/salt.pex
+```

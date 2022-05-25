@@ -1,0 +1,34 @@
+The following state:
+
+```
+/foo/bar
+  acl.present:
+    - acl_type: default:group
+    - acl_name: some-group
+    - perms: rw
+```
+
+gives the following error:
+
+```
+          ID: /foo/bar
+    Function: acl.present
+      Result: False
+     Comment: ACL Type does not exist
+     Started: 13:25:03.784565
+    Duration: 6.592 ms
+     Changes: 
+```
+
+This is because of [this check](https://github.com/saltstack/salt/blob/25f523/salt/states/linux_acl.py#L60):
+- it uses `acl.getfacl` which doesn't return the "default" ACLs if none has been set
+- additionaly, even if `acl.getfacl` did this, the same check can't understand the tree-like structure returned by `acl.getfacl` in case a default ACL has been set (in this case, `acl.getfacl` returns a dictionary with a `defaults` key which then contains the groups and users information related to the default ACL).
+
+I'm willing to propose a fix, but I'd like to have a little guidance here.
+
+I would go this way:
+- do some parsing around `acl_type` and detect if we want to set the default ACL or not.
+- if it does, limit the `_current_perm` dictionary to the content of the `defaults` key if it exists or an empty dictionary if it doesn't
+- then proceed as already done in the state function (get the user, try to see if the permission is already set, etc.)
+
+Thoughts?

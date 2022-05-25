@@ -1,0 +1,108 @@
+Hi!
+
+I get the following error message when trying to query the Salt mine for information about docker containers:
+
+```
+# salt 'dockerhost' mine.get_docker
+dockerhost:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1019, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/mine.py", line 346, in get_docker
+        if dock_port['IP'] == '0.0.0.0':
+    KeyError: 'IP'
+```
+
+I'm using the following state SLS to create and run the container:
+
+```
+docker-registry-container:
+  docker.installed:
+    - name: docker-registry
+    - command: gunicorn ...
+    - image: my/docker-registry:latest
+
+docker-registry-run:
+  docker.running:
+    - container: docker-registry
+    - binds:
+        /srv/docker-registry/storage:
+          bind: /srv/docker-registry
+          ro: False
+    - restart_policy:
+        MaximumRetryCount: 3
+        Name: on-failure
+    - require:
+      - docker: docker-registry-container
+```
+
+In the minion pillar I have:
+
+```
+mine_functions:
+  docker.get_containers:
+    host: True
+```
+
+This is what I get when running docker.get_containers directly on dockerhost:
+
+```
+# salt-call docker.get_containers --out=pprint
+{'local': {'comment': 'All containers in out',
+           'id': None,
+           'out': [{u'Command': u'gunicorn ...',
+                    u'Created': 1417003291,
+                    u'Id': u'b5bfc7091fed9051c29a1a47bc410b44755e8497940b1a6a305c84bfd3a3c1a6',
+                    u'Image': u'my/docker-registry:latest',
+                    u'Names': [u'/docker-registry'],
+                    u'Ports': [],
+                    u'Status': u'Up 6 minutes'}],
+           'status': True}}
+```
+
+If I specify port_bindings for the container like this:
+
+```
+docker-registry-run:
+  docker.running:
+    ...
+    - port_bindings:
+        "5000/tcp":
+            HostIp: "0.0.0.0"
+            HostPort: "5000"
+```
+
+then I get the following output from docker.get_containers:
+
+```
+{'local': {'comment': 'All containers in out',
+           'id': None,
+           'out': [{u'Command': u'gunicorn ...',
+           ...
+           u'Ports': [{u'IP': u'0.0.0.0',
+                      u'PrivatePort': 5000,
+                      u'PublicPort': 5000,
+                      u'Type': u'tcp'}],
+```
+
+and mine.get_docker works fine.
+Problem is, I would prefer to not specify any port bindings in this particular case.
+
+Both Salt master and minion are running on Debian Jessie with everything installed from the official Debian packages (Salt packages from experimental). Here's the "salt --versions-report" output:
+
+```
+           Salt: 2014.7.0
+         Python: 2.7.8 (default, Oct 18 2014, 12:50:18)
+         Jinja2: 2.7.3
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: 1.0.0
+```

@@ -1,0 +1,46 @@
+I just fought against a strange error:
+
+Final diagnosis : postgres.version might return `None`, so `LooseVersion` does not have a `version` attribute:
+
+``` bash
+salt '*' postgres.version
+minion-1:
+    None
+minion-2:
+    9.2.4
+```
+
+Initial error:
+Exception raised when calling other postgres functions like `salt '*' postgres.user_list`:
+
+``` python
+    Traceback (most recent call last):
+      File "/usr/lib/pymodules/python2.7/salt/minion.py", line 657, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/pymodules/python2.7/salt/modules/postgres.py", line 409, in user_list
+        if ver >= distutils.version.LooseVersion('9.1'):
+      File "/usr/lib/python2.7/distutils/version.py", line 296, in __cmp__
+        return cmp(self.version, other.version)
+    AttributeError: LooseVersion instance has no attribute 'version'
+```
+
+The fix is to restart the postgresql server.
+
+It might be a good idea to check for `None` in  https://github.com/saltstack/salt/blob/develop/salt/modules/postgres.py#L114 and provide a clearer error message.
+
+Thanks !
+## 
+
+Edit:
+The real reason is that the server was not found in the first place...
+
+log was:
+
+```
+2013-10-09 13:01:48,145 [salt.loaded.int.module.cmdmod][ERROR   ] Command '/usr/bin/psql --no-align --no-readline --dbname postgres -c 'SELECT setting FROM pg_catalog.pg_settings WHERE name = '"'"'server_version'"'"'' -t' failed with return code: 2
+2013-10-09 13:01:48,146 [salt.loaded.int.module.cmdmod][ERROR   ] stderr: psql: could not connect to server: No such file or directory
+        Is the server running locally and accepting
+        connections on Unix domain socket "/var/run/postgresql/.s.PGSQL.5432"?
+```
+
+but the suggestion to provide a clearer error message stands !

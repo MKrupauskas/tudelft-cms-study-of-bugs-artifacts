@@ -1,0 +1,76 @@
+I have defined multiple pillar environment in order to be able to write more generic states. That way important config data of a state can be easily replaced by the config values of another pillar environment. 
+
+The problem is that only the values of the last defined enviroment in the pillar top.sls are available indepedent of the passed environemt in state.sls call. Is this a bug or did I get something wrong?
+
+**/etc/salt/master**
+
+``` yaml
+pillar_roots:
+  base:
+    - /srv/pillar
+  staging:
+    - /srv/pillar/staging
+  dev:
+    - /srv/pillar/dev
+```
+
+**/srv/pillar/top.sls**
+
+``` yaml
+base:
+  '*':
+    - data
+
+staging:
+  '*':
+    - data
+
+dev:
+  '*':
+    - data
+```
+
+**/srv/pillar/data.sls**
+
+``` yaml
+git:
+  echo_cmd: This is a pillar value
+```
+
+**/srv/pillar/staging/data.sls**
+
+``` yaml
+git:
+  echo_cmd: This is a staging pillar value
+```
+
+**/srv/pillar/dev/data.sls**
+
+``` yaml
+git:
+  echo_cmd: This is a dev pillar value
+```
+
+**/etc/salt/states/test/init.sls**
+
+``` yaml
+test_output:
+  cmd.run:
+    - name: echo "{{ salt['pillar.get']('git:echo_cmd', 'default_echo') }}"
+```
+
+**Output:**
+
+salt \* state.sls test env=staging
+
+```
+State: - cmd
+Name:      echo "This is a dev pillar value"
+Function:  run
+    Result:    True
+    Comment:   Command "echo "This is a dev pillar value"" run
+    Changes:   pid: 2892
+               retcode: 0
+               stderr: 
+               stdout: This is a dev pillar value
+```

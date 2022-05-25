@@ -1,0 +1,130 @@
+### Description of Issue/Question
+We just upgraded to 2017.7.0 and our Docker container state stopped working. I migrated everything to the new docker_container.running setup and even updated our docker py packages to make sure but I can no longer pas 'domainname', I keep getting error message: 'Error 500: json: cannot unmarshal array into Go value of type string'. When running salt-call in debug mode I noticed that it seems to be passed as a list even if I only supply one item. I tried passing multiple domains to see if it expected a list now but that doesn't work either (same error).
+
+### Setup
+Running Debian 8 on master & minions. Running Docker version 17.05.0-ce, build 89658be. Running pip docker module v2.4.2.
+
+### Steps to Reproduce Issue
+State:
+```
+silo-{{ silo }}:
+  docker_container:
+    - running
+    - name: {{ silo }}.{{ grains['domain'] }}
+    - hostname: {{ silo }}
+    - domainname: {{ grains['domain'] }}
+    - user: root
+    - image: redacted:silo
+    - binds:
+      - /mnt/volumes/{{ silo }}.{{ grains['domain'] }}:/persistent/:rw
+      - /opt/custom-silo-data/{{ silo }}/:/custom/:ro
+    - shutdown_timeout: 180
+    - environment:
+      - HOSTNAME: {{ silo }}
+      - DOMAIN: {{ grains['domain'] }}
+      - HOSTNODE: {{ grains['id'] }}
+```
+
+Running salt-call state.sls -l debug with the state produces following relevant debug logs:
+
+```
+[DEBUG   ] Attempting to run docker-py's "create_container" function with args=('redacted:silo',) and kwargs={'name': None, 'domainname': ['dev.redacted.io'], 'hostname': 'silo-name', 'host_config': {'Binds': ['/mnt/volumes/silo-name.dev.redacted.io:/persistent/:rw', '/opt/custom-silo-data/silo-name/:/custom/:ro'], 'NetworkMode': 'default', 'MemorySwap': -1, 'Memory': 536870912}, 'environment': {'DOMAIN': 'dev.redacted.io', 'HOSTNAME': 'silo-name', 'HOSTNODE': 'dch001.dev.redacted.io'}, 'user': 'root', 'volumes': ['/custom/', '/persistent/']}
+[DEBUG   ] "POST /v1.29/containers/create HTTP/1.1" 500 72
+[ERROR   ] Error 500: {"message":"json: cannot unmarshal array into Go value of type string"}
+```
+
+I think it's also a bit strange that name: None is passed here, even though the name is configured in the state & set correctly in 'docker ps' output. The state works when I remove 'domainname' option.
+
+### Versions Report
+
+Minion:
+
+```
+Salt Version:
+           Salt: 2017.7.0
+ 
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+
+       dateutil: 2.2
+      docker-py: 1.10.6
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 8.9 
+         locale: UTF-8
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.9
+```
+
+Master:
+```
+Salt Version:
+           Salt: 2017.7.0
+ 
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 6.0.2
+       dateutil: 2.2
+      docker-py: Not Installed
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.5.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 8.9 
+         locale: UTF-8
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.9
+```
+
+Please let me know if I can provide any more information to help troubleshoot this issue. I looked at the docker_container.py file but couldn't figure out how to modify it. 

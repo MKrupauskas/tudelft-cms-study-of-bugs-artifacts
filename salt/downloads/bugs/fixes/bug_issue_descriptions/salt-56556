@@ -1,0 +1,158 @@
+### Description of Issue
+While testing salt-3000.1 on py36 vs on py27 I noticed all my certificates are regenerated, including my CA! (this is absolutely not what I want, as the CA is also use for things outside of salt)
+
+I restored backups of the 10 effected minions and double checked I was on py27 salt-3000.1 which I was, another global state.apply showed no changes, phew!
+
+**Switching to from python 2.7 to 3.6 for salt-3000.1 results in all x509.certificate_managed states to regenerate certificates**
+
+### Debugging done
+Debugging is hard as I could not leave everything in this broken state for long.
+
+Using pudb i stepped through the x509 state and module:
+- [state] x509.certificate_managed's `current_comp == new_comp` comparison was false
+- [state] x509.certificate_managed's `current_comp == new_comp` had different `Subject Hash` fields
+- [module] x509.read_certificate sets this hash using: `_dec2hex(cert.get_subject().as_hash())`
+
+Stripping this down to the value of just `cert.get_subject()`:
+ - py27:
+```
+/C=BE/CN=Example Root CA/L=Kapellen/ST=Example/O=Example/emailAddress=certadm@example.org
+```
+- py36:
+```
+/C=BE/ST=Antwerp/L=Kapellen/O=Example/CN=Example Root CA/emailAddress=certadm@example.org
+```
+
+The ordering seems to be different between both version of python (but consistant within the version itself)
+
+### Setup
+Heavily stripped down state due to sensitive info
+```
+certificate.authority::directory:
+  file.directory:
+    - name: {{ certcfg['config']['authority_dir'] }}
+    - makedirs: true
+    - user: root
+    - group: nacl
+    - dir_mode: 2770
+
+certificate.authority::private-key:
+  x509.private_key_managed:
+    - name: {{ ca_key_path }}
+    - bits: 8192
+    - backup: True
+    - require:
+      - file: certificate.authority::directory
+
+certificate.authority::certificate:
+  x509.certificate_managed:
+    - name: {{ ca_crt_path }}
+    - signing_private_key: {{ ca_key_path }}
+    - CN: Example Root CA
+    - O: Example
+    - C: BE
+    - ST: Antwerp
+    - L: Kapellen
+    - Email: certadm@example.org
+    - basicConstraints: "critical CA:true"
+    - keyUsage: "critical cRLSign, keyCertSign"
+    - subjectKeyIdentifier: hash
+    - authorityKeyIdentifier: keyid,issuer:always
+    - days_valid: 3650
+    - days_remaining: 0
+    - backup: True
+    - require:
+      - x509: certificate.authority::private-key
+```
+
+### Steps to Reproduce Issue
+- setup a py27 based salt-3000.1 master/minion
+- manage a private key + ca cert
+- manage a cert signed by the cs
+- apply the state
+- upgrade to py36 based salt-3000.1 master/minion
+- apply the state
+- notice both the ca and signed certificate change
+
+### Versions Report
+```
+[root@cronos /data]# salt-call --versions-report
+Salt Version:
+           Salt: 3000.1
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: 0.30.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 3.6.6
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.6 (default, Oct 23 2018, 17:13:47)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: i86pc
+        release: 5.11
+         system: SunOS
+        version: Not Installed
+```
+
+```
+[root@cronos /data]# salt-call --versions-report
+Salt Version:
+           Salt: 3000.1
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: 17.4.0
+       dateutil: 2.8.1
+      docker-py: Not Installed
+          gitdb: 2.0.6
+      gitpython: 2.1.14
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: 0.30.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 3.7.2
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.15 (default, Sep 10 2019, 16:35:50)
+   python-gnupg: 0.4.5
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: i86pc
+        release: 5.11
+         system: SunOS
+        version: Not Installed
+```

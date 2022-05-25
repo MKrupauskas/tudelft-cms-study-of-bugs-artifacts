@@ -1,0 +1,28 @@
+### Description of Issue/Question
+### Setup
+
+Configure two gitfs remotes. One of them _must_ have a branch with a 3-character-or-less hexidecimal name (e.g. `abc`), while the other _must not_.
+### Steps to Reproduce Issue
+
+Try to list files in the short-named hexidecimal environment mentioned above.
+
+```
+salt-run fileserver.file_list saltenv=abc
+```
+
+This results in a traceback due to some code in gitfs which allows one to use a commit SHA as a gitfs environment:
+
+```
+Traceback (most recent call last):
+...
+<snip>
+...
+  File "/usr/lib/python2.7/site-packages/salt/utils/gitfs.py", line 1388, in get_tree 
+    commit = self.repo.revparse_single(tgt_ref)
+ValueError: abc: Ambiguous lookup - OID prefix is too short
+```
+
+What's happening here is that `abc` happens to be A) hexidecimal, causing the rev-parse code in libgit2 to treat it as a commit SHA, and B) shorter than the minimum SHA length (defined as `4` by libgit2, as seen [here](https://github.com/libgit2/libgit2/blob/ec7e1c9/include/git2/oid.h#L30)), leading to an error being raised by pygit2. The `ValueError` simply needs to be caught in the try/except block surrounding the call to `self.repo.revparse_single()`. 
+### Versions Report
+
+Affects 2015.8.0 and newer.

@@ -1,0 +1,76 @@
+[`modules.vpc_boto._find_vpcs()`](https://github.com/saltstack/salt/blob/develop/salt/modules/boto_vpc.py#L432) takes:
+- vpc_id
+- vpc_name
+- cidr
+- tags
+- region
+- key
+- keyid
+- profile
+
+My question involves how it applies API filters--It goes through `vpc_id`, `cidr`, `tag:Name` and whatever tags are submitted in the tags dict and applies them serially to the `filter_parameters` dictionary. 
+
+If only one of the search terms is provided, all is well; however, when `modules.vpc_boto.exists()` calls [`_find_vpcs()`](https://github.com/saltstack/salt/blob/develop/salt/modules/boto_vpc.py#L432) with all the bits passed in from [`states.boto_vpc.present()`](https://github.com/saltstack/salt/blob/develop/salt/states/boto_vpc.py#L152) things get kind of screwy.
+
+Given this state definition:
+
+``` yaml
+a vpc of some sort exists:
+  boto_vpc.present:
+     - name: some_vpc
+     - region: us-west-2
+     - cidr_block: 10.64.32.0/21
+     - instance_tenancy: default
+     - dns_support: True
+     - dns_hostnames: True
+     - tags:
+         owner: me
+         region: us-west-2
+         role: public
+```
+
+It works great if you don't touch it again.  Ever.  For anyone reading that might not be familiar with the API, once a vpc is created, the assigned subnet and tenancy can't be changed and are left out of the `boto_vpc.exists()` call.  
+
+The problem arises when you add a tag.  There is currently no logic to update any of the mutable vpc attributes, but the tag dict is the only one of those attributes that is submitted for building a search filter.  
+
+The state checks for the [existence of the named vpc](https://github.com/saltstack/salt/blob/develop/salt/states/boto_vpc.py#L152).  If It returns `False`, the assumption is that a new VPC is needed.  Any change to the tag list causes `boto_vpc.exists()` to return `False` causing the code in the state module to happily go about its business of creating another vpc, or, rather, attempting to.
+
+It seems to me that converting:
+
+`_get_vpcs()`
+
+```
+    if vpc_id:
+        filter_parameters['vpc_ids'] = [vpc_id]
+
+    if cidr:
+        filter_parameters['filters']['cidr'] = cidr
+
+    if vpc_name:
+        filter_parameters['filters']['tag:Name'] = vpc_name
+
+    if tags:
+        for tag_name, tag_value in six.iteritems(tags):
+            filter_parameters['filters']['tag:{0}'.format(tag_name)] = tag_value
+```
+
+to 
+
+```
+    if vpc_id:
+        filter_parameters['vpc_ids'] = [vpc_id]
+    elif vpc_name:
+        filter_parameters['filters']['tag:Name'] = vpc_name
+    elif cidr:
+        filter_parameters['filters']['cidr'] = cidr
+    elif tags:
+        for tag_name, tag_value in six.iteritems(tags):
+            if tag_name != 'name':
+                filter_parameters['filters']['tag:{0}'.format(tag_name)] = tag_value
+```
+
+I could also see adding logic that would first look for the `id or ( name or cidr )`. If the resulting dictionary has more than one item, use the tags to fine-tune.
+
+Another angle would be to, at least for now, remove the tag list from the `.exists()` call in the `.present()` state.  
+
+Anyway, yes.  I look forward to reading your response.

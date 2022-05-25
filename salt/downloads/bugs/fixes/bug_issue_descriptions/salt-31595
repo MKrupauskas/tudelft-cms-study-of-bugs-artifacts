@@ -1,0 +1,87 @@
+After setting up dockerng i am hitting a issue with exposing ports. After some digging i see that you also need to specify ports that are in the dockerfile even if you don't use them in the sls.
+
+For example. If you have a dockerfile that expose port 2375 with `EXPOSE 2375` but you don't use in the  following sls file:
+
+```
+swarm-docker:
+  dockerng.running:
+    - name: swarm-manager
+    - image: swarm
+    - command: 'manage -H :4000 --advertise {{ swarm.manager.advertise }}:4000 consul://127.0.0.1:8500'
+    - ports:
+      - "4000/tcp"
+    - port_bindings:
+      - "4000:4000/tcp"
+```
+
+The first run just works fine, but the second run i get the following error: `Failed to apply configuration for the following parameters: Ports`
+
+If i look in the debug log of salt i see the following:
+
+```
+[DEBUG   ] dockerng.running: Analysis of container 'swarm-manager' after creation/replacement reveals the following changes still need to be made: {'ports': {'new': ['4000/tcp'], 'old': [u'2375/tcp', u'4000/tcp']}}
+[ERROR   ] {'diff': {}, 'removed': [u'c31291be40374702ebb329e4ca1d585252a0cdc60a8acb2af2ac62371c4b0577'], 'added': {'Time_Elapsed': 0.07516789436340332, 'Name': 'swarm-manager', u'Id': u'8b540310611ff029b150f2725dc8e0327d21b0b2c5bca37e3c82249c3d51052d', u'Warnings': None}}
+```
+
+Because i have the port 2375 in the dockerfile, docker will add it. But salt want to remove it.
+I don't know if it is a bug, because it is logic reaction. If it's not it needs to be added in the docs.
+
+The following state is working:
+
+```
+swarm-docker:
+  dockerng.running:
+    - name: swarm-manager
+    - image: swarm
+    - command: 'manage -H :4000 --advertise {{ swarm.manager.advertise }}:4000 consul://127.0.0.1:8500'
+    - ports:
+      - "2375/tcp"
+      - "4000/tcp"
+    - port_bindings:
+      - "4000:4000/tcp"
+```
+### Versions Report
+
+```
+docker: 1.10
+doceker-py: 1.7.2
+```
+
+```
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.10.1.el7.x86_64
+         system: CentOS Linux 7.2.1511 Core
+```

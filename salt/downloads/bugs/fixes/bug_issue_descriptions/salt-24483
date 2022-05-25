@@ -1,0 +1,60 @@
+Test case:
+
+```
+import salt.cloud
+client = salt.cloud.CloudClient(path='/etc/salt/cloud')
+
+create_args = {
+    "image": "ami-e4ff5c93", # Centos 7 HVM
+    "size": "t2.micro",
+    "deploy": False,
+    "ssh_username": "centos",
+    "del_root_vol_on_destroy": True,
+    "del_all_vols_on_destroy": True,
+    "volumes": [{
+        "device": "/dev/xvdf",
+        "size": "2",
+    }]
+}
+
+client.create("ec2-ireland-test", "del_vol_on_destroy_test", **create_args)
+```
+
+Then terminating the instance in EC2 console leaves the volumes in place. Expected behavior is the volumes getting deleted with the instance.
+
+Possible fix (note: I'm not sure I understand the salt code very well).
+
+```
+From 13d46f7294f8a9f39a4fc5951a14af8745653694 Mon Sep 17 00:00:00 2001
+From: Emanuel Rietveld <codehotter@gmail.com>
+Date: Sun, 7 Jun 2015 20:27:57 +0200
+Subject: [PATCH] clouds/ec2.py: fix del_root_vol / del_all_vols on destroy
+
+---
+ salt/cloud/clouds/ec2.py | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/salt/cloud/clouds/ec2.py b/salt/cloud/clouds/ec2.py
+index bf41797..f62cd75 100644
+--- a/salt/cloud/clouds/ec2.py
++++ b/salt/cloud/clouds/ec2.py
+@@ -1597,7 +1597,6 @@ def request_instance(vm_=None, call=None):
+         }
+         try:
+             rd_data = aws.query(rd_params,
+-                                return_root=True,
+                                 location=get_location(),
+                                 provider=get_provider(),
+                                 opts=__opts__,
+@@ -2292,7 +2291,7 @@ def create(vm_=None, call=None):
+                 'volumes': volumes,
+                 'zone': ret['placement']['availabilityZone'],
+                 'instance_id': ret['instanceId'],
+-                'del_all_vols_on_destroy': vm_.get('set_del_all_vols_on_destroy', False)
++                'del_all_vols_on_destroy': vm_.get('del_all_vols_on_destroy', False)
+             },
+             call='action'
+         )
+--
+1.8.3.1
+```

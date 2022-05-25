@@ -1,0 +1,65 @@
+I have hit what appears to be a state ordering bug for states specified in the top file. As I understand based on Salt documentation and @basepi's comment at http://stackoverflow.com/questions/19327272/what-order-do-states-in-top-sls-get-executed - the state ordering should be as in the top file by default.
+
+The bugs below are demonstrated using salt-call and a local filesystem - the same is reproducible using a remote salt-master. The bug cases are as minimal as I could make them.
+
+I assume state_auto_order = True by default - even explicitly setting it in the minion or master config does **not** change the outputs shown here.
+
+The salt version info is:
+
+```
+# salt-call --versions
+           Salt: 2014.1.1
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.3
+
+```
+
+**Part 1**
+https://gist.github.com/donatello/9909945
+
+Top file:
+
+```
+base:
+  '*':
+    - users
+  'provider:ec2':
+    - match: grain
+    - sshkeys
+  'role:base':
+    - match: grain
+    - basepkgs
+```
+
+All sections are matched according to the grain settings. So I expect the states to execute in the order - users -> sshkeys -> basepkgs.
+
+However as can be seen from the _lowstate output_ file in the gist, the executed order would be: basepkgs -> users -> sshkeys
+
+**Part 2**
+https://gist.github.com/donatello/9909991
+(the remaining files for reproducing this example are from the gist in Part 1 above)
+
+Top file: 
+
+```
+base:
+  '*':
+    - users
+  'provider:ec2':
+    - match: grain
+    - sshkeys
+  '* and not G@role:minimal':
+    - match: compound
+    - basepkgs
+```
+
+Again, here all sections are matched (the "role" is set to "base"). So the expected ordering is users -> sshkeys -> basepkgs.
+
+However as can be seen from the _lowstate output_ file in the gist, the executed order would be: users -> basepkgs -> sshkeys

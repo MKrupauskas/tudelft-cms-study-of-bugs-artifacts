@@ -1,0 +1,128 @@
+When swapping from RVM managed outside of saltstack to rbenv with staltstack I hit issues in that static libraries weren't being compiled by default.
+
+With careful reading of:
+https://docs.saltstack.com/en/develop/ref/modules/all/salt.modules.rbenv.html
+
+```
+Additional environment variables can be configured in pillar / grains / master:
+
+rbenv:
+  build_env: 'CONFIGURE_OPTS="--no-tcmalloc" CFLAGS="-fno-tree-dce"'
+```
+
+( which was harder to find than I thought starting from the state )
+
+And putting it together with [this ruby-build thread](https://github.com/rbenv/ruby-build/issues/35) it appeared there was a way to have shared libraries built.
+
+Running a similar command in a shell seems to work:
+
+```
+$ CONFIGURE_OPTS="--enable-shared" rbenv install 2.3.0
+
+# eventually generated these files among others
+/usr/local/rbenv/versions/2.3.0/lib/libruby-static.a
+/usr/local/rbenv/versions/2.3.0/lib/libruby.so
+/usr/local/rbenv/versions/2.3.0/lib/libruby.so.2.3
+/usr/local/rbenv/versions/2.3.0/lib/libruby.so.2.3.0
+```
+
+So, in my pillar I have:
+
+``` yaml
+
+---
+rbenv:
+  build_env: 'CONFIGURE_OPTS="--enable-shared"'
+  rubies:
+    - 2.3.0
+```
+
+and among my states I have:
+
+``` yaml
+rbenv-deps:
+  pkg.installed:
+    - names:
+      - bash
+      - git
+      - openssl
+      - libssl-dev
+      - make
+      - curl
+      - autoconf
+      - bison
+      - build-essential
+      - libffi-dev
+      - libyaml-dev
+      - libreadline6-dev
+      - zlib1g-dev
+      - libncurses5-dev
+
+{% for ruby in salt['pillar.get']("rbenv:rubies", []) %}
+{{ ruby }}:
+  rbenv.installed:
+    - default: True
+    - require:
+      - pkg: rbenv-deps
+{% endfor %}
+
+/etc/profile.d/rbenv.sh:
+  file.append:
+    - text:
+      - 'export RBENV_ROOT="/usr/local/rbenv"'
+      - 'export PATH="$RBENV_ROOT/bin:$PATH"'
+      - 'eval "$(rbenv init -)"'
+```
+
+Deep in the rbenv module it does `config.get("rbenv:build_env")` so I tried that.
+
+```
+salt '*' config.get "rbenv:build_env"
+production-1:
+    CONFIGURE_OPTS="--enable-shared"
+```
+
+When running the high state, no shared libraries are generated as they were when I ran the command directly. Is it possible they are getting scrubbed from the environment somewhere below the rbenv module?
+
+No related events appeared in minion or master salt logs. 
+Is there anything else for me to double check?
+
+```
+# salt-minion --versions
+Salt Version:
+           Salt: 2015.8.4
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-55-generic
+         system: Ubuntu 14.04 trusty
+```

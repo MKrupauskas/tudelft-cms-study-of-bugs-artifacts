@@ -1,0 +1,99 @@
+**Description**
+When not connected to active directory the function _get_sam_name_  in the module _utils.win_functions_ returns bad output. In particular if this function is passed a user name that isn't known about locally, like _my_domain\user_name_, it will return a completely invalid username like _my_computer_name\my_domain\user_name_.
+
+**Setup**
+Here is a state formula called _test.sls_
+```
+admins present:
+    group.present:
+       - name: Administrators
+       - addusers:
+           - AD\random_user
+```
+
+When you do the test make sure _random_user_ is some some active directory user which the local machine doesn't know about. That way the bug won't get bypassed because of caching. Also make sure that AD is actually the name of your active directory domain.
+
+**Steps to Reproduce the behavior**
+
+1. Be sure that you are not connected to your domain controller.
+
+2. Run the following command on your windows minion.
+
+```
+salt-call state.apply test.sls
+```
+
+If the bug is reproduced you will see this big stack trace:
+
+```
+ An exception occurred in this state: Traceback (most recent call last):
+                File "c:\salt\bin\lib\site-packages\salt-3000-py3.5.egg\salt\modules\win_groupadd.py", line 278, in adduser
+                  group_obj.Add('WinNT://' + username.replace('\\', '/'))
+                File "<COMObject <unknown>>", line 2, in Add
+              pywintypes.com_error: (-2147352567, 'Exception occurred.', (0, 'Active Directory', 'An unknown directory object was requested\r\n', None, 0, -2147463164), None)
+              
+              During handling of the above exception, another exception occurred:
+              
+              Traceback (most recent call last):
+                File "c:\salt\bin\lib\site-packages\salt-3000-py3.5.egg\salt\state.py", line 1981, in call
+                  **cdata['kwargs'])
+                File "c:\salt\bin\lib\site-packages\salt-3000-py3.5.egg\salt\loader.py", line 1977, in wrapper
+                  return f(*args, **kwargs)
+                File "c:\salt\bin\lib\site-packages\salt-3000-py3.5.egg\salt\states\group.py", line 220, in present
+                  __salt__['group.adduser'](name, user)
+                File "c:\salt\bin\lib\site-packages\salt-3000-py3.5.egg\salt\modules\win_groupadd.py", line 285, in adduser
+                  username, name, win32api.FormatMessage(exc.excepinfo[5]))
+              pywintypes.error: (317, 'FormatMessageW', 'The system cannot find message text for message number 0x%1 in the message file for %2.')
+```
+
+The stacktrace happened because _win_groupadd.adduser_ is being asked to process a user name like _my_computername\my_domain_name\user_name_ as a consequence of _get_sam_name_ returning bad output.
+
+**Expected behavior**
+If the minion needs to talk to active directory but cannot, we should have a clean error, one way or another. I'm agnostic about what perfect behaviour should be. My position is only that the status quo is not good.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+Salt Version:
+           Salt: 3000.1
+ 
+Dependency Versions:
+           cffi: 1.12.3
+       cherrypy: Not Installed
+       dateutil: 2.8.0
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 3.0.2
+         Jinja2: 2.10.1
+        libgit2: 0.28.2
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.28.2
+         Python: 3.7.6 (default, Jan 30 2020, 09:44:41)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 18.0.2
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+ 
+System Versions:
+           dist: fedora 31 Thirty One
+         locale: UTF-8
+        machine: x86_64
+        release: 5.5.17-200.fc31.x86_64
+         system: Linux
+        version: Fedora 31 Thirty One
+```
+</details>
+
+**Additional context**
+I am running salt v 3000 (py3) on the minion.

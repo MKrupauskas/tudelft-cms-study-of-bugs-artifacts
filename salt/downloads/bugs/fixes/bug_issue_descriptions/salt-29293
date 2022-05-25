@@ -1,0 +1,113 @@
+2015.8.1 seems to not correctly handle pillar defaults set via defaults.yaml and their redefinition in pillar data, at least as compared to 2015.5.5.
+
+Let's say I have the following in /srv/salt/defaults_demo/defaults.yaml:
+
+``` yaml
+some_key: foo
+another_key: bar
+```
+
+And in the /srv/pillar/defaults_demo.sls (included in /srv/pillar/top.sls):
+
+``` yaml
+defaults_demo:
+  some_key: fred
+```
+
+Then running the following state file /srv/salt/defaults_demo/init.sls:
+
+``` sls
+{% set some_key = salt.defaults.get('some_key') %}
+{% set another_key = salt.defaults.get('another_key') %}
+
+show_some:
+  cmd.run:
+    - name: echo {{ some_key }}
+
+show_another:
+  cmd.run:
+    - name: echo {{ another_key }}
+```
+
+produces this output under 2015.5.5:
+
+```
+$ salt-call state.sls defaults_demo
+[...]
+local:
+----------
+          ID: show_some
+    Function: cmd.run
+        Name: echo fred
+      Result: True
+     Comment: Command "echo fred" run
+     Started: 16:25:36.685954
+    Duration: 14.208 ms
+     Changes:
+              ----------
+              pid:
+                  487
+              retcode:
+                  0
+              stderr:
+              stdout:
+                  fred
+----------
+          ID: show_another
+    Function: cmd.run
+        Name: echo bar
+      Result: True
+     Comment: Command "echo bar" run
+     Started: 16:25:36.700595
+    Duration: 10.767 ms
+     Changes:
+              ----------
+              pid:
+                  488
+              retcode:
+                  0
+              stderr:
+              stdout:
+                  bar
+```
+
+and the following under 2015.8.1:
+
+```
+----------
+          ID: show_some
+    Function: cmd.run
+        Name: echo None
+      Result: True
+     Comment: Command "echo None" run
+     Started: 00:32:00.270204
+    Duration: 5.464 ms
+     Changes:
+              ----------
+              pid:
+                  15640
+              retcode:
+                  0
+              stderr:
+              stdout:
+                  None
+----------
+          ID: show_another
+    Function: cmd.run
+        Name: echo None
+      Result: True
+     Comment: Command "echo None" run
+     Started: 00:32:00.276079
+    Duration: 4.779 ms
+     Changes:
+              ----------
+              pid:
+                  15641
+              retcode:
+                  0
+              stderr:
+              stdout:
+                  None
+```
+
+That is, whereas the earlier release (correctly) found the default value of "another_key" and the pillar-defined one of "some_key", the new release finds neither.

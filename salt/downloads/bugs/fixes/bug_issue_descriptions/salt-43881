@@ -1,0 +1,106 @@
+### salt-cloud azurearm fails on list-images
+### Setup
+ubuntu 16.04 lts, salt-master & salt-cloud installed from repo.saltstack.com
+azure python module 2.0..0 installed from pip
+```
+root@6c551abd0d6f:/# cat /etc/salt/cloud.providers.d/azure.conf
+azure:
+  driver: azurearm
+  subscription_id: a85a0a1b-dcfb-4ff7-a081-1a2aff2b9ba8 # some id here
+  username: user@mydomain.onmicrosoft.com
+  password: passwordhere
+  location: northeurope
+  resource_group: rg_name
+  cleanup_disks: True
+  cleanup_vhds: True
+  cleanup_data_disks: True
+  cleanup_interfaces: True
+  expire_publisher_cache: 604800  # 7 days
+  expire_offer_cache: 518400  # 6 days
+  expire_sku_cache: 432000  # 5 days
+  expire_version_cache: 345600  # 4 days
+  expire_group_cache: 14400  # 4 hours
+  expire_interface_cache: 3600  # 1 hour
+  expire_network_cache: 3600  # 1 hour
+```
+
+### Steps to Reproduce Issue
+```
+salt-cloud -l debug --list-images azure
+(...)
+[ERROR   ] Failed to get the output of 'azurearm.avail_images()': 'as_dict'
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 877, in image_list
+    data[alias][driver] = self.clouds[fun]()
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/clouds/azurearm.py", line 281, in avail_images
+    location=region,
+  File "/usr/lib/python2.7/dist-packages/salt/cache/__init__.py", line 127, in cache
+    data.append(loop_fun(item))
+  File "/usr/lib/python2.7/dist-packages/salt/utils/msazure.py", line 196, in object_to_dict
+    elif isinstance(obj.__dict__[item], six.text_type):
+KeyError: 'as_dict'
+[DEBUG   ] LazyLoaded nested.output
+```
+
+### Versions Report
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2017.7.1
+
+Dependency Versions:
+           cffi: 1.11.0
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: ISO-8859-1
+        machine: x86_64
+        release: 4.4.0-72-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```
+### Workaround
+I added 
+```
+--- /usr/lib/python2.7/dist-packages/salt/utils/msazure.py      2017-08-07 17:07:27.000000000 +0000
++++ msazure.py  2017-10-03 13:13:36.421647843 +0000
+@@ -175,7 +175,9 @@
+
+     Convert an object to a dictionary
+     '''
+-    if isinstance(obj, list) or isinstance(obj, tuple):
++    if 'as_dict' in dir(obj):
++        ret = obj.as_dict
++    elif isinstance(obj, list) or isinstance(obj, tuple):
+         ret = []
+         for item in obj:
+             #ret.append(obj.__dict__[item])
+```
+And now --list-images is working

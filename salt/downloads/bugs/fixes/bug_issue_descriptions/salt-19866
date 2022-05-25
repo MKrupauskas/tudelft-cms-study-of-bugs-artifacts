@@ -1,0 +1,44 @@
+I'm trying to use the SSHClient inside a custom runner (named "minion.nominate") to perform some work on a machine that has no salt-minion installed (yet) and do some work on the master itself afterwards.
+
+The SSH target and the SSH user/password need to be variable, so I take it as parameters instead of using the roster file. Additionally, just for you to understand the code, I defined a custom roster module "hostname" which just accepts the full host name (without globs) and resolves its IP.
+
+The runner code looks like this so far (just an extract):
+
+``` python
+def nominate(id, ssh_user, ssh_passwd, ssh_timeout=120):
+
+  # create SSH client
+  ssh_client = salt.client.SSHClient()
+  ssh_client.opts['roster'] = 'hostname'
+
+  # invoke remote script over SSH
+  ssh_client.cmd(id, 'state.sls', ['some.state'], ssh_timeout, ssh_user=ssh_user, ssh_passwd=ssh_passwd)
+```
+
+Running the command
+
+> salt-run minion.nominate 'the-hostname' 'user' 'pass'
+
+ends up throwing the following exception:
+
+```
+Process Process-1:
+Traceback (most recent call last):
+  File "/usr/lib64/python2.6/multiprocessing/process.py", line 232, in _bootstrap
+    self.run()
+  File "/usr/lib64/python2.6/multiprocessing/process.py", line 88, in run
+    self._target(*self._args, **self._kwargs)
+  File "/usr/lib64/python2.6/site-packages/salt/client/ssh/__init__.py", line 313, in handle_routine
+    **target)
+TypeError: __init__() takes at least 5 non-keyword arguments (4 given)
+```
+
+A short look into the python code shows that the class "Single" defined in the ".../salt/client/ssh/**init**.py" file actually takes 5 non-keyword arguments, while every time an object is instanced only 4 non-keyword arguments are given: the argument "id_" is missing.
+
+However, executing the command manually via CLI (and using the roster file this time around) like this
+
+> salt-ssh 'the-hostname' state.sls 'some.state'
+
+works totally fine.
+
+Tested with salt version 2014.7.0

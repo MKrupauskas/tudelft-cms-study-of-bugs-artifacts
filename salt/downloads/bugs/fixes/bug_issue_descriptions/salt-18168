@@ -1,0 +1,46 @@
+Lets consider this sls:
+
+```
+eth0:
+  network.managed:
+    - name: "eth0"
+    - enabled: True
+    - type: eth
+    - proto: none
+    - ipaddr: "10.10.223.30"
+    - netmask: "255.255.255.0"
+    - dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+eth0_1:
+  network.managed:
+    - name: "eth0:1"
+    - enabled: True
+    - type: eth
+    - ipaddr: "10.10.223.29"
+    - netmask: "255.255.255.0"
+
+eth0_2:
+  network.managed:
+    - name: "eth0:2"
+    - enabled: True
+    - type: eth
+    - ipaddr: "10.10.223.38"
+    - netmask: "255.255.255.0"
+```
+
+In 2014.1 you would have eth0 with 3 aliases on it because in modules/rh_ip.py up() it runs "ifup eth0:1" which legit on RHEL systems
+
+In 2014.7 you cant do that anymore, because salt.utils.network.interfaces() returns new format of array:
+
+```
+{'lo': {'hwaddr': '00:00:00:00:00:00', 'up': True, 'inet': [{'broadcast': None, 'netmask': '255.0.0.0', 'label': 'lo', 'address': '127.0.0.1'}], 'inet6': [{'prefixlen': '128', 'address': '::1'}]}, 'eth0': {'hwaddr': 'd6:be:8f:2c:bc:57', 'inet6': [{'prefixlen': '64', 'address': 'fe80::d4be:8fff:fe2c:bc57'}], 'up': True, 'inet': [{'broadcast': '10.10.223.255', 'netmask': '255.255.255.0', 'label': 'eth0', 'address': '10.10.223.30'}], 'secondary': [{'broadcast': '10.10.223.255', 'netmask': '255.255.255.0', 'label': 'eth0:1', 'type': 'inet', 'address': '10.10.223.29'}, {'broadcast': '10.10.223.255', 'netmask': '255.255.255.0', 'label': 'eth0:2', 'type': 'inet', 'address': '10.10.223.38'}]}}
+```
+
+Which in short is `{'lo':{}, 'eth0':{'secondary': [{'label': 'eth0:1'}, {'label': 'eth0:2'}]}`, so when you have 
+states/network.py, line 282: `interface_status = salt.utils.network.interfaces()[name].get('up')` you will get exception trying to get name="eth0:1" from the dict.
+
+Obviously the solution is either:
+- revert back to old dist format and consider "eth0:1" and etc as separate interfaces, as it used to be
+- add to type "alias" and treat the interface the other way, like with type="bond"

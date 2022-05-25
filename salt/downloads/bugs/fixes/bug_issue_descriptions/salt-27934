@@ -1,0 +1,28 @@
+Reproduction steps:
+1. Run salt-master in foreground: salt-master -l debug
+2. Wait some time to let it start
+3. Press Ctrl-C
+
+Result:
+1. Master doesn't release the terminal. Terminal output is the following:
+
+```
+^C[DEBUG   ] Gathering reactors for tag salt/event/exit
+[WARNING ] Stopping the Salt Master
+[WARNING ] Exiting on Ctrl-c
+[INFO    ] The salt master is shut down
+[DEBUG   ] Stopping the multiprocessing logging queue listener
+[DEBUG   ] Stopped the multiprocessing logging queue listener
+```
+1. Two master processes still alive: process manager that just waits all processes exit and event return that hangs
+
+```
+$ ps aux | grep salt-master
+dimm      3084  0.1  0.5 307268 41140 pts/2    S+   11:19   0:00 python ./scripts/salt-master -l debug ProcessManager
+dimm      3159  0.0  0.4 389380 34896 pts/2    Sl+  11:19   0:00 python ./scripts/salt-master -l debug EventReturn
+```
+
+Analyze:
+Actually the EventReturn main loop handles KeyboardInterrupt exception on a proper way. But most of the time EventReturn spend in poll that is called by SaltEvent._get_event() that already catches KeyboardInterrupt and returns a special event with tag 'salt/event/exit' instead of raising exception.
+
+So the proper way to handle keyboard interrupt would be not the only catch the exception but also handle the exit event.

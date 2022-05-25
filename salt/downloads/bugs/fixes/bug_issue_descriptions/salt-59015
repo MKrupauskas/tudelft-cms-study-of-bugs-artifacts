@@ -1,0 +1,270 @@
+After looking thru recent changes I believe this commit resolved the bug I reported:
+https://github.com/saltstack/salt/commit/a139f6f6a9b9ff3dfd346b158985b8df8bad792a
+After testing salt in its current form from the github master branch the below issue is resolved.
+
+Would it be possible to get the above commit back ported to salt '3002.2'?
+
+Thanks!
+
+
+**Description**
+Salt fails to render pillars that reference grains on a state.apply if grains are set in the minion config '/etc/salt/minion' which salt-cloud adds by default.
+
+**Setup**
+(Please provide relevant configs and/or SLS files (be sure to remove sensitive info).
+<details><summary>Master configuration:</summary>
+/etc/salt/master:
+
+```
+fileserver_backend:
+  - roots
+
+file_roots:
+  base:
+    - /srv/salt
+
+pillar_roots:
+  base:
+    - /srv/pillar
+```
+/srv/top.sls:
+
+```
+{{saltenv}}:
+  '*':
+    - test
+```
+/srv/pillar/test.sls:
+
+```
+{% if grains['kernel'] == 'Linux' %}
+text: This should work!
+{% endif %}
+```
+/srv/salt/top.sls:
+
+```
+{{saltenv}}:
+  '*':
+    - test
+```
+/srv/salt/test.sls:
+
+```
+Test:
+  cmd.run:
+    - name: echo {{ pillar['text'] }}
+```
+</details>
+<details><summary>Minion configuration:</summary>
+/etc/salt/minion:
+
+```
+grains:
+  salt-cloud:
+    driver: openstack
+    profile: openstack
+    provider: openstack:openstack
+master: localhost
+```
+</details>
+
+**Steps to Reproduce the behavior**
+Run state.apply against the minion results in the following error:
+```
+minion:
+    Data failed to compile:
+----------
+    Pillar failed to render with the following messages:
+----------
+    Rendering SLS 'test' failed. Please see master log for details
+```
+However, the pillar actually renders correctly running pillar.items:
+
+```
+minion:
+    ----------
+    text:
+        This should work!
+```
+Logs related to the error:
+<details><summary>Output from `salt 'minion' state.apply -l debug`</summary>
+
+```
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] Configuration file path: /etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/master', 'MASTERFQDN_master', 'tcp://127.0.0.1:4506', 'clear')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://127.0.0.1:4506
+[DEBUG   ] Trying to connect to: tcp://127.0.0.1:4506
+[DEBUG   ] Closing AsyncZeroMQReqChannel instance
+[DEBUG   ] LazyLoaded local_cache.get_load
+[DEBUG   ] Reading minion list from /var/cache/salt/master/jobs/56/ff399c983f26c254a27c2215b576cf1ffdc5edeaca12fd684a4bf397b0763c/.minions.p
+[DEBUG   ] get_iter_returns for jid 20201124174722102426 sent to {'minion'} will timeout at 10:47:27.130218
+[DEBUG   ] jid 20201124174722102426 return from minion
+[DEBUG   ] return event: {'minion': {'ret': ['Pillar failed to render with the following messages:', "Rendering SLS 'test' failed. Please see master log for details."], 'out': 'highstate', 'retcode': 5, 'jid': '20201124174722102426'}}
+[DEBUG   ] LazyLoaded highstate.output
+minion:
+    Data failed to compile:
+----------
+    Pillar failed to render with the following messages:
+----------
+    Rendering SLS 'test' failed. Please see master log for details.
+[DEBUG   ] jid 20201124174722102426 found all minions {'minion'}
+[DEBUG   ] Closing IPCMessageSubscriber instance
+ERROR: Minions returned with non-zero exit code
+```
+</details>
+<details><summary>Corresponding errors in /var/log/salt/master:</summary>
+
+```
+2020-11-24 10:51:51,149 [salt.utils.templates:273 ][ERROR   ][116004] Rendering exception occurred
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 498, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python3.6/site-packages/jinja2/asyncsupport.py", line 76, in render
+    return original_render(self, *args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 1008, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 780, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "/usr/lib/python3.6/site-packages/jinja2/_compat.py", line 37, in reraise
+    raise value.with_traceback(tb)
+  File "<template>", line 1, in top-level template code
+jinja2.exceptions.UndefinedError: 'dict object' has no attribute 'kernel'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 260, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 505, in render_jinja_tmpl
+    raise SaltRenderError("Jinja variable {}{}".format(exc, out), buf=tmplstr)
+salt.exceptions.SaltRenderError: Jinja variable 'dict object' has no attribute 'kernel'
+2020-11-24 10:51:51,150 [salt.pillar      :888 ][CRITICAL][116004] Rendering SLS 'test' failed, render error:
+Jinja variable 'dict object' has no attribute 'kernel'
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 498, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python3.6/site-packages/jinja2/asyncsupport.py", line 76, in render
+    return original_render(self, *args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 1008, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 780, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "/usr/lib/python3.6/site-packages/jinja2/_compat.py", line 37, in reraise
+    raise value.with_traceback(tb)
+  File "<template>", line 1, in top-level template code
+jinja2.exceptions.UndefinedError: 'dict object' has no attribute 'kernel'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/pillar/__init__.py", line 884, in render_pstate
+    **defaults
+  File "/usr/lib/python3.6/site-packages/salt/template.py", line 101, in compile_template
+    ret = render(input_data, saltenv, sls, **render_kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/renderers/jinja.py", line 79, in render
+    **kws
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 260, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 505, in render_jinja_tmpl
+    raise SaltRenderError("Jinja variable {}{}".format(exc, out), buf=tmplstr)
+salt.exceptions.SaltRenderError: Jinja variable 'dict object' has no attribute 'kernel'
+2020-11-24 10:51:51,152 [salt.pillar      :1208][CRITICAL][116004] Pillar render error: Rendering SLS 'test' failed. Please see master log for details.
+```
+</details>
+**Expected behavior**
+Run state.apply against the minion should result in the following:
+
+```
+minion:
+----------
+          ID: Test
+    Function: cmd.run
+        Name: echo This should work!
+      Result: True
+     Comment: Command "echo This should work!" run
+     Started: 10:18:29.712358
+    Duration: 18.082 ms
+     Changes:
+              ----------
+              pid:
+                  106667
+              retcode:
+                  0
+              stderr:
+              stdout:
+                  This should work!
+
+Summary for minion
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  18.082 ms
+```
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+master/minion are the same server
+
+```
+Salt Version:
+          Salt: 3002.2
+
+Dependency Versions:
+          cffi: 1.11.5
+      cherrypy: Not Installed
+      dateutil: 2.6.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10.1
+       libgit2: Not Installed
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.14
+      pycrypto: Not Installed
+  pycryptodome: Not Installed
+        pygit2: Not Installed
+        Python: 3.6.8 (default, Apr 16 2020, 01:36:27)
+  python-gnupg: Not Installed
+        PyYAML: 3.12
+         PyZMQ: 19.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.3
+
+System Versions:
+          dist: centos 8 Core
+        locale: UTF-8
+       machine: x86_64
+       release: 4.18.0-193.28.1.el8_2.x86_64
+        system: Linux
+       version: CentOS Linux 8 Core
+```
+</details>
+
+
+**Additional context**
+This works without issue downgrading salt/salt-minion/salt-master to the previous version: 3002.1-1
+This works without issue on a 'CentOS 7' minion with salt-minion-3000.5-1.el7.noarch connected to the above configured master
+
+The following can be done to resolve the issue but causes a loss in basic salt functionality:
+
+- Remove the call to 'grains['kernel']' in the pillar (This is basic functionality of the pillar)
+- Remove the grains from /etc/salt/minion (These shouldn't be put here by salt-cloud if its going to cause pillar rendering issues as it breaks automating creation/deploy of servers)
+

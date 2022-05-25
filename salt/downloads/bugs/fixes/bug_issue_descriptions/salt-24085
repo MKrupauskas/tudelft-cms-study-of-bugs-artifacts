@@ -1,0 +1,56 @@
+This may be related to/a duplicate of #23342 
+
+When making a call (`salt.client.Caller()`) if the grains loader (specifically, `grains.update(_virtual(grains))`) attempts to execute a command (e.g. `dmidecode`), and the command cannot be found, a `salt.exceptions.CommandExecutionError` is raised all the way up to the caller. I believe this to be a bug because other entry points to salt treat this as a warning.
+
+In my specific case, the execution environment (cron) does not have a `$PATH` to `/usr/sbin/dmidecode`:
+
+```
+Traceback (most recent call last):
+  File "/usr/local/bin/dynamic_cfg.py", line 205, in <module>
+    add_salt_hostgroups(disp_hosts)
+  File "/usr/local/bin/dynamic_cfg.py", line 152, in add_salt_hostgroups
+    caller = salt.client.Caller()
+  File "/usr/lib/python2.7/dist-packages/salt/client/__init__.py", line 1617, in __init__
+    self.sminion = salt.minion.SMinion(self.opts)
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 298, in __init__
+    opts['grains'] = salt.loader.grains(opts)
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 508, in grains
+    ret = fun()
+  File "/usr/lib/python2.7/dist-packages/salt/grains/core.py", line 1240, in os_data
+    grains.update(_virtual(grains))
+  File "/usr/lib/python2.7/dist-packages/salt/grains/core.py", line 500, in _virtual
+    ret = __salt__['cmd.run_all'](cmd)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/cmdmod.py", line 555, in _run_all_quiet
+    saltenv=saltenv)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/cmdmod.py", line 391, in _run
+    .format(cmd, kwargs, exc)
+salt.exceptions.CommandExecutionError: Unable to run command ['dmidecode'] with the context {'with_communicate': True, 'shell': False, 'env': {'LANG': 'en_US.UTF-8', 'LC_ALL': 'C', 'SHELL': '/bin/sh', 'PWD': '/root', 'LOGNAME': 'root', 'HOME': '/root', 'PATH': '/usr/bin:/bin'}, 'stdout': -1, 'close_fds': True, 'stdin': None, 'stderr': -1, 'cwd': '/root'}, reason: [Errno 2] No such file or directory
+```
+
+The relevant code is:
+
+``` python
+caller = salt.client.Caller()
+known_salt_minions = caller.sminion.functions['mine.get']('*', 'test.ping')
+```
+
+This can also be duplicated at the command line:
+
+``` bash
+$ sudo PATH=/bin:/usr/bin salt-call mine.get '*' test.ping
+```
+
+Which gives a similar stack trace.
+
+This is on:
+
+```
+$ lsb_release -a
+No LSB modules are available.
+Distributor ID: Debian
+Description:    Debian GNU/Linux 7.5 (wheezy)
+Release:    7.5
+Codename:   wheezy
+$ salt-call --version
+salt-call 2015.5.0 (Lithium)
+```

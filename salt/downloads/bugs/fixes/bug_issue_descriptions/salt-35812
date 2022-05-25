@@ -1,0 +1,167 @@
+### Description of Issue/Question
+
+Since salt jobs executed via the salt scheduler do not send events back to the server, and I want to set up alerting when scheduled jobs fail, I am using a custom returner to generate a custom event that is handled by a custom reactor on the master which decided if an alert should be generated and does so.
+
+One issue I am having is that the value of ret["success"] in the returner function of my returner is not reliable.  The specific issue in this case is when the schedule pillar uses state.sls to execute a state file but the name of the state file is incorrect.  While ret["return"][0] contains `"No matching sls found for 'bogus' in env 'dmz'"` ret["success"] is True.
+### Setup
+
+The incorrect schedule pillar is:
+
+```
+schedule:
+  bogus-scheduled-job:
+    function: state.sls
+    run_on_start: False
+    args:
+      - bogus
+    kwargs:
+      test: False
+    seconds: 60
+    returner: debug_returner
+```
+
+The mistake is that bogus.sls does not exist.  The schedule should specify "dmz.bogus" in this case.
+
+To make it easy to see the data passed in to the returner, I am using debug_returner.py (instead of the returner that generates my custom event):
+
+```
+'''
+Debug data available to a returner.
+'''
+
+# Import python libs
+import logging
+
+# Import salt libs
+import collections
+import json
+
+log = logging.getLogger(__name__)
+
+def convert(ret):
+  '''
+  Converts the return to a format
+  '''
+  return ret
+
+def returner(ret):
+  '''
+  Write data available to returner to the minion log
+  '''
+  jid = 0
+  if "jid" in ret:
+    jid = ret["jid"]
+  log.error("schedule_returner [{}] keys: {}".format(jid, ",".join(ret.keys())))
+  if "schedule" in ret:
+    log.error("schedule_returner [{}] schedule: {}".format(jid, ret["schedule"]))
+  if "fun" in ret:
+    log.error("schedule_returner [{}] fun: {}".format(jid, ret["fun"]))
+  if "pid" in ret:
+    log.error("schedule_returner [{}] pid: {}".format(jid, ret["pid"]))
+  if "id" in ret:
+    log.error("schedule_returner [{}] id: {}".format(jid, ret["id"]))
+  if "return" in ret:
+    log.error("schedule_returner [{}] return: {}".format(jid, json.dumps(ret["return"], sort_keys=True, indent=4, separators=(',', ': '))))
+  if "success" in ret:
+    log.error("schedule_returner [{}] success: {}".format(jid, ret["success"]))
+  # note this structure can contain circular references (it does in the case of a scheduler job) which can not be handled
+  # by json.dumps
+  if "fun_args" in ret:
+    log.error("schedule_returner [{}] fun_args: {}".format(jid, _to_string(ret["fun_args"], max_depth=10)))
+
+def _to_string(o, cur_depth=0, max_depth=1):
+  s = ""
+  if (cur_depth != max_depth):
+    cur_depth += 1
+    if isinstance(o, basestring):
+      s += o
+    elif isinstance(o, dict):
+      s += "{"
+      for k,v in o.iteritems():
+        s += k + ": " + _to_string(v, cur_depth, max_depth) + ", "
+      s += "}"
+    elif isinstance(o, collections.Sequence):
+      s += "["
+      for v in o:
+        s += _to_string(v, cur_depth, max_depth) + ", "
+      s += "]"
+    else:
+      s += str(o)
+  return s
+```
+### Steps to Reproduce Issue
+
+Set `log_level_logfile: error` in the minion config and tail the log to see the output when the bogus-scheduled-job executes.
+
+```
+2016-08-26 17:00:10,746 [salt.crypt       ][DEBUG   ][882] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2016-08-26 17:00:10,751 [salt.state       ][INFO    ][882] Loading fresh modules for state activity
+2016-08-26 17:00:10,763 [salt.utils.lazy  ][DEBUG   ][882] LazyLoaded jinja.render
+2016-08-26 17:00:10,764 [salt.utils.lazy  ][DEBUG   ][882] LazyLoaded yaml.render
+2016-08-26 17:00:10,767 [salt.fileclient  ][DEBUG   ][882] Could not find file from saltenv 'dmz', u'salt://bogus.sls'
+2016-08-26 17:00:10,769 [salt.fileclient  ][DEBUG   ][882] Could not find file from saltenv 'dmz', u'salt://bogus/init.sls'
+2016-08-26 17:00:10,769 [salt.template    ][DEBUG   ][882] compile template: False
+2016-08-26 17:00:10,769 [salt.template    ][ERROR   ][882] Template was specified incorrectly: False
+2016-08-26 17:00:10,770 [salt.utils.lazy  ][DEBUG   ][882] LazyLoaded debug_returner.returner
+2016-08-26 17:00:10,770 [salt.loaded.ext.returner.debug_returner][ERROR   ][882] schedule_returner [20160826170010223331] keys: fun_args,jid,return,success,schedule,pid,fun,id
+2016-08-26 17:00:10,771 [salt.loaded.ext.returner.debug_returner][ERROR   ][882] schedule_returner [20160826170010223331] schedule: bogus-scheduled-job
+2016-08-26 17:00:10,771 [salt.loaded.ext.returner.debug_returner][ERROR   ][882] schedule_returner [20160826170010223331] fun: state.sls
+2016-08-26 17:00:10,771 [salt.loaded.ext.returner.debug_returner][ERROR   ][882] schedule_returner [20160826170010223331] pid: 882
+2016-08-26 17:00:10,771 [salt.loaded.ext.returner.debug_returner][ERROR   ][882] schedule_returner [20160826170010223331] id: dmz-master1a.auw2z.shpsec.com
+2016-08-26 17:00:10,771 [salt.loaded.ext.returner.debug_returner][ERROR   ][882] schedule_returner [20160826170010223331] return: [
+    "No matching sls found for 'bogus' in env 'dmz'"
+]
+2016-08-26 17:00:10,771 [salt.loaded.ext.returner.debug_returner][ERROR   ][882] schedule_returner [20160826170010223331] success: True
+2016-08-26 17:00:10,772 [salt.loaded.ext.returner.debug_returner][ERROR   ][882] schedule_returner [20160826170010223331] fun_args: [bogus, {__pub_pid: 882, __pub_fun_args: [bogus, {__pub_pid: 882, __pub_fun_args: [bogus, {__pub_pid: 882, __pub_fun_args: [bogus, {__pub_pid: 882, __pub_fun_args: [bogus, {__pub_pid: , __pub_fun_args: , __pub_id: , __pub_fun: , __pub_jid: , __pub_schedule: , test: , }, ], __pub_id: dmz-master1a.auw2z.shpsec.com, __pub_fun: state.sls, __pub_jid: 20160826170010223331, __pub_schedule: bogus-scheduled-job, test: False, }, ], __pub_id: dmz-master1a.auw2z.shpsec.com, __pub_fun: state.sls, __pub_jid: 20160826170010223331, __pub_schedule: bogus-scheduled-job, test: False, }, ], __pub_id: dmz-master1a.auw2z.shpsec.com, __pub_fun: state.sls, __pub_jid: 20160826170010223331, __pub_schedule: bogus-scheduled-job, test: False, }, ], __pub_id: dmz-master1a.auw2z.shpsec.com, __pub_fun: state.sls, __pub_jid: 20160826170010223331, __pub_schedule: bogus-scheduled-job, test: False, }, ]
+2016-08-26 17:00:10,772 [salt.transport.zeromq][DEBUG   ][882] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'dmz-master1a.auw2z.shpsec.com', 'tcp://127.0.0.1:4506', 'aes')
+2016-08-26 17:00:10,772 [salt.crypt       ][DEBUG   ][882] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'dmz-master1a.auw2z.shpsec.com', 'tcp://127.0.0.1:4506')
+2016-08-26 17:00:10,773 [salt.transport.zeromq][TRACE   ][882] Inserted key into loop_instance_map id 63744840 for key ('/etc/salt/pki/minion', 'dmz-master1a.auw2z.shpsec.com', 'tcp://127.0.0.1:4506', 'aes') and process 882
+```
+
+Note `success: True` and 
+
+```
+return: [
+    "No matching sls found for 'bogus' in env 'dmz'"
+]
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.11
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-229.14.1.el7.x86_64
+         system: CentOS Linux 7.2.1511 Core
+```

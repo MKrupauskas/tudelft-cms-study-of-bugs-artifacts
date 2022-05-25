@@ -1,0 +1,81 @@
+### Description of Issue
+Maintenance process that runs every minute (guided by loop_interval) is failing
+
+```
+[salt.utils.process:754 ][ERROR   ][5766] An un-handled exception from the multiprocessing process 'Maintenance-4443' was caught:
+Traceback (most recent call last):
+File "/usr/lib/python2.7/dist-packages/salt/utils/process.py", line 747, in _run
+return self._original_run()
+File "/usr/lib/python2.7/dist-packages/salt/master.py", line 224, in run
+salt.daemons.masterapi.clean_expired_tokens(self.opts)
+File "/usr/lib/python2.7/dist-packages/salt/daemons/masterapi.py", line 138, in clean_expired_tokens
+token_data = loadauth.get_tok(tok)
+File "/usr/lib/python2.7/dist-packages/salt/auth/__init__.py", line 235, in get_tok
+tdata = self.tokens["{0}.get_token".format(self.opts['eauth_tokens'])](self.opts, tok)
+File "/usr/lib/python2.7/dist-packages/salt/tokens/localfs.py", line 67, in get_token
+tdata = serial.loads(fp_.read())
+File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 145, in loads
+ret = msgpack.loads(msg, use_list=True, ext_hook=ext_type_decoder, encoding=encoding)
+File "msgpack/_unpacker.pyx", line 146, in msgpack._unpacker.unpackb (msgpack/_unpacker.cpp:2231)
+UnpackValueError: Unpack failed: error = 0
+[salt.utils.process:435 ][INFO    ][30130] Process <class 'salt.master.Maintenance'> (5766) died with exit status 1, restarting...
+```
+
+As result non of the scheduled task are run. The issue is caused by 0 bytes token file in
+`/var/cache/salt/master/tokens`
+
+Removing the file fixes the problem
+
+The related issue https://github.com/saltstack/salt/issues/37945 which was fixed by 
+https://github.com/saltstack/salt/commit/330021cd8b6205861a4a51982da4bc90125a1be1.
+
+The routine however was rewritten to not handle this Exception. 
+
+So looks like regression. 
+
+### Steps to Reproduce Issue
+Periodically strikes. Not clear what causes these empty token files to be created.  
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.4
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: 2.0.0
+      gitpython: 2.1.1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: 0.24.5
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.4.7
+         pygit2: 0.24.2
+         Python: 2.7.13 (default, Sep 26 2018, 18:42:22)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.1
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.8 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.13.0-dom0
+         system: Linux
+        version: debian 9.8 
+```

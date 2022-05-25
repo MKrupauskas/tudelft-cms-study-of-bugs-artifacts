@@ -1,0 +1,110 @@
+I'm attempting to keep my salt mine tidy by reacting to `salt/key` events and whenever I see `data['act'] == 'del'` I remove mine data (from `/var/cache/salt/master/minions`) for minions which are no longer in the system.
+
+To achieve this I have created the following setup:
+**`master.d/reactor.conf`:**
+
+```
+reactor:
+  - 'salt/key':
+    - /srv/reactor/clean_minion_cache.sls
+```
+
+**`reactor/clean_minion_cache.sls`:**
+
+```
+{% if data['act'] == 'delete' %}
+
+clean_minion_cache:
+  runner.minion_cache.clean: []
+
+{% endif %}
+```
+
+**`srv/runners/minion_cache.py`:**
+
+```
+import logging
+import os
+import os.path
+import salt.key
+import shutil
+
+log = logging.getLogger(__name__)
+
+def clean(path='/var/cache/salt/master/minions/'):
+  minions = salt.key.Key(__opts__).list_keys()['minions']
+
+  delete = [m for m in os.listdir(path) \
+                    if m not in minions \
+                    and os.path.exists(os.path.join(path, m, 'mine.p'))]
+
+  log.debug('deleting cache for %s', delete)
+
+  for m in delete:
+    shutil.rmtree(os.path.join(path, m))
+
+  return delete
+```
+
+However it blows up with a TypeError when the event fires it tries to execute the runner:
+
+```
+[DEBUG   ] Gathering reactors for tag salt/key
+[DEBUG   ] Compiling reactions for tag salt/key
+[DEBUG   ] Jinja search path: ['/var/cache/salt/master/files/base']
+[DEBUG   ] Rendered data from file: /srv/reactor/clean_minion_cache.sls:
+
+
+clean_minion_cache:
+  runner.minion_cache.clean: []
+
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('clean_minion_cache', OrderedDict([('runner.minion_cache.clean', [])]))])
+[DEBUG   ] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[ERROR   ] Failed to execute runner: <bound method ReactWrap.runner of <salt.utils.reactor.ReactWrap object at 0x317cd10>>
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/utils/reactor.py", line 158, in run
+    ret = l_fun(*f_call.get('args', ()), **f_call.get('kwargs', {}))
+  File "/usr/lib/python2.7/site-packages/salt/utils/reactor.py", line 183, in runner
+    return self.client_cache['runner'].async(fun, kwargs, fire_event=False)
+TypeError: async() got an unexpected keyword argument 'fire_event'
+```
+
+My versions are:
+
+```
+           Salt: 2015.2.0
+         Python: 2.7.5 (default, Jun 17 2014, 18:11:42)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.4
+           Mako: Not Installed
+```
+
+The _weird_ thing is `/usr/lib/python2.7/site-packages/salt/utils/reactor.py` on my installation has got the `fire_event=False` argument when invoking the `RunnerClient`, while when I look in github in the [2015.2 branch](https://github.com/saltstack/salt/blob/2015.2/salt/utils/reactor.py#L189) it looks good.
+
+Initially 2014.07 was installed through the [bootstrap script](https://github.com/saltstack/salt-bootstrap). At some point I upgraded from the yum packages based install (this is on CentOS) to 2015.2. But on the 2014.07 branch I can't even find the `.../salt/utils/reactor.py` file ...
+
+The 2014.07 install was through
+
+```
+curl -s -L https://bootstrap.saltstack.com | sudo sh -s -- -M -N
+```
+
+The 2015.02 install was through
+
+```
+curl -L https://bootstrap.saltstack.com | sudo sh -s -- -N -M git v2015.2
+```
+
+Any idea's?

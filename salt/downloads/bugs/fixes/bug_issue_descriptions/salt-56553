@@ -1,0 +1,124 @@
+Hi,
+
+I can't use the pdbedit state and module on Debian stable.
+
+### Setup
+```
+# cat /etc/debian_version 
+10.3
+```
+
+```
+# dpkg -l samba
+ii  samba          2:4.9.5+dfsg-5+deb10u1 amd64        SMB/CIFS file, print, and login server for Unix
+```
+
+### Steps to Reproduce Issue
+State:
+```
+samba_user_deleteme_absent:
+  pdbedit.absent:
+    - name: deleteme
+```
+
+Output:
+```
+          ID: samba_user_deleteme_absent
+    Function: pdbedit.absent
+        Name: deleteme
+      Result: False
+     Comment: State 'pdbedit.absent' was not found in SLS 'project.srv.samba'
+              Reason: 'pdbedit' __virtual__ returned False: pdbedit state module can only be loaded when the pdbedit module is available
+     Changes:   
+
+```
+
+I think, the reason is the version checking in `salt/modules/pdbedit.py`, line 49:
+
+```
+    ver = salt.modules.cmdmod.run('pdbedit -V')
+    ver_regex = re.compile(r'^Version\s(\d+)\.(\d+)\.(\d+)$')
+    ver_match = ver_regex.match(ver)
+    if not ver_match:
+        return (False, 'pdbedit -V returned an unknown version format')
+```
+
+you can see it in the log
+
+Logs:
+```
+[INFO    ] Executing command 'pdbedit -V' in directory '/root'
+[DEBUG   ] stdout: Version 4.9.5-Debian
+[DEBUG   ] output: Version 4.9.5-Debian
+[TRACE   ] Error loading module.pdbedit: pdbedit -V returned an unknown version format
+
+...
+
+[DEBUG   ] LazyLoaded pdbedit.create
+[TRACE   ] Error loading states.pdbedit: pdbedit state module can only be loaded when the pdbedit module is available
+```
+
+Verify on command line:
+
+```
+# pdbedit -V
+Version 4.9.5-Debian
+```
+
+My Workaround:
+
+```
+--- /root/pdbedit.py	2020-04-05 20:18:37.501604113 +0200
++++ /usr/lib/python3/dist-packages/salt/modules/pdbedit.py	2020-04-05 20:17:29.414031114 +0200
+@@ -47,7 +47,7 @@
+ 
+     # NOTE: check version is >= 4.8.x
+     ver = salt.modules.cmdmod.run('pdbedit -V')
+-    ver_regex = re.compile(r'^Version\s(\d+)\.(\d+)\.(\d+)$')
++    ver_regex = re.compile(r'^Version\s(\d+)\.(\d+)\.(\d+)')
+     ver_match = ver_regex.match(ver)
+     if not ver_match:
+         return (False, 'pdbedit -V returned an unknown version format')
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 3000.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.7.3 (default, Dec 20 2019, 18:57:59)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: debian 10.3 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.19.0-8-amd64
+         system: Linux
+        version: debian 10.3 
+```
+

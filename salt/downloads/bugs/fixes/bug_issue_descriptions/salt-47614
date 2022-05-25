@@ -1,0 +1,83 @@
+### Description of Issue/Question
+
+### Setup
+* Debian9 on amd64
+* salt-minion from saltstack's repo
+
+### Steps to Reproduce Issue
+* add a scheduler state:
+```
+job_fetch_influx_success:
+    args: [telegraf, SELECT value FROM telegraf.apache2 WHERE time > now() -
+        10m GROUP BY *]
+    enabled: true
+    function: influxdb.query
+    jid_include: true
+    maxrunning: 1
+    name: job_fetch_influx_value
+    seconds: 300
+```
+* Job will always fail with
+```
+2018-05-11 18:11:45,013 [salt.utils.schedule:737 ][ERROR   ][27136] Unhandled exception running influxdb.query
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/schedule.py", line 704, in handle_func
+    ret['return'] = self.functions[func](*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/influx.py", line 699, in query
+    client = _client(**client_args)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/influx.py", line 73, in _client
+    if __pub_fun_args in client_args:
+NameError: global name '__pub_fun_args' is not defined
+```
+* Manually running 'salt minionname influx.query "SELECT *...."' always succeeds
+* Dictionary ```client_args``` has elements  ```'__pub_id','__pub_fun_args','__pub_schedule'``` which python-influxdb's constructor does not like.
+* I created a patch to modules/influx.py to delete the elements. I'm not sure where to fix this:
+  * in modules/influx.py
+  * in state.py (variable STATE_INTERNAL_KEYWORDS)
+* I can open a pull request with a fix if I get an answer to the above question. Anyone?
+
+
+### Versions Report
+```
+salt-call --versions-report
+Salt Version:
+           Salt: 2018.3.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Nov 24 2017, 17:33:09)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.4 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-6-amd64
+         system: Linux
+        version: debian 9.4 
+ ```

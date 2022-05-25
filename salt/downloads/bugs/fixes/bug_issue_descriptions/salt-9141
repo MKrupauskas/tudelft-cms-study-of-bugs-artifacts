@@ -1,0 +1,117 @@
+[Relevant mailing list thread.](https://groups.google.com/d/topic/salt-users/xXuHbEbumdc/discussion)
+
+Hi,
+
+in the following setup, the salt-master fails to return the result of a job that was published to a salt-minion.
+
+``` bash
+external publisher          salt01/Dell R410                  salt02/Dell R410             Xen-DomU
+new_job for minion1 => (salt-api <=> salt-master1) <=>  (salt-syndic <=> salt-master2) <=> minion1
+```
+
+The salt-master1 only has the syndic connected and runs with apache+salt-api. 
+
+The salt-master2 is connected to salt-master1 via the syndic and only has minion1 connected.
+
+Publishing via the salt-cli on salt-master2 for minion1 works.
+The same goes for salt-cli on salt-master1 for minion1 with the syndic being the proxy.
+
+Doing the same thing on salt-master1 while going through the salt-api, brakes. The result, even though it reaches salt-master1, is never returned to the LocalClient instantiated by salt-api. 
+
+Here is how and why it happens:
+
+The publisher receives a new job from the localclient (instantiated by
+the rest_wsgi-application) with certain parameters. The publisher
+takes the given parameters and tries to figure out, which minions are
+expected to return something for this job.
+
+The publisher does that, by using salt.utils.minions.check_minions()
+with 'tgt' and 'expr_form' as parameters. In my case that is
+'minion_id' (fqdn) and 'glob'.
+
+Now utils.minions internally calls _check_glob_minions() which is
+rather lazy and just does glob.glob() on the pki/master/minions
+directory. Because my salt-api runs on a salt-master1
+(order_masters=true), there are no matching minion keys except the
+salt-syndic one. That causes an empty list to be returned to the publisher
+which then announces a new job on the eventbus with an empty minions list:
+
+``` python
+{'tag': '20131205231610337853', 'data': {'_stamp':'2013-12-05_23:16:10.338119', 'minions': []}}
+```
+
+This does not yet break anything, because the publisher can handle an
+empty minions list just fine.
+
+Now we go back to the localclient which sits there and waits for the
+published job to return something. After publishing a job, the
+localclient tells itself to go to self.get_returns to wait for events
+on a specific jid. The parameters for get_returns are the jid we
+received from the publisher and the minion list we
+also received from the publisher which is empty!
+
+That makes the while-loop in LocalClient.get_returns break immediately and return
+an empty result to the client because this always evaluates to true:
+
+``` python
+ 841             if len(found.intersection(minions)) >= len(minions):
+ 842                 # All minions have returned, break out of the loop
+ 843                 break
+```
+
+This can be easily verified by just touching the required minion-id in
+the masters pki-directory.
+
+So for now, to have a working salt-api on salt-master1, i either have to touch all minions i want to working on salt-master1 in pki/master/minions, or rsync the keys from salt-master2 to salt-master1 periodically.
+
+Fixing this:
+
+The difference between salt-cli and salt-api is, that salt-cli wraps LocalClient.cmd_cli() while salt-api wraps LocalClient.cmd().
+
+A simplistic script show the problem:
+
+``` python
+   1 #!/usr/bin/python
+   2 import salt.config
+   3 import salt.client
+   4
+   5 ##################################
+   6 def run():
+   7
+   8     client = salt.client.LocalClient('/etc/salt/master')
+   9
+  10     for host in client.cmd_cli(tgt='server01.mydomain.com',
+  11                                fun='test.ping',
+  12                                timeout=10,
+  13                                expr_form='glob'):
+  14         print str(host)
+  15
+  16 if __name__ == '__main__':
+  17     run()
+```
+
+Just switching between client.cmd() and client.cmd_cli() in line 10
+shows the described problem.
+
+The LocalClient().cmd() Script exits immediately.
+
+``` bash
+salt02:~/tests $ time python cmd-test.py
+
+real    0m0.275s
+user    0m0.244s
+sys 0m0.028s
+```
+
+When switched to LocalClient().cmd() i get the expected return.
+
+``` bash
+salt02:~/tests $ time python cmd-test.py
+{'server01.mydomain.com': {'ret': True}}
+
+real    0m29.265s
+user    0m0.264s
+sys 0m0.008s
+```
+
+I have not dug deep enough yet to figure out, what cmd() and cmd_cli() do differently. I think, its the event fired in the publisher with the minion-list. Before i try fixing this and create a pull-request, i'd love a comment or two on this matter :-)

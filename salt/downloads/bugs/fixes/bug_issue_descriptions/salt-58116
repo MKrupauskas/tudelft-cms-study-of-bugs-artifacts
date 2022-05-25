@@ -1,0 +1,116 @@
+### Description of Issue
+The token_list method from the kubeadm module fails with the following exception :
+```
+[INFO    ] Executing command ['kubeadm', 'token', 'list'] in directory '/root'
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+IndexError: pop from empty list
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    load_entry_point('salt==3001', 'console_scripts', 'salt-call')()
+  File "/usr/lib/python3/dist-packages/salt/scripts.py", line 472, in salt_call
+    client.run()
+  File "/usr/lib/python3/dist-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/lib/python3/dist-packages/salt/cli/caller.py", line 121, in run
+    ret = self.call()
+  File "/usr/lib/python3/dist-packages/salt/cli/caller.py", line 228, in call
+    ret["return"] = self.minion.executors[fname](
+  File "/usr/lib/python3/dist-packages/salt/executors/direct_call.py", line 12, in execute
+    return func(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/modules/kubeadm.py", line 114, in join_params
+    "token": _token(create_if_needed),
+  File "/usr/lib/python3/dist-packages/salt/modules/kubeadm.py", line 55, in _token
+    tokens = token_list()
+  File "/usr/lib/python3/dist-packages/salt/modules/kubeadm.py", line 337, in token_list
+    header = lines.pop(0)
+IndexError: pop from empty list
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    load_entry_point('salt==3001', 'console_scripts', 'salt-call')()
+  File "/usr/lib/python3/dist-packages/salt/scripts.py", line 472, in salt_call
+    client.run()
+  File "/usr/lib/python3/dist-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/lib/python3/dist-packages/salt/cli/caller.py", line 121, in run
+    ret = self.call()
+  File "/usr/lib/python3/dist-packages/salt/cli/caller.py", line 228, in call
+    ret["return"] = self.minion.executors[fname](
+  File "/usr/lib/python3/dist-packages/salt/executors/direct_call.py", line 12, in execute
+    return func(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/modules/kubeadm.py", line 114, in join_params
+    "token": _token(create_if_needed),
+  File "/usr/lib/python3/dist-packages/salt/modules/kubeadm.py", line 55, in _token
+    tokens = token_list()
+  File "/usr/lib/python3/dist-packages/salt/modules/kubeadm.py", line 337, in token_list
+    header = lines.pop(0)
+IndexError: pop from empty list
+```
+The same error also occurs when using the kubeadm.join_params method even with create_if_needed=True. The issue is likely related to newer versions of kubeadm. I'm not certain when this behaviour changed, but both 1.17.6 & 1.18.6 versions of kubeadm print no headers when no tokens are available, whereas 1.8.6 does. As a workaround, the following patch seems to work for me :
+```
+335,337d334
+<     if not lines:
+<       return []
+< 
+1364c1361
+< #   *  upgrade_plan
+\ No newline at end of file
+---
+> #   *  upgrade_plan
+```
+
+
+### Setup
+install kubeadm
+spin up a kubernetes cluster
+delete all bootstrap tokens
+
+
+### Steps to Reproduce Issue
+salt-call kubeadm.token_list
+
+
+### Versions Report
+````
+# salt-call --versions
+Salt Version:
+           Salt: 3001
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: 3.6.1
+         pygit2: Not Installed
+         Python: 3.8.2 (default, Jul 16 2020, 14:00:26)
+   python-gnupg: 0.4.5
+         PyYAML: 5.3.1
+          PyZMQ: 18.1.1
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+ 
+System Versions:
+           dist: ubuntu 20.04 focal
+         locale: utf-8
+        machine: x86_64
+        release: 5.4.0-42-generic
+         system: Linux
+        version: Ubuntu 20.04 focal
+````
+````
+# kubeadm version
+kubeadm version: &version.Info{Major:"1", Minor:"17", GitVersion:"v1.17.6", GitCommit:"d32e40e20d167e103faf894261614c5b45c44198", GitTreeState:"clean", BuildDate:"2020-05-20T13:14:10Z", GoVersion:"go1.13.9", Compiler:"gc", Platform:"linux/amd64"}
+````

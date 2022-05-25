@@ -1,0 +1,126 @@
+Hello Folks,
+
+I'm trying to set up AD/LDAP auth including group support.  I'm running 2015.5, and my configuration looks like the following:
+
+``` yaml
+external_auth:
+  ldap:
+    internal-team%:
+      - '*':
+        - .*
+      - '@jobs'
+      - '@runners'
+      - '@wheel'
+
+auth.ldap.filter: 'sAMAccountName={{ username }}'
+auth.ldap.persontype: 'person'
+auth.ldap.groupclass: 'group'
+auth.ldap.groupou: 'Users'
+```
+
+We are using a bind account and that's set up as well as a base dn, and it's running TLS.
+
+We're attempting to use pepper to access the salt-api, and when posting a job we're seeing the following in the master error log, despite the user's authentication working for the internal-team match in the master config:
+
+```
+2015-06-12 02:52:59,815 [salt.master      ][INFO    ][31902] Clear payload received with command runner
+2015-06-12 02:52:59,816 [salt.payload     ][CRITICAL][31698] Could not deserialize msgpack message: Unexpected Error in MworkerThis often happens when trying to read a file not in binary mode.Please open an issue and include the following error: unpack(b) recieved extra data.
+2015-06-12 02:52:59,816 [salt.master      ][CRITICAL][31902] Unexpected Error in Mworker
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 736, in __bind
+    ret = self.serial.dumps(self._handle_payload(payload))
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 794, in _handle_payload
+    'clear': self._handle_clear}[key](load)
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 807, in _handle_clear
+    return getattr(self.clear_funcs, load['cmd'])(load)
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 1968, in runner
+    'runner')
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 1900, in process_token
+    else self.opts['external_auth'][token['eauth']]['*'],
+KeyError: '*'
+2015-06-12 02:52:59,816 [salt.loaded.int.netapi.rest_cherrypy.app][DEBUG   ][31698] Error while processing request for: /
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy/app.py", line 428, in hypermedia_handler
+    ret = cherrypy.serving.request._hypermedia_inner_handler(*args, **kwargs)
+  File "/usr/lib/python2.6/site-packages/cherrypy/_cpdispatch.py", line 34, in __call__
+    return self.callable(*self.args, **self.kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy/app.py", line 850, in POST
+    token=cherrypy.session.get('token')))
+  File "/usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy/app.py", line 692, in exec_lowstate
+    ret = self.api.run(chunk)
+  File "/usr/lib/python2.6/site-packages/salt/netapi/__init__.py", line 66, in run
+    return l_fun(*f_call.get('args', ()), **f_call.get('kwargs', {}))
+  File "/usr/lib/python2.6/site-packages/salt/netapi/__init__.py", line 145, in runner
+    return runner.cmd_sync(kwargs, timeout=timeout)
+  File "/usr/lib/python2.6/site-packages/salt/runner.py", line 105, in cmd_sync
+    return mixins.SyncClientMixin.cmd_sync(self, reformatted_low)
+  File "/usr/lib/python2.6/site-packages/salt/client/mixins.py", line 138, in cmd_sync
+    job = self.master_call(**low)
+  File "/usr/lib/python2.6/site-packages/salt/client/mixins.py", line 115, in master_call
+    ret = channel.send(load)
+  File "/usr/lib/python2.6/site-packages/salt/transport/__init__.py", line 312, in send
+    return self._uncrypted_transfer(load, tries, timeout)
+  File "/usr/lib/python2.6/site-packages/salt/transport/__init__.py", line 308, in _uncrypted_transfer
+    return self.sreq.send(self.crypt, load, tries, timeout)
+  File "/usr/lib/python2.6/site-packages/salt/payload.py", line 275, in send
+    return self.serial.loads(self.socket.recv())
+  File "/usr/lib/python2.6/site-packages/salt/payload.py", line 98, in loads
+    return msgpack.loads(msg, use_list=True)
+  File "_unpacker.pyx", line 114, in msgpack._unpacker.unpackb (msgpack/_unpacker.cpp:114)
+ExtraData: unpack(b) recieved extra data.
+```
+
+It appears that it's looking for the key '*', so I've tested that as well, and it errors if I change my LDAP configuration to the following:
+
+``` yaml
+
+    '*':
+      - '@runners'
+      - '@jobs'
+      - '@wheel'
+    internal-team%:
+      - '*':
+        - .*
+      - '@jobs'
+      - '@runners'
+      - '@wheel'
+```
+
+We get the following output, which I think might be misleading since I think it just auths as me first rather than the team, but I wanted to add it as well for any checks you guys might want to do:
+
+```
+015-06-12 03:01:24,747 [salt.master      ][INFO    ][6215] Clear payload received with command publish
+2015-06-12 03:01:24,748 [salt.payload     ][CRITICAL][5983] Could not deserialize msgpack message: Unexpected Error in MworkerThis often happens when trying to read a file not in binary mode.Please open an issue and include the following error: unpack(b) recieved extra data.
+2015-06-12 03:01:24,748 [salt.master      ][CRITICAL][6215] Unexpected Error in Mworker
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 736, in __bind
+    ret = self.serial.dumps(self._handle_payload(payload))
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 794, in _handle_payload
+    'clear': self._handle_clear}[key](load)
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 807, in _handle_clear
+    return getattr(self.clear_funcs, load['cmd'])(load)
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 2223, in publish
+    for group in token['groups']:
+KeyError: 'groups'
+2015-06-12 03:01:24,749 [salt.loaded.int.netapi.rest_cherrypy.app][DEBUG   ][5983] Error while processing request for: /
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy/app.py", line 428, in hypermedia_handler
+    ret = cherrypy.serving.request._hypermedia_inner_handler(*args, **kwargs)
+  File "/usr/lib/python2.6/site-packages/cherrypy/_cpdispatch.py", line 34, in __call__
+    return self.callable(*self.args, **self.kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy/app.py", line 850, in POST
+    token=cherrypy.session.get('token')))
+  File "/usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy/app.py", line 692, in exec_lowstate
+    ret = self.api.run(chunk)
+  File "/usr/lib/python2.6/site-packages/salt/netapi/__init__.py", line 66, in run
+    return l_fun(*f_call.get('args', ()), **f_call.get('kwargs', {}))
+  File "/usr/lib/python2.6/site-packages/salt/netapi/__init__.py", line 77, in local_async
+    return local.run_job(*args, **kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/client/__init__.py", line 286, in run_job
+    raise SaltClientError(general_exception)
+SaltClientError: unpack(b) recieved extra data.
+```
+
+I think the problem with the first auth is that it's authing against groups for publishing, but when running a runner it's not checking against groups?  Not sure, could use some help here.
+
+Thanks guys!

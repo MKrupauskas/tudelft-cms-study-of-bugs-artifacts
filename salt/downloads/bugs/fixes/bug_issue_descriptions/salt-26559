@@ -1,0 +1,82 @@
+I pulled the latest develop this morning and the following occurs when just doing a simple test.ping:
+
+```
+# salt nt-u14 test.ping
+[CRITICAL] Failed to load grains defined in grain file opts.opts in function <function opts at 0x7fe2047a1c08>, error:
+Traceback (most recent call last):
+  File "/root/SaltStack/salt/salt/loader.py", line 622, in grains
+    ret = fun()
+  File "/root/SaltStack/salt/salt/grains/opts.py", line 12, in opts
+    if __opts__.get('grain_opts', False) or __pillar__.get('grain_opts', False):
+AttributeError: 'bool' object has no attribute 'get'
+nt-u14:
+    True
+```
+
+Git bisect points to 54ad6532f2a74f2beccfeda1645248166ace85a4 from PR #26399 as the problem commit causing this issue. After reverting the commit, the stacktrace dissapears:
+
+```
+# git revert 54ad6532f2a74f2beccfeda1645248166ace85a4
+[develop 48dc1b4] Revert "Make `__grains__` and `__salt__` available for log_handler modules"
+ 1 file changed, 5 deletions(-)
+# salt nt-u14 test.ping
+nt-u14:
+    True
+```
+
+@s0undt3ch I am not sure why that change is causing this, but can you take a look when you get a moment?
+
+Master:
+
+```
+# salt --versions
+Salt Version:
+           Salt: 2015.8.0-309-g48dc1b4
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+         PyYAML: 3.11
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+           RAET: Not Installed
+        Tornado: 4.2
+            ZMQ: 4.0.4
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.4
+       pycrypto: 2.6.1
+        timelib: 0.2.4
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-30-generic
+         system: Ubuntu 14.04 trusty
+```
+
+Minion:
+
+```
+# salt nt-u14 test.versions_report
+nt-u14:
+               Salt: 2015.5.5-5-g1ac8287
+             Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+             Jinja2: 2.7.2
+           M2Crypto: 0.21.1
+     msgpack-python: 0.3.0
+       msgpack-pure: Not Installed
+           pycrypto: 2.6.1
+            libnacl: Not Installed
+             PyYAML: 3.10
+              ioflo: Not Installed
+              PyZMQ: 14.5.0
+               RAET: Not Installed
+                ZMQ: 4.0.5
+               Mako: Not Installed
+            Tornado: Not Installed
+            timelib: Not Installed
+           dateutil: Not Installed
+```

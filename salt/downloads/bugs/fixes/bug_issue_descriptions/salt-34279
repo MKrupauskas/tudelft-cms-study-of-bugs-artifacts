@@ -1,0 +1,145 @@
+### Description of Issue/Question
+
+The master side pillar cache never expires. Once the master config for pillar_cache are added; the pillar values never get refreshed, until the file in /var/cache/salt/master/pillar_cache/<minonid> is manually deleted.
+The master side pillar cache was introduced in this PR : https://github.com/saltstack/salt/pull/30686
+### Setup
+
+```
+[root@vagrant ~]# cat /etc/salt/master
+file_roots:
+  base:
+    - /srv/salt
+
+pillar_roots:
+  base:
+    - /srv/pillar
+
+pillar_cache: True
+pillar_cache_ttl: 10
+pillar_cache_backend: disk
+[root@vagrant ~]# cat /etc/salt/minion
+master: saltmaster
+id: saltminion
+[root@vagrant ~]# ping -c 1 saltmaster
+PING vagrant (127.0.0.1) 56(84) bytes of data.
+64 bytes from vagrant (127.0.0.1): icmp_seq=1 ttl=64 time=0.001 ms
+
+[root@vagrant ~]# cat /srv/pillar/top.sls 
+base:
+  '*':
+    - packages
+[root@vagrant ~]# cat /srv/pillar/packages.sls 
+first_package:
+  key : 'Initial Value - Never Changes'
+```
+### Steps to Reproduce Issue
+
+**Step 1** : Start salt-master and salt-minion and accept minion key on master. Ensure test.ping works.
+**Step 2** : Fetch Pillar Values:
+
+```
+[root@vagrant ~]# salt-call pillar.items
+local:
+    ----------
+    first_package:
+        ----------
+        key:
+            Initial Value - Never Changes
+```
+
+Observe the value. 
+**Step 3** Change the pillar value: 
+
+```
+[root@vagrant ~]# vim /srv/pillar/packages.sls
+[root@vagrant ~]# cat /srv/pillar/packages.sls
+first_package:
+  key : 'New Value!!'
+```
+
+Per the master configuration; the pillar_cache will expire after 10 seconds;
+
+**Step 4** Wait for 10 seconds; 1 mins; 1 hr (doesn't matter)
+
+```
+[root@vagrant ~]# salt-call pillar.items
+local:
+    ----------
+    first_package:
+        ----------
+        key:
+            Initial Value - Never Changes
+[root@vagrant ~]# date
+Fri Jun 24 12:18:21 PDT 2016
+[root@vagrant ~]# date
+Fri Jun 24 12:18:43 PDT 2016
+[root@vagrant ~]# salt-call pillar.items
+local:
+    ----------
+    first_package:
+        ----------
+        key:
+            Initial Value - Never Changes
+```
+### Workaround
+
+Manually deleting the pillar cache forces the pillar to be rendered again:
+
+```
+[root@vagrant ~]# rm -f /var/cache/salt/master/pillar_cache/saltminion
+[root@vagrant ~]# salt-call pillar.items
+local:
+    ----------
+    first_package:
+        ----------
+        key:
+            New Value!!
+```
+### Root Cause and Initial Investigation
+
+The key that stores ttl by pillar keys is stored in memory and gets re-initialized to an empty list every time the pillar is requested: https://github.com/saltstack/salt/blob/develop/salt/utils/cache.py#L52
+Therefore; the pillar always gets the data from the cache.
+### Versions Report
+
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+```
+[root@vagrant ~]# salt --versions-report
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.2.1
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 6.5 Final
+        machine: x86_64
+        release: 2.6.32-431.3.1.el6.x86_64
+         system: Linux
+        version: CentOS 6.5 Final
+```

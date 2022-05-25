@@ -1,0 +1,71 @@
+I've got a single Git repo that has two branches for pillar data, one for master and one named staging. I've attempted to configure the Salt master to use master for base env and staging for staging env but staging env minions always get base pillar data. On version 2015.8.3
+
+```
+ext_pillar:
+  - git:
+    - master git@gitlab.com:user123/repo_abc.git:
+      - root: pillar
+      - env: base
+      - pubkey: /root/salt-key.pub
+      - privkey: /root/salt-key
+    - staging git@gitlab.com:user123/repo_abc.git:
+      - root: pillar
+      - env: staging
+      - pubkey: /root/salt-key.pub
+      - privkey: /root/salt-key
+
+```
+
+However when I try to start the master with this config, I get:
+
+```
+2016-01-15 20:12:49,799 [salt.utils.gitfs                                    ][CRITICAL][24088] The following git_pillar remotes have conflicting cachedirs: master git@gitlab.com:user123/repo_abc.git, staging git@gitlab.com:user123/repo_abc.git. Resolve this using a per-remote parameter called 'name'.
+```
+
+So I update config to:
+
+```
+ext_pillar:
+  - git:
+    - master git@gitlab.com:user123/repo_abc.git:
+      - name: base
+      - root: pillar
+      - env: base
+      - pubkey: /root/salt-key.pub
+      - privkey: /root/salt-key
+    - staging git@gitlab.com:user123/repo_abc.git:
+      - name: staging
+      - root: pillar
+      - env: staging
+      - pubkey: /root/salt-key.pub
+      - privkey: /root/salt-key
+```
+
+Log then shows this:
+
+```
+2016-01-15 20:19:16,466 [salt.utils.gitfs                                    ][ERROR   ][27358] Failed to checkout staging from git_pillar remote 'staging git@gitlab.com:user123/repo_abc.git': remote ref does not exist
+2016-01-15 20:19:16,575 [salt.utils.gitfs                                    ][ERROR   ][27376] Failed to checkout master from git_pillar remote 'master git@gitlab.com:user123/repo_abc.git': remote ref does not exist
+2016-01-15 20:19:16,575 [salt.utils.gitfs                                    ][ERROR   ][27376] Failed to checkout staging from git_pillar remote 'staging git@gitlab.com:user123/repo_abc.git': remote ref does not exist
+2016-01-15 20:19:24,511 [salt.utils.gitfs                                    ][ERROR   ][27377] Failed to checkout staging from git_pillar remote 'staging git@gitlab.com:user123/repo_abc.git': remote ref does not exist
+2016-01-15 20:19:24,731 [salt.utils.gitfs                                    ][ERROR   ][27358] Failed to checkout staging from git_pillar remote 'staging git@gitlab.com:user123/repo_abc.git': remote ref does not exist
+2016-01-15 20:19:25,514 [salt.utils.gitfs                                    ][WARNING ][27254] Update lockfile is present for gitfs remote 'git@gitlab.com:user123/repo_abc.git', skipping. If this warning persists, it is possible that the update process was interrupted. Removing /var/cache/salt/master/gitfs/9a2ac6b7fa8e034a96c16b69afad2bbb/update.lk or running 'salt-run cache.clear_git_lock gitfs' will allow updates to continue for this remote.
+2016-01-15 20:20:34,257 [salt.utils.gitfs                                    ][WARNING ][28349] Update lockfile is present for gitfs remote 'git@gitlab.com:user123/repo_abc.git', skipping. If this warning persists, it is possible that the update process was interrupted. Removing /var/cache/salt/master/gitfs/9a2ac6b7fa8e034a96c16b69afad2bbb/update.lk or running 'salt-run cache.clear_git_lock gitfs' will allow updates to continue for this remote.
+```
+
+Despite the errors, I see both branches checked correctly out in /var/cache/salt/master/git_pillar/. 
+Even Remote_map.txt looks good to me:
+
+```
+# git_pillar_remote map as of 15 Jan 2016 20:19:10.986449
+base = master git@gitlab.com:user123/repo_abc.git
+staging = staging git@gitlab.com:user123/repo_abc.git
+```
+
+On my minion, I check pillar data:
+
+`salt-call pillar.items saltenv=staging`
+
+But I always get base pillar data.
+
+Been struggling with this all afternoon... I've gone over the git_pillar documentation and I think my config is correct. Am I missing something here or is this a bug?

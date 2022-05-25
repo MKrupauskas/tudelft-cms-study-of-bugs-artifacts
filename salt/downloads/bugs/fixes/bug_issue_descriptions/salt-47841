@@ -1,0 +1,51 @@
+### Description of Issue/Question
+Error will trip on any git-based pillar. For most this will be git_pillar, but notably it can also show up for a stacked pillar that relies on git_pillar like gitstack.
+
+### Setup
+The problem exists on a recent (as-of 20180525) 'develop' branch. I tested using a few versions going back over a few days but the most recent was https://github.com/saltstack/salt/commit/f9052346683865102bb47280f875cad5ad13fb7f
+
+### Steps to Reproduce Issue
+Under the described conditions any attempt to access a pillar that incorporates git will product an error. 
+```
+[root@SALT ~]# salt-call pillar.items
+local:
+    ----------
+    _errors:
+        - Failed to load ext_pillar gitstack: 'Pygit2' object has no attribute 'base'
+```
+
+The error is trace-able to salt/utils/gitfs.py:2978 
+
+As a temporary work-around I edit salt/utils/gitfs.py to ignore the faulty code. 
+(excerpted below)
+```
+class GitPillar(GitBase):
+    '''
+    Functionality specific to the git external pillar
+    '''
+    role = 'git_pillar'
+
+    def checkout(self):
+        '''
+        Checkout the targeted branches/tags from the git_pillar remotes
+        '''
+        self.pillar_dirs = OrderedDict()
+        self.pillar_linked_dirs = []
+        for repo in self.remotes:
+            cachedir = self.do_checkout(repo)
+            if cachedir is not None:
+                # Figure out which environment this remote should be assigned
+                if repo.env:
+                    env = repo.env
+                else:
+                    #env = 'base' if repo.branch == repo.base else repo.branch
+                    env = 'base'
+                if repo._mountpoint:
+                    if self.link_mountpoint(repo):
+                        self.pillar_dirs[repo.linkdir] = env
+                        self.pillar_linked_dirs.append(repo.linkdir)
+                else:
+                    self.pillar_dirs[cachedir] = envto ignore the faulty code.
+```
+
+This is an ugly hack and it's included only to help with pin-pointing a fix, not as any kind of example to emulate.

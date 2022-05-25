@@ -1,0 +1,96 @@
+### Description of Issue
+
+When you change the default group of a user, but put their old default group into the `groups` list, the `_changes()` helper function in salt/states/user.py that determines what needs to be modified does not catch that the user's old default group will need to be added back. Because of this, that change is not made, causing the state to fail reporting that it couldn't properly set the groups. It must then be run a second time to add that group for the user.
+
+### Setup
+
+I've put this into a Docker container for easy inspection and reproducibility. Run these Docker commands from the root of a git checkout of Salt.
+
+**NOTE: I've edited out a traceback that currently appears when you run this from the head of the master branch. I've reported that separately [here](https://github.com/saltstack/salt/issues/56063).**
+
+```
+% docker run --rm -it -v $PWD:/testing terminalmage/issues:56061 tail -n2 /etc/group
+oldprimary:x:223344:
+foo:x:112233:
+% docker run --rm -it -v $PWD:/testing terminalmage/issues:56061 tail -n1 /etc/passwd
+foo:x:112233:223344::/home/foo:/bin/bash
+% docker run --rm -it -v $PWD:/testing terminalmage/issues:56061 cat /srv/salt/users.sls
+foo:
+  user.present:
+    - uid: 112233
+    - gid: 112233
+    - allow_gid_change: True
+    - groups:
+      - oldprimary
+```
+
+### Steps to Reproduce Issue
+
+```
+% docker run --rm -it -v $PWD:/testing terminalmage/issues:56061 salt-call state.apply
+[ERROR   ] {u'gid': 112233, u'groups': ['foo']}
+local:
+----------
+          ID: foo
+    Function: user.present
+      Result: False
+     Comment: These values could not be changed: {u'groups': [u'oldprimary']}
+     Started: 22:46:26.497176
+    Duration: 1441.022 ms
+     Changes:
+              ----------
+              gid:
+                  112233
+              groups:
+                  - foo
+
+Summary for local
+------------
+Succeeded: 0 (changed=1)
+Failed:    1
+------------
+Total states run:     1
+Total run time:   1.441 s
+```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 3000
+
+Dependency Versions:
+           cffi: 1.12.2
+       cherrypy: 17.3.0
+       dateutil: 2.8.0
+      docker-py: 3.7.2
+          gitdb: 2.0.5
+      gitpython: 2.1.11
+         Jinja2: 2.10.1
+        libgit2: 0.28.2
+       M2Crypto: Not Installed
+           Mako: 1.1.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 3.8.1
+   pycryptodome: Not Installed
+         pygit2: 0.28.2
+         Python: 2.7.5 (default, Jun 20 2019, 20:27:34)
+   python-gnupg: 0.4.4
+         PyYAML: 5.1.2
+          PyZMQ: 18.0.1
+          smmap: 2.0.5
+        timelib: 0.2.4
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+
+System Versions:
+           dist: centos 7.6.1810 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 5.4.15-arch1-1
+         system: Linux
+        version: CentOS Linux 7.6.1810 Core
+```

@@ -1,0 +1,136 @@
+When using GitFS for states, the configuration of `top_file_merging_strategy`/`default_top` doesn't work as expected.
+
+I'm using only GitFS for my Master. no plain-FS `file_roots` or `pillar_roots`.
+- `salt-top-states` - contains only a `master` branch and a `top.sls` file with the following content, but nothing else:
+  
+  ``` SaltStack
+  base:
+  'G@kernel:Linux':
+    - match: compound
+    - linux.base
+  devel:
+  'G@kernel:Linux':
+    - match: compound
+    - linux.base
+  ```
+- `salt-states` - contains a `master` and `devel` branch, currently both in sync and providing amongst others `linux.base`
+
+My master configuration has set:
+
+``` YAML
+top_file_merging_strategy: same
+default_top: base
+```
+
+… so the non-existence of `top.sls` in the `devel` environment should be compensated by the fact, that it should fall back to `default_top` provided by the `base`/`master` environment/branch.
+
+Results of running `state.show_top` in different saltenvs:
+- **No `saltenv` provided**
+  
+  ```
+  salt my-minion state.show_top
+  my-minion:
+  -------------
+  base:
+      - linux.base
+  ```
+- **`saltenv=base` provided**
+  
+  ```
+  salt my-minion state.show_top saltenv=base
+  my-minion:
+  -------------
+  base:
+      - linux.base
+  ```
+  
+  **`saltenv=devel` provided**
+  
+  ```
+  salt my-minion state.show_top saltenv=devel
+  my-minion:
+  -------------
+  ```
+
+So in case of `saltenv=devel` I expected this output instead:
+
+```
+my-minion:
+    -------------
+    devel:
+        - linux.base
+```
+
+With `top_file_merging_strategy: merge` instead of `same`, the behaviour is slightly different, but still not correct:
+- **No `saltenv` provided**
+  
+  ```
+  salt my-minion state.show_top
+  my-minion:
+  -------------
+  base:
+      - linux.base
+  -------------
+  devel:
+      - linux.base
+  ```
+- **`saltenv=base` provided**
+  
+  ```
+  salt my-minion state.show_top saltenv=base
+  my-minion:
+  -------------
+  base:
+      - linux.base
+  ```
+  
+  **`saltenv=devel` provided**
+  
+  ```
+  salt my-minion state.show_top saltenv=devel
+  my-minion:
+  -------------
+  ```
+
+So none of both configurations allows me to assign states to a Minion in a environment different than `base`.
+It's not only the `state.show_top` function which fails (as it recently happened with Pillars, but the issue is deeper down in Salt's core. Applying a highstate in a non-`base` environment fails in the same way because no states are assigned.
+
+**Salt Master:**
+
+```
+    Salt Version:
+               Salt: 2015.8.0
+
+    Dependency Versions:
+             Jinja2: 2.7.2
+           M2Crypto: Not Installed
+               Mako: 0.9.1
+             PyYAML: 3.10
+              PyZMQ: 14.4.0
+             Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+               RAET: Not Installed
+            Tornado: 4.2.1
+                ZMQ: 4.0.4
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: 1.5
+              gitdb: 0.5.4
+          gitpython: Not Installed
+              ioflo: Not Installed
+            libnacl: Not Installed
+       msgpack-pure: Not Installed
+     msgpack-python: 0.3.0
+       mysql-python: Not Installed
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+             pygit2: Not Installed
+       python-gnupg: Not Installed
+              smmap: 0.8.2
+            timelib: Not Installed
+
+    System Versions:
+               dist: Ubuntu 14.04 trusty
+            machine: x86_64
+            release: 3.13.0-55-generic
+             system: Ubuntu 14.04 trusty
+```

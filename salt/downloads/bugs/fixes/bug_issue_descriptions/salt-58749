@@ -1,0 +1,169 @@
+**Description**
+
+When using `file.replace` with UTF-8-encoded files on Windows, in some cases files will be output with ANSI encoding, or sometimes just emptied of content.
+
+**Setup**
+
+Create a one-line file on a Windows minion `c:\salt\foo.txt`, with one line `foo`.  Save it as UTF-8 (using Notepad, for example).
+
+#### Simple pattern
+
+```
+foo_to_bar:
+  file.replace:
+    - name: 'c:\salt\foo.txt'
+    - pattern: foo
+    - repl: bar
+    - append_if_not_found: True
+```
+
+#### Start-of-line pattern
+
+```
+foo_to_bar:
+  file.replace:
+    - name: 'c:\salt\foo.txt'
+    - pattern: ^foo
+    - repl: bar
+    - append_if_not_found: True
+```
+
+#### Start-of-line pattern with broad match
+
+```
+foo_to_bar:
+  file.replace:
+    - name: 'c:\salt\foo.txt'
+    - pattern: ^.*foo
+    - repl: bar
+    - append_if_not_found: True
+```
+
+**Steps to Reproduce the behavior**
+
+Run `state.apply` for each state above against the initial file.
+
+**Expected behavior**
+
+Running the states above should all result in a UTF-8-encoded file with one line, `bar`.
+
+What does happen:
+
+#### Simple pattern
+
+Exception, and the file is now empty.
+
+```
+          ID: foo_to_bar
+    Function: file.replace
+        Name: c:\salt\foo.txt
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "C:\salt\bin\lib\site-packages\salt-3002rc1-py3.7.egg\salt\state.py", line 2154, in call
+                  *cdata["args"], **cdata["kwargs"]
+                File "C:\salt\bin\lib\site-packages\salt-3002rc1-py3.7.egg\salt\loader.py", line 2188, in wrapper
+                  return f(*args, **kwargs)
+                File "C:\salt\bin\lib\site-packages\salt-3002rc1-py3.7.egg\salt\states\file.py", line 5190, in replace
+                  backslash_literal=backslash_literal,
+                File "C:\salt\bin\lib\site-packages\salt-3002rc1-py3.7.egg\salt\modules\file.py", line 2644, in replace
+                  w_file.write(salt.utils.stringutils.to_str(result))
+                File "C:\salt\bin\lib\encodings\cp1252.py", line 19, in encode
+                  return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+              UnicodeEncodeError: 'charmap' codec can't encode character '\ufeff' in position 0: character maps to <undefined>
+```
+
+#### Start-of-line pattern
+
+A line with `bar` is appended, file is still UTF-8.
+
+```
+          ID: foo_to_bar
+    Function: file.replace
+        Name: c:\salt\foo.txt
+      Result: True
+     Comment: Changes were made
+     Started: 19:34:19.517411
+    Duration: 31.05 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -1 +1,2 @@
+                  -foo+foo
+                  +bar
+```
+
+#### Start-of-line pattern with broad match
+
+File is now only `bar`, but the encoding is now ANSI.
+
+```
+          ID: foo_to_bar
+    Function: file.replace
+        Name: c:\salt\foo.txt
+      Result: True
+     Comment: Changes were made
+     Started: 19:35:19.142807
+    Duration: 32.249 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -1 +1 @@
+                  -foo
+                  +bar
+```
+
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+    Salt Version:
+               Salt: 3002rc1
+     
+    Dependency Versions:
+               cffi: 1.12.2
+           cherrypy: 17.4.1
+           dateutil: 2.8.0
+          docker-py: Not Installed
+              gitdb: 2.0.5
+          gitpython: Not Installed
+             Jinja2: 2.10.1
+            libgit2: Not Installed
+           M2Crypto: Not Installed
+               Mako: 1.0.7
+       msgpack-pure: Not Installed
+     msgpack-python: 1.0.0
+       mysql-python: Not Installed
+          pycparser: 2.19
+           pycrypto: Not Installed
+       pycryptodome: 3.9.8
+             pygit2: Not Installed
+             Python: 3.7.4 (tags/v3.7.4:e09359112e, Jul  8 2019, 20:34:20) [MSC v.1916 64 bit (AMD64)]
+       python-gnupg: 0.4.4
+             PyYAML: 5.3.1
+              PyZMQ: 18.0.1
+              smmap: 2.0.5
+            timelib: 0.2.4
+            Tornado: 4.5.3
+                ZMQ: 4.3.1
+     
+    System Versions:
+               dist:   
+             locale: cp1252
+            machine: AMD64
+            release: 2016Server
+             system: Windows
+            version: 2016Server 10.0.14393 SP0
+```
+</details>
+
+**Additional context**
+
+Related or potentially related to existing issues https://github.com/saltstack/salt/issues/58462, https://github.com/saltstack/salt/issues/52793, and possibly more.
+
+The intent here is to provide a limited-scope, clear, actionable bug report.  If all of `file.replace` can be fixed at the same time, that's a bonus.

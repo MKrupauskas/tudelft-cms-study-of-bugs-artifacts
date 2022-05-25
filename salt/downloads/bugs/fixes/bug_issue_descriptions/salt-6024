@@ -1,0 +1,80 @@
+im trying to have a master1 -> (master2|syndic) -> minion setup, but when i issue a '*' test.ping call on the grandmaster. Nothing returns, and all i see is only the syndic receiving data, child master & minon do nothing , processes are launched in fg with loglevel==debug
+- order_masters is setted on both master configs 
+- my grandmaster is setted as syndic_master in master2's master.
+- on both side, the only key i received to accept was the minion one, and it's accepted.
+
+If i run a test.ping on the master2, its work, but not throught master (grandmaster)
+
+Indeed, when i issue the call from grandmaster, i show the message being consumed at the syndic level, but nothing more:
+
+```
+ salt -v  '*' test.ping
+Executing job with jid 20130707234222320914
+-------------------------------------------
+foo.bar.net:
+    Minion did not return
+```
+
+MASTER
+
+```
+[INFO    ] User sudo_ubuntu Published command test.ping with jid 20130707231657711284
+[DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20130707231657711284', 'tgt': '*', 'ret': '', 'to': 5, 'user': 'sudo_ubuntu', 'arg': [], 'fun': 'test.ping'}
+[INFO    ] Clear payload received with command publish
+[INFO    ] User sudo_ubuntu Published command saltutil.find_job with jid 20130707231707736025
+[DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20130707231707736025', 'tgt': '*', 'ret': '', 'to': 2, 'user': 'sudo_ubuntu', 'arg': ['20130707231657711284'], 'fun': 'saltutil.find_job'}
+```
+
+SYNDIC
+
+```
+[DEBUG   ] User sudo_ubuntu Executing syndic command test.ping with jid 20130707232446967719
+[DEBUG   ] Command details: {'tgt_type': 'glob', 'jid': '20130707232446967719', 'tgt': '*', 'ret': '', 'to': 4, 'user': 'sudo_ubuntu', 'arg': [], 'fun': 'test.ping'}
+```
+
+I'm using packages grabbed on sun 2013/07/07, from salt's ppa (ubuntu)
+
+```
+salt --versions-report
+           Salt: 0.16.0
+         Python: 2.7.4 (default, Apr 19 2013, 18:28:01)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.2.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+
+```
+
+To be more clear on the setup:
+all processes are on the same box
+- grandmaster listen on an interface (interface param in master config)
+- master/syndic/minion listen on another one
+
+i did some debugging launching everything in fg and it seems that the syndic is looking for a socket which is not present:
+When i fire a test in grandmaster, here is a trace in syndic
+
+```
+(Pdb) bt
+> /usr/lib/python2.7/dist-packages/salt/client.py(1025)pub()
+-> return {'jid': '0', 'minions': []}
+(Pdb) self.opts['sock_dir']
+'/var/run/localsalt/minion'
+(Pdb) l 1020,20
+1020            '''
+1021            # Make sure the publisher is running by checking the unix socket
+1022            if not os.path.exists(os.path.join(self.opts['sock_dir'],
+1023                                               'publish_pull.ipc')):
+1024                import pdb;pdb.set_trace()  ## Breakpoint ##
+1025 ->             return {'jid': '0', 'minions': []}
+
+```
+
+As you see and that's what i dont understand, it looks inside the minion subdirectories, for me the syndic uses the master config which in my case set sock_dir to /var/run/localsalt/master.
+
+So from there, i have 2 questions:
+- Why the socket is not there, problem with syndic not creating it?
+- Or should i share the same sock_dir on master & minion config for the syndic to be happy ?

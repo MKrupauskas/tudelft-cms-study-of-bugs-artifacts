@@ -1,0 +1,37 @@
+Hello,
+
+Since last "fix" from https://github.com/saltstack/salt/issues/6303, a new issue arises.
+
+```
+ze@zetest-32:~$ uname -a
+Linux zetest-32 3.2.0-4-amd64 #1 SMP Debian 3.2.32-1 x86_64 GNU/Linux
+ze@zetest-32:~$ dpkg --print-architecture
+i386
+
+Arch: amd64 / x86_64
+OS: i386
+```
+
+`apt.list_pkgs` shows all packages with an `:i386` suffix, thought it's the default architecture for packages.
+
+`pkg.install` state "fails" as it can't find it in the newly installed packages (but is correctly installed).
+
+Removing a package fails as it can't find it to start with.
+
+Responsible code:
+
+``` python
+# file: salt/modules/apt.py - lines 538-540
+
+        if __grains__.get('cpuarch', '') == 'x86_64' \
+                and re.match(r'i\d86', arch):
+            name += ':{0}'.format(arch)
+```
+
+It mislead the module into thinking that a x86_64 CPU means i386 is not the default architecture.
+
+Guess it should try to check with something like `dpkg --print-architecture`, but not sure what would the properway to do it. (calling each time, grain, cache, ...)
+
+Any suggestion on a proper way to fix it ?
+
+(adding `:i386` to the package would work, but would also require the state file to be aware of the host arch)

@@ -1,0 +1,269 @@
+### Description of Issue/Question
+
+I've encountered an issue when using salt-cloud to provision instances with the Joyent Cloud Module. I'm using Joyent's on-prem solution Triton (formerly SDC), and have the `api_host_suffix` set to my local API (`api.somehost.com`) instead of the Joyent Cloud API.  I also needed to set a location in my `/etc/salt/cloud.providers.d/*.conf` file for the Triton cluster in question (thus the FQDN to the API is `localcloud.api.somehost.com`).
+
+I'm seeing that salt-cloud manages to create the instance, but stacktraces when querying it because it polls for a Joyent Cloud location instead of using the location I set in the cloud.providers.d config file. 
+
+I've created a workaround by modifying the following in the /usr/lib/python2.7/site-packages/salt/cloud/clouds/joyent.py script:
+
+```
+  90 JOYENT_LOCATIONS = {
+  91    'localcloud': 'My local cloud location',
+  92    'us-east-1': 'North Virginia, USA',
+  93    'us-west-1': 'Bay Area, California, USA',
+  94    'us-sw-1': 'Las Vegas, Nevada, USA',
+  95    'eu-ams-1': 'Amsterdam, Netherlands'
+  96 }
+```
+
+```
+ 734     if POLL_ALL_LOCATIONS:
+ 735         for location in JOYENT_LOCATIONS:
+ 736             if location == 'localcloud':
+ 737                 result = query(command='my/machines', location=location,
+ 738                                 method='GET')
+ 739                 nodes = result[1]
+ 740                 for node in nodes:
+ 741                     if 'name' in node:
+ 742                         node['location'] = location
+ 743                         ret[node['name']] = reformat_node(item=node, full=full)
+```
+
+*Added in my API location under `JOYENT_LOCATIONS` on line 90, and an if statement under `POLL_ALL_LOCATIONS` in the `def list_nodes` code block.  Another workaround is to simply comment out all of the Joyent locations, leaving just my own.
+
+The peculiar thing is, earlier in the debug output when it was creating the instance I see that it did in fact use the correct location I had set:
+
+```
+[DEBUG   ] Sending event - data = {'profile': 'sdc-linuxkvm-2G', 'event': 'starting create', '_stamp': '2016-10-18T15:46:26.606112', 'name': 'triton-test11', 'provider': 'triton:joyent'}
+[INFO    ] Creating Cloud VM triton-test11 in localcloud
+[DEBUG   ] User: 'user' on PATH: https://localcloud.api.somehost.com/my/images
+[DEBUG   ] Requesting URL https://localcloud.api.somehost.com/my/images using GET method
+[DEBUG   ] Response Status Code: 200
+[DEBUG   ] Joyent Response Status Code: 200
+```
+### Setup
+
+Cloud provider config:
+**/etc/salt/cloud.providers.d/triton.conf**
+
+```
+triton:
+  driver: joyent
+  user: user
+  password: {redacted}
+  private_key: /etc/salt/mykey_id_rsa.pem
+  keyname: mykey_id_rsa
+  api_host_suffix: .api.somehost.com
+  location: localcloud
+```
+
+Cloud profile config:
+**/etc/salt/cloud.profiles.d/localcloud-triton.conf**
+
+```
+sdc-linuxkvm-2G:
+  provider: triton
+  size: sample-2G
+  image: centos-7
+  location: localcloud
+  minion:
+    master:
+      - salt.somehost.com
+
+```
+### Steps to Reproduce Issue
+
+Here is the full stack trace (with non-relevant details redacted):
+
+```
+sudo salt-cloud -p sdc-linuxkvm-2G triton-test11 -l debug
+[DEBUG   ] Reading configuration from /etc/salt/cloud
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/reactor.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/reactor.conf
+[DEBUG   ] Missing configuration file: /etc/salt/cloud.providers
+[DEBUG   ] Including configuration from '/etc/salt/cloud.providers.d/triton.conf'
+[DEBUG   ] Reading configuration from /etc/salt/cloud.providers.d/triton.conf
+[DEBUG   ] Missing configuration file: /etc/salt/cloud.profiles
+[DEBUG   ] Including configuration from '/etc/salt/cloud.profiles.d/localcloud-triton.conf'
+[DEBUG   ] Reading configuration from /etc/salt/cloud.profiles.d/localcloud-triton.conf
+[DEBUG   ] Configuration file path: /etc/salt/cloud
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[INFO    ] salt-cloud starting
+[DEBUG   ] Could not LazyLoad parallels.avail_sizes
+[DEBUG   ] LazyLoaded parallels.avail_locations
+[DEBUG   ] LazyLoaded proxmox.avail_sizes
+[DEBUG   ] Could not LazyLoad saltify.destroy
+[DEBUG   ] Could not LazyLoad saltify.avail_sizes
+[DEBUG   ] Could not LazyLoad saltify.avail_images
+[DEBUG   ] Could not LazyLoad saltify.avail_locations
+[DEBUG   ] LazyLoaded rackspace.reboot
+[DEBUG   ] LazyLoaded openstack.list_locations
+[DEBUG   ] LazyLoaded rackspace.list_locations
+[DEBUG   ] Could not LazyLoad vmware.optimize_providers
+[DEBUG   ] The 'vmware' cloud driver is unable to be optimized.
+[DEBUG   ] Could not LazyLoad joyent.optimize_providers
+[DEBUG   ] The 'joyent' cloud driver is unable to be optimized.
+[DEBUG   ] Could not LazyLoad parallels.avail_sizes
+[DEBUG   ] LazyLoaded parallels.avail_locations
+[DEBUG   ] LazyLoaded proxmox.avail_sizes
+[DEBUG   ] Could not LazyLoad saltify.destroy
+[DEBUG   ] Could not LazyLoad saltify.avail_sizes
+[DEBUG   ] Could not LazyLoad saltify.avail_images
+[DEBUG   ] Could not LazyLoad saltify.avail_locations
+[DEBUG   ] LazyLoaded rackspace.reboot
+[DEBUG   ] LazyLoaded openstack.list_locations
+[DEBUG   ] LazyLoaded rackspace.list_locations
+[DEBUG   ] User: 'user' on PATH: https://us-east-1.api.somehost.com/my/machines
+[DEBUG   ] Could not LazyLoad parallels.avail_sizes
+[DEBUG   ] LazyLoaded parallels.avail_locations
+[DEBUG   ] LazyLoaded proxmox.avail_sizes
+[DEBUG   ] Requesting URL https://us-east-1.api.somehost.com/my/machines using GET method
+[DEBUG   ] Could not LazyLoad saltify.destroy
+[DEBUG   ] Could not LazyLoad saltify.avail_sizes
+[DEBUG   ] Could not LazyLoad saltify.avail_images
+[DEBUG   ] Could not LazyLoad saltify.avail_locations
+[DEBUG   ] LazyLoaded rackspace.reboot
+[DEBUG   ] LazyLoaded openstack.list_locations
+[DEBUG   ] LazyLoaded rackspace.list_locations
+[DEBUG   ] Failed to execute 'joyent.list_nodes()' while querying for running nodes: [Errno -2] Name or service not known
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 2364, in run_parallel_map_providers_query
+    cloud.clouds[data['fun']]()
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/joyent.py", line 737, in list_nodes
+    method='GET')
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/joyent.py", line 1092, in query
+    opts=__opts__,
+  File "/usr/lib/python2.7/site-packages/salt/utils/http.py", line 484, in query
+    **req_kwargs
+  File "/usr/lib64/python2.7/site-packages/tornado/httpclient.py", line 102, in fetch
+    self._async_client.fetch, request, **kwargs))
+  File "/usr/lib64/python2.7/site-packages/tornado/ioloop.py", line 444, in run_sync
+    return future_cell[0].result()
+  File "/usr/lib64/python2.7/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+  File "<string>", line 3, in raise_exc_info
+gaierror: [Errno -2] Name or service not known
+[DEBUG   ] Could not LazyLoad parallels.avail_sizes
+[DEBUG   ] LazyLoaded parallels.avail_locations
+[DEBUG   ] LazyLoaded proxmox.avail_sizes
+[DEBUG   ] Could not LazyLoad saltify.destroy
+[DEBUG   ] Could not LazyLoad saltify.avail_sizes
+[DEBUG   ] Could not LazyLoad saltify.avail_images
+[WARNING ] /usr/lib/python2.7/site-packages/urllib3/connectionpool.py:769: InsecureRequestWarning: Unverified HTTPS request is being made. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.org/en/latest/security.html
+  InsecureRequestWarning)
+
+[DEBUG   ] Could not LazyLoad saltify.avail_locations
+[DEBUG   ] LazyLoaded rackspace.reboot
+[DEBUG   ] LazyLoaded openstack.list_locations
+[DEBUG   ] LazyLoaded rackspace.list_locations
+[DEBUG   ] Generating minion keys for 'triton-test11'
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'profile': 'sdc-linuxkvm-2G', 'event': 'starting create', '_stamp': '2016-10-18T15:46:26.606112', 'name': 'triton-test11', 'provider': 'triton:joyent'}
+[INFO    ] Creating Cloud VM triton-test11 in localcloud
+[DEBUG   ] User: 'user' on PATH: https://localcloud.api.somehost.com/my/images
+[DEBUG   ] Requesting URL https://localcloud.api.somehost.com/my/images using GET method
+[DEBUG   ] Response Status Code: 200
+[DEBUG   ] Joyent Response Status Code: 200
+[DEBUG   ] [{'files': [{'sha1': '6f986062b33b1682112ff6141e5f695bda43426a', 'compression': 'gzip', 'size': 388657371}], 'requirements': {}, 'name': 'debian-8', 'tags': {'role': 'os'}, 'homepage': 'https://docs.joyent.com/images/kvm/debian', 'published_at': '2015-07-02T15:37:02Z', 'id': '2f56d126-20d0-11e5-9e5b-5f3ef6688aba', 'state': 'active', 'version': '20150702', 'type': 'virtualmachine', 'owner': '930896af-bf8c-48d4-885c-6573a94b1853', 'os': 'linux', 'public': True, 'description': 'Debian 8 (jessie) 64-bit image with just essential packages installed, built to run on KVM virtual machines.'}, {'files': [{'sha1': '8faaf0fea66fc2e6e90ed73048e511a4d82d424c', 'compression': 'gzip', 'size': 306773694}], 'requirements': {}, 'name': 'base-64-lts', 'tags': {'role': 'os', 'group': 'base-64-lts'}, 'homepage': 'https://docs.joyent.com/images/smartos/base', 'published_at': '2016-01-19T14:19:02Z', 'id': '96bcddda-beb7-11e5-af20-a3fb54c8ae29', 'state': 'active', 'version': '15.4.0', 'type': 'smartmachine', 'owner': '930896af-bf8c-48d4-885c-6573a94b1853', 'os': 'smartos', 'public': True, 'description': 'A 64-bit SmartOS image with just essential packages installed. Ideal for users who are comfortable with setting up their own environment and tools.'}, {'files': [{'sha1': '8d28a887f0ace58c8c859156cc8805761a787995', 'compression': 'gzip', 'size': 73691842}], 'requirements': {}, 'name': 'minimal-64-lts', 'tags': {'role': 'os', 'group': 'minimal-64-lts'}, 'homepage': 'https://docs.joyent.com/images/smartos/minimal', 'published_at': '2016-03-03T23:58:53Z', 'id': 'e1faace4-e19b-11e5-928b-83849e2fd94a', 'state': 'active', 'version': '15.4.1', 'type': 'smartmachine', 'owner': '930896af-bf8c-48d4-885c-6573a94b1853', 'os': 'smartos', 'public': True, 'description': 'A 64-bit SmartOS image with just bootstrap packages installed. Ideal for users who want the smallest possible image upon which to build.'}, {'files': [{'sha1': '63f4e7ad13453a4fac4ed3f1badc33ed41a0eb28', 'compression': 'gzip', 'size': 307766730}], 'requirements': {}, 'name': 'base-64-lts', 'tags': {'role': 'os', 'group': 'base-64-lts'}, 'homepage': 'https://docs.joyent.com/images/smartos/base', 'published_at': '2016-03-04T00:35:45Z', 'id': '088b97b0-e1a1-11e5-b895-9baa2086eb33', 'state': 'active', 'version': '15.4.1', 'type': 'smartmachine', 'owner': '930896af-bf8c-48d4-885c-6573a94b1853', 'os': 'smartos', 'public': True, 'description': 'A 64-bit SmartOS image with just essential packages installed. Ideal for users who are comfortable with setting up their own environment and tools.'}, {'files': [{'sha1': 'cb889f89430252fc0791672662007a2655eab93a', 'compression': 'gzip', 'size': 655651895}], 'requirements': {}, 'name': 'centos-7', 'tags': {'role': 'os'}, 'homepage': 'https://docs.joyent.com/images/linux/centos', 'published_at': '2016-04-15T15:29:37Z', 'id': 'dd31507e-031e-11e6-be8a-8f2707b5b3ee', 'state': 'active', 'version': '20160415', 'type': 'virtualmachine', 'owner': '930896af-bf8c-48d4-885c-6573a94b1853', 'os': 'linux', 'public': True, 'description': 'CentOS 7.2 64-bit image with just essential packages installed, built to run on KVM virtual machines.'}, {'files': [{'sha1': 'd342f137c5ccef0702ec479acb63c196cf81b38a', 'compression': 'gzip', 'size': 134969110}], 'requirements': {}, 'name': 'ubuntu-16.04', 'tags': {'kernel_version': '4.3.0', 'role': 'os'}, 'homepage': 'https://docs.joyent.com/images/container-native-linux', 'published_at': '2016-06-01T02:17:41Z', 'id': '05140a7e-279f-11e6-aedf-47d4f69d2887', 'state': 'active', 'version': '20160601', 'type': 'smartmachine', 'owner': '930896af-bf8c-48d4-885c-6573a94b1853', 'os': 'linux', 'public': True, 'description': 'Container-native Ubuntu 16.04 64-bit image. Built to run on containers with bare metal speed, while offering all the services of a typical unix host.'}, {'files': [{'sha1': '520c617293601b5e6d5686bc725c0f804511c099', 'compression': 'gzip', 'size': 159414675}], 'requirements': {}, 'name': 'debian-8', 'tags': {'kernel_version': '3.16.0', 'role': 'os'}, 'homepage': 'https://docs.joyent.com/images/container-native-linux', 'published_at': '2016-06-22T15:23:15Z', 'id': '3da6330e-388d-11e6-b41b-d766707c6c3d', 'state': 'active', 'version': '20160622', 'type': 'smartmachine', 'owner': '930896af-bf8c-48d4-885c-6573a94b1853', 'os': 'linux', 'public': True, 'description': 'Container-native Debian 8.5 (jessie) 64-bit image. Built to run on containers with bare metal speed, while offering all the services of a typical unix host.'}]
+[DEBUG   ] User: 'user' on PATH: https://localcloud.api.somehost.com//my/packages
+[DEBUG   ] Requesting URL https://localcloud.api.somehost.com//my/packages using GET method
+
+
+[DEBUG   ] Response Status Code: 200
+[DEBUG   ] Joyent Response Status Code: 200
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'_stamp': '2016-10-18T15:46:27.888844', 'event': 'requesting instance', 'kwargs': {'image': {'files': [{'sha1': 'cb889f89430252fc0791672662007a2655eab93a', 'compression': 'gzip', 'size': 655651895}], 'requirements': {}, 'name': 'dd31507e-031e-11e6-be8a-8f2707b5b3ee', 'tags': {'role': 'os'}, 'homepage': 'https://docs.joyent.com/images/linux/centos', 'published_at': '2016-04-15T15:29:37Z', 'id': 'dd31507e-031e-11e6-be8a-8f2707b5b3ee', 'state': 'active', 'version': '20160415', 'type': 'virtualmachine', 'owner': '930896af-bf8c-48d4-885c-6573a94b1853', 'os': 'linux', 'public': True, 'description': 'CentOS 7.2 64-bit image with just essential packages installed, built to run on KVM virtual machines.'}, 'location': 'localcloud', 'name': 'triton-test11', 'size': {'group': 'triton', 'name': 'sample-2G', 'default': False, 'lwps': 4000, 'vcpus': 0, 'version': '1.0.0', 'swap': 8192, 'memory': 2048, 'disk': 51200, 'id': '6278263d-bf13-c982-e0f9-84c9c539edfa'}}}
+[DEBUG   ] User: 'user' on PATH: https://localcloud.api.somehost.com//my/machines
+[DEBUG   ] Requesting URL https://localcloud.api.somehost.com//my/machines using POST method
+[DEBUG   ] Response Status Code: 201
+[DEBUG   ] Joyent Response Status Code: 201
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'_stamp': '2016-10-18T15:46:29.069164', 'event': 'querying instance'}
+[DEBUG   ] Waiting for VM IP. Giving up in 00:10:00.
+[DEBUG   ] User: 'user' on PATH: https://us-east-1.api.somehost.com/my/machines
+[DEBUG   ] Requesting URL https://us-east-1.api.somehost.com/my/machines using GET method
+[ERROR   ] There was a profile error: [Errno -2] Name or service not known
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/cloud/cli.py", line 284, in run
+    self.config.get('names')
+  File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 1446, in run_profile
+    ret[name] = self.create(vm_)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 1281, in create
+    output = self.clouds[func](vm_)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/joyent.py", line 317, in create
+    query_instance(vm_)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/joyent.py", line 219, in query_instance
+    'wait_for_ip_interval_multiplier', vm_, __opts__, default=1),
+  File "/usr/lib/python2.7/site-packages/salt/utils/cloud.py", line 2314, in wait_for_ip
+    data = update_callback(*update_args, **update_kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/joyent.py", line 190, in _query_ip_address
+    data = show_instance(vm_['name'], call='action')
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/joyent.py", line 647, in show_instance
+    node = get_node(name)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/joyent.py", line 628, in get_node
+    nodes = list_nodes()
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/joyent.py", line 737, in list_nodes
+    method='GET')
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/joyent.py", line 1092, in query
+    opts=__opts__,
+  File "/usr/lib/python2.7/site-packages/salt/utils/http.py", line 484, in query
+    **req_kwargs
+  File "/usr/lib64/python2.7/site-packages/tornado/httpclient.py", line 102, in fetch
+    self._async_client.fetch, request, **kwargs))
+  File "/usr/lib64/python2.7/site-packages/tornado/ioloop.py", line 444, in run_sync
+    return future_cell[0].result()
+  File "/usr/lib64/python2.7/site-packages/tornado/concurrent.py", line 214, in result
+    raise_exc_info(self._exc_info)
+  File "<string>", line 3, in raise_exc_info
+gaierror: [Errno -2] Name or service not known
+```
+### Versions Report
+
+```
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: 0.6.4
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.21.0
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.21.4
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.22.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+
+```

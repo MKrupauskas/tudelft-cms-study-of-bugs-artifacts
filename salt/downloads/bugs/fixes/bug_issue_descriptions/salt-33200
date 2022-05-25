@@ -1,0 +1,66 @@
+### Description of Issue/Question
+
+`salt.states.zk_concurrency.lock(name, zk_hosts, identifier=None, max_concurrency=1, timeout=None, ephemeral_lease=False)`
+
+The `identifier` parameter to `zk_concurrency.lock()` and `zk_concurrency.unlock()` is optional and defaults to 'None'. The `zk_concurrency.unlock()` function however does not release any locks created with a 'None' identifier
+### Setup
+
+A running zookeeper server, a salt master and two minions. The standard saltstack vagrant demo environment with zookeeper added to the master would probably suffice.
+Note: it is also necessary to install the python kazoo module (via pip) on the minions, as the zk_concurrency module is dependent on it.
+### Steps to Reproduce Issue
+- Open two ssh sessions (A, B) to the salt master.
+- On ssh session A, Run `salt 'minion1' zk_concurrency.lock /testlock [zkipaddr]:[zkport]`
+  Returns `minion1: True`
+- On ssh session B, Run `salt 'minion2' zk_concurrency.lock /testlock [zkipaddr]:[zkport]`
+  Console hangs (waiting for lock)
+- Back on ssh session A, Run `salt 'minion1' zk_concurrency.unlock /testlock [zkipaddr]:[zkport]`
+  Returns `minion1: True`
+- **The lock should now be released and minion2 should return true as it can now acquire the lock but it continues to wait.**
+### Expected Behaviour
+
+Ctrl-c out of any waiting consoles (ssh session B) from above and now repeat adding the identifier parameter to the commands, also note if you run the tests after the steps above you need to change the lock path as well (eg /testlock2):
+- On ssh session A, Run `salt 'minion1' zk_concurrency.lock /testlock2 [zkipaddr]:[zkport] id1`
+  Returns `minion1: True`
+- On ssh session B, Run `salt 'minion2' zk_concurrency.lock /testlock2 [zkipaddr]:[zkport] id2`
+  Console hangs (waiting for lock)
+- Back on ssh session A, Run `salt 'minion1' zk_concurrency.unlock /testlock [zkipaddr]:[zkport] id1`
+  Returns `minion1: True`
+- The lock is released and in ssh session B the waiting command acquires the lock and returns `minion2: True`
+### Versions Report
+
+Salt Version:
+           Salt: 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 6.7 Final
+        machine: x86_64
+        release: 2.6.32-573.el6.x86_64
+         system: CentOS 6.7 Final

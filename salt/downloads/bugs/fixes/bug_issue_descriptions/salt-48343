@@ -1,0 +1,111 @@
+### Description of Issue/Question
+On initial salt-minion start if `emitatstartup` is set to False in your beacon config the following shows up in your minion log:
+
+```bash
+2018-06-27 12:28:28,315 [salt.minion      :2494][CRITICAL][14446] The beacon errored: 
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 2492, in handle_beacons
+    beacons = self.process_beacons(self.functions)
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 444, in process_beacons
+    return self.beacons.process(b_conf, self.opts['grains'])  # pylint: disable=no-member
+  File "/usr/lib/python2.7/site-packages/salt/beacons/__init__.py", line 112, in process
+    raw = self.beacons[fun_str](b_config[mod])
+  File "/usr/lib/python2.7/site-packages/salt/beacons/load.py", line 121, in beacon
+    if not config['emitatstartup']:
+TypeError: list indices must be integers, not unicode
+```
+
+Seems to be true both in 2018.3.1 and 2018.3.2 though those are the only versions I've tested.
+
+### Versions Report
+
+```bash
+-bash-4.2$ salt-minion -V
+Salt Version:
+           Salt: 2018.3.2
+ 
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.1
+   mysql-python: 1.3.13
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: 3.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Apr 11 2018, 07:36:10)
+   python-gnupg: Not Installed
+         PyYAML: 4.1
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.3.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```
+### Beacon SLS
+
+```text
+beacons:
+    btmp: []
+    diskusage:
+        - interval: 120
+        - /: 85%
+    load:
+        - averages:
+            1m:
+                - 0.0
+                - 3.0
+            5m:
+                - 0.0
+                - 2.5
+            15m:
+                - 0.1
+                - 1.5
+        - emitatstartup: False
+        - interval: 60
+        - onchangeonly: True
+    memusage:
+        - percent: 95%
+```
+
+### Steps to Reproduce Issue
+
+Enable cpu beacon with `emitatstartup: False`.  Restart salt-minion and check logs. After looking at the code in question it seems this error might manifest if `emitatstartup` is set by user at all, though theory is untested.
+
+### Resolution
+
+Change line 121 in salt/beacons/load.py
+
+```python
+            if not config['emitatstartup']:
+                log.debug("Don't emit because emitatstartup is False")
+                return ret
+```
+
+to
+
+```python
+            if not _config['emitatstartup']:
+                log.debug("Don't emit because emitatstartup is False")
+                return ret
+```

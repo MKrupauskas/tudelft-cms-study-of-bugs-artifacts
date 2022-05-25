@@ -1,0 +1,70 @@
+Hello,
+
+I have some backslash (`\`) within some structures. When trying to generate configuration with those data, I end up finding the backslashes are doubled.
+
+After checking, there seems to be some doubling occuring while passing a dict in jinja templates defaults...
+
+Here is a "small" example to show how variable tends to convert dict values...
+
+State file:
+
+``` text
+# poc.sls
+{% set foo = 'direct\\quoted' %}
+{% set bar = {'baz': 'dict\\quoted', } %}
+
+/tmp/poc.txt:
+  file.managed:
+  - template: jinja
+  - source: salt://poc.txt
+  - defaults:
+      foo: {{ foo }}
+      bar: {{ bar }}
+      barbaz: {{ bar['baz'] }}
+      sub:
+        foo: {{ foo }}
+```
+
+Template file:
+
+``` text
+# poc.txt
+foo: {{ foo }}
+
+bar: {{ bar }}
+bar.baz {{ bar['baz'] }}
+
+barbaz: {{ barbaz }}
+
+sub: {{ sub }}
+sub.foo {{ sub['foo'] }}
+```
+
+Lets deploy...
+
+``` bash
+salt $(hostname) state.sls poc
+```
+
+And here is the result file, with added comments:
+
+``` text
+# /tmp/poc.txt 
+## foo has simple backslash - works fine
+foo: direct\quoted
+
+## The passed 'baz' dict seems to have double backslashes?!
+bar: {'baz': 'dict\\\\quoted'}
+bar.baz dict\\quoted
+
+## Well, if we pass directly, it appears the original value is correct though
+barbaz: dict\quoted
+
+# When passing a dict, but not converting from a dict, it works fine
+sub: {'foo': 'direct\\quoted'}
+sub.foo direct\quoted
+```
+
+Note: currently running Helium.
+
+If that behaviour is fixed/changed in latest, just state so, but I haven't seen anything in changelogs.

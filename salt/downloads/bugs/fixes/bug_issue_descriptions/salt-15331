@@ -1,0 +1,90 @@
+If I have the following SLS
+
+```
+working:
+  cmd.run:
+    - name: 'date'
+    - prereq:
+      - file: /tmp/foobar
+
+trafficserver:
+  service:
+    - running
+
+# broken
+/tmp/foobar:
+  file.managed:
+    - source: salt://badtemplate
+    - template: jinja
+    - watch_in:
+      - service: trafficserver
+```
+
+And the following file
+
+```
+{%
+```
+
+And I run the state I get the following output:
+
+```
+local:
+----------
+          ID: working
+    Function: cmd.run
+        Name: date
+      Result: False
+     Comment: One or more requisite failed
+     Started: 
+     Duration: 
+     Changes:   
+----------
+          ID: /tmp/foobar
+    Function: file.managed
+      Result: False
+     Comment: One or more requisite failed
+     Started: 
+     Duration: 
+     Changes:   
+----------
+          ID: trafficserver
+    Function: service.running
+      Result: False
+     Comment: One or more requisite failed
+     Started: 
+     Duration: 
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    3
+------------
+Total states run:     3
+```
+
+I thought originally this had something to do with the watch vs. watch_in, but if I do the opposite
+
+```
+working:
+  cmd.run:
+    - name: 'date'
+    - prereq:
+      - file: /tmp/foobar
+
+trafficserver:
+  service:
+    - running
+    - watch:
+      - file: /tmp/foobar
+
+/tmp/foobar:
+  file.managed:
+    - source: salt://badtemplate
+    - template: jinja
+```
+
+I get the same output. It seems that the state (file) which fails overwrites its output with the "one or more requisites" error since it has requisite keys attached to it, even though they are the wrong direction (I would expect everyone BUT that lowstate to have that error).
+
+I'm looking into this a bit on my own, but the state compiler is complicated. Any help would be appreciated :)

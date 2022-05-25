@@ -1,0 +1,88 @@
+Hi
+
+I am currently testing flourine in one of our internal formulas, and running into an issue.
+
+I originally thought it may be the underlying operating system of the CI server, but it doesn’t seem like it. The CI servers have been re-installed from CentOS and  are now ubuntu 18.04.1, and are KVM VMs,  (i.e. all identical).
+
+In my formula I have a test `{% if grains['virtual'] == "physical" %}` and this is passing, which is shouldn’t. This test only passes in the centos docker containers and therefore running states that are meant for physical machines. However, this test does not pass in the Ubuntu docker containers, so doesn’t run the states meant for physical machines.
+
+So in my CI pipeline, everything passes except for centos 6/7 with salt flourine.
+
+My setup involves doing CI using kitchen-salt, under GitLab CI. 
+
+Below is a snippet of my .kitchen.yml, with any specifics removed
+
+```
+---
+driver:
+  name: docker
+
+platforms:
+  - name: centos-6
+    driver_config:
+      image: registry.ocf.co.uk/salt/docker/centos-6-kitchen:base
+      privileged: True
+      run_command: /sbin/init
+      use_cache: False
+      remove_images: True
+    provisioner:
+      salt_yum_repo: 'https://repo.saltstack.com/yum/redhat/$releasever/$basearch/%s'
+      salt_yum_rpm_key: 'https://repo.saltstack.com/yum/redhat/6/x86_64/latest/SALTSTACK-GPG-KEY.pub'
+      salt_install: yum
+      pip_bin: pip2.7
+      salt_bootstrap_options: "-P -p git -p curl -p sudo -y -x python2.7 git %s"
+  - name: centos-7
+    driver_config:
+      image: registry.ocf.co.uk/salt/docker/centos-7-kitchen:base
+      privileged: True
+      run_command: /usr/lib/systemd/systemd
+      use_cache: False
+      remove_images: True
+    provisioner:
+      salt_yum_repo: 'https://repo.saltstack.com/yum/redhat/$releasever/$basearch/%s'
+      salt_yum_rpm_key: 'https://repo.saltstack.com/yum/redhat/7/x86_64/latest/SALTSTACK-GPG-KEY.pub'
+      salt_install: yum
+  - name: ubuntu-16.04
+    driver_config:
+      image: registry.ocf.co.uk/salt/docker/ubuntu-16.04-kitchen:base
+      privileged: True
+      run_command: /lib/systemd/systemd
+      use_cache: False
+      remove_images: True
+    provisioner:
+      salt_apt_repo: 'https://repo.saltstack.com/apt/ubuntu/16.04/amd64'
+      salt_apt_repo_key: 'https://repo.saltstack.com/apt/ubuntu/16.04/amd64/latest/SALTSTACK-GPG-KEY.pub'
+      salt_install: apt
+
+provisioner:
+  name: salt_solo
+  formula: <snip>
+  salt_install: bootstrap
+  salt_version: latest
+  salt_bootstrap_options: -P -p git -p curl -p sudo git %s
+  vendor_path: srv/salt
+<SNIP>
+
+suites:
+  - name: nitrogen
+    provisioner:
+      salt_version: '2017.7'
+  - name: carbon
+    provisioner:
+      salt_version: '2016.11'
+  - name: oxygen
+    provisioner:
+      salt_version: '2018.3'
+  - name: flourine
+    provisioner:
+      salt_version: '2019.2'
+      salt_install: bootstrap
+  - name: develop
+    provisioner:
+      salt_version: 'develop'
+      salt_install: bootstrap
+```
+
+below is an image of my pipeline showing the failures and passes of all my CI jobs for this specific salt formula
+
+![screenshot 2019-01-31 at 10 02 16](https://user-images.githubusercontent.com/628790/52055336-0b17c380-2557-11e9-8749-9bfd091684a0.png)

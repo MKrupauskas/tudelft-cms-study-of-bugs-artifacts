@@ -1,0 +1,113 @@
+I was trying to downgrade some software and had issues removing a newer version. In other pkg operations not specifying a version string will imply to operate with the newest version, but for pkg.removed this leads to the state being failed if another version is installed.
+
+Here is an example using 7zip. I have two versions available:
+
+<pre>salt salt-test pkg.list_available 7_zip
+
+salt-test:
+    - 9.20.00.0
+    - 15.14.00.0</pre>
+
+
+I have the older version installed:
+
+<pre>salt salt-test pkg.version 7_zip
+
+salt-test:
+    9.20.00.0</pre>
+
+
+I'll use two states, one implying the latest version and one which lists it explicitly:
+
+<pre>remove_7_zip:
+  pkg.removed:
+    - name: 7_zip
+
+remove_7_zip_again:
+  pkg.removed:
+    - name: 7_zip
+    - version: 15.14.00.0</pre>
+
+
+The first state result is a failure, but the changes indicate that it (logically) should have passed as the latest version string seems to have made it to the module ("15.14.00.0 not installed"):
+
+<pre>salt salt-test state.apply
+
+salt-test:
+----------
+          ID: remove_7_zip
+    Function: pkg.removed
+        Name: 7_zip
+      Result: False
+     Comment: The following packages failed to remove: 7_zip.
+     Started: 17:31:02.709000
+    Duration: 234.0 ms
+     Changes:   
+              ----------
+              7_zip:
+                  ----------
+                  current:
+                      15.14.00.0 not installed
+----------
+          ID: remove_7_zip_again
+    Function: pkg.removed
+        Name: 7_zip
+      Result: True
+     Comment: All specified packages (matching specified versions) are already absent
+     Started: 17:31:05.486000
+    Duration: 62.0 ms
+     Changes:   
+
+Summary for salt-test
+------------
+Succeeded: 1 (changed=1)
+Failed:    1
+------------
+Total states run:     2</pre>
+
+
+Having no copy of 7zip installed lets the first state pass:
+
+<pre>salt salt-test pkg.remove 7_zip version=9.20.00.0
+
+salt-test:
+    ----------
+    7_zip:
+        ----------
+        new:
+        old:
+            9.20.00.0
+
+salt salt-test state.apply
+
+salt-test:
+----------
+          ID: remove_7_zip
+    Function: pkg.removed
+        Name: 7_zip
+      Result: True
+     Comment: All specified packages are already absent
+     Started: 17:58:29.492000
+    Duration: 62.0 ms
+     Changes:   
+----------
+          ID: remove_7_zip_again
+    Function: pkg.removed
+        Name: 7_zip
+      Result: True
+     Comment: All specified packages are already absent
+     Started: 17:58:29.570000
+    Duration: 47.0 ms
+     Changes:   
+
+Summary for salt-test
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total states run:     2</pre>
+
+
+The [documentation](https://docs.saltstack.com/en/latest/ref/states/all/salt.states.pkg.html#salt.states.pkg.removed) doesn't seem to say what should happen if you don't set the version string in the state, but it looks like something is getting lost in translation between the pkg state and the pkg module. It also doesn't state which pkg providers are supported so I've only tested this on Windows for the moment.
+
+Tested on Salt 2016.3.1.

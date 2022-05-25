@@ -1,0 +1,126 @@
+### Description of Issue
+
+When trying to create a secgroup using a numbered protocol the jinja renderer + sls appears to be calling boto_segroup.present with the ip_protocol as an int if the ip_protocol is clearly not a string (such as udp, tdp or all)
+
+This has the effect of causing an exception when isdigit() is called on an int
+
+For example:
+
+```
+----------
+          ID: secgroup out-all-ipsec
+    Function: boto_secgroup.present
+        Name: out-all-ipsec
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "lib/python2.7/site-packages/salt/state.py", line 1733, in call
+                  **cdata['kwargs'])
+                File "lib/python2.7/site-packages/salt/loader.py", line 1652, in wrapper
+                  return f(*args, **kwargs)
+                File "lib/python2.7/site-packages/salt/states/boto_secgroup.py", line 196, in present
+                  keyid=keyid, profile=profile)
+                File "lib/python2.7/site-packages/salt/states/boto_secgroup.py", line 496, in _rules_egress_present
+                  rules_egress, sg['rules_egress']
+                File "lib/python2.7/site-packages/salt/states/boto_secgroup.py", line 335, in _get_rule_changes
+                  if ip_protocol not in supported_protocols and (not ip_protocol.isdigit() or int(ip_protocol) > 255):
+              AttributeError: 'int' object has no attribute 'isdigit'
+     Started: 12:40:45.978571
+    Duration: 1470.994 ms
+     Changes: 
+```
+
+If https://github.com/saltstack/salt/blob/v2016.3.3/salt/states/boto_secgroup.py#L329 is changed to cast ip_protocol to a string, then everything is fine & the state execution passes.
+
+```
+    for rule in rules:
+        try:
+            ip_protocol = str(rule.get('ip_protocol')) <--- HERE
+        except KeyError:
+            raise SaltInvocationError('ip_protocol, to_port, and from_port are'
+                                      ' required arguments for security group'
+                                      ' rules.')
+```
+
+I've tried quoting the ip_protocol numbers in the SLS with single & double quotes, but it's not working. I think the renderer or salt is seeing that it's an int & then passing it to the state / modules as an int instead of as a string (which is ideally what boto_secgroup wants)
+### Setup
+
+Contrived sls example:
+
+```
+secgroup out-all-ipsec:
+    boto_secgroup.present:
+        - name: out-all-ipsec
+        - description: Allow Output to IPSEC protocols to Anywhere
+        - rules: []
+        - rules_egress:
+            - ip_protocol: 50
+              from_port: -1
+              to_port: -1
+              cidr_ip:
+                  - 0.0.0.0/0
+            - ip_protocol: 51
+              from_port: -1
+              to_port: -1
+              cidr_ip:
+                  - 0.0.0.0/0
+            - ip_protocol: udp
+              from_port: 500
+              to_port: 500
+              cidr_ip:
+                  - 0.0.0.0/0
+            - ip_protocol: udp
+              from_port: 4500
+              to_port: 4500
+              cidr_ip:
+                  - 0.0.0.0/0
+        - tags:
+            saltmanaged: true
+        - region: TEH_REGION
+        - keyid: TEH_KEYID
+        - key: TEH_KEY
+        - vpc_name: TEH_VPC_NAME
+```
+### Steps to Reproduce Issue
+
+Use the above SLS with valid keys etc. & it will result in the aforementioned exception
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.10 (default, Oct 23 2015, 19:19:21)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 15.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.1
+            ZMQ: 4.1.5
+
+System Versions:
+           dist:   
+        machine: x86_64
+        release: 15.6.0
+         system: Darwin
+        version: 10.11.6 x86_64
+```

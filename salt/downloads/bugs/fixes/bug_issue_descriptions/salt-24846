@@ -1,0 +1,191 @@
+### Issue brief
+
+In salt/rest_tornado/saltnado.py -> EventListener, there're three maps for tracking the futures when doing synchronous call, request_map, tag_map and newly introduced timeout_map. While tag_map gets cleaned upon future completion or request response return, the other two never get cleaned and causing memory leak (depends on the payload content). Here's the memory profiling data based on 10k **http://localhost:8000/minions/**\* calls:
+
+``` python
+10000 / 10000  completed
+real    5m51.013s
+user    0m38.893s
+sys 0m26.190s
+
+len(request_map)=10000
+len(tag_map)=0
+len(timeout_map)=10000
+
+Filename: /usr/lib/python2.7/dist-packages/salt/netapi/rest_tornado/__init__.py
+
+Line #    Mem usage    Increment   Line Contents
+================================================
+    38   24.848 MiB    0.000 MiB   @profile
+    39                             def start():
+    40                                 '''
+    41                                 Start the saltnado!
+    42                                 '''
+   114   29.582 MiB    0.000 MiB       try:
+   115  441.922 MiB  412.340 MiB           tornado.ioloop.IOLoop.instance().start()
+   116  441.922 MiB    0.000 MiB       except KeyboardInterrupt:
+   117  441.922 MiB    0.000 MiB           print('len(request_map)={}\nlen(tag_map)={}\nlen(timeout_map)={}'.format(
+   118  441.922 MiB    0.000 MiB                   len(application.event_listener.request_map),
+   119  441.922 MiB    0.000 MiB                   len(application.event_listener.tag_map),
+   120  441.926 MiB    0.004 MiB                   len(application.event_listener.timeout_map)))
+   121  441.926 MiB    0.000 MiB           raise SystemExit(0)
+```
+### 1st patch
+
+Here's the first patch I applied to clean those 2 maps up upon a request completion:
+
+``` diff
+--- saltnado.py.orig    2015-06-18 22:28:13.460221711 -0700
++++ saltnado.py.ver1    2015-06-19 07:28:37.140221711 -0700
+@@ -281,6 +281,7 @@
+             return
+         for tag, future in self.request_map[request]:
+             self._timeout_future(tag, future)
++        del self.request_map[request]
+
+     def get_event(self,
+                   request,
+@@ -315,6 +316,9 @@
+         if not future.done():
+             future.set_exception(TimeoutException())
+             self.tag_map[tag].remove(future)
++            if future in self.timeout_map:
++                tornado.ioloop.IOLoop.current().remove_timeout(self.timeout_map[future])
++                del self.timeout_map[future]
+         if len(self.tag_map[tag]) == 0:
+             del self.tag_map[tag]
+
+@@ -957,7 +961,7 @@
+                                                                         timeout=self.application.opts['gather_job_timeout'],
+                                                                         )
+             except TimeoutException:
+-                if not minion_running:
++                if not minion_running or self not in self.application.event_listener.request_map:
+                     raise tornado.gen.Return(True)
+                 else:
+                     ping_pub_data = self.saltclients['local'](tgt,
+```
+
+And here's the profiling result on ubuntu-12.04:
+
+``` python
+10000 / 10000  completed
+real    5m49.802s
+user    0m38.687s
+sys 0m26.124s
+
+len(request_map)=0
+len(tag_map)=0
+len(timeout_map)=0
+
+Filename: /usr/lib/python2.7/dist-packages/salt/netapi/rest_tornado/__init__.py
+
+Line #    Mem usage    Increment   Line Contents
+================================================
+    38   24.871 MiB    0.000 MiB   @profile
+    39                             def start():
+    40                                 '''
+    41                                 Start the saltnado!
+    42                                 '''
+   114   27.582 MiB    0.000 MiB       try:
+   115   29.602 MiB    2.020 MiB           tornado.ioloop.IOLoop.instance().start()
+   116   29.602 MiB    0.000 MiB       except KeyboardInterrupt:
+   117   29.602 MiB    0.000 MiB           print('len(request_map)={}\nlen(tag_map)={}\nlen(timeout_map)={}'.format(
+   118   29.602 MiB    0.000 MiB                   len(application.event_listener.request_map),
+   119   29.602 MiB    0.000 MiB                   len(application.event_listener.tag_map),
+   120   29.605 MiB    0.004 MiB                   len(application.event_listener.timeout_map)))
+   121   29.605 MiB    0.000 MiB           raise SystemExit(0)
+```
+
+Yet, there're still some left over requests in request_map when testing on my macbook. It might be introduced due to kqueue on BSD/Mac behaves different from epoll on Linux in racing condition, but I cannot figure that out. Also the memory profiling does not work smoothly on mac and crashed several times in the middle due to bad file descriptor.
+
+```
+len(request_map)=7
+len(tag_map)=0
+len(timeout_map)=0
+```
+### 2nd patch
+
+I end up with the second patch to move the request_map into request itself such that the whole request and its resources can be GCed after completion.
+
+``` diff
+--- saltnado.py.orig    2015-06-18 22:28:13.460221711 -0700
++++ saltnado.py.ver2    2015-06-19 07:35:19.192221711 -0700
+@@ -264,9 +264,6 @@
+         # tag -> list of futures
+         self.tag_map = defaultdict(list)
+
+-        # request_obj -> list of (tag, future)
+-        self.request_map = defaultdict(list)
+-
+         self.timeout_map = {}  # map of future -> timeout_callback
+
+         self.stream = zmqstream.ZMQStream(self.event.sub,
+@@ -277,9 +274,7 @@
+         '''
+         Remove all futures that were waiting for request `request` since it is done waiting
+         '''
+-        if request not in self.request_map:
+-            return
+-        for tag, future in self.request_map[request]:
++        for tag, future in request.tagged_futures:
+             self._timeout_future(tag, future)
+
+     def get_event(self,
+@@ -298,7 +293,7 @@
+             future.add_done_callback(handle_future)
+         # add this tag and future to the callbacks
+         self.tag_map[tag].append(future)
+-        self.request_map[request].append((tag, future))
++        request.tagged_futures.append((tag, future))
+
+         if timeout:
+             timeout_future = tornado.ioloop.IOLoop.current().call_later(timeout, self._timeout_future, tag, future)
+@@ -315,6 +310,9 @@
+         if not future.done():
+             future.set_exception(TimeoutException())
+             self.tag_map[tag].remove(future)
++            if future in self.timeout_map:
++                tornado.ioloop.IOLoop.current().remove_timeout(self.timeout_map[future])
++                del self.timeout_map[future]
+         if len(self.tag_map[tag]) == 0:
+             del self.tag_map[tag]
+
+@@ -415,6 +413,7 @@
+         # do the common parts
+         self.start = time.time()
+         self.connected = True
++        self.tagged_futures = list()
+
+         self.lowstate = self._get_lowstate()
+```
+
+And here's the profiling on ubuntu, a little bit longer, probably due to longer reference path walking for GC.
+
+``` python
+real    6m2.196s
+user    0m41.545s
+sys 0m29.659s
+
+len(tag_map)=0
+len(timeout_map)=0
+Filename: /usr/lib/python2.7/dist-packages/salt/netapi/rest_tornado/__init__.py
+
+Line #    Mem usage    Increment   Line Contents
+================================================
+    38   24.859 MiB    0.000 MiB   @profile
+    39                             def start():
+    40                                 '''
+    41                                 Start the saltnado!
+    42                                 '''
+   114   27.582 MiB    0.000 MiB       try:
+   115   29.551 MiB    1.969 MiB           tornado.ioloop.IOLoop.instance().start()
+   116   29.551 MiB    0.000 MiB       except KeyboardInterrupt:
+   117   29.551 MiB    0.000 MiB           print('len(tag_map)={}\nlen(timeout_map)={}'.format(
+   118   29.551 MiB    0.000 MiB                   len(application.event_listener.tag_map),
+   119   29.555 MiB    0.004 MiB                   len(application.event_listener.timeout_map)))
+   120   29.555 MiB    0.000 MiB           raise SystemExit(0)
+```
+### For fixing
+
+I would prefer the 2nd patch which isolates the request map more reasonable to the request object itself. Haven't been going through the pull request before. If it's a preferred contribution style, I will follow the guide.

@@ -1,0 +1,127 @@
+as @thatch45  asked in https://github.com/saltstack/salt/pull/22137 , I create this issue.
+
+Problem:
+
+when there is a file.directory state, which set clean: True, and requires its parent dir, it will not do clean anymore:
+
+Example SLS:
+
+```
+/tmp/parentdir: # says if this dir pre-exist, maybe a etc dir create by package installing
+  file:
+    - directory
+    - user: root
+
+create_files:
+  cmd:
+    - run
+    - name: touch {1..3}; ls
+    - cwd: /tmp/parentdir/subdir # says if this dir pre-exist, maybe a etc dir create by package installing
+    - require:
+      - file: /tmp/parentdir
+
+managedfile:
+  file:
+    - managed
+    - name: /tmp/parentdir/subdir/foo.conf # I want only my config file in that dir, not other existing files
+    - contents : blahblah
+    - require_in:
+      - file: /tmp/parentdir/subdir
+
+/tmp/parentdir/subdir:
+  file:
+    - directory
+    - clean: True
+    - require:
+      - file: /tmp/parentdir
+```
+
+By doc:
+
+> clean
+>     Make sure that only files that are set up by salt and required by this function are kept. If this option is set then everything in this directory will be deleted unless it is required.
+
+So with above SLS, I expect only `/tmp/parentdir/subdir/foo.conf` in `/tmp/parentdir/subdir`, but actually, non of file in `/tmp/parentdir/subdir` is removed.
+
+```
+----------
+          ID: /tmp/parentdir/subdir
+    Function: file.directory
+      Result: True
+     Comment: Directory /tmp/parentdir/subdir is in the correct state
+     Started: 09:22:35.191774
+    Duration: 2.67 ms
+     Changes:
+```
+
+And with my fix in https://github.com/saltstack/salt/pull/22137, output is:
+
+```
+          ID: /tmp/parentdir/subdir
+    Function: file.directory
+      Result: True
+     Comment: Files cleaned from directory /tmp/parentdir/subdir
+     Started: 09:30:34.593864
+    Duration: 4.198 ms
+     Changes:
+              ----------
+              removed:
+                  - /tmp/parentdir/subdir/1
+                  - /tmp/parentdir/subdir/2
+                  - /tmp/parentdir/subdir/3
+```
+
+If I remove requisite to its parent dir (and remove my fix) then:
+
+```
+-    - require:
+-      - file: /tmp/parentdir
+```
+
+Then output is;
+
+```
+          ID: /tmp/parentdir/subdir
+    Function: file.directory
+      Result: True
+     Comment: Files cleaned from directory /tmp/parentdir/subdir
+     Started: 09:21:41.635216
+    Duration: 3.03 ms
+     Changes:
+              ----------
+              removed:
+                  - /tmp/parentdir/subdir/1
+                  - /tmp/parentdir/subdir/2
+                  - /tmp/parentdir/subdir/foo.conf # why this file removed, even another bug
+                  - /tmp/parentdir/subdir/3
+```
+
+Again, back to doc:
+
+> clean
+>     Make sure that only files that are set up by salt and required by this function are kept. If this option is set then everything in this directory will be deleted unless it is required.
+
+So due to this, if a state require its parent dir, then clean: True will have no efffect.
+But requiring to a parent dir is very common, a parent dir always create/be managed before its sub dir. 
+
+Tested on:
+
+```
+ salt-call --versions-report; lsb_release -d
+                  Salt: 2014.7.4
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.11
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2014.7.4+ds-1trusty1
+Description:    Ubuntu 14.04.2 LTS
+```

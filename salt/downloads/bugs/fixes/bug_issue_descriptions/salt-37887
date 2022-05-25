@@ -1,0 +1,234 @@
+### Description of Issue/Question
+When i store string values with utf-8 characters, i'm unable to use them within file.managed. But not in all cases.
+
+pillar.get ist working:
+```
+root@monsieursalt[dev]:/srv/salt > salt 'mon*' pillar.get foobar:bar1
+monsieursalt.internal:
+    srtg'ft€@µ§edg!"$%&/()=?`sg
+```
+
+### Setup
+```
+######### pillar/foo.sls #########
+# -*- coding: utf-8 -*-
+foobar:
+  bar1: srtg'ft€@µ§edg!"$%&/()=?`sg
+  bar2: §srtg'ft€@µ§edg!"$%&/()=?`sg
+  bar3: srtgftedgsg
+  bar4: rtgsedrtgsfdgdsrf
+
+######### pillar/top.sls #########
+base:
+  '*':
+    - foo
+
+######### salt/file.jinja #########
+{{ salt['pillar.get']('foobar:bar1', 'failed to get pillar') }}
+
+######### salt/file.utf8 #########
+# -*- coding: utf-8 -*-
+foobar:
+  bar1: §srtg'ft€@µ§edg!"$%&/()=?`sg
+  bar2: asdfghjghds
+  bar3: srtgftedgsg
+  bar4: rtgsedrtgsfdgdsrf
+
+######### salt/foo1.sls #########
+/tmp/test1:
+  file.managed:
+    - contents_pillar: foobar:bar1
+
+######### salt/foo2.sls #########
+/tmp/test2:
+  file.managed:
+    - contents: {{ salt['pillar.get']('foobar:bar1', '') }}
+
+######### salt/foo3.sls #########
+/tmp/test3:
+  file.managed:
+    - source: salt://file.jinja
+    - template: jinja
+
+######### salt/foo4.sls #########
+/tmp/test4:
+  file.managed:
+    - source: salt://file.utf8
+
+######### salt/top.sls #########
+base:
+  '*':
+    - foo1
+    - foo2
+    - foo3
+    - foo4
+```
+
+### Steps to Reproduce Issue
+**contents_pillar is working:**
+```
+root@monsieursalt[dev]:/srv/salt > salt 'mon*' state.sls foo1
+monsieursalt.internal:
+----------
+          ID: /tmp/test1
+    Function: file.managed
+      Result: True
+     Comment: File /tmp/test1 updated
+     Started: 16:22:16.600100
+    Duration: 47.092 ms
+     Changes:   
+              ----------
+              diff:
+                  New file
+
+Summary for monsieursalt.internal
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  47.092 ms
+```
+**contents with jinja not:**
+```
+root@monsieursalt[dev]:/srv/salt > salt 'mon*' state.sls foo2
+monsieursalt.internal:
+    Data failed to compile:
+----------
+    Rendering SLS 'base:foo2' failed: Jinja error: 'ascii' codec can't decode byte 0xe2 in position 7: ordinal not in range(128)
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/templates.py", line 368, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python2.7/dist-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python2.7/dist-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 3, in top-level template code
+UnicodeDecodeError: 'ascii' codec can't decode byte 0xe2 in position 7: ordinal not in range(128)
+
+; line 3
+
+---
+/tmp/test2:
+  file.managed:
+    - contents: {{ salt['pillar.get']('foobar:bar1', '') }}    <======================
+
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/templates.py", line 368, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python2.7/dist-packages/jinja2/environment.py", line 989, in render
+[...]
+---
+ERROR: Minions returned with non-zero exit code
+```
+**template-file with jinja not:**
+```
+root@monsieursalt[dev]:/srv/salt > salt 'mon*' state.sls foo3
+monsieursalt.internal:
+----------
+          ID: /tmp/test3
+    Function: file.managed
+      Result: False
+     Comment: Unable to manage file: Jinja error: 'ascii' codec can't decode byte 0xe2 in position 7: ordinal not in range(128)
+              Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/utils/templates.py", line 368, in render_jinja_tmpl
+                  output = template.render(**decoded_context)
+                File "/usr/lib/python2.7/dist-packages/jinja2/environment.py", line 989, in render
+                  return self.environment.handle_exception(exc_info, True)
+                File "/usr/lib/python2.7/dist-packages/jinja2/environment.py", line 754, in handle_exception
+                  reraise(exc_type, exc_value, tb)
+                File "<template>", line 1, in top-level template code
+              UnicodeDecodeError: 'ascii' codec can't decode byte 0xe2 in position 7: ordinal not in range(128)
+              
+              ; line 1
+              
+              ---
+              {{ salt['pillar.get']('foobar:bar1', 'failed to get pillar') }}    <======================
+              
+              Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/utils/templates.py", line 368, in render_jinja_tmpl
+                  output = template.render(**decoded_context)
+                File "/usr/lib/python2.7/dist-packages/jinja2/environment.py", line 989, in render
+              [...]
+              ---
+     Started: 16:22:30.039266
+    Duration: 61.106 ms
+     Changes:   
+
+Summary for monsieursalt.internal
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:  61.106 ms
+ERROR: Minions returned with non-zero exit code
+```
+**just file from salt-filesystem obviously works:**
+```
+root@monsieursalt[dev]:/srv/salt > salt 'mon*' state.sls foo4
+monsieursalt.internal:
+----------
+          ID: /tmp/test4
+    Function: file.managed
+      Result: True
+     Comment: File /tmp/test4 updated
+     Started: 16:22:32.009920
+    Duration: 44.473 ms
+     Changes:   
+              ----------
+              diff:
+                  New file
+              mode:
+                  0644
+
+Summary for monsieursalt.internal
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  44.473 ms
+```
+
+### Versions Report
+master/minion on same host
+```
+Salt Version:
+           Salt: 2016.3.4
+ 
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: 0.24.0
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.3.7
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.24.0
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-47-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

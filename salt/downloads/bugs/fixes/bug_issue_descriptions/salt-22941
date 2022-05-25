@@ -1,0 +1,45 @@
+Hi,
+
+It's the same bug as #22844 , but in master workers.
+
+When calling `_pillar` function, a fileclient is instanciate at https://github.com/saltstack/salt/blob/2014.7/salt/pillar/__init__.py#L116 . This overwrite global `__opts__` in `fileserver.roots` with `file_roots` as `pillar_roots`. This break fetching of state sls.
+
+In fact, it depends on which worker is queried. This make it a bit hard to reproduce. Here is a log:
+
+On minion : 
+
+```
+[DEBUG   ] Fetching file from saltenv 'base', ** attempting ** 'salt://lib.sls'
+*** CUSTOM *** {'path': 'lib.sls', 'saltenv': 'base', 'cmd': '_serve_file', 'loc': 0}
+*** CUSTOM *** {'path': 'lib.sls', 'saltenv': 'base', 'cmd': '_serve_file', 'loc': 69}
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'lib.sls'
+{{ env }}:
+
+{%- block all %}
+  '*':
+    - pillar-lib
+{%- endblock %}
+```
+
+And on master
+
+```
+[INFO    ] AES payload received with command _serve_file
+*** CUSTOM *** serve_file /usr/local/src/salt-local-bug/pillar/lib.sls 0
+{{ env }}:
+
+{%- block all %}
+  '*':
+    - pillar-lib
+{%- endblock %}
+
+EOF
+[INFO    ] AES payload received with command _serve_file
+*** CUSTOM *** serve_file /usr/local/src/salt-local-bug/salt/lib.sls 69
+
+EOF
+```
+
+As you can see, a pillar file is served by _serve_file.
+
+`_serve_file` must always server from `file_roots`.

@@ -1,0 +1,51 @@
+The filecopy refactor in PR #17009 is causing some problems with CentOS 5 and 6 on the 2014.7 branch and I think it's related to using Python 2.6 instead of 2.7. Here are the failures on CentOS 6:
+https://jenkins.saltstack.com/view/2014.7%20Branch/job/salt-2014.7-rs-rhel6/478/
+
+I was able to narrow the problem down by running a state.sls with a file.recurse state which caused a stacktrace when running the minion in debug mode:
+
+```
+[DEBUG   ] Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/states/file.py", line 1418, in managed
+    follow_symlinks)
+  File "/usr/lib/python2.6/site-packages/salt/modules/file.py", line 3268, in manage_file
+    __opts__['cachedir'])
+  File "/usr/lib/python2.6/site-packages/salt/utils/files.py", line 74, in copyfile
+    policy = salt.modules.selinux.getenforce()
+  File "/usr/lib/python2.6/site-packages/salt/modules/selinux.py", line 73, in getenforce
+    enforce = os.path.join(selinux_fs_path(), 'enforce')
+  File "/usr/lib64/python2.6/posixpath.py", line 67, in join
+    elif path == '' or path.endswith('/'):
+AttributeError: 'NoneType' object has no attribute 'endswith'
+
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://grail/empty'
+[DEBUG   ] Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/states/file.py", line 1418, in managed
+    follow_symlinks)
+  File "/usr/lib/python2.6/site-packages/salt/modules/file.py", line 3268, in manage_file
+    __opts__['cachedir'])
+  File "/usr/lib/python2.6/site-packages/salt/utils/files.py", line 74, in copyfile
+    policy = salt.modules.selinux.getenforce()
+  File "/usr/lib/python2.6/site-packages/salt/modules/selinux.py", line 73, in getenforce
+    enforce = os.path.join(selinux_fs_path(), 'enforce')
+  File "/usr/lib64/python2.6/posixpath.py", line 67, in join
+    elif path == '' or path.endswith('/'):
+AttributeError: 'NoneType' object has no attribute 'endswith'
+
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://grail/scene33'
+[DEBUG   ] Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/states/file.py", line 1418, in managed
+    follow_symlinks)
+  File "/usr/lib/python2.6/site-packages/salt/modules/file.py", line 3268, in manage_file
+    __opts__['cachedir'])
+  File "/usr/lib/python2.6/site-packages/salt/utils/files.py", line 74, in copyfile
+    policy = salt.modules.selinux.getenforce()
+  File "/usr/lib/python2.6/site-packages/salt/modules/selinux.py", line 73, in getenforce
+    enforce = os.path.join(selinux_fs_path(), 'enforce')
+  File "/usr/lib64/python2.6/posixpath.py", line 67, in join
+    elif path == '' or path.endswith('/'):
+AttributeError: 'NoneType' object has no attribute 'endswith'
+```
+
+This stacktrace, while obtained testing a file.recurse state, seems to be very similar to all the other test failures. (Reverting the PR on my test machine results in all of the tests that are failing in the link above to pass.)
+
+@cachedout Can you take a look at this one? I think the main thing in question is with `salt.modules.selinux.getenforce()` in https://github.com/saltstack/salt/blob/2014.7/salt/utils/files.py#L74 as that line didn't exist before the refactor.

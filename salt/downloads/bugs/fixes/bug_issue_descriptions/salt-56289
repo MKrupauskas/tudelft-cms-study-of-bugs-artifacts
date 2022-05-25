@@ -1,0 +1,117 @@
+### Description of Issue
+I have a single netconfig.managed state that is not respecting the test=True argument when passed in via the salt master in a state.apply command. This is also not 100% consistent, I have seen it be respected 3 times in a row then not the next time.
+
+Just for clarity this is tested using the test=True command line arg in addition to and in different combinations with the argument to the state module function itself.
+
+### Setup
+mystate.sls:
+```
+manage full config:
+  netconfig.managed:
+    - template_name:
+      - salt://something.cfg
+    - test: True
+    - replace: False
+    - debug: True
+```
+
+
+### Steps to Reproduce Issue
+1. Running `salt 'myminion' state.apply` will always result in a change of the switch config, even though test=True is set in the sls.
+2. Running `salt 'myminion' state.apply test=True` seems to apply changes about 3/4 of the time now, sometimes now it will work as expected though. It does seem that the first run will usually work correctly, while later runs do not.
+
+I have added some debug logging statements in various files:
+
+modules/napalm_network.py, just after the end of the docstring in `load_template`:
+```
+    # just after the end of the docstring
+    log.critical("test state in napalm_network.load_template is %s" % test)
+```
+
+modules/netconfig.py, just after the end of the docstring in `managed`:
+```
+    ret = salt.utils.napalm.default_ret(name)
+
+    log.critical("test state 1 in netconfig.managed is %s" % test)
+    log.critical("__opts__ test state 1 in netconfig.managed is %s" % __opts__['test'])
+    
+    # the user can override the flags the equivalent CLI args
+    # which have higher precedence
+    test = __salt__['config.merge']('test', test)
+    log.critical("test state 2 in netconfig.managed is %s" % test)
+    log.critical("__opts__ test state 2 in netconfig.managed is %s" % __opts__['test'])
+
+```
+
+One example of the relevant logs from a run of `salt 'myminion' state.apply test=True` is:
+```
+[CRITICAL] test state 1 in netconfig.managed is True
+[CRITICAL] __opts__ test state 1 in netconfig.managed is True
+[CRITICAL] test state 2 in netconfig.managed is True
+[CRITICAL] __opts__ test state 2 in netconfig.managed is True
+[CRITICAL] test state in napalm_network.load_template is True
+[CRITICAL] test state 1 in netconfig.managed is True
+[CRITICAL] __opts__ test state 1 in netconfig.managed is True
+[CRITICAL] test state 2 in netconfig.managed is False
+[CRITICAL] __opts__ test state 2 in netconfig.managed is True
+[CRITICAL] test state in napalm_network.load_template is False
+```
+I also don't understand why netconfig.managed is called twice.. can you clear that up for me?
+
+The problem seems to come up from the call `test = __salt__['config.merge']('test', test)`, after this the value of test gets flipped from True to False.
+
+I'm able to get the functionality I expect by changing the line:
+```
+    test = __salt__['config.merge']('test', test)
+```
+
+to:
+```
+    if not test:
+        test = __salt__['config.merge']('test', test)
+```
+But this seems like a hack since if I'm reading this correctly the value of `__opts__["test"]` is being reset along the line somewhere which is a larger issue. I may be wrong about that though.. :)
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: 1.12.2
+       cherrypy: unknown
+       dateutil: 2.8.0
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.11
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.26.6
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 3.6.6 | packaged by conda-forge | (default, Oct 12 2018, 14:43:46)
+   python-gnupg: 0.4.4
+         PyYAML: 5.1
+          PyZMQ: 18.0.1
+           RAET: Not Installed
+          smmap: 2.0.5
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: centos 7.6.1810 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-957.12.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.6.1810 Core
+```

@@ -1,0 +1,69 @@
+### Description of Issue/Question
+
+When using consul as a pillar source, if a minion does not have a value for a particular grain (basically either `role`, or `environment`, since the other possible grain that the pillar uses, `minion_id`, will always have a value), during substitution (https://github.com/saltstack/salt/blob/909d519ddb46f4025830d3ae0a92735bd915fe51/salt/pillar/consul_pillar.py#L195) the resulting `opts['root']` value could turn into a higher-level root, and expose the entire tree of pillar values to the states. In a scenario where some members of a team can write states but not execute them, and where there is supposed to be separation between teams, this could allow for members to get access to values that they aren't allowed to through a misconfigured minion.
+
+A few notes:
+1. I could send in a patch... except I'm still not too sure how to detect that a substitution problem has occurred.
+2. you could argue that this is simply operator error... but I'd rather salt fail with some error so that the error can be fixed, than proceed with running the state
+
+### Setup
+
+/etc/salt/master.d/consul.conf:
+```
+consul_config:
+  consul.host: 127.0.0.1
+  consul.port: 8500
+
+ext_pillar:
+  - consul: consul_config root=salt/role/%(role)s
+```
+
+### Steps to Reproduce Issue
+
+Set up consul as a pillar source as detailed above, as well as a minion with no grain value for `role` (this is simple enough - there is no default value for the grain so if you don't provide one, it will be empty). And then to see the leak, simply do a `salt <minion-id> pillar.items`
+
+If a minion does not have a `role` grain, substitution causes a lookup of consul at `salt/role/`, which exposes the entire tree of pillar values stored in consul at `salt/role/` (https://github.com/saltstack/salt/blob/909d519ddb46f4025830d3ae0a92735bd915fe51/salt/pillar/consul_pillar.py#L202)
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.11.5
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-71-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

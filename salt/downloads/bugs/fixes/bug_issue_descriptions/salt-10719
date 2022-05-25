@@ -1,0 +1,79 @@
+From my debug logs:
+
+```
+[INFO    ] Running state [curl] at time 15:52:40.171239
+[INFO    ] Executing state pkg.installed for curl
+[INFO    ] Executing command 'apt-get -q update' in directory '/root'
+[INFO    ] Executing command ['apt-get', '-q', '-y', '-o', 'DPkg::Options::=--force-confold', '-o', 'DPkg::Options::=--force-confdef', 'install', 'curl'] in directory '/root'
+[INFO    ] Executing command "dpkg-query --showformat='${Status} ${Package} ${Version} ${Architecture}\n' -W" in directory '/root'
+[ERROR   ] The following packages failed to install/update: curl.
+```
+
+The normal output:
+
+```
+----------
+          ID: curl
+    Function: pkg.installed
+      Result: False
+     Comment: The following packages failed to install/update: curl.
+     Changes:   
+----------
+```
+
+Some manual execution to troubleshoot this:
+
+```
+# apt-get -q -y -o DPkg::Options::=--force-confold -o DPkg::Options::=--force-confdef install curl
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version.
+0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+root@ip-10-151-76-86:~#
+```
+
+Also:
+
+```
+# dpkg-query --showformat='${Status} ${Package} ${Version} ${Architecture}\n' -W
+...
+purge ok installed curl 7.26.0-1+wheezy8 amd64
+```
+
+This situation came about because I wanted to test a state was successfully installing curl (although it must have been baked into the image anyway due to an apt-file dependency). From my xterm history:
+
+```
+# dpkg -P curl capcertificates
+dpkg: dependency problems prevent removal of curl:
+ apt-file depends on curl.
+ debian-goodies depends on curl.
+
+dpkg: error processing curl (--purge):
+ dependency problems - not removing
+dpkg: warning: ignoring request to remove capcertificates which isn't installed
+Errors were encountered while processing:
+ curl
+```
+
+The workaround was to manually reinstall the curl package:
+
+```
+# apt-get install --reinstall curl
+```
+
+I feel that this is a bug, and that I shouldn't have to do this to prevent a pkg.installed state failure.
+
+```
+# salt-call --versions-report
+           Salt: 2014.1.0-1-gf5d103f
+         Python: 2.7.3 (default, Jan  2 2013, 13:56:14)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.3
+```

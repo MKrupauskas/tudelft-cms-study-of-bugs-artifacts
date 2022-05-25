@@ -1,0 +1,101 @@
+### Description of Issue/Question
+States modules `postgres_cluster.present` and `postgres_cluster.absent` fail if type of version variable is not a string.
+Modules `postgres.cluster_create` and `postgres.cluster_remove` will always fail because there is no (known for me) way to force type of variable from command line.
+
+### Setup
+OS: Debian 9
+PostgreSQL 9.6 from official PostgreSQL repository.
+
+### Steps to Reproduce Issue
+For simplicity I will use `salt-call`, state with `postgres_cluster.present` use `postgres.cluster_create` module so it throw same error.
+Just for reference state can be like this:
+```yaml
+postgresql_9.6_cluser_pgtest_present:
+  postgres_cluster.present:
+    - name: pgtest
+    - version: 9.6
+    - port: 5433
+```
+
+`salt-call postgres.cluster_create '9.6' 'pgtest' port=5433 -l debug`
+
+```
+... skip useless debug lines
+[DEBUG   ] LazyLoaded postgres.cluster_create
+Passed invalid arguments: 'float' object is not iterable.
+Usage:
+    Adds a cluster to the Postgres server.
+    .. warning:
+       Only works for debian family distros so far.
+    CLI Example:
+    .. code-block:: bash
+        salt '*' postgres.cluster_create '9.3'
+        salt '*' postgres.cluster_create '9.3' 'main'
+        salt '*' postgres.cluster_create '9.3' locale='fr_FR'
+
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 212, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/deb_postgres.py", line 66, in cluster_create
+    cmdstr = ' '.join([pipes.quote(c) for c in cmd])
+  File "/usr/lib/python2.7/pipes.py", line 269, in quote
+    for c in file:
+TypeError: 'float' object is not iterable
+```
+
+The root of the problem is that pipes library expect string as input but `version` in `deb_postgres.py` is `int` or `float` which can't be iterated.
+Check those lines for [postgres_cluster.present](https://github.com/saltstack/salt/blob/d08d65362bc70169d92b899914254da3406294b5/salt/modules/deb_postgres.py#L65) and [postgres_cluster.absent](https://github.com/saltstack/salt/blob/d08d65362bc70169d92b899914254da3406294b5/salt/modules/deb_postgres.py#L134) `cmd` list looks like this `[u'/usr/bin/pg_createcluster', u'--port', u'5433', 9.6, u'pgtest']`
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: 2.0.0
+      gitpython: 2.1.1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: 1.3.7
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Nov 24 2017, 17:33:09)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.1
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+
+System Versions:
+           dist: debian 9.4
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-6-amd64
+         system: Linux
+        version: debian 9.4
+```
+
+### Workaround
+As workaround version can be forced to be a string with quotes
+```yaml
+postgresql_9.6_cluser_pgtest_present:
+  postgres_cluster.present:
+    - name: pgtest
+    - version: '9.6'
+    - port: 5433
+```

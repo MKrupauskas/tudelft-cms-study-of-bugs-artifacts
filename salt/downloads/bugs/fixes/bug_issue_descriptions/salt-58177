@@ -1,0 +1,157 @@
+**Description**
+138 NUL characters spontaneously appear in `conf\_schedule.conf` of at least 8 out of 10,000 minions.
+
+"spontaneously" means: the minion writes the NUL bytes, not a user.
+
+The NUL characters do not appear very often, but the effect is catastrophic:
+- Unlike in Unix, Windows reacts to the Python YAMLError exception with restarting the servicse, which causes a loop.
+- The CPU load rises to 50% on Windows, since Salt-Minion 3001.
+- The salt-minon service cannot start but remains in START_PENDING, after a while state changes to PAUSED.
+- The minion no longer connects to the master
+- The Windows event is overwhelmed with 5 informations and 1 warning each 2 seconds:
+
+
+![verybad](https://user-images.githubusercontent.com/8489107/91636196-11a24180-e9ff-11ea-9b92-8e6785c69c00.png)
+
+
+```
+Information 1
+C:\salt\bin\python.exe 
+   C:\salt\bin\Scripts\salt-minion -c C:\salt\conf -l quiet 
+   salt-minion 
+   C:\salt\bin
+
+Information 2
+C:\salt\bin\python.exe 
+   salt-minion 
+   1
+
+Information 3
+salt-minion 
+   18696 
+   1
+
+Information 4
+18696 
+   18696 
+   salt-minion
+
+Information 5
+salt-minion 
+   1 
+   Restart 
+   C:\salt\bin\python.exe
+
+
+Warning
+AppEnvironmentExtra 
+   salt-minion
+
+```
+
+Under regular operation, `_schedule.conf` is 138 characters long and contains:
+```
+schedule:
+  __mine_interval: {enabled: true, function: mine.update, jid_include: true, maxrunning: 2,
+    minutes: 60, return_job: false, run_on_start: true}
+```
+
+Short:
+- If `_schedule.conf` is missing, the minion recreates it.
+- If `_schedule.conf` contains NUL, the minion havocs.
+
+**Related Issues**
+-  Issue [salt-minion in restart loop](https://github.com/saltstack/salt/issues/56216)
+-  PR [Avoid traceback when bogus value in pidfile](https://github.com/saltstack/salt/pull/44956)
+
+Both issue arise from "bad data" in config files. 
+
+**Setup**
+Install Salt-Minion 3001 
+
+
+**Steps to Reproduce the behavior**
+
+    sc stop salt-minion
+
+Replace \salt\conf\minion.d\_schedule.conf with a file containing one or 138 NUL characters
+
+You can create such a file yourself or use  https://github.com/markuskramerIgitt/LearnSalt/blob/master/_schedule.conf_of_138_NUL_characters/_schedule.conf
+
+
+
+    sc start salt-minion
+
+#### Evidence 1
+
+    \salt\salt-call --local test.version
+
+Read
+
+    [ERROR   ] Error parsing configuration file: c:\salt\conf\minion.d\_schedule.conf - unacceptable character #x0000: control 
+    characters are not allowed
+      in "c:\salt\conf\minion.d\_schedule.conf", position 0
+
+#### Evidence 2
+
+    sc query salt-minion
+
+Observe START_PENDING
+
+#### Evidence 3
+
+Open Event viewer
+
+
+**Expected behavior**
+
+- [x] If `_schedule.conf` is invalid, the minion recreates it.
+- [ ] If any other *.conf  is invalid, the minion must not havoc, it could retry once or twice and then hold still. 
+
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 3001
+
+Dependency Versions:
+           cffi: 1.12.2
+       cherrypy: 17.4.1
+       dateutil: 2.8.0
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.10
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: Not Installed
+   pycryptodome: 3.9.7
+         pygit2: Not Installed
+         Python: 3.7.4 (tags/v3.7.4:e09359112e, Jul  8 2019, 20:34:20) [MSC v.1916 64 bit (AMD64)]
+   python-gnupg: 0.4.4
+         PyYAML: 5.1.2
+          PyZMQ: 18.0.1
+          smmap: 2.0.5
+        timelib: 0.2.4
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+
+System Versions:
+           dist:
+         locale: cp1252
+        machine: AMD64
+        release: 10
+         system: Windows
+        version: 10 10.0.18362 SP0
+
+```
+</details>
+

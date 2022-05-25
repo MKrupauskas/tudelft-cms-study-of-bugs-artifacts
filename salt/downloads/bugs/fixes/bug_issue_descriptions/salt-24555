@@ -1,0 +1,45 @@
+#8261 (or something else) seems to have implemented some code that says if a service.enabled appears, delete the .override
+
+This causes thrash and lack of idempotency because I'm trying to `file.managed` an override file for a `service.enabled` service.
+
+No matter which way I order these 2 states will never come back clean because service.enabled ensures the override is absent and the file.managed creates it.
+
+``` yaml
+ensure_salt_service_autostart:
+  service:
+    - enabled
+    - name: salt-minion
+
+salt_start_on_override:
+  file:
+    - managed
+    - source: salt://delay_salt_run/salt-minion.override
+    - name: /etc/init/salt-minion.override
+
+# Results in this (repeatedly)
+  Name: salt-minion - Function: service.enabled - Result: Changed
+  Name: /etc/init/salt-minion.override - Function: file.managed - Result: Changed
+```
+
+Salt master:
+
+``` yaml
+root@61d39086f72a:/# salt --versions-report
+                  Salt: 2015.5.0
+                Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+                Jinja2: 2.6
+              M2Crypto: 0.21.1
+        msgpack-python: 0.1.10
+          msgpack-pure: Not Installed
+              pycrypto: 2.6
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 13.1.0
+                  RAET: Not Installed
+                   ZMQ: 3.2.3
+                  Mako: 0.7.0
+ Debian source package: 2015.5.0+ds-1~bpo70+1
+```
+
+I am working around just by implementing my override file management after the service.  I'm just pointing out the thrash as bad.

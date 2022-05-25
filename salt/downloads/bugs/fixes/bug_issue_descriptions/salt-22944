@@ -1,0 +1,89 @@
+If a checked-out branch has had forced updates, it appears that the salt-managed repository attempts to automatically merge those changes (due to the `git pull`?), rather than resetting to the new state of the branch.
+This seems to be true no matter what force\* arguments are specified in the `git.latest` state.
+
+Example state:
+
+``` yaml
+  bar-repo:
+    git.latest:
+      - name: git@bitbucket.org:foo/bar.git
+      - target: /opt/foo/bar/src
+      - rev: devel
+      - always_fetch: True
+      - force: True
+      - force_checkout: True
+      - force_reset: True
+```
+
+After force-updating the latest commit in the repo, and re-applying the above state, the clone in `/opt/foo/bar/src` would have the latest commit as something like:
+
+```
+147dada (HEAD, devel) Merge branch 'devel' of bitbucket.org:foo/bar into devel
+```
+
+It also appears to be unable to detect and rewind the managed repo, if the remote branch head gets reset to an earlier commit - no changes appear to be detected by Salt.
+
+It managed to get the repo into such a state (I suspect because it encountered a merge conflict) that all Salt could say about it was:
+
+```
+Comment: Command 'git pull ' failed. Stderr: ''
+```
+
+Though the last thing it said before reaching that conclusion  was:
+
+```
+ Comment: Command 'git pull ' failed. Stderr: 'From bitbucket.org:foo/bar\n + 4bacbb7...b22bc7d devel      -> origin/devel  (forced update)'
+```
+
+The repo at the time had a mess of locally merged commits, had diverged "6 and 1 different" from origin, and had "unmerged paths" pending action.
+
+---
+
+From what I can tell, `git.latest` generally seems to do a whole lot of unnecessary operations. Even on a run where there have been _no changes at all_, the salt-call output log for the above state looks something like:
+
+```
+[INFO    ] Executing state git.latest for git@bitbucket.org:foo/bar.git
+[INFO    ] Executing command 'git rev-parse HEAD' in directory '/opt/foo/bar/src'
+[INFO    ] Executing command 'git rev-parse --abbrev-ref HEAD' in directory '/opt/foo/bar/src'
+[INFO    ] Executing command 'git ls-remote -h git@bitbucket.org:foo/bar.git devel | cut -f 1' in directory '/opt/foo/bar/src'
+[INFO    ] Executing command 'git remote show -n origin' in directory '/opt/foo/bar/src'
+[INFO    ] Executing command 'git rev-parse devel^{commit}' in directory '/opt/foo/bar/src'
+[INFO    ] Executing command 'git fetch ' in directory '/opt/foo/bar/src'
+[INFO    ] Executing command 'git reset --hard' in directory '/opt/foo/bar/src'
+[INFO    ] Executing command 'git checkout  -f devel ' in directory '/opt/foo/bar/src'
+[INFO    ] Executing command 'git config branch.devel.remote' in directory '/opt/foo/bar/src'
+[INFO    ] Executing command 'git symbolic-ref -q HEAD' in directory '/opt/foo/bar/src'
+[INFO    ] Executing command 'git pull ' in directory '/opt/foo/bar/src'
+[INFO    ] Executing command 'git rev-parse HEAD' in directory '/opt/foo/bar/src'
+```
+
+Whereas, AFAICT, all it really needs to do, at least in this particular case, is:
+1. Compare local and remote rev/tag/branch hashes
+2. End on success if hashes match; otherwise:
+3. `git fetch`
+4. `git reset {remote}/{rev}`
+
+(Actually, since `always_fetch` is specified, 1 and 2 should be unnecessary, though I've not found that the value of `always_fetch` actually makes any difference)
+
+---
+
+This is using the official Salt repo on a Debian Wheezy (virtual) machine
+
+```
+# salt-call --versions-report
+                  Salt: 2014.7.4
+                Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+                Jinja2: 2.6
+              M2Crypto: 0.21.1
+        msgpack-python: 0.1.10
+          msgpack-pure: Not Installed
+              pycrypto: 2.6
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 13.1.0
+                  RAET: Not Installed
+                   ZMQ: 3.2.3
+                  Mako: 0.7.0
+ Debian source package: 2014.7.4+ds-1~bpo70+1
+```

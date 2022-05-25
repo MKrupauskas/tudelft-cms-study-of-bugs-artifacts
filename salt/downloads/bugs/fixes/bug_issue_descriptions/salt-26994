@@ -1,0 +1,96 @@
+On 2015.5.3 setting the module provider to yumpkg instead of yumpkg5 causes salt not to load. 
+
+``` yaml
+providers:
+  pkg: yumpkg
+```
+
+The error is found in the status: 
+
+``` bash
+[root@localhost ~]# systemctl status salt-minion -l
+salt-minion.service - The Salt Minion
+   Loaded: loaded (/usr/lib/systemd/system/salt-minion.service; enabled)
+   Active: active (running) since Wed 2015-09-09 16:37:09 UTC; 24s ago
+ Main PID: 16150 (salt-minion)
+   CGroup: /system.slice/salt-minion.service
+           16150 /usr/bin/python2 /usr/bin/salt-minion
+           16161 /usr/bin/python2 /usr/bin/salt-minion
+
+Sep 09 16:37:09 localhost.localdomain systemd[1]: Started The Salt Minion.
+Sep 09 16:37:15 localhost.localdomain salt-minion[16150]: [ERROR   ] Exception raised when processing __virtual__ function for zfs. Module will not be loaded global name '__salt__' is not defined
+Sep 09 16:37:15 localhost.localdomain salt-minion[16150]: [WARNING ] salt.loaded.int.module.zfs.__virtual__() is wrongly returning `None`. It should either return `True`, `False` or a new name. If you're the developer of the module 'zfs', please fix this.
+```
+
+This causes error when running highstates and state files like this: 
+
+``` bash
+[root@localhost salt]# salt '*' state.highstate
+minion_name:
+----------
+          ID: nginx
+    Function: pkg.installed
+        Name: nginx.x86_64
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/site-packages/salt/state.py", line 1560, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/site-packages/salt/states/pkg.py", line 827, in installed
+                  **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/states/pkg.py", line 232, in _find_install_targets
+                  cur_pkgs = __salt__['pkg.list_pkgs'](versions_as_list=True, **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/modules/yumpkg.py", line 530, in list_pkgs
+                  for pkginfo in _repoquery_pkginfo('--all --pkgnarrow=installed'):
+                File "/usr/lib/python2.7/site-packages/salt/modules/yumpkg.py", line 123, in _repoquery_pkginfo
+                  for line in _repoquery(repoquery_args):
+                File "/usr/lib/python2.7/site-packages/salt/modules/yumpkg.py", line 154, in _repoquery
+                  call = __salt__['cmd.run_all'](cmd, output_loglevel='trace')
+              TypeError: list indices must be integers, not str
+     Started: 16:52:49.691583
+    Duration: 1.907 ms
+     Changes:
+----------
+          ID: nginx
+    Function: service.running
+      Result: False
+     Comment: One or more requisite failed: nginx.nginx
+     Started:
+    Duration:
+     Changes:
+----------
+          ID: /etc/nginx/nginx.conf
+    Function: file.managed
+      Result: False
+     Comment: Unable to manage file: global name '__salt__' is not defined
+     Started: 16:52:49.695997
+    Duration: 2.756 ms
+     Changes:
+
+Summary
+------------
+Succeeded: 0
+Failed:    3
+------------
+Total states run:     3
+```
+
+Versions Report:
+
+``` bash
+[root@localhost ~]# salt --versions-report
+           Salt: 2015.5.3
+         Python: 2.7.5 (default, Jun 17 2014, 18:11:42)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+        Tornado: Not Installed
+```

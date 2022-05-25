@@ -1,0 +1,134 @@
+I have the following block in one of my .sls files:
+
+```
+docker-bridge:
+  network.managed:
+    - enabled: True
+    - type: bridge
+    - ipaddr: 172.18.42.1
+    - netmask: 255.255.255.0
+    - onboot: yes
+    - proto: none
+    - delay: 0
+```
+
+However, running that state file with state.sls results in no change reported, like so:
+
+```
+...
+local:
+----------
+          ID: docker-bridge
+    Function: network.managed
+      Result: True
+     Comment: Interface docker-bridge is up to date.
+     Changes:   
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total:     1
+```
+
+And no bridge is actually setup.
+
+However, if I have the following:
+
+```
+/etc/sysconfig/network-scripts/ifcfg-docker-bridge:
+  file.managed:
+    - user: root
+    - group: root
+    - mode: 0644
+    - contents: |
+        DEVICE=docker-bridge
+        TYPE=Bridge
+        IPADDR=172.18.42.1
+        NETMASK=255.255.255.0
+        ONBOOT=yes
+        BOOTPROTO=none
+        DELAY=0
+
+ifdown docker-bridge && ifup docker-bridge:
+  cmd.wait:
+    - watch:
+      - file: /etc/sysconfig/network-scripts/ifcfg-docker-bridge
+
+# The following doesn't seem to work with Amazon Linux.
+docker-bridge:
+  network.managed:
+    - enabled: True
+    - type: bridge
+    - ipaddr: 172.18.42.1
+    - netmask: 255.255.255.0
+    - onboot: yes
+    - proto: none
+    - delay: 0
+    - watch:
+      - file: /etc/sysconfig/network-scripts/ifcfg-docker-bridge
+```
+
+I will see the following if I run the state:
+
+```
+...
+local:
+----------
+          ID: /etc/sysconfig/network-scripts/ifcfg-docker-bridge
+    Function: file.managed
+      Result: True
+     Comment: File /etc/sysconfig/network-scripts/ifcfg-docker-bridge updated
+     Changes:   
+              ----------
+              diff:
+                  New file
+              mode:
+                  0644
+----------
+          ID: ifdown docker-bridge && ifup docker-bridge
+    Function: cmd.wait
+      Result: True
+     Comment: Command "ifdown docker-bridge && ifup docker-bridge" run
+     Changes:   
+              ----------
+              pid:
+                  6252
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  Determining if ip address 172.18.42.1 is already in use for device docker-bridge...
+----------
+          ID: docker-bridge
+    Function: network.managed
+      Result: True
+     Comment: Interface docker-bridge updated.
+     Changes:   
+              ----------
+              interface:
+                  ---  
+                  +++  
+                  @@ -1,7 +1,0 @@
+                  -DEVICE=docker-bridge
+                  -TYPE=Bridge
+                  -IPADDR=172.18.42.1
+                  -NETMASK=255.255.255.0
+                  -ONBOOT=yes
+                  -BOOTPROTO=none
+                  -DELAY=0
+
+
+Summary
+------------
+Succeeded: 3
+Failed:    0
+------------
+Total:     3
+```
+
+And the diff about removing lines from the config file will happen every single time I run the state file. It's like the there's no template for the network interface config file. I thought that perhaps that was because the salt/templates/rh_ip/rh6_eth.jinja template was not being applied on Amazon Linux. However, I could not figure out how the code ever decides to use that template. If anyone has any insight, that'd be super helpful.
+
+FWIW, I am using the latest EPEL6 package, which is version 2014.1.4.

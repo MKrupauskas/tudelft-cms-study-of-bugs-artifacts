@@ -1,0 +1,110 @@
+### Description of Issue/Question
+
+If a Salt minion does not recognize the OS, very strange messages are given to the user like:
+
+```
+[ERROR   ] State 'pkg.installed' was not found in SLS 'hypervisor-kvm'
+Reason: 'pkg' __virtual__ returned False
+```
+
+The real problem is the unknown OS:
+
+```
+[DEBUG   ] Error loading module.rh_service: Cannot load rh_service module: OS not in set(['SUSE  Enterprise Server', 'SUSE', 'RedHat', 'CentOS', 'CloudLinux', 'McAfee  OS Server', 'XenServer', 'Amazon', 'OEL', 'ScientificLinux', 'ALT', 'Fedora'])
+```
+
+An unknown OS should definitely lead to all further actions being stopped with a proper error message.
+
+The deeper problem seems to be the strange way the Python _platform.py_ module tries to identify the OS by [just querying the first line](https://hg.python.org/cpython/file/2.7/Lib/platform.py#l335) of e.g. `/etc/os-release`. On Rockstor linux this is the content:
+
+```
+# cat /etc/os-release 
+NAME="Rockstor"
+VERSION="3 (Core)"
+ID="rockstor"
+ID_LIKE="rhel fedora"
+VERSION_ID="3"
+PRETTY_NAME="Rockstor 3 (Core)"
+ANSI_COLOR="0;31"
+CPE_NAME="cpe:/o:rockstor:rockstor:3"
+HOME_URL="https://www.rockstor.com/"
+BUG_REPORT_URL="https://www.rockstor.com/"
+```
+
+I guess it would be much easier to query the `ID` instead and, if that is unknown, check for `ID_LIKE`.
+
+My current workaround for Rockstor: I statically set the OS name and release info:
+
+```
+# cat /etc/salt/minion.d/set-osname.conf
+grains:
+  os: CentOS
+  os_family: RedHat
+  osmajorrelease: 7
+  osrelease: 7.2
+  osrelease_info:
+   - 7
+   - 2
+   - 1511
+```
+### Setup
+- [Rockstor](http://rockstor.com/) installed with Salt minion
+- Simple SLS file on master, e.g.
+
+```
+mc:
+  pkg.installed: []
+```
+### Steps to Reproduce Issue
+
+Take any system with a Salt Minion installed and do this:
+
+```
+cat <<EOF > /etc/salt/minion.d/test-osname.conf
+grains:
+  os: MyOS 
+  os_family: Kelly
+EOF
+
+salt-call -l debug --local state.single pkg.installed name=mc
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Jun 24 2015, 00:41:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: redhat 3.8.10 Core
+        machine: x86_64
+        release: 4.3.3-1.el7.elrepo.x86_64
+         system: Rockstor 3.8.10 Core
+```

@@ -1,0 +1,181 @@
+Starting nginx on minion and modifying nginx.conf - adding erroneous directive, so `nginx -t` returns error and non-zero exit code. Running a highstate:
+
+test.sls
+```yaml
+nginx-conf-check:
+  cmd.run:
+    - name: nginx -t
+    - prereq:
+      - service: nginx-service
+
+nginx-service:
+  service.running:
+    - name: nginx
+    - enable: True
+
+include:
+  - .test2
+```
+
+test2.sls
+```yaml
+emulate-changes:
+  cmd.run:
+    - name: echo 'changed=true'
+    - stateful: True
+    - watch_in:
+      - service: nginx-service
+```
+
+```
+# salt --state-verbose=true --state-output=full 'minion' state.highstate
+minion:
+----------
+          ID: emulate-changes
+    Function: cmd.run
+        Name: echo 'changed=true'
+      Result: True
+     Comment:
+     Started: 22:52:21.334729
+    Duration: 33.6 ms
+     Changes:
+              ----------
+              changed:
+                  true
+              pid:
+                  25644
+              retcode:
+                  0
+              stderr:
+              stdout:
+                  changed=tru
+----------  
+          ID: nginx-conf-check
+    Function: cmd.run
+        Name: nginx -t
+      Result: True
+     Comment: No changes detected
+     Started:
+    Duration:
+     Changes:
+----------  
+          ID: nginx-service
+    Function: service.running
+        Name: nginx
+      Result: False
+     Comment: Failed to restart the service
+     Started: 22:52:22.297196
+    Duration: 110.531 ms
+     Changes:
+              ----------
+              nginx:
+                  False
+
+Summary for minion
+------------
+Succeeded: 2 (changed=2)
+Failed:    1
+------------
+Total states run:     3
+Total run time: 144.131 ms
+ERROR: Minions returned with non-zero exit code
+```
+
+Checking process list - nginx is absent. Why did `nginx-service` state start ? Why `nginx-conf-check` state was not started ?
+Trying the **same** with single sls file:
+
+```yaml
+nginx-conf-check:
+  cmd.run:
+    - name: nginx -t
+    - prereq:
+      - service: nginx-service
+
+nginx-service:
+  service.running:
+    - name: nginx
+    - enable: True
+
+emulate-changes:
+  cmd.run:
+    - name: echo 'changed=true'
+    - stateful: True
+    - watch_in:
+      - service: nginx-service
+```
+
+Running a highstate:
+
+```
+# salt --state-verbose=true --state-output=full 'minion' state.highstate
+minion:
+----------  
+          ID: emulate-changes
+    Function: cmd.run
+        Name: echo 'changed=true'
+      Result: True
+     Comment:
+     Started: 23:09:10.022617
+    Duration: 16.91 ms
+     Changes:
+              ----------
+              changed:
+                  true
+              pid:
+                  25787
+              retcode:
+                  0
+              stderr:
+              stdout:
+                  changed=tru
+----------
+          ID: nginx-conf-check
+    Function: cmd.run
+        Name: nginx -t
+      Result: False
+     Comment: Command "nginx -t" run
+     Started: 23:09:10.124155
+    Duration: 21.025 ms
+     Changes:   
+              ----------
+              pid:
+                  25795
+              retcode:
+                  1
+              stderr:
+                  nginx: [emerg] unknown directive "123123123" in /etc/nginx/nginx.conf:1
+                  nginx: configuration file /etc/nginx/nginx.conf test failed
+              stdout:
+----------  
+          ID: nginx-service
+    Function: service.running
+        Name: nginx
+      Result: None
+     Comment: The service nginx is already running
+     Started:
+    Duration:
+     Changes:
+              ----------
+              watch:
+                  watch
+
+Summary for minion
+------------
+Succeeded: 2 (unchanged=1, changed=3)
+Failed:    1
+------------
+Total states run:     3
+Total run time:  37.935 ms
+ERROR: Minions returned with non-zero exit code
+```
+
+Now we see a proper behavior: check state was started, nginx was not restarted, it is still present in process list.
+It seems something is wrong in processing includes by salt.
+
+
+P.S. Why do we see
+```
+stdout:
+                  changed=tru
+```
+in salt output ? Where is the last letter (tru**E**) ?

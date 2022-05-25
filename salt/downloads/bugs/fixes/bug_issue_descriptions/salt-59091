@@ -1,0 +1,147 @@
+**Description**
+When using pkg.installed the order is not respected.
+So using pkg.installed in one state and pkg.installed in another, saltstack tries to install both packages during the first state.
+
+**Setup**
+top.sls
+```
+base:
+  'server':
+    - php
+    - state1
+    - state2
+```
+
+php/init.sls
+```
+php_repository:
+  pkgrepo.managed:
+    - humanname: Ondrej PPA PHP Repo
+    - ppa: ondrej/php
+
+php5.6:
+  pkg:
+    - installed
+    - pkgs:
+      - php5.6-cli
+      - php5.6-fpm
+      - php5.6-apcu
+      - php5.6-common
+      - php5.6-mysql
+      - php5.6-curl
+      - php5.6-soap
+      - php5.6-xml
+      - php5.6-mcrypt
+      - php5.6-mbstring
+      - php5.6-gd
+```
+
+state1/init.sls
+```
+state1_pkg_install:
+  pkg.installed:
+    - pkgs:
+      - package1: 0.1.2
+```
+
+
+state2/init.sls
+```
+state2_pkg_install:
+  pkg.installed:
+    - pkgs:
+      - package2: 0.1.2
+```
+
+
+**Steps to Reproduce the behavior**
+```
+sudo salt-call state.highstate test=True
+```
+
+result
+```
+          ID: php5.6
+    Function: pkg.installed
+      Result: None
+     Comment: The following packages would be installed/updated: php5.6-cli, php5.6-fpm, php5.6-apcu, php5.6-common, php5.6-mysql, php5.6-curl, php5.6-soap, php5.6-xml, php5.6-mcrypt, php5.6-mbstring, php5.6-gd, package1=0.1.2, package2=0.1.2
+     Started: 20:03:43.475648
+    Duration: 48.539 ms
+     Changes:
+```
+
+**Expected behavior**
+The expected behavior is that first, all packages of php/init.sls are installed. Then in a seperate step the packages of state1/init.sls and finally the packages of state2/init.sls are installed.
+The packages need a certain order to work. So grouping them all together in one step is not working. Especially when creating folders, permission or certain files in between.
+```
+          ID: php5.6
+    Function: pkg.installed
+      Result: None
+     Comment: The following packages would be installed/updated: php5.6-cli, php5.6-fpm, php5.6-apcu, php5.6-common, php5.6-mysql, php5.6-curl, php5.6-soap, php5.6-xml, php5.6-mcrypt, php5.6-mbstring, php5.6-gd
+     Started: 20:03:43.475648
+    Duration: 48.539 ms
+     Changes:
+
+          ID: state1_pkg_install
+    Function: pkg.installed
+      Result: None
+     Comment: The following packages would be installed/updated: package1=0.1.2
+     Started: 20:03:43.475648
+    Duration: 48.539 ms
+     Changes:
+
+          ID: state2_pkg_install
+    Function: pkg.installed
+      Result: None
+     Comment: The following packages would be installed/updated: package2=0.1.2
+     Started: 20:03:43.475648
+    Duration: 48.539 ms
+     Changes:
+```
+
+**Screenshots**
+none
+
+**Versions Report**
+```
+Salt Version:
+           Salt: 3001.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+         Jinja2: 2.10
+        libgit2: 0.26.0
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: 3.4.7
+         pygit2: 0.26.2
+         Python: 3.6.9 (default, Oct  8 2020, 12:12:24)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 17.1.2
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: ubuntu 18.04 Bionic Beaver
+         locale: UTF-8
+        machine: x86_64
+        release: 5.4.0-1031-azure
+         system: Linux
+        version: Ubuntu 18.04 Bionic Beaver
+```
+
+**Additional context**
+im not sure whether im missing some option to force this behavior, but i couldn't find any.

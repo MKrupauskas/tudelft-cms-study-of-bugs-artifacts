@@ -1,0 +1,308 @@
+### Description of Issue/Question
+
+`dockermod` and `docker_image` [recently underwent some changes](https://github.com/saltstack/salt/commit/64aa4fbbecde21baca42da8fa3cd936514d823df) that appear to have resulted in various issues. Below is an executable example.
+
+### Setup
+```bash
+#! /bin/bash
+
+LOG_LVL=error
+
+ROOT_DIR=$(mktemp -d)
+DOCKER_DIR=$(mktemp -d)
+DOWNLOAD_DIR=$(mktemp -d)
+
+python3 -m venv $ROOT_DIR > /dev/null
+source $ROOT_DIR/bin/activate
+git clone https://github.com/saltstack/salt $DOWNLOAD_DIR/salt > /dev/null
+pip install $DOWNLOAD_DIR/salt > /dev/null
+pip install docker > /dev/null
+
+CONFIG_DIR=$ROOT_DIR/etc/salt
+FILE_ROOT_BASE=$ROOT_DIR/srv/salt/base
+FILE_ROOT_FOO=$ROOT_DIR/srv/salt/foo
+PILLAR_ROOT_BASE=$ROOT_DIR/srv/pillar/base
+PILLAR_ROOT_FOO=$ROOT_DIR/srv/pillar/foo
+
+mkdir -p $CONFIG_DIR
+cat <<EOF > $CONFIG_DIR/minion
+root_dir: $ROOT_DIR
+file_roots:
+  base:
+    - $FILE_ROOT_BASE
+  foo:
+    - $FILE_ROOT_FOO
+pillar_roots:
+  base:
+    - $PILLAR_ROOT_BASE
+  foo:
+    - $PILLAR_ROOT_FOO
+pillar_source_merging_strategy: none
+top_file_merging_strategy: none
+pillarenv_from_saltenv: True
+EOF
+
+cat <<EOF > $CONFIG_DIR/minion_id
+my_minion
+EOF
+
+mkdir -p $PILLAR_ROOT_BASE
+cat <<EOF > $PILLAR_ROOT_BASE/top.sls
+base:
+  'my_minion':
+    - base_pillar
+EOF
+
+mkdir -p $PILLAR_ROOT_FOO
+cat <<EOF > $PILLAR_ROOT_FOO/top.sls
+foo:
+  'my_minion':
+    - foo_pillar
+EOF
+
+cat <<EOF > $PILLAR_ROOT_BASE/base_pillar.sls
+A:
+ B: 'curl'
+EOF
+
+cat <<EOF > $PILLAR_ROOT_FOO/foo_pillar.sls
+A:
+ B: 'fake_package_name_should_break_things'
+EOF
+
+mkdir -p $FILE_ROOT_BASE
+cat <<EOF > $FILE_ROOT_BASE/outside_docker.sls
+salt-docker-base:
+  docker_image.present:
+    - force: True
+    - tag: latest
+    - build: $DOCKER_DIR
+
+salt-docker-test:
+  docker_image.present:
+    - tag: latest
+    - base: salt-docker-base
+    - sls: inside_docker
+    - saltenv: foo
+    - force: True
+    - require:
+      - salt-docker-base
+
+install_pkgs_outside:
+  pkg.installed:
+    - name: {{ salt['pillar.get']('A:B') }}
+EOF
+
+mkdir -p $FILE_ROOT_FOO
+cat <<EOF > $FILE_ROOT_FOO/inside_docker.sls
+install_pkgs_inside:
+  pkg.installed:
+    - name: {{ salt['pillar.get']('A:B') }}
+EOF
+
+mkdir -p $DOCKER_DIR
+cat <<EOF > $DOCKER_DIR/Dockerfile
+FROM ubuntu:zesty
+RUN apt-get update && apt-get upgrade -y
+RUN apt-get install -y python3 python3-pip
+RUN apt-get clean
+
+RUN ln -s /usr/bin/python3 /usr/bin/python
+RUN ln -s /usr/bin/pip3 /usr/bin/pip
+
+CMD []
+ENTRYPOINT []
+EOF
+
+salt-call --local --log-file-level=$LOG_LVL --config-dir=$CONFIG_DIR state.apply outside_docker
+salt-call --local --log-file-level=$LOG_LVL --config-dir=$CONFIG_DIR docker.sls_build img_built_with_sls_build base=salt-docker-base mods=inside_docker saltenv=foo
+
+# salt --versions-report
+
+
+rm -rf $ROOT_DIR $FILE_ROOT_BASE $FILE_ROOT_FOO $DOWNLOAD_DIR
+
+```
+
+### Steps to Reproduce Issue
+Clear your docker containers (`docker ps`) and docker images (`docker images`) and run the script. Example output:
+
+```
+[WARNING ] /tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/modules/dockermod.py:3925: DeprecationWarning: The 'image' argument to docker.build has been deprecated, please use 'repository' instead.
+
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/docker/api/client.py", line 222, in _raise_for_status
+    response.raise_for_status()
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/requests/models.py", line 935, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 404 Client Error: Not Found for url: http+docker://localunixsocket/v1.26/images/salt-docker-base:latest/json
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/modules/dockermod.py", line 630, in _client_wrapper
+    ret = func(*args, **kwargs)
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/docker/utils/decorators.py", line 19, in wrapped
+    return f(self, resource_id, *args, **kwargs)
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/docker/api/image.py", line 262, in inspect_image
+    self._get(self._url("/images/{0}/json", image)), True
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/docker/api/client.py", line 228, in _result
+    self._raise_for_status(response)
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/docker/api/client.py", line 224, in _raise_for_status
+    raise create_api_error_from_http_exception(e)
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/docker/errors.py", line 31, in create_api_error_from_http_exception
+    raise cls(e, response=response, explanation=explanation)
+docker.errors.ImageNotFound: 404 Client Error: Not Found ("No such image: salt-docker-base:latest")
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/states/docker_image.py", line 326, in present
+    __salt__['docker.inspect_image'](full_image)
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/modules/dockermod.py", line 1813, in inspect_image
+    ret = _client_wrapper('inspect_image', name)
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/modules/dockermod.py", line 421, in wrapper
+    ret = wrapped(*args, **kwargs)
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/modules/dockermod.py", line 636, in _client_wrapper
+    exc.explanation)
+salt.exceptions.CommandExecutionError: Error 404: No such image: salt-docker-base:latest
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/state.py", line 1934, in call
+    **cdata['kwargs'])
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/loader.py", line 1799, in wrapper
+    return f(*args, **kwargs)
+  File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/states/docker_image.py", line 329, in present
+    msg = exc.__str__()
+UnboundLocalError: local variable 'exc' referenced before assignment
+
+local:
+----------
+          ID: salt-docker-base
+    Function: docker_image.present
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/docker/api/client.py", line 222, in _raise_for_status
+                  response.raise_for_status()
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/requests/models.py", line 935, in raise_for_status
+                  raise HTTPError(http_error_msg, response=self)
+              requests.exceptions.HTTPError: 404 Client Error: Not Found for url: http+docker://localunixsocket/v1.26/images/salt-docker-base:latest/json
+              
+              During handling of the above exception, another exception occurred:
+              
+              Traceback (most recent call last):
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/modules/dockermod.py", line 630, in _client_wrapper
+                  ret = func(*args, **kwargs)
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/docker/utils/decorators.py", line 19, in wrapped
+                  return f(self, resource_id, *args, **kwargs)
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/docker/api/image.py", line 262, in inspect_image
+                  self._get(self._url("/images/{0}/json", image)), True
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/docker/api/client.py", line 228, in _result
+                  self._raise_for_status(response)
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/docker/api/client.py", line 224, in _raise_for_status
+                  raise create_api_error_from_http_exception(e)
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/docker/errors.py", line 31, in create_api_error_from_http_exception
+                  raise cls(e, response=response, explanation=explanation)
+              docker.errors.ImageNotFound: 404 Client Error: Not Found ("No such image: salt-docker-base:latest")
+              
+              During handling of the above exception, another exception occurred:
+              
+              Traceback (most recent call last):
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/states/docker_image.py", line 326, in present
+                  __salt__['docker.inspect_image'](full_image)
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/modules/dockermod.py", line 1813, in inspect_image
+                  ret = _client_wrapper('inspect_image', name)
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/modules/dockermod.py", line 421, in wrapper
+                  ret = wrapped(*args, **kwargs)
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/modules/dockermod.py", line 636, in _client_wrapper
+                  exc.explanation)
+              salt.exceptions.CommandExecutionError: Error 404: No such image: salt-docker-base:latest
+              
+              During handling of the above exception, another exception occurred:
+              
+              Traceback (most recent call last):
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/state.py", line 1934, in call
+                  **cdata['kwargs'])
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/loader.py", line 1799, in wrapper
+                  return f(*args, **kwargs)
+                File "/tmp/tmp.8wcYIPL3yV/lib/python3.5/site-packages/salt/states/docker_image.py", line 329, in present
+                  msg = exc.__str__()
+              UnboundLocalError: local variable 'exc' referenced before assignment
+     Started: 18:41:01.508113
+    Duration: 71137.274 ms
+     Changes:   
+----------
+          ID: salt-docker-test
+    Function: docker_image.present
+      Result: False
+     Comment: One or more requisite failed: outside_docker.salt-docker-base
+     Changes:   
+----------
+          ID: install_pkgs_outside
+    Function: pkg.installed
+        Name: curl
+      Result: True
+     Comment: All specified packages are already installed
+     Started: 18:42:15.223992
+    Duration: 48.651 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    2
+------------
+Total states run:     3
+Total run time:  71.186 s
+Error running 'docker.sls_build': Error 404: repository salt-docker-base not found: does not exist or no pull access
+
+```
+
+
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2018.2.0-2-g98755b9
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: 2.6.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.3 (default, Nov 23 2017, 11:34:05)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.3
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.2
+            ZMQ: 4.1.6
+ 
+System Versions:
+           dist: Ubuntu 17.04 zesty
+         locale: UTF-8
+        machine: x86_64
+        release: 4.12.0-041200rc6-generic
+         system: Linux
+        version: Ubuntu 17.04 zesty
+```

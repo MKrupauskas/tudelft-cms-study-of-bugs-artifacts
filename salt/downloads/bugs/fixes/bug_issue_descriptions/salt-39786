@@ -1,0 +1,91 @@
+### Description of Issue/Question
+
+retrieving the cached grains on the master no longer works.
+
+We used this before on 2016.3.3
+We noticed today that it fails on 2016.11.3,  (unsure if 2016.11.2 was ok or not)
+
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+### Steps to Reproduce Issue
+Running salt-run cache.grains on our salt-master crashes
+
+```
+# salt-run cache.grains
+Exception occurred in runner cache.grains: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/client/mixins.py", line 395, in _low
+    data['return'] = self.functions[fun](*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/runners/cache.py", line 38, in grains
+    cached_grains = pillar_util.get_minion_grains()
+  File "/usr/lib/python2.7/dist-packages/salt/utils/master.py", line 295, in get_minion_grains
+    cached_minion_grains, cached_minion_pillars = self._get_cached_minion_data(*minion_ids)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/master.py", line 140, in _get_cached_minion_data
+    if 'grains' in mdata:
+TypeError: argument of type 'NoneType' is not iterable
+[INFO    ] Runner completed: 20170302152847772427
+```
+### Fix
+
+The following patch fixes the problem here, I'm not sure if this is a correct fix or not.
+
+```
+diff --git a/salt/utils/master.py b/salt/utils/master.py
+index 483c056..9ba90e6 100644
+--- a/salt/utils/master.py
++++ b/salt/utils/master.py
+@@ -134,6 +134,8 @@ class MasterPillarUtil(object):
+             if not salt.utils.verify.valid_id(self.opts, minion_id):
+                 continue
+             mdata = self.cache.fetch('minions/{0}'.format(minion_id), 'data')
++            if mdata is None:
++                continue
+             if 'grains' in mdata:
+                 grains[minion_id] = mdata['grains']
+             if 'pillar' in mdata:
+```
+
+
+
+### Versions Report
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2016.11.3
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 2.3.0
+       dateutil: 2.4.2
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-64-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

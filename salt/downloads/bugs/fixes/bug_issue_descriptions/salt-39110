@@ -1,0 +1,118 @@
+This is probably Windows specific and related to changes here: https://github.com/saltstack/salt/commit/d6adfb6d126831cc47ffeee167b8900b079516c6
+
+Depending on the internal format of the zip file, the archive.extracted state may return a failure, implying that content which is already extracted is the wrong type.
+
+<pre># cat testing.sls
+7zip_test:
+  archive.extracted:
+    - name: C:\made_in_7zip
+    - source: salt://archive_7zip.zip
+    - source_hash: md5=3a6b51aa96d73409bc919e343ba7e61b
+    - archive_format: zip
+    - enforce_toplevel: False
+
+explorer_test:
+  archive.extracted:
+    - name: C:\made_in_explorer            
+    - source: salt://archive_explorer.zip
+    - source_hash: md5=c73fb61cf82eb726c96e54bf845bec90
+    - archive_format: zip
+    - enforce_toplevel: False</pre>
+There is no problem applying when the archive hasn't been extracted yet:
+<pre># salt salt-test state.apply testing
+salt-test:
+----------
+          ID: 7zip_test
+    Function: archive.extracted
+        Name: C:\made_in_7zip
+      Result: True
+     Comment: salt://archive_7zip.zip extracted to C:\made_in_7zip\
+     Started: 16:03:43.771000
+    Duration: 359.0 ms
+     Changes:   
+              ----------
+              directories_created:
+                  - C:\made_in_7zip\
+              extracted_files:
+                  - New folder/
+                  - New folder/New Text Document.txt
+                  - New Text Document.txt
+----------
+          ID: explorer_test
+    Function: archive.extracted
+        Name: C:\made_in_explorer
+      Result: True
+     Comment: salt://archive_explorer.zip extracted to C:\made_in_explorer\
+     Started: 16:03:44.130000
+    Duration: 281.0 ms
+     Changes:   
+              ----------
+              directories_created:
+                  - C:\made_in_explorer\
+              extracted_files:
+                  - New folder/New Text Document.txt
+                  - New Text Document.txt</pre>
+...but note the list of extracted files differs between the two. Applying it a second time returns a failure for the first zip file, but not the second:
+<pre># salt salt-test state.apply testing
+salt-test:
+----------
+          ID: 7zip_test
+    Function: archive.extracted
+        Name: C:\made_in_7zip
+      Result: False
+     Comment: The below paths (relative to C:\made_in_7zip\) exist, but are the incorrect type (file instead of directory, symlink instead of file, etc.). To proceed with extraction, set 'force' to True. Note that this will remove these paths before extracting.
+              
+              - New folder/
+     Started: 16:03:52.679000
+    Duration: 359.0 ms
+     Changes:   
+----------
+          ID: explorer_test
+    Function: archive.extracted
+        Name: C:\made_in_explorer
+      Result: True
+     Comment: All files in archive are already present
+     Started: 16:03:53.038000
+    Duration: 249.0 ms
+     Changes:</pre>
+You can see the difference with zipinfo. The extracted contents are identical, but the internal structure is different between the two.
+<pre># zipinfo archive_7zip.zip
+Archive:  archive_7zip.zip
+Zip file size: 486 bytes, number of entries: 3
+drwx---     6.3 fat        0 bx stor 17-Feb-01 15:51 New folder/
+-rw-a--     6.3 fat        0 bx stor 17-Feb-01 15:51 New folder/New Text Document.txt
+-rw-a--     6.3 fat        0 bx stor 17-Feb-01 15:51 New Text Document.txt
+3 files, 0 bytes uncompressed, 0 bytes compressed:  0.0%
+
+# zipinfo archive_explorer.zip
+Archive:  archive_explorer.zip
+Zip file size: 280 bytes, number of entries: 2
+-rw-a--     2.0 fat        0 b- stor 17-Feb-01 15:51 New folder/New Text Document.txt
+-rw-a--     2.0 fat        0 b- stor 17-Feb-01 15:51 New Text Document.txt
+2 files, 0 bytes uncompressed, 0 bytes compressed:  0.0%</pre>
+Modifying to add the force option returns a different error, but I imagine the underlying issue is the same:
+<pre># cat testing.sls
+7zip_test:
+  archive.extracted:
+    - name: C:\made_in_7zip
+    - source: salt://archive_7zip.zip
+    - source_hash: md5=3a6b51aa96d73409bc919e343ba7e61b
+    - archive_format: zip
+    - enforce_toplevel: False
+    - force: True</pre>
+
+<pre># salt salt-test state.apply testing
+salt-test:
+----------
+          ID: 7zip_test
+    Function: archive.extracted
+        Name: C:\made_in_7zip
+      Result: False
+     Comment: One or more paths existed by were the incorrect type (i.e. file instead of directory or vice-versa), but could not be removed. The following errors were observed:
+              
+              - [Error 5] Access is denied: 'C:\\made_in_7zip\\New folder/'
+     Started: 16:19:13.018000
+    Duration: 110.0 ms
+     Changes:</pre>
+
+This problem is new to 2016.11.2 (did not exist in 2016.11.1).

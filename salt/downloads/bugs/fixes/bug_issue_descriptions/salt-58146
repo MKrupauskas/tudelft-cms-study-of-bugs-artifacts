@@ -1,0 +1,172 @@
+**Description**
+A proxy minions schedules are not persistent on restart. If you add a schedule using `schedule.present` and then restart the proxy-minion the schedule disappears. As well as the `/etc/salt/proxy.d/<proxy_minion_id>/_schedule.conf` file is recreated with basic info. 
+
+**Setup**
+
+<details><summary>pillar configs</summary>
+
+```
+[root@salt00 dummy-proxy]# cat /srv/pillar/proxy/dummy.sls
+proxy:
+  proxytype: dummy
+[root@salt00 dummy-proxy]# cat /srv/pillar/top.sls
+base:
+  'dummy-proxy':
+    - proxy.dummy
+```
+</details>
+
+<details><summary>quick state for test run</summary>
+
+```
+[root@salt00 dummy-proxy]# cat /srv/salt/states/test/set_schedule.sls
+session_table_to_pasomd:
+  schedule.present:
+    - function: state.apply
+    - job_args:
+      - test
+    - seconds: 30
+    - splay: 10
+```
+</details>
+
+
+
+**Steps to Reproduce the behavior**
+
+<details><summary>demo of the magicly disapearing schedule</summary>
+
+```
+[root@salt00 dummy-proxy]# systemctl restart salt-proxy@dummy-proxy
+[root@salt00 dummy-proxy]# salt dummy-proxy schedule.list
+[WARNING ] /usr/lib/python3.6/site-packages/salt/utils/msgpack.py:151: DeprecationWarning: encoding is deprecated, Use raw=False instead.
+  return msgpack.unpackb(packed, **_sanitize_msgpack_unpack_kwargs(kwargs))
+
+dummy-proxy:
+    ----------
+    schedule:
+        ----------
+[root@salt00 dummy-proxy]# pwd
+/etc/salt/proxy.d/dummy-proxy
+[root@salt00 dummy-proxy]# cat _schedule.conf
+schedule:
+  __mine_interval: {enabled: true, function: mine.update, jid_include: true, maxrunning: 2,
+    minutes: 60, return_job: false, run_on_start: true}
+[root@salt00 dummy-proxy]# salt dummy-proxy state.apply test.set_schedule
+[WARNING ] /usr/lib/python3.6/site-packages/salt/utils/msgpack.py:151: DeprecationWarning: encoding is deprecated, Use raw=False instead.
+  return msgpack.unpackb(packed, **_sanitize_msgpack_unpack_kwargs(kwargs))
+
+dummy-proxy:
+----------
+          ID: session_table_to_pasomd
+    Function: schedule.present
+      Result: True
+     Comment: Adding new job session_table_to_pasomd to schedule
+     Started: 09:16:23.225044
+    Duration: 112.659 ms
+     Changes:
+
+Summary for dummy-proxy
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time: 112.659 ms
+[root@salt00 dummy-proxy]# cat _schedule.conf
+schedule:
+  __mine_interval: {enabled: true, function: mine.update, jid_include: true, maxrunning: 2,
+    minutes: 60, name: __mine_interval, return_job: false, run: true, run_on_start: true,
+    splay: null}
+  session_table_to_pasomd:
+    args: [test]
+    enabled: true
+    function: state.apply
+    jid_include: true
+    maxrunning: 1
+    name: session_table_to_pasomd
+    seconds: 30
+    splay: 10
+[root@salt00 dummy-proxy]# salt dummy-proxy schedule.list
+[WARNING ] /usr/lib/python3.6/site-packages/salt/utils/msgpack.py:151: DeprecationWarning: encoding is deprecated, Use raw=False instead.
+  return msgpack.unpackb(packed, **_sanitize_msgpack_unpack_kwargs(kwargs))
+
+dummy-proxy:
+    schedule:
+      session_table_to_pasomd:
+        args:
+        - test
+        enabled: true
+        function: state.apply
+        jid_include: true
+        maxrunning: 1
+        name: session_table_to_pasomd
+        seconds: 30
+        splay: 10
+[root@salt00 dummy-proxy]# systemctl restart salt-proxy@dummy-proxy
+[root@salt00 dummy-proxy]# salt dummy-proxy schedule.list
+[WARNING ] /usr/lib/python3.6/site-packages/salt/utils/msgpack.py:151: DeprecationWarning: encoding is deprecated, Use raw=False instead.
+  return msgpack.unpackb(packed, **_sanitize_msgpack_unpack_kwargs(kwargs))
+
+dummy-proxy:
+    ----------
+    schedule:
+        ----------
+[root@salt00 dummy-proxy]# cat _schedule.conf
+schedule:
+  __mine_interval: {enabled: true, function: mine.update, jid_include: true, maxrunning: 2,
+    minutes: 60, return_job: false, run_on_start: true}
+[root@salt00 dummy-proxy]#
+```
+
+</details>
+
+**Expected behavior**
+restarting the proxy minion should not recreate the _schedule.conf
+
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+[root@salt00 dummy-proxy]# salt-proxy --versions
+Salt Version:
+           Salt: 3001
+
+Dependency Versions:
+           cffi: 1.14.0
+       cherrypy: 5.6.0
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.1
+        libgit2: 0.26.6
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.20
+       pycrypto: Not Installed
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 3.6.8 (default, Apr  2 2020, 13:34:55)
+   python-gnupg: 2.3.1
+         PyYAML: 3.13
+          PyZMQ: 17.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1127.13.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7 Core
+```
+</details>

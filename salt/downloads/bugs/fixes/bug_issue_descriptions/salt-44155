@@ -1,0 +1,134 @@
+I found what I think is an inconsistency in behavior. Using a listen_in requisite on a file.directory (with clear: True) does not show that the listener will fire when run with test=true and files would be removed from the directory. When run for real, the listener does in fact fire correctly. Other states appear to flag the listener even in test mode.
+
+An example state exhibiting this behavior is as follows.
+
+```jinja
+{% for version, config in php.items() %}
+php_{{ version }}_service:
+  service.running:
+    - name: {{ config.packages.fpm }}
+    - enable: True
+
+php_fpm_{{ version }}_pool_clear:
+  file.directory:
+    - name: {{ config.files.fpm_d }}
+    - mode: 755
+    - user: root
+    - group: root
+    - clean: True
+    - listen_in:
+      - service: php_{{ version }}_service
+{% endfor %}
+```
+
+If you run with test=true, the output looks something like the following. Note that there is no "listener" state at the end of the run, even though the file.directory state shows changes.
+
+```shell
+[relidy@minion]$ sudo salt-call state.apply fpm test=true
+local:
+----------
+          ID: php_v7_0_service
+    Function: service.running
+        Name: php70-php-fpm
+      Result: True
+     Comment: The service php70-php-fpm is already running
+     Started: 02:52:42.798291
+    Duration: 25.779 ms
+     Changes:   
+----------
+          ID: php_fpm_v7_0_pool_clear
+    Function: file.directory
+        Name: /etc/opt/remi/php70/php-fpm.d/
+      Result: None
+     Comment: The following files will be changed:
+              /etc/opt/remi/php70/php-fpm.d/www.conf: removed - Removed due to clean
+     Started: 02:52:44.079393
+    Duration: 1.705 ms
+     Changes:   
+```
+
+Running the same command, but with test=false (or omitted entirely) actually does the correct thing (just not what the test run reported). Note in this case that there **is** a listener state now.
+
+```shell
+[relidy@minion]$ sudo salt-call state.apply fpm test=false
+local:
+----------
+          ID: php_v7_0_service
+    Function: service.running
+        Name: php70-php-fpm
+      Result: True
+     Comment: The service php70-php-fpm is already running
+     Started: 02:56:25.807645
+    Duration: 22.494 ms
+     Changes:   
+----------
+          ID: php_fpm_v7_0_pool_clear
+    Function: file.directory
+        Name: /etc/opt/remi/php70/php-fpm.d/
+      Result: True
+     Comment: Files cleaned from directory /etc/opt/remi/php70/php-fpm.d
+     Started: 02:56:27.224661
+    Duration: 2.39 ms
+     Changes:   
+              ----------
+              removed:
+                  - /etc/opt/remi/php70/php-fpm.d/www.conf
+----------
+          ID: listener_php_v7_0_service
+    Function: service.mod_watch
+        Name: php70-php-fpm
+      Result: True
+     Comment: Service restarted
+     Started: 02:56:28.465877
+    Duration: 88.386 ms
+     Changes:   
+              ----------
+              php70-php-fpm:
+                  True
+```
+### Versions Report
+Master and minion are on the same version of Salt (2017.7.2)
+
+```
+[relidy@minion ~]$ sudo salt-minion --versions-report
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: 3.4.3
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.36-x86_64-linode85
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+```

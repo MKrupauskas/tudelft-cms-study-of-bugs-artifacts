@@ -1,0 +1,94 @@
+**Description**
+[`file.open`](https://github.com/saltstack/salt/blob/v3001/salt/modules/file.py#L3822-L3838) fails on binary data.
+
+**Setup**
+
+`file1` contains arbitrary data.
+```bash
+$ head /dev/urandom > /tmp/file1
+```
+`file2` contains unicode data.
+```bash
+$ cat /tmp/file2 ; echo
+Ȗńıčơƌė data
+```
+
+**Steps to Reproduce the behavior**
+The current `file.read` function assumes all file data is going to be unicode data, even in binary mode.
+```bash
+$ sudo salt-call --local file.read /tmp/file1 binary=True
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xf7 in position 2: invalid start byte
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    load_entry_point('salt==3001', 'console_scripts', 'salt-call')()
+  File "/usr/lib/python3/dist-packages/salt/scripts.py", line 472, in salt_call
+    client.run()
+  File "/usr/lib/python3/dist-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/lib/python3/dist-packages/salt/cli/caller.py", line 121, in run
+    ret = self.call()
+  File "/usr/lib/python3/dist-packages/salt/cli/caller.py", line 228, in call
+    ret["return"] = self.minion.executors[fname](
+  File "/usr/lib/python3/dist-packages/salt/executors/direct_call.py", line 12, in execute
+    return func(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/modules/file.py", line 3838, in read
+    return salt.utils.stringutils.to_unicode(file_obj.read())
+  File "/usr/lib/python3/dist-packages/salt/utils/stringutils.py", line 147, in to_unicode
+    return _normalize(to_str(s, encoding, errors))
+  File "/usr/lib/python3/dist-packages/salt/utils/stringutils.py", line 104, in to_str
+    raise exc  # pylint: disable=raising-bad-type
+  File "/usr/lib/python3/dist-packages/salt/utils/stringutils.py", line 97, in to_str
+    return _normalize(s.decode(enc, errors))
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xf7 in position 2: invalid start byte
+```
+```bash
+$ sudo salt-call --local file.read /tmp/file2
+local:
+    Ȗńıčơƌė data
+```
+
+**Expected behavior**
+No stack trace on reading binary data with `file.read`.
+
+**Versions Report**
+```yaml
+$ sudo salt-call --versions
+Salt Version:
+           Salt: 3001
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: 4.1.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10.1
+        libgit2: 0.28.3
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.6.1
+         pygit2: 1.0.3
+         Python: 3.8.2 (default, Apr 27 2020, 15:53:34)
+   python-gnupg: 0.4.5
+         PyYAML: 5.3.1
+          PyZMQ: 18.1.1
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+ 
+System Versions:
+           dist: ubuntu 20.04 focal
+         locale: utf-8
+        machine: x86_64
+        release: 5.4.0-40-generic
+         system: Linux
+        version: Ubuntu 20.04 focal
+```

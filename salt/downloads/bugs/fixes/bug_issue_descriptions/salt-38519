@@ -1,0 +1,84 @@
+### Description of Issue/Question
+With most of the cmd module run functions, if the stdin parameter contains unicode characters a UnicodeEncodeError exception is raised due to explicit str coercion.
+
+In `salt/modules/cmdmod.py` the following code seems like the culprit:
+```py
+    kwargs = {'cwd': cwd,
+              'shell': python_shell,
+              'env': run_env,
+              'stdin': str(stdin) if stdin is not None else stdin,
+              'stdout': stdout,
+              'stderr': stderr,
+              'with_communicate': with_communicate,
+              'timeout': timeout,
+              'bg': bg,
+              }
+```
+
+Modifying it to pass the stdin parameter as is (`'stdin': stdin,`) or changing the explicit cast from `str` to `unicode` (`'stdin': unicode(stdin) if stdin is not None else stdin,`) solves the problem but I am not sure if it breaks something else.
+
+
+
+### Steps to Reproduce Issue
+Running `salt-call cmd.run cat stdin=ò` results in the following error:
+```
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+UnicodeEncodeError: 'ascii' codec can't encode character u'\xf2' in position 0: ordinal not in range(128)
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 379, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/caller.py", line 134, in run
+    ret = self.call()
+  File "/usr/lib/python2.7/site-packages/salt/cli/caller.py", line 197, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 913, in run
+    **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/cmdmod.py", line 477, in _run
+    'stdin': str(stdin) if stdin is not None else stdin,
+UnicodeEncodeError: 'ascii' codec can't encode character u'\xf2' in position 0: ordinal not in range(128)
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Oct  2 2016, 09:18:54)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: redhat 7.3 Yury Malyshev
+        machine: x86_64
+        release: 3.10.0-427.18.2.lve1.4.24.el7.x86_64
+         system: Linux
+        version: CloudLinux 7.3 Yury Malyshev
+```

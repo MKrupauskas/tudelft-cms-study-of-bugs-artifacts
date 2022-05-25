@@ -1,0 +1,206 @@
+### Description of Issue/Question
+When searching files directly via cmd.run or cmd.script states, grep/ag have different syntax requirements over salt-ssh vs zeromq. I have the same issue with both `name: grep hi` and `source: salt://test/ag.sh`. In production, we're matching any of several strings, excluding several directories, and piping matching files to a multiline sed command.
+
+* over salt-ssh, ag needs the directory `.` to function - over zeromq does not
+* no flags seem to work over salt-ssh, eg `ag hi -l` or `ag hi -G test`
+* on zeromq, specifying the directory `.` with any flag breaks, but the command works when only one of directory/flag are present
+
+Tested on several centos minions and one debian minion, and saw the same issue in the develop branch.
+
+### Setup
+/etc/salt/master
+```yaml
+file_roots:
+  base:
+    - /srv/salt/master
+
+roster_defaults:
+  user: root
+  tty: True
+```
+
+roster
+```yaml
+minion:
+  host: 10.0.0.0
+```
+
+test.sls
+```yaml
+echo hi > test:
+  cmd.run
+  
+ag hi:
+  cmd.run
+
+ag hi .:
+  cmd.run
+
+ag -l hi | xargs sed -i 's/hi/bye/g':
+  cmd.run
+  
+ag -l hi . | xargs sed -i 's/hi/bye/g':
+  cmd.run
+
+ls -a | ag test | xargs sed -i 's/hi/bye/g':
+  cmd.run
+```
+
+### Steps to Reproduce Issue
+`salt-ssh -i minion state.apply test`
+```
+  Name: echo hi > test - Function: cmd.run - Result: Changed Started: - 17:24:05.890283 Duration: 49.271 ms
+----------
+          ID: ag hi
+    Function: cmd.run
+      Result: False
+     Changes:   
+              ----------
+              pid:
+                  3467
+              retcode:
+                  1
+              stderr:
+              stdout:
+  Name: ag hi . - Function: cmd.run - Result: Changed Started: - 17:24:05.993602 Duration: 50.423 ms
+----------
+          ID: ag -l hi | xargs sed -i 's/hi/bye/g'
+    Function: cmd.run
+      Result: False
+     Changes:   
+              ----------
+              pid:
+                  3474
+              retcode:
+                  123
+              stderr:
+                  sed: no input files
+              stdout:
+---------- 
+          ID: ag -l hi . | xargs sed -i 's/hi/bye/g'
+    Function: cmd.run
+      Result: False
+     Changes:   
+              ----------
+              pid:
+                  3480
+              retcode:
+                  123
+              stderr:
+                  sed: no input files
+              stdout:
+  Name: ls -a | ag test | xargs sed -i 's/hi/bye/g' - Function: cmd.run - Result: Changed Started: - 17:24:06.148259 Duration: 54.225 ms
+```
+
+`salt minion state.apply test` and `salt-call state.apply test` both produce the same result.
+```
+  Name: echo hi > test - Function: cmd.run - Result: Changed Started: - 17:24:22.592803 Duration: 18.146 ms
+  Name: ag hi - Function: cmd.run - Result: Changed Started: - 17:24:22.611396 Duration: 20.241 ms
+  Name: ag hi . - Function: cmd.run - Result: Changed Started: - 17:24:22.632048 Duration: 19.002 ms
+  Name: ag -l hi | xargs sed -i 's/hi/bye/g' - Function: cmd.run - Result: Changed Started: - 17:24:22.651402 Duration: 22.709 ms
+----------
+          ID: ag -l hi . | xargs sed -i 's/hi/bye/g'
+    Function: cmd.run
+      Result: False
+     Changes:   
+              ----------
+              pid:
+                  3535
+              retcode:
+                  123
+              stderr:
+                  sed: no input files
+              stdout:
+  Name: ls -a | ag test | xargs sed -i 's/hi/bye/g' - Function: cmd.run - Result: Changed Started: - 17:24:22.697225 Duration: 21.188 ms
+```
+
+
+debug/trace logs don't show much, and there are no errors in syslog or audit logs.
+
+### Versions Report
+centos master and minion have identical packages
+```yaml
+Salt Version:
+           Salt: 2018.3.2
+ 
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: unknown
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.26.3
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, Jul 13 2018, 13:06:57)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.9.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```
+
+debian minion
+```yaml
+Salt Version:
+           Salt: 2018.3.2
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: 0.24.5
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.24.2
+         Python: 2.7.13 (default, Sep 26 2018, 18:42:22)
+   python-gnupg: 0.3.9
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+
+System Versions:
+           dist: debian 9.5 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-7-amd64
+         system: Linux
+        version: debian 9.5
+```

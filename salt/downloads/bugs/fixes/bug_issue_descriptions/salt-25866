@@ -1,0 +1,278 @@
+Hello,
+
+I have the following state file:
+
+``` saltstack
+{% set cfg = salt['bbpf_pgsql.server_config']() %}
+
+pkg_postgresql_server:
+    pkg.installed:
+        - name: {{ salt['pillar.get']('postgresql:lookup:pkg_server') }}
+
+postgresql_init_db:
+    cmd.run:
+        - name: service postgresql oneinitdb
+        - cwd: /
+        - require:
+            - pkg: pkg_postgresql_server
+        - unless:
+            - test -d /usr/local/pgsql/data/base
+
+postgresql_comment_config:
+    file.comment:
+        - name: {{ salt['pillar.get']('postgresql:lookup:pg_conf_file') }}
+        - regex: ^\s*#?\s*({{ '|'.join(cfg) }})\s*=\s*.*?$
+
+postgresql_adapt_config:
+    file.append:
+        - name: {{ salt['pillar.get']('postgresql:lookup:pg_conf_file') }}
+        - text: 
+            - Those parameters are managed by SaltStack
+        {% for k, v in cfg.items() %}
+            - "{{ k }} = {{ v }}"
+        {% endfor %}
+        - require:
+            - file: postgresql_comment_config
+```
+
+which renders as:
+
+```
+jcigar@dev:~/ > salt --out=yaml sandbox state.show_sls postgresql.server
+```
+
+``` saltstack
+sandbox:
+  pkg_postgresql_server:
+    __env__: base
+    __sls__: postgresql.server
+    pkg:
+    - name: postgresql93-server
+    - installed
+    - order: 10000
+  postgresql_adapt_config:
+    __env__: base
+    __sls__: postgresql.server
+    file:
+    - name: /usr/local/pgsql/data/postgresql.conf
+    - text:
+      - Those parameters are managed by SaltStack
+      - log_destination = stderr
+      - join_collapse_limit = 10
+      - from_collapse_limit = 10
+      - cpu_tuple_cost = 0.5
+      - shared_buffers = 1634MB
+      - checkpoint_completion_target = 0.7
+      - random_page_cost = 3.8
+      - effective_cache_size = 10782MB
+      - work_mem = 511MB
+      - checkpoint_segments = 50
+      - maintenance_work_mem = 1361MB
+      - max_connections = 200
+    - require:
+      - file: postgresql_comment_config
+    - append
+    - order: 10003
+  postgresql_comment_config:
+    __env__: base
+    __sls__: postgresql.server
+    file:
+    - name: /usr/local/pgsql/data/postgresql.conf
+    - regex: ^\s*#?\s*(log_destination|join_collapse_limit|from_collapse_limit|cpu_tuple_cost|shared_buffers|checkpoint_completion_target|random_page_cost|effective_cache_size|work_mem|checkpoint_segments|maintenance_work_mem|max_connections)\s*=\s*.*?$
+    - comment
+    - order: 10002
+  postgresql_init_db:
+    __env__: base
+    __sls__: postgresql.server
+    cmd:
+    - name: service postgresql oneinitdb
+    - cwd: /
+    - require:
+      - pkg: pkg_postgresql_server
+    - unless:
+      - test -d /usr/local/pgsql/data/base
+    - run
+    - order: 10001
+```
+
+However when I run the state file the postgresql_comment_config doesn't work as expected:
+
+```
+jcigar@dev:~/ > salt sandbox state.sls postgresql.server
+sandbox:
+----------
+          ID: pkg_postgresql_server
+    Function: pkg.installed
+        Name: postgresql93-server
+      Result: True
+     Comment: Package postgresql93-server is already installed.
+     Started: 15:08:09.624995
+    Duration: 106.468 ms
+     Changes:   
+----------
+          ID: postgresql_init_db
+    Function: cmd.run
+        Name: service postgresql oneinitdb
+      Result: True
+     Comment: Command "service postgresql oneinitdb" run
+     Started: 15:08:09.733192
+    Duration: 2778.873 ms
+     Changes:   
+              ----------
+              pid:
+                  99971
+              retcode:
+                  0
+              stderr:
+
+                  WARNING: enabling "trust" authentication for local connections
+                  You can change this by editing pg_hba.conf or using the option -A, or
+                  --auth-local and --auth-host, the next time you run initdb.
+              stdout:
+                  The files belonging to this database system will be owned by user "pgsql".
+                  This user must also own the server process.
+
+                  The database cluster will be initialized with locale "C".
+                  The default text search configuration will be set to "english".
+
+                  Data page checksums are disabled.
+
+                  creating directory /usr/local/pgsql/data ... ok
+                  creating subdirectories ... ok
+                  selecting default max_connections ... 100
+                  selecting default shared_buffers ... 128MB
+                  creating configuration files ... ok
+                  creating template1 database in /usr/local/pgsql/data/base/1 ... ok
+                  initializing pg_authid ... ok
+                  initializing dependencies ... ok
+                  creating system views ... ok
+                  loading system objects' descriptions ... ok
+                  creating collations ... ok
+                  creating conversions ... ok
+                  creating dictionaries ... ok
+                  setting privileges on built-in objects ... ok
+                  creating information schema ... ok
+                  loading PL/pgSQL server-side language ... ok
+                  vacuuming database template1 ... ok
+                  copying template1 to template0 ... ok
+                  copying template1 to postgres ... ok
+                  syncing data to disk ... ok
+
+                  Success. You can now start the database server using:
+
+                      /usr/local/bin/postgres -D /usr/local/pgsql/data
+                  or
+                      /usr/local/bin/pg_ctl -D /usr/local/pgsql/data -l logfile start
+----------
+          ID: postgresql_comment_config
+    Function: file.comment
+        Name: /usr/local/pgsql/data/postgresql.conf
+      Result: False
+     Comment: Expected commented lines not found
+     Started: 15:08:12.514949
+    Duration: 49.936 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -61,7 +61,7 @@
+                                                        # defaults to 'localhost'; use '*' for all
+                                                        # (change requires restart)
+                   #port = 5432                         # (change requires restart)
+                  -max_connections = 100                        # (change requires restart)
+                  +#\s*#?\s*(log_destination|join_collapse_limit|from_collapse_limit|cpu_tuple_cost|shared_buffers|checkpoint_completion_target|random_page_cost|effective_cache_size|work_mem|checkpoint_segments|maintenance_work_mem|max_connections)\s*=\s*.*?
+                   # Note:  Increasing max_connections costs ~400 bytes of shared memory per
+                   # connection slot, plus lock space (see max_locks_per_transaction).
+                   #superuser_reserved_connections = 3  # (change requires restart)
+                  @@ -111,7 +111,7 @@
+
+                   # - Memory -
+
+                  -shared_buffers = 128MB                       # min 128kB
+                  +#\s*#?\s*(log_destination|join_collapse_limit|from_collapse_limit|cpu_tuple_cost|shared_buffers|checkpoint_completion_target|random_page_cost|effective_cache_size|work_mem|checkpoint_segments|maintenance_work_mem|max_connections)\s*=\s*.*?
+                                                        # (change requires restart)
+                   #temp_buffers = 8MB                  # min 800kB
+                   #max_prepared_transactions = 0               # zero disables the feature
+                  @@ -120,8 +120,8 @@
+                   # per transaction slot, plus lock space (see max_locks_per_transaction).
+                   # It is not advisable to set max_prepared_transactions nonzero unless you
+                   # actively intend to use prepared transactions.
+                  -#work_mem = 1MB                              # min 64kB
+                  -#maintenance_work_mem = 16MB         # min 1MB
+                  +#\s*#?\s*(log_destination|join_collapse_limit|from_collapse_limit|cpu_tuple_cost|shared_buffers|checkpoint_completion_target|random_page_cost|effective_cache_size|work_mem|checkpoint_segments|maintenance_work_mem|max_connections)\s*=\s*.*?
+                  +#\s*#?\s*(log_destination|join_collapse_limit|from_collapse_limit|cpu_tuple_cost|shared_buffers|checkpoint_completion_target|random_page_cost|effective_cache_size|work_mem|checkpoint_segments|maintenance_work_mem|max_connections)\s*=\s*.*?
+                   #max_stack_depth = 2MB                       # min 100kB
+
+                   # - Disk -
+                  @@ -182,9 +182,9 @@
+
+                   # - Checkpoints -
+
+                  -#checkpoint_segments = 3             # in logfile segments, min 1, 16MB each
+                  +#\s*#?\s*(log_destination|join_collapse_limit|from_collapse_limit|cpu_tuple_cost|shared_buffers|checkpoint_completion_target|random_page_cost|effective_cache_size|work_mem|checkpoint_segments|maintenance_work_mem|max_connections)\s*=\s*.*?
+                   #checkpoint_timeout = 5min           # range 30s-1h
+                  -#checkpoint_completion_target = 0.5  # checkpoint target duration, 0.0 - 1.0
+                  +#\s*#?\s*(log_destination|join_collapse_limit|from_collapse_limit|cpu_tuple_cost|shared_buffers|checkpoint_completion_target|random_page_cost|effective_cache_size|work_mem|checkpoint_segments|maintenance_work_mem|max_connections)\s*=\s*.*?
+                   #checkpoint_warning = 30s            # 0 disables
+
+                   # - Archiving -
+                  @@ -263,11 +263,11 @@
+                   # - Planner Cost Constants -
+
+                   #seq_page_cost = 1.0                 # measured on an arbitrary scale
+                  -#random_page_cost = 4.0                      # same scale as above
+                  -#cpu_tuple_cost = 0.01                       # same scale as above
+                  +#\s*#?\s*(log_destination|join_collapse_limit|from_collapse_limit|cpu_tuple_cost|shared_buffers|checkpoint_completion_target|random_page_cost|effective_cache_size|work_mem|checkpoint_segments|maintenance_work_mem|max_connections)\s*=\s*.*?
+                  +#\s*#?\s*(log_destination|join_collapse_limit|from_collapse_limit|cpu_tuple_cost|shared_buffers|checkpoint_completion_target|random_page_cost|effective_cache_size|work_mem|checkpoint_segments|maintenance_work_mem|max_connections)\s*=\s*.*?
+                   #cpu_index_tuple_cost = 0.005                # same scale as above
+                   #cpu_operator_cost = 0.0025          # same scale as above
+                  -#effective_cache_size = 128MB
+                  +#\s*#?\s*(log_destination|join_collapse_limit|from_collapse_limit|cpu_tuple_cost|shared_buffers|checkpoint_completion_target|random_page_cost|effective_cache_size|work_mem|checkpoint_segments|maintenance_work_mem|max_connections)\s*=\s*.*?
+
+                   # - Genetic Query Optimizer -
+
+                  @@ -284,8 +284,8 @@
+                   #default_statistics_target = 100     # range 1-10000
+                   #constraint_exclusion = partition    # on, off, or partition
+                   #cursor_tuple_fraction = 0.1         # range 0.0-1.0
+                  -#from_collapse_limit = 8
+                  -#join_collapse_limit = 8             # 1 disables collapsing of explicit
+                  +#\s*#?\s*(log_destination|join_collapse_limit|from_collapse_limit|cpu_tuple_cost|shared_buffers|checkpoint_completion_target|random_page_cost|effective_cache_size|work_mem|checkpoint_segments|maintenance_work_mem|max_connections)\s*=\s*.*?
+                  +#\s*#?\s*(log_destination|join_collapse_limit|from_collapse_limit|cpu_tuple_cost|shared_buffers|checkpoint_completion_target|random_page_cost|effective_cache_size|work_mem|checkpoint_segments|maintenance_work_mem|max_connections)\s*=\s*.*?
+                                                        # JOIN clauses
+
+
+                  @@ -295,8 +295,8 @@
+
+                   # - Where to Log -
+
+                  -log_destination = 'syslog'
+                  -#log_destination = 'stderr'          # Valid values are combinations of
+                  +#\s*#?\s*(log_destination|join_collapse_limit|from_collapse_limit|cpu_tuple_cost|shared_buffers|checkpoint_completion_target|random_page_cost|effective_cache_size|work_mem|checkpoint_segments|maintenance_work_mem|max_connections)\s*=\s*.*?
+                  +#\s*#?\s*(log_destination|join_collapse_limit|from_collapse_limit|cpu_tuple_cost|shared_buffers|checkpoint_completion_target|random_page_cost|effective_cache_size|work_mem|checkpoint_segments|maintenance_work_mem|max_connections)\s*=\s*.*?
+                                                        # stderr, csvlog, syslog, and eventlog,
+                                                        # depending on platform.  csvlog
+                                                        # requires logging_collector to be on.
+----------
+          ID: postgresql_adapt_config
+    Function: file.append
+        Name: /usr/local/pgsql/data/postgresql.conf
+      Result: False
+     Comment: One or more requisite failed: postgresql.server.postgresql_comment_config
+     Started: 
+    Duration: 
+     Changes:   
+
+Summary
+------------
+Succeeded: 2 (changed=2)
+Failed:    2
+------------
+Total states run:     4
+```
+
+is it a bug ?
+
+Thanks,
+Julien

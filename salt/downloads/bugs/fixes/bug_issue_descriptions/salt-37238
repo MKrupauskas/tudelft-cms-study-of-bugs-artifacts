@@ -1,0 +1,126 @@
+### Description of Issue/Question
+
+I use https://github.com/saltstack-formulas/salt-formula to manage Salt itself.  When I was running 2015.08 I could run highstate on my master and if the master process restarted, the job output would be returned to the local minion and I'd see the changes applied.  After upgrading to 2016.3.3 the minion on my master hangs when then master process restarts during a highstate run.
+
+If I stop my highstate commend with control+c, then re-run it - it works.  The changes from the first highstate were already applied in this scenario so the second run applies with no changes.
+
+I noticed this in my master logs:
+
+```
+2016-10-25 18:22:57,094 [salt.log.setup   ][ERROR   ][20141] An un-handled exception was caught by salt's global exception handler:
+OSError: [Errno 3] No such process
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/atexit.py", line 24, in _run_exitfuncs
+    func(*targs, **kargs)
+  File "/usr/lib/python2.7/multiprocessing/util.py", line 321, in _exit_function
+    p._popen.terminate()
+  File "/usr/lib/python2.7/multiprocessing/forking.py", line 171, in terminate
+    os.kill(self.pid, signal.SIGTERM)
+OSError: [Errno 3] No such process
+```
+
+So I found this issue and PR:
+https://github.com/saltstack/salt/issues/35480
+https://github.com/saltstack/salt/pull/36555
+
+I tried that patch and the "No such process" error went away, but I still have the problem where restarting the master causes the local minion to hang.
+
+Here's some debug logs from my minion:
+
+```
+[INFO    ] File changed:
+
+---
++++
+@@ -851,4 +851,4 @@
+
+
+
+-# TEST6+# TEST7
+[INFO    ] Completed state [/etc/salt/master] at time 18:22:55.932824 duration_in_ms=43.519
+[INFO    ] Running state [salt-master] at time 18:22:55.935496
+[INFO    ] Executing state service.running for salt-master
+[INFO    ] Executing command ['service', 'salt-master', 'status'] in directory '/root'
+[DEBUG   ] output: salt-master start/running, process 20141
+[INFO    ] The service salt-master is already running
+[INFO    ] Completed state [salt-master] at time 18:22:55.957080 duration_in_ms=21.584
+[INFO    ] Running state [salt-master] at time 18:22:55.957265
+[INFO    ] Executing state service.mod_watch for salt-master
+[INFO    ] Executing command ['service', 'salt-master', 'status'] in directory '/root'
+[DEBUG   ] output: salt-master start/running, process 20141
+[INFO    ] Executing command ['service', 'salt-master', 'restart'] in directory '/root'
+[DEBUG   ] output: salt-master stop/waiting
+salt-master start/running, process 23422
+[INFO    ] {'salt-master': True}
+[INFO    ] Completed state [salt-master] at time 18:22:57.125567 duration_in_ms=1168.302
+
+....
+
+[DEBUG   ] Minion return retry timer set to 7 seconds (randomized)
+[INFO    ] Returning information for job: 20161025182244052511
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', '...mysaltmaster address...', 'tcp://127.0.0.1:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', '...mysaltmaster address...', 'tcp://127.0.0.1:4506')
+^[^[
+
+
+
+
+
+[DEBUG   ] Failed to authenticate message
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', '...mysaltmaster address...', 'tcp://127.0.0.1:4506', 'clear')
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] User root Executing command saltutil.find_job with jid 20161025183004333300
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20161025183004333300', 'tgt': '*saltmaster*', 'ret': '', 'user': 'root', 'arg': ['20161025182244052511'], 'fun': 'saltutil.find_job'}
+[INFO    ] Starting a new job with PID 26660
+[DEBUG   ] LazyLoaded saltutil.find_job
+[DEBUG   ] LazyLoaded direct_call.get
+[DEBUG   ] Minion return retry timer set to 8 seconds (randomized)
+[INFO    ] Returning information for job: 20161025183004333300
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', '...mysaltmaster address...', 'tcp://127.0.0.1:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', '...mysaltmaster address...', 'tcp://127.0.0.1:4506')
+```
+
+I don't really understand what's happening here... I guess the master restarts and the minion doesn't reconnect.  Any idea what changed when I upgraded that broke this?  Do you know of any other issues or patches I can try?
+### Versions Report
+
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 2.5.3
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: 0.3.6
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-91-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```

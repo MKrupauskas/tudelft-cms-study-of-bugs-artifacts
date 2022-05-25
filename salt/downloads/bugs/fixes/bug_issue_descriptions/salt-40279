@@ -1,0 +1,286 @@
+### Description of Issue/Question
+After running `service.dead` with the `enable: false` argument, new services that are subsequently installed and enabled/disabled by the systemd module are incorrectly detected as init.d-only and are not correctly enabled/disabled. This appears to be due to the context cache.
+
+Possibly an extension of #34927.
+
+### Setup
+On Ubuntu 16.04:
+
+```yaml
+haproxy:
+  pkg.installed: []
+  service.dead:
+    - enable: false
+
+nginx:
+  pkg.installed: []
+  service.dead:
+    - enable: false
+```
+
+### Steps to Reproduce Issue
+```
+root@7ffb7295ce6e:~# mkdir -p /tmp/salt/state
+root@7ffb7295ce6e:~# cat > /tmp/salt/state/systemd-bug.sls <<EOF
+haproxy:
+  pkg.installed: []
+  service.dead:
+    - enable: false
+
+nginx:
+  pkg.installed: []
+  service.dead:
+    - enable: false
+EOF
+root@7ffb7295ce6e:~# mkdir -p /tmp/salt-config
+root@7ffb7295ce6e:~# cat > /tmp/salt-config/minion <<EOF
+file_client: local
+file_roots:
+  base:
+    - /tmp/salt/state
+fileserver_backend:
+  - roots
+EOF
+root@7ffb7295ce6e:~# salt-call -c /tmp/salt-config/ -l debug state.apply systemd-bug
+...
+[INFO    ] Executing state service.dead for haproxy
+[DEBUG   ] LazyLoaded cmd.run_all
+[INFO    ] Executing command ['systemctl', 'status', 'haproxy.service', '-n', '0'] in directory '/root'
+[DEBUG   ] stdout: * haproxy.service - HAProxy Load Balancer
+   Loaded: loaded (/lib/systemd/system/haproxy.service; enabled; vendor preset: enabled)
+   Active: active (running) since Thu 2017-03-23 20:13:49 UTC; 3s ago
+     Docs: man:haproxy(1)
+           file:/usr/share/doc/haproxy/configuration.txt.gz
+ Main PID: 1636 (haproxy-systemd)
+   CGroup: /docker/7ffb7295ce6e2e35343fccbd735e700ec7f03e9c6c3fca28f601bd97b824cd4f/system.slice/haproxy.service
+           |-1636 /usr/sbin/haproxy-systemd-wrapper -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid
+           |-1637 /usr/sbin/haproxy -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -Ds
+           `-1640 /usr/sbin/haproxy -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid -Ds
+           > 1636 /usr/sbin/haproxy-systemd-wrapper -f /etc/haproxy/haproxy.cfg -p /run/haproxy.pid
+[INFO    ] Executing command ['systemctl', 'is-active', 'haproxy.service'] in directory '/root'
+[DEBUG   ] output: active
+[INFO    ] Executing command ['systemctl', 'is-enabled', 'haproxy.service'] in directory '/root'
+[DEBUG   ] output: enabled
+[INFO    ] Executing command ['systemd-run', '--scope', 'systemctl', 'stop', 'haproxy.service'] in directory '/root'
+[DEBUG   ] output: Running scope as unit run-rc9585f4444594b5b99ed1bc10b77f433.scope.
+[INFO    ] Executing command ['systemctl', 'is-active', 'haproxy.service'] in directory '/root'
+[DEBUG   ] output: inactive
+[INFO    ] Executing command ['systemctl', 'is-enabled', 'haproxy.service'] in directory '/root'
+[DEBUG   ] output: enabled
+[INFO    ] Executing command ['systemctl', 'is-enabled', 'haproxy.service'] in directory '/root'
+[DEBUG   ] output: enabled
+[DEBUG   ] sysvinit script 'reboot' found, but systemd unit 'reboot.service' already exists
+[DEBUG   ] sysvinit script 'umountroot' found, but systemd unit 'umountroot.service' already exists
+[DEBUG   ] sysvinit script 'rc.local' found, but systemd unit 'rc.local.service' already exists
+[DEBUG   ] sysvinit script 'umountfs' found, but systemd unit 'umountfs.service' already exists
+[DEBUG   ] sysvinit script 'sendsigs' found, but systemd unit 'sendsigs.service' already exists
+[DEBUG   ] sysvinit script 'rc' found, but systemd unit 'rc.service' already exists
+[DEBUG   ] sysvinit script 'single' found, but systemd unit 'single.service' already exists
+[DEBUG   ] sysvinit script 'halt' found, but systemd unit 'halt.service' already exists
+[DEBUG   ] sysvinit script 'procps' found, but systemd unit 'procps.service' already exists
+[DEBUG   ] sysvinit script 'urandom' found, but systemd unit 'urandom.service' already exists
+[DEBUG   ] sysvinit script 'rcS' found, but systemd unit 'rcS.service' already exists
+[DEBUG   ] sysvinit script 'killprocs' found, but systemd unit 'killprocs.service' already exists
+[DEBUG   ] sysvinit script 'haproxy' found, but systemd unit 'haproxy.service' already exists
+[DEBUG   ] sysvinit script 'atd' found, but systemd unit 'atd.service' already exists
+[DEBUG   ] sysvinit script 'screen-cleanup' found, but systemd unit 'screen-cleanup.service' already exists
+[DEBUG   ] sysvinit script 'open-iscsi' found, but systemd unit 'open-iscsi.service' already exists
+[DEBUG   ] sysvinit script 'iscsid' found, but systemd unit 'iscsid.service' already exists
+[DEBUG   ] sysvinit script 'acpid' found, but systemd unit 'acpid.service' already exists
+[DEBUG   ] sysvinit script 'plymouth-log' found, but systemd unit 'plymouth-log.service' already exists
+[DEBUG   ] sysvinit script 'cryptdisks' found, but systemd unit 'cryptdisks.service' already exists
+[DEBUG   ] sysvinit script 'ssh' found, but systemd unit 'ssh.service' already exists
+[DEBUG   ] sysvinit script 'console-setup' found, but systemd unit 'console-setup.service' already exists
+[DEBUG   ] sysvinit script 'plymouth' found, but systemd unit 'plymouth.service' already exists
+[DEBUG   ] sysvinit script 'keyboard-setup' found, but systemd unit 'keyboard-setup.service' already exists
+[DEBUG   ] sysvinit script 'lxcfs' found, but systemd unit 'lxcfs.service' already exists
+[DEBUG   ] sysvinit script 'udev' found, but systemd unit 'udev.service' already exists
+[DEBUG   ] sysvinit script 'lvm2' found, but systemd unit 'lvm2.service' already exists
+[DEBUG   ] sysvinit script 'lxd' found, but systemd unit 'lxd.service' already exists
+[DEBUG   ] sysvinit script 'networking' found, but systemd unit 'networking.service' already exists
+[DEBUG   ] sysvinit script 'kmod' found, but systemd unit 'kmod.service' already exists
+[DEBUG   ] sysvinit script 'rsyslog' found, but systemd unit 'rsyslog.service' already exists
+[DEBUG   ] sysvinit script 'cryptdisks-early' found, but systemd unit 'cryptdisks-early.service' already exists
+[DEBUG   ] sysvinit script 'lvm2-lvmpolld' found, but systemd unit 'lvm2-lvmpolld.service' already exists
+[DEBUG   ] sysvinit script 'cron' found, but systemd unit 'cron.service' already exists
+[DEBUG   ] sysvinit script 'ufw' found, but systemd unit 'ufw.service' already exists
+[DEBUG   ] sysvinit script 'unattended-upgrades' found, but systemd unit 'unattended-upgrades.service' already exists
+[DEBUG   ] sysvinit script 'uuidd' found, but systemd unit 'uuidd.service' already exists
+[DEBUG   ] sysvinit script 'lvm2-lvmetad' found, but systemd unit 'lvm2-lvmetad.service' already exists
+[DEBUG   ] sysvinit script 'resolvconf' found, but systemd unit 'resolvconf.service' already exists
+[DEBUG   ] sysvinit script 'rsync' found, but systemd unit 'rsync.service' already exists
+[DEBUG   ] sysvinit script 'open-vm-tools' found, but systemd unit 'open-vm-tools.service' already exists
+[DEBUG   ] sysvinit script 'dbus' found, but systemd unit 'dbus.service' already exists
+[INFO    ] Executing command ['systemd-run', '--scope', 'systemctl', 'disable', 'haproxy.service'] in directory '/root'
+[DEBUG   ] output: Running scope as unit run-r13200ba5921d4e60be2797eaae3fccc3.scope.
+Synchronizing state of haproxy.service with SysV init with /lib/systemd/systemd-sysv-install...
+Executing /lib/systemd/systemd-sysv-install disable haproxy
+insserv: warning: current start runlevel(s) (empty) of script `haproxy' overrides LSB defaults (2 3 4 5).
+insserv: warning: current stop runlevel(s) (0 1 2 3 4 5 6) of script `haproxy' overrides LSB defaults (0 1 6).
+[INFO    ] Executing command ['systemctl', 'is-enabled', 'haproxy.service'] in directory '/root'
+[DEBUG   ] output: disabled
+[DEBUG   ] sysvinit script 'reboot' found, but systemd unit 'reboot.service' already exists
+[DEBUG   ] sysvinit script 'umountroot' found, but systemd unit 'umountroot.service' already exists
+[DEBUG   ] sysvinit script 'rc.local' found, but systemd unit 'rc.local.service' already exists
+[DEBUG   ] sysvinit script 'umountfs' found, but systemd unit 'umountfs.service' already exists
+[DEBUG   ] sysvinit script 'sendsigs' found, but systemd unit 'sendsigs.service' already exists
+[DEBUG   ] sysvinit script 'rc' found, but systemd unit 'rc.service' already exists
+[DEBUG   ] sysvinit script 'single' found, but systemd unit 'single.service' already exists
+[DEBUG   ] sysvinit script 'halt' found, but systemd unit 'halt.service' already exists
+[DEBUG   ] sysvinit script 'procps' found, but systemd unit 'procps.service' already exists
+[DEBUG   ] sysvinit script 'urandom' found, but systemd unit 'urandom.service' already exists
+[DEBUG   ] sysvinit script 'rcS' found, but systemd unit 'rcS.service' already exists
+[DEBUG   ] sysvinit script 'killprocs' found, but systemd unit 'killprocs.service' already exists
+[DEBUG   ] sysvinit script 'haproxy' found, but systemd unit 'haproxy.service' already exists
+[DEBUG   ] sysvinit script 'atd' found, but systemd unit 'atd.service' already exists
+[DEBUG   ] sysvinit script 'screen-cleanup' found, but systemd unit 'screen-cleanup.service' already exists
+[DEBUG   ] sysvinit script 'open-iscsi' found, but systemd unit 'open-iscsi.service' already exists
+[DEBUG   ] sysvinit script 'iscsid' found, but systemd unit 'iscsid.service' already exists
+[DEBUG   ] sysvinit script 'acpid' found, but systemd unit 'acpid.service' already exists
+[DEBUG   ] sysvinit script 'plymouth-log' found, but systemd unit 'plymouth-log.service' already exists
+[DEBUG   ] sysvinit script 'cryptdisks' found, but systemd unit 'cryptdisks.service' already exists
+[DEBUG   ] sysvinit script 'ssh' found, but systemd unit 'ssh.service' already exists
+[DEBUG   ] sysvinit script 'console-setup' found, but systemd unit 'console-setup.service' already exists
+[DEBUG   ] sysvinit script 'plymouth' found, but systemd unit 'plymouth.service' already exists
+[DEBUG   ] sysvinit script 'keyboard-setup' found, but systemd unit 'keyboard-setup.service' already exists
+[DEBUG   ] sysvinit script 'lxcfs' found, but systemd unit 'lxcfs.service' already exists
+[DEBUG   ] sysvinit script 'udev' found, but systemd unit 'udev.service' already exists
+[DEBUG   ] sysvinit script 'lvm2' found, but systemd unit 'lvm2.service' already exists
+[DEBUG   ] sysvinit script 'lxd' found, but systemd unit 'lxd.service' already exists
+[DEBUG   ] sysvinit script 'networking' found, but systemd unit 'networking.service' already exists
+[DEBUG   ] sysvinit script 'kmod' found, but systemd unit 'kmod.service' already exists
+[DEBUG   ] sysvinit script 'rsyslog' found, but systemd unit 'rsyslog.service' already exists
+[DEBUG   ] sysvinit script 'cryptdisks-early' found, but systemd unit 'cryptdisks-early.service' already exists
+[DEBUG   ] sysvinit script 'lvm2-lvmpolld' found, but systemd unit 'lvm2-lvmpolld.service' already exists
+[DEBUG   ] sysvinit script 'cron' found, but systemd unit 'cron.service' already exists
+[DEBUG   ] sysvinit script 'ufw' found, but systemd unit 'ufw.service' already exists
+[DEBUG   ] sysvinit script 'unattended-upgrades' found, but systemd unit 'unattended-upgrades.service' already exists
+[DEBUG   ] sysvinit script 'uuidd' found, but systemd unit 'uuidd.service' already exists
+[DEBUG   ] sysvinit script 'lvm2-lvmetad' found, but systemd unit 'lvm2-lvmetad.service' already exists
+[DEBUG   ] sysvinit script 'resolvconf' found, but systemd unit 'resolvconf.service' already exists
+[DEBUG   ] sysvinit script 'rsync' found, but systemd unit 'rsync.service' already exists
+[DEBUG   ] sysvinit script 'open-vm-tools' found, but systemd unit 'open-vm-tools.service' already exists
+[DEBUG   ] sysvinit script 'dbus' found, but systemd unit 'dbus.service' already exists
+[INFO    ] {'haproxy': True}
+[INFO    ] Completed state [haproxy] at time 20:13:53.080404 duration_in_ms=286.948
+...
+[INFO    ] Executing state service.dead for nginx
+[DEBUG   ] LazyLoaded cmd.run_all
+[INFO    ] Executing command ['systemctl', 'status', 'nginx.service', '-n', '0'] in directory '/root'
+[DEBUG   ] stdout: * nginx.service - A high performance web server and a reverse proxy server
+   Loaded: loaded (/lib/systemd/system/nginx.service; enabled; vendor preset: enabled)
+   Active: active (running) since Thu 2017-03-23 20:14:03 UTC; 3s ago
+ Main PID: 2126 (nginx)
+   CGroup: /docker/7ffb7295ce6e2e35343fccbd735e700ec7f03e9c6c3fca28f601bd97b824cd4f/system.slice/nginx.service
+           |-2126 nginx: master process /usr/sbin/nginx -g daemon on; master_process on
+           |-2127 nginx: worker process
+           |-2128 nginx: worker process
+           |-2129 nginx: worker process
+           `-2130 nginx: worker process
+           > 2126 nginx: master process /usr/sbin/nginx -g daemon on; master_process on
+[INFO    ] Executing command ['systemctl', 'is-active', 'nginx.service'] in directory '/root'
+[DEBUG   ] output: active
+[INFO    ] Executing command ['systemctl', 'is-enabled', 'nginx.service'] in directory '/root'
+[DEBUG   ] output: enabled
+[INFO    ] Executing command ['systemd-run', '--scope', 'systemctl', 'stop', 'nginx.service'] in directory '/root'
+[DEBUG   ] output: Running scope as unit run-r2f03da90fb0e46e8ba9a6abdb7aa66a1.scope.
+[INFO    ] Executing command ['systemctl', 'is-active', 'nginx.service'] in directory '/root'
+[DEBUG   ] output: inactive
+[INFO    ] Executing command ['systemctl', 'is-enabled', 'nginx.service'] in directory '/root'
+[DEBUG   ] output: enabled
+[INFO    ] Executing command ['systemctl', 'is-enabled', 'nginx.service'] in directory '/root'
+[DEBUG   ] output: enabled
+[DEBUG   ] sysvinit script 'reboot' found, but systemd unit 'reboot.service' already exists
+[DEBUG   ] sysvinit script 'umountroot' found, but systemd unit 'umountroot.service' already exists
+[DEBUG   ] sysvinit script 'rc.local' found, but systemd unit 'rc.local.service' already exists
+[DEBUG   ] sysvinit script 'umountfs' found, but systemd unit 'umountfs.service' already exists
+[DEBUG   ] sysvinit script 'sendsigs' found, but systemd unit 'sendsigs.service' already exists
+[DEBUG   ] sysvinit script 'rc' found, but systemd unit 'rc.service' already exists
+[DEBUG   ] sysvinit script 'single' found, but systemd unit 'single.service' already exists
+[DEBUG   ] sysvinit script 'halt' found, but systemd unit 'halt.service' already exists
+[DEBUG   ] sysvinit script 'procps' found, but systemd unit 'procps.service' already exists
+[DEBUG   ] sysvinit script 'urandom' found, but systemd unit 'urandom.service' already exists
+[DEBUG   ] sysvinit script 'rcS' found, but systemd unit 'rcS.service' already exists
+[DEBUG   ] sysvinit script 'killprocs' found, but systemd unit 'killprocs.service' already exists
+[DEBUG   ] sysvinit script 'haproxy' found, but systemd unit 'haproxy.service' already exists
+[DEBUG   ] sysvinit script 'atd' found, but systemd unit 'atd.service' already exists
+[DEBUG   ] sysvinit script 'screen-cleanup' found, but systemd unit 'screen-cleanup.service' already exists
+[DEBUG   ] sysvinit script 'open-iscsi' found, but systemd unit 'open-iscsi.service' already exists
+[DEBUG   ] sysvinit script 'iscsid' found, but systemd unit 'iscsid.service' already exists
+[DEBUG   ] sysvinit script 'acpid' found, but systemd unit 'acpid.service' already exists
+[DEBUG   ] sysvinit script 'plymouth-log' found, but systemd unit 'plymouth-log.service' already exists
+[DEBUG   ] sysvinit script 'cryptdisks' found, but systemd unit 'cryptdisks.service' already exists
+[DEBUG   ] sysvinit script 'ssh' found, but systemd unit 'ssh.service' already exists
+[DEBUG   ] sysvinit script 'console-setup' found, but systemd unit 'console-setup.service' already exists
+[DEBUG   ] sysvinit script 'plymouth' found, but systemd unit 'plymouth.service' already exists
+[DEBUG   ] sysvinit script 'keyboard-setup' found, but systemd unit 'keyboard-setup.service' already exists
+[DEBUG   ] sysvinit script 'lxcfs' found, but systemd unit 'lxcfs.service' already exists
+[DEBUG   ] sysvinit script 'udev' found, but systemd unit 'udev.service' already exists
+[DEBUG   ] sysvinit script 'lvm2' found, but systemd unit 'lvm2.service' already exists
+[DEBUG   ] sysvinit script 'lxd' found, but systemd unit 'lxd.service' already exists
+[DEBUG   ] sysvinit script 'networking' found, but systemd unit 'networking.service' already exists
+[DEBUG   ] sysvinit script 'kmod' found, but systemd unit 'kmod.service' already exists
+[DEBUG   ] sysvinit script 'rsyslog' found, but systemd unit 'rsyslog.service' already exists
+[DEBUG   ] sysvinit script 'cryptdisks-early' found, but systemd unit 'cryptdisks-early.service' already exists
+[DEBUG   ] sysvinit script 'lvm2-lvmpolld' found, but systemd unit 'lvm2-lvmpolld.service' already exists
+[DEBUG   ] sysvinit script 'cron' found, but systemd unit 'cron.service' already exists
+[DEBUG   ] sysvinit script 'ufw' found, but systemd unit 'ufw.service' already exists
+[DEBUG   ] sysvinit script 'unattended-upgrades' found, but systemd unit 'unattended-upgrades.service' already exists
+[DEBUG   ] sysvinit script 'uuidd' found, but systemd unit 'uuidd.service' already exists
+[DEBUG   ] sysvinit script 'lvm2-lvmetad' found, but systemd unit 'lvm2-lvmetad.service' already exists
+[DEBUG   ] sysvinit script 'resolvconf' found, but systemd unit 'resolvconf.service' already exists
+[DEBUG   ] sysvinit script 'rsync' found, but systemd unit 'rsync.service' already exists
+[DEBUG   ] sysvinit script 'open-vm-tools' found, but systemd unit 'open-vm-tools.service' already exists
+[DEBUG   ] sysvinit script 'dbus' found, but systemd unit 'dbus.service' already exists
+[INFO    ] Executing command ['systemd-run', '--scope', '/usr/sbin/update-rc.d', '-f', 'nginx', 'remove'] in directory '/root'
+[DEBUG   ] output: Running scope as unit run-r9022ef8eaa524addb9a15fab4fb91b5d.scope.
+[INFO    ] Executing command ['systemctl', 'is-enabled', 'nginx.service'] in directory '/root'
+[DEBUG   ] output: enabled
+[INFO    ] Service nginx has been disabled, and is dead
+[INFO    ] Completed state [nginx] at time 20:14:07.816283 duration_in_ms=194.255
+...
+root@7ffb7295ce6e:~# systemctl is-enabled nginx
+enabled
+```
+
+### Versions Report
+```
+root@7ffb7295ce6e:~# salt --versions-report
+Salt Version:
+           Salt: 2016.3.5
+
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: 10.2.1
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.5
+        libgit2: 0.24.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: 1.2.5
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.24.0
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: 0.4.0
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: 0.2.4
+        Tornado: 4.4.2
+            ZMQ: 4.1.6
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.9.12-moby
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

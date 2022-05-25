@@ -1,0 +1,90 @@
+### Description of Issue/Question
+The function utils.network.dns_check both resolves DNS names but also tries to open a connection to the resolved address. Notes on the function say "Tries to connect to the address before considering it useful.". This is not a function of DNS and can and does cause unexpected behavior. In my case I have an HA salt-master setup in AWS. I am using multiple master entries in in my minion config as follows.
+
+master:
+- saltmasteraz1.mydomain.com
+- 10.254.1.10
+- saltmasteraz2.mydomain.com
+- 10.254.2.10
+
+The DNS entries point to public IPs for remote hosts to connect and the IPs are for local traffic. The assumption is that using the failover features, any minion can cycle through the list and eventually land on a usable master address. On startup, the minion uses utils.network.dns_check to produce a list of master URIs. All names are resolvable but not all are reachable. In the case of an unreachable address the function waits for the full connect timeout before moving on to resolving the next address. This process takes several minutes per address holding up the minion startup. Once through this process, the minion immediately detects that the unreachable master in the list and moves on to the next as it's supposed to. 
+
+While I would argue that connecting to a socket is not part of name resolution and should be removed from the function, I cant say that it doesn't have any dependancies. the simple fix is to add a timeout. 
+
+```
+s = socket.socket(h[0], socket.SOCK_STREAM)
+s.connect((candidate_addr.strip('[]'), port))
+s.close()
+```
+
+should be
+
+```
+s = socket.socket(h[0], socket.SOCK_STREAM)
+s.settimeout(2)
+s.connect((candidate_addr.strip('[]'), port))
+s.close()
+```
+
+### Setup
+backup_mode: minion
+hash_type: sha256
+id: ip-10-254-1-25.ec2.internal
+log_level: info
+master:
+- saltmasteraz1.mydomain.com
+- 10.254.1.10
+- saltmasteraz2.mydomain.com
+- 10.254.2.10
+master_alive_interval: 30
+master_failback: true
+master_failback_interval: 60
+master_type: failover
+retry_dns: 0
+startup_states: highstate
+
+
+### Steps to Reproduce Issue
+Add a resolvable but unreachable DNS entry in the minion master section.
+
+### Versions Report
+Salt Version:
+           Salt: 2018.3.2
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: 2.6.0
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.28.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.14 (default, Mar 16 2018, 18:20:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 4.14.47-64.38.amzn2.x86_64
+         system: Linux
+        version: Not Installed

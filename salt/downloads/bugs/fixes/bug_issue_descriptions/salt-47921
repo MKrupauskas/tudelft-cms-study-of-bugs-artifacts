@@ -1,0 +1,110 @@
+I was looking forward to using `file.serialize`'s new `serializer_opts` argument on the develop branch, but ran into a problem when trying it out.
+
+Given a state like:
+
+```
+/path/to/file.json:
+  file.serialize:
+    - dataset:
+        foo: bar
+    - formatter: json
+    - serializer_opts:
+      - indent: 4
+    - merge_if_exists: true
+    - replace: false
+```
+
+Produces the following error:
+
+```
+Function: file.serialize
+  Result: False
+ Comment: An exception occurred in this state: Traceback (most recent call last):
+            File "/var/tmp/.salt_08831c_salt/pyall/salt/serializers/json.py", line 41, in deserialize
+              stream_or_string, _json_module=_json, **options)
+            File "/var/tmp/.salt_08831c_salt/pyall/salt/utils/json.py", line 77, in load
+              return kwargs.pop('_json_module', json).load(fp, **kwargs)
+            File "/usr/lib/python3.5/json/__init__.py", line 268, in load
+              parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+            File "/usr/lib/python3.5/json/__init__.py", line 332, in loads
+              return cls(**kw).decode(s)
+          TypeError: __init__() got an unexpected keyword argument 'indent'
+
+          During handling of the above exception, another exception occurred:
+
+          Traceback (most recent call last):
+            File "/var/tmp/.salt_08831c_salt/pyall/salt/state.py", line 1928, in call
+              **cdata['kwargs'])
+            File "/var/tmp/.salt_08831c_salt/pyall/salt/loader.py", line 1837, in wrapper
+              return f(*args, **kwargs)
+            File "/var/tmp/.salt_08831c_salt/pyall/salt/states/file.py", line 6309, in serialize
+              existing_data = __serializers__[deserializer_name](fhr, **options.get(serializer_name, {}))
+            File "/var/tmp/.salt_08831c_salt/pyall/salt/serializers/json.py", line 48, in deserialize
+              raise DeserializationError(error)
+          salt.serializers.DeserializationError: __init__() got an unexpected keyword argument 'indent'
+ Started: 15:26:49.300034
+Duration: 4.08 ms
+ Changes:
+```
+
+This solution makes the error go away, but might break other use cases.
+
+```diff
+diff --git a/salt/states/file.py b/salt/states/file.py
+index 920d7bbfad..67b7cb52c7 100644
+--- a/salt/states/file.py
++++ b/salt/states/file.py
+@@ -6306,7 +6306,7 @@ def serialize(name,
+                         'result': False}
+ 
+             with salt.utils.files.fopen(name, 'r') as fhr:
+-                existing_data = __serializers__[deserializer_name](fhr, **options.get(serializer_name, {}))
++                existing_data = __serializers__[deserializer_name](fhr)
+ 
+             if existing_data is not None:
+                 merged_data = salt.utils.dictupdate.merge_recurse(existing_data, dataset)
+```
+
+```
+$ salt-ssh --versions
+Salt Version:
+           Salt: 2018.3.0-473-g2bac7b2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.3 (default, Jan 19 2017, 14:11:04)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 5.0.2
+            ZMQ: 4.1.6
+ 
+System Versions:
+           dist: debian 9.4 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-6-amd64
+         system: Linux
+        version: debian 9.4
+```

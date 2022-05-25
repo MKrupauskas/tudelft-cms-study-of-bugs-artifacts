@@ -1,0 +1,212 @@
+**Description**
+Every `service.running` state, all of which have some sort of watch requisite, reports that it will restart when running in test mode. During an actual apply they correctly do not.
+
+**Setup**
+Both minions have the same highstate (except for hostname/network/etc. parameters).
+A selection of the states involved:
+```sls
+salt-minion:
+  pkg.installed: []
+  service.running:
+    - enable: true
+    - failhard: true
+    - watch:
+      - host: salt
+      - file: /etc/salt/minion.d/*
+      - file: /etc/systemd/system/salt-minion.service.d/*
+    - require:
+      - pkg: salt-dependencies
+```
+```sls
+systemd-timesyncd:
+  service.running:
+    - watch:
+      - file: /etc/systemd/timesyncd.conf
+```
+```sls
+nginx:
+  pkg.installed:
+    - pkgs:
+      - nginx-full
+  service.running:
+    - enable: true
+    - reload: true
+    - require:
+      - pkg: nginx
+      - sls: csrf.pki.bootstrap
+
+{% for path in salt['cp.list_master'](prefix=tpldir ~ '/conf.d', saltenv=saltenv) %}
+{% set filename = salt['file.basename'](path).split('.nginx')[0] ~ '.conf' %}
+/etc/nginx/conf.d/{{ filename }}:
+  file.managed:
+    - source: salt://{{ path }}
+    - template: jinja
+    - context:
+        ciphers: {{ ciphers }}
+    - watch_in:
+      - service: nginx
+{% endfor %}
+```
+  
+**Steps to Reproduce the behavior**
+```
+# salt -L 'minion1,minion2' state.test --state-output=changes
+minion1:
+----------
+          ID: salt-minion
+    Function: service.running
+      Result: None
+     Comment: The service salt-minion is set to restart
+     Started: 13:20:00.738543
+    Duration: 51.177 ms
+     Changes:
+----------
+          ID: ufw-service-running-service-running
+    Function: service.running
+        Name: ufw
+      Result: None
+     Comment: The service ufw is set to restart
+     Started: 13:20:05.749197
+    Duration: 44.425 ms
+     Changes:
+----------
+          ID: openssh
+    Function: service.running
+        Name: ssh
+      Result: None
+     Comment: The service ssh is set to restart
+     Started: 13:20:06.549077
+    Duration: 45.56 ms
+     Changes:
+----------
+          ID: systemd-timesyncd
+    Function: service.running
+      Result: None
+     Comment: The service systemd-timesyncd is set to restart
+     Started: 13:20:08.801265
+    Duration: 60.522 ms
+     Changes:
+----------
+          ID: zabbix-agent
+    Function: service.running
+      Result: None
+     Comment: The service zabbix-agent is set to restart
+     Started: 13:20:09.215579
+    Duration: 49.565 ms
+     Changes:
+----------
+          ID: nginx
+    Function: service.running
+      Result: None
+     Comment: The service nginx is set to restart
+     Started: 13:20:13.416394
+    Duration: 52.345 ms
+     Changes:
+
+
+Summary for minion1
+--------------
+Succeeded: 188 (unchanged=6)
+Failed:      0
+--------------
+Total states run:     188
+Total run time:    13.964 s
+minion2:
+
+Summary for minion2
+--------------
+Succeeded: 188
+Failed:      0
+--------------
+Total states run:     188
+Total run time:    14.694 s
+```
+
+**Expected behavior**
+Both minions should report no changes.
+
+**Versions Report**
+<details><summary>minion1 (3004rc1)</summary>
+
+```
+Salt Version:
+          Salt: 3004rc1
+
+Dependency Versions:
+          cffi: 1.14.5
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10.1
+       libgit2: 1.1.0
+      M2Crypto: 0.31.0
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.20
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: 1.6.1
+        Python: 3.8.10 (default, Jun  2 2021, 10:49:15)
+  python-gnupg: 0.4.5
+        PyYAML: 5.3.1
+         PyZMQ: 18.1.1
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.2
+
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 5.4.0-88-generic
+        system: Linux
+       version: Ubuntu 20.04 focal
+```
+</details>
+<details><summary>minion2 (3003.3)</summary>
+
+```
+Salt Version:
+          Salt: 3003.3
+
+Dependency Versions:
+          cffi: 1.14.5
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10.1
+       libgit2: 1.1.0
+      M2Crypto: 0.31.0
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.20
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: 1.6.1
+        Python: 3.8.10 (default, Jun  2 2021, 10:49:15)
+  python-gnupg: 0.4.5
+        PyYAML: 5.3.1
+         PyZMQ: 18.1.1
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.2
+
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 5.4.0-88-generic
+        system: Linux
+       version: Ubuntu 20.04 focal
+```
+</details>

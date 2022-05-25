@@ -1,0 +1,91 @@
+Environment: rackspace, Ubuntu 14.04, salt packages from `http://repo.saltstack.com/apt/ubuntu/14.04/amd64/latest`
+
+Not 100% sure why it's breaking, but the following statefile now causes an exception on a 2015.8.4 minion:
+
+```
+$ cat test.sls 
+# vim:syn=yaml sw=2 ts=2 et:
+# state file to test breakage on 2015.8.4
+salt_minion_svc:
+  service.running:
+    - name: salt-minion
+
+/etc/salt/minion.d/test.conf:
+  file.managed:
+    - mode: '0444'
+    - contents: ''
+    - watch_in:
+      - service: salt-minion
+```
+
+2015.8.3, it works:
+
+```
+$ sudo salt host1 state.apply test
+host1:
+----------
+          ID: /etc/salt/minion.d/test.conf
+    Function: file.managed
+      Result: True
+     Comment: File /etc/salt/minion.d/test.conf updated
+     Started: 17:44:13.062990
+    Duration: 6.465 ms
+     Changes:   
+              ----------
+              diff:
+                  New file
+              mode:
+                  0444
+----------
+          ID: salt_minion_svc
+    Function: service.running
+        Name: salt-minion
+      Result: True
+     Comment: Service restarted
+     Started: 17:44:13.106278
+    Duration: 40.803 ms
+     Changes:   
+              ----------
+              salt-minion:
+                  True
+
+Summary for host1
+------------
+Succeeded: 2 (changed=2)
+Failed:    0
+------------
+Total states run:     2
+
+$ sudo salt host1 grains.item saltversion
+host1:
+    ----------
+    saltversion:
+        2015.8.3
+```
+
+But on 2015.8.4 it fails:
+
+```
+$ sudo salt host2 state.apply test
+host2:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1071, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/state.py", line 320, in apply_
+        return sls(mods, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/state.py", line 757, in sls
+        ret = st_.state.call_high(high_)
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2118, in call_high
+        high, req_in_errors = self.requisite_in(high)
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1528, in requisite_in
+        req_in_high, req_in_errors = self.reconcile_extend(high)
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1248, in reconcile_extend
+        if state not in high[name]:
+    KeyError: 'salt-minion'
+
+$ sudo salt host2 grains.item saltversion
+host2:
+    ----------
+    saltversion:
+        2015.8.4
+```

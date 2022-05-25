@@ -1,0 +1,89 @@
+We have test scenario under 0.17.4 comprising a top-level master "arrowtooth"(which is a minion to itself so we can update it's packages), two syndic masters "ling" and "arden" (which are minions to themselves as recommended in issue #6207) and two true minions "cobia" and "dern", one connected to each syndic.
+
+If you do "salt '_' test.ping" from the top-level master all five hosts respond but if you try and call one of the true minions using a glob like 'c_' which should match they do not respond. If you do the second test from the minion's syndic master, it responds as expected.
+
+For example, when run on the top-level master (arrowtooth) you get all five hosts responding:
+[arrowtooth ~] $ salt '*' test.ping
+arrowtooth:
+    True
+ling:
+    True
+cobia:
+    True
+dern:
+    True
+arden:
+    True
+
+And if you target hosts that are top-level or a syndic they respond too:
+[arrowtooth ~] $ salt 'a*' test.ping
+arrowtooth:
+    True
+arden:
+    True
+
+But a true minion "cobia" under a syndic "ling" does not:
+[arrowtooth ~] $ salt 'c*' test.ping
+[arrowtooth ~] $
+
+However running that command on the minion's syndic master gets a response:
+[ling ~]$ salt 'c*' test.ping
+cobia:
+    True
+[ling] $ 
+
+In addition, we have assigned a "role" grain to all the minions in /etc/salt/grains. A true minion will always respond to a grain matched command run on it's own syndic master but will only sometimes, or may never respond, to the same command run from the top-level master.
+
+For example, the roles assigned are:
+[arrowtooth ~]$ salt '*' grains.item role
+arrowtooth:
+  role:
+      Editor
+ling:
+    ----------
+    role:
+        - Editor
+        - Scooper
+cobia:
+    ----------
+    role:
+        - Editor
+        - Scooper
+        - WebServer
+dern:
+    ----------
+    role:
+        - Editor
+        - WebServer
+arden:
+    ----------
+    role:
+        - Editor
+
+For some reason all hosts will respond if looking for the Editor role:
+[arrowtooth ~]$ salt -G 'role:Editor' test.ping
+arrowtooth:
+    True
+ling:
+    True
+cobia:
+    True
+dern:
+    True
+arden:
+    True
+
+But none respond for WebServer:
+[arrowtooth ~]$ salt -G 'role:WebServer' test.ping
+[arrowtooth ~]$
+
+Again though, the true minions will respond is called from their syndic master:
+[ling ~]$ salt -G 'role:WebServer' test.ping
+cobia:
+    True
+
+[arden ~]$ salt -G 'role:WebServer' test.ping
+dern:
+    True
+
+I am happy to accept this might be a config issue but I can't see anything obviously wrong.

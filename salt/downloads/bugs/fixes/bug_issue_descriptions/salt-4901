@@ -1,0 +1,112 @@
+state `test/init.sls`:
+
+```
+/tmp/output:
+  file:
+    - managed
+    - source: salt://test/template.jinja2
+    - template: jinja
+```
+
+template `test/template.jinja2`:
+
+```
+# {{ pillar['level1']['level2'] }}
+```
+
+pillar is actually empty, I want an error. I try to apply the state:
+
+```
+----------
+    State: - file
+    Name:      /tmp/output
+    Function:  managed
+        Result:    True
+        Comment:   File /tmp/output updated
+        Changes:   diff: New file
+```
+
+Result: True?!? Let's check the minion logs:
+
+```
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/test/init.sls:
+/tmp/output:
+  file:
+    - managed
+    - source: salt://test/template.jinja2
+    - template: jinja
+
+[INFO    ] Executing state file.managed for /tmp/output
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Fetching file 'salt://test/template.jinja2'
+[DEBUG   ] Jinja search path: '['/var/cache/salt/minion/files/base']'
+[INFO    ] File changed:
+New file
+[INFO    ] Returning information for job: 20130507105843060950
+```
+
+wat? there is suposed to be an error!
+
+```
+$ cat /tmp/output
+# {{ pillar['level1']['level2'] }}
+```
+
+unrendered template :scream:
+
+I check in the equivalent of https://github.com/saltstack/salt/blob/develop/salt/modules/file.py#L1165
+ and here is the value of variable `data`:
+
+```
+{'data': 'Traceback (most recent call last):\n  File "/usr/lib/pymodules/python2.7/salt/utils/templates.py", line 55, in render_tmpl\n    output = render_str(tmplstr, context, tmplpath)\n  File "/usr/lib/pymodules/python2.7/salt/utils/templates.py", line 98, in render_jinja_tmpl\n    output = jinja_env.from_string(tmplstr).render(**context)\n  File "/usr/lib/python2.7/dist-packages/jinja2/environment.py", line 894, in render\n    return self.environment.handle_exception(exc_info, True)\n  File "<template>", line 1, in top-level template code\n  File "/usr/lib/python2.7/dist-packages/jinja2/environment.py", line 353, in getitem\n    return obj[argument]\nUndefinedError: \'dict object\' has no attribute \'level1\'\n', 'result': False}
+```
+
+note that the line numbers don't match git code, as I added a lot of debugging code.
+
+so... this is very bad, I assume my state is applied as I plan but it's not :cry:
+
+This behaviour only happens if the file is new. It get more confusing when the state is executed one more time and it try to update it:
+
+```
+----------
+    State: - file
+    Name:      /tmp/output
+    Function:  managed
+        Result:    False
+        Comment:   An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/pymodules/python2.7/salt/state.py", line 1215, in call
+    *cdata['args'], **cdata['kwargs'])
+  File "/usr/lib/pymodules/python2.7/salt/states/file.py", line 809, in managed
+    contents)
+  File "/usr/lib/pymodules/python2.7/salt/modules/file.py", line 1503, in manage_file
+    name_sum = get_hash(name, source_sum['hash_type'])
+KeyError: 'hash_type'
+
+        Changes:
+```
+
+`source_sum` is actually empty `{}`
+
+in minion logs:
+
+```
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/test/init.sls:
+/tmp/output:
+  file:
+    - managed
+    - source: salt://test/template.jinja2
+    - template: jinja
+
+[INFO    ] Executing state file.managed for /tmp/output
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Fetching file 'salt://test/template.jinja2'
+[DEBUG   ] Jinja search path: '['/var/cache/salt/minion/files/base']'
+[ERROR   ] No changes made for /tmp/output
+[INFO    ] Returning information for job: 20130507105951283039
+```
+
+as a end-user, there is no easy way to troubleshoot this... to find the template error I need to hack `salt.modules.file.get_managed`

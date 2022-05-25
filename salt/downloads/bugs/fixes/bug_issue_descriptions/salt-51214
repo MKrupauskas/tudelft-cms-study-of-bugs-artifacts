@@ -1,0 +1,151 @@
+### Description of Issue/Question
+
+### Setup
+the error happens in this config file:
+```
+zabbix-agent_repo:
+  pkgrepo.managed:
+    - name: deb http://repo.zabbix.com/zabbix/3.4/{{ salt['grains.get']('os')|lower }} {{ salt['grains.get']('oscodename') }} main
+    - file: /etc/apt/sources.list.d/zabbix.list
+    - key_url: https://repo.zabbix.com/zabbix-official-repo.key
+    - dist: {{ grains['oscodename']|lower }}
+    - failhard: true
+  cmd.run:
+    - name: apt-get update >/dev/null
+    - onlyif:
+      - pkg: zabbix-agent_repo
+
+
+zabbix-agent:
+  pkg.installed:
+    - latest: true
+    - refresh: True
+    - require:
+      - zabbix-agent_repo
+    - failhard: true
+
+
+zabbix-agent.conf:
+  service.running:
+    - name: zabbix-agent
+    - enable: True
+    - watch:
+      - file: /etc/zabbix/zabbix_agentd.conf 
+  file.managed:
+    - name: /etc/zabbix/zabbix_agentd.conf
+    - require: 
+      - pkg: zabbix-agent
+    - source:
+      - salt://linux/zabbix/zabbix_agentd.conf
+    - template: jinja
+    - user: zabbix
+    - group: zabbix
+    - mode: 640
+```
+
+### Steps to Reproduce Issue
+```
+salt 'tani*' state.apply linux.zabbix --state-output=full --state-verbose=True
+tani.xxx:
+----------
+          ID: zabbix-agent_repo
+    Function: pkgrepo.managed
+        Name: deb http://repo.zabbix.com/zabbix/3.4/debian stretch main
+      Result: True
+     Comment: Package repo 'deb http://repo.zabbix.com/zabbix/3.4/debian stretch main' already configured
+     Started: 12:29:16.717083
+    Duration: 41.233 ms
+     Changes:   
+----------
+          ID: zabbix-agent_repo
+    Function: cmd.run
+        Name: apt-get update >/dev/null
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1913, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1898, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/cmd.py", line 872, in run
+                  cret = mod_run_check(cmd_kwargs, onlyif, unless, creates)
+                File "/usr/lib/python2.7/dist-packages/salt/states/cmd.py", line 350, in mod_run_check
+                  cmd = __salt__['cmd.retcode'](entry, ignore_retcode=True, python_shell=True, **cmd_kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/cmdmod.py", line 2088, in retcode
+                  **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/cmdmod.py", line 603, in _run
+                  proc = salt.utils.timed_subprocess.TimedProc(cmd, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/utils/timed_subprocess.py", line 44, in __init__
+                  args = salt.utils.stringutils.to_bytes(args)
+                File "/usr/lib/python2.7/dist-packages/salt/utils/stringutils.py", line 63, in to_bytes
+                  return to_str(s, encoding, errors)
+                File "/usr/lib/python2.7/dist-packages/salt/utils/stringutils.py", line 118, in to_str
+                  raise TypeError('expected str, bytearray, or unicode')
+              TypeError: expected str, bytearray, or unicode
+     Started: 12:29:16.759257
+    Duration: 4.803 ms
+     Changes:   
+----------
+          ID: zabbix-agent
+    Function: pkg.installed
+      Result: False
+     Comment: One or more requisite failed: linux.zabbix.zabbix-agent_repo
+     Started: 12:29:17.367641
+    Duration: 0.014 ms
+     Changes:   
+
+Summary for tani
+------------
+Succeeded: 1
+Failed:    2
+------------
+Total states run:     3
+Total run time:  46.050 ms
+ERROR: Minions returned with non-zero exit code
+```
+
+
+### Versions Report
+```
+salt --versions-report
+Salt Version:
+           Salt: 2018.3.3
+ 
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+      docker-py: Not Installed
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Sep 25 2018, 20:42:16)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 8.11 
+         locale: UTF-8
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.11 
+```
+the salt minion differ cause its a Debian stretch

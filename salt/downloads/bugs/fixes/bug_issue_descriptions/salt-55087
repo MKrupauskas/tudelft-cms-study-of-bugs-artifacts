@@ -1,0 +1,97 @@
+### Description of Issue
+I am trying to use _**salt_cherrypy**_ from a browser application (uses complex CORS), but the **OPTION** requests return 500 error and the following exception from CherryPy:
+`ValueError: Page handlers MUST return bytes. Use tools.encode if you wish to return unicode` at [`salt/netapi/rest_cherrypy/app.py:824`](https://github.com/saltstack/salt/blob/2019.2.1/salt/netapi/rest_cherrypy/app.py#L824) (see below for full traceback).
+
+A related issue on CherryPy might be https://github.com/cherrypy/cherrypy/issues/1123
+
+### Setup
+Relevant master config (SSL from letsencrypt):
+```yaml
+rest_cherrypy:
+  port: 8000
+  ssl_crt: /etc/letsencrypt/live/***/fullchain.pem
+  ssl_key: /etc/letsencrypt/live/***/privkey.pem
+```
+
+### Steps to Reproduce Issue
+
+Running (JavaScript, browser fetch API):
+```javascript
+fetch("https://saltstack.domain:8000/login", 
+     method: "POST",
+     headers: {"Accept": "application/json", "Content-Type": "application/json"},
+     body: JSON.stringify({username: "***", password: "***", eauth: "file"},     
+)
+```
+
+Results in HTTP 500 on the OPTION request on the browser + the following log from salt-api:
+```log
+[ERROR   ] [22/Oct/2019:08:57:17]  Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/cherrypy/_cprequest.py", line 104, in run
+    hook()
+  File "/usr/lib/python3/dist-packages/cherrypy/_cprequest.py", line 63, in __call__
+    return self.callback(**self.kwargs)
+  File "/usr/lib/python3/dist-packages/salt/netapi/rest_cherrypy/app.py", line 824, in cors_tool
+    cherrypy.response.body = ''
+  File "/usr/lib/python3/dist-packages/cherrypy/__init__.py", line 231, in __setattr__
+    setattr(child, name, value)
+  File "/usr/lib/python3/dist-packages/cherrypy/_cprequest.py", line 816, in __set__
+    raise ValueError(self.unicode_err)
+ValueError: Page handlers MUST return bytes. Use tools.encode if you wish to return unicode.
+```
+
+### Workaround
+
+I manually modified [`salt/netapi/rest_cherrypy/app.py:824`](https://github.com/saltstack/salt/blob/2019.2.1/salt/netapi/rest_cherrypy/app.py#L824) into:
+```python
+        cherrypy.response.body = bytes('', 'UTF-8')
+```
+
+And the error was fixed.
+Can this be fixed on master or should I come with a pull request (it's a pretty trivial change)?
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2019.2.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.5.0
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.2 (default, Oct  8 2019, 13:06:37)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-65-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```
+
+Thanks.

@@ -1,0 +1,78 @@
+Given a `virtualenv.managed` state with a `cwd`, `user` and `requirements` argument, if the requirements file is in a subdirectory, the state fails. For example:
+
+```
+/tmp/test-venv/reqs/test.txt:
+  file.managed:
+    - contents: requests
+    - makedirs: true
+    - user: andreas
+
+/tmp/test-venv/env:
+  virtualenv.managed:
+    - requirements: /tmp/test-venv/reqs/test.txt
+    - cwd: /tmp/test-venv
+    - user: andreas
+```
+
+```
+An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1703, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1649, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/states/virtualenv_mod.py", line 273, in managed
+    env_vars=env_vars
+  File "/usr/lib/python2.7/dist-packages/salt/modules/pip.py", line 603, in install
+    user=user
+  File "/usr/lib/python2.7/dist-packages/salt/modules/pip.py", line 312, in _process_requirements
+    __salt__['file.copy'](source_path, target_path)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/file.py", line 2890, in copy
+    raise CommandExecutionError('No such file or directory \'{0}\''.format(src))
+CommandExecutionError: No such file or directory '/tmp/test-venv/test.txt'
+```
+
+Note how the "reqs" directory is missing from the path. If the user or cwd arguments are omitted then the states work fine.
+
+I think it's because of this line: https://github.com/saltstack/salt/blob/06f249901a2e2f1ed310d58ea3921a129f214358/salt/modules/pip.py#L293 git blamed to #30018
+
+The basename function call should possibly be replaced with something that just strips away the root path.
+
+```
+Salt Version:
+           Salt: 2016.3.0
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.5 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.5
+```

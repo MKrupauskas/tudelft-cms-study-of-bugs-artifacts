@@ -1,0 +1,81 @@
+```
+           Salt: 2014.1.11
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.3.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+            ZMQ: 4.0.4
+
+```
+
+When Docker is not yet installed on a Minion (to be installed through the requisites of the respective `docker` states) and `state.highstate test=True` is run in a `docker.built` or `docker.running` state, the operation will fail because even with `test=True` the `docker` state tries to talk to the (not yet installed) Docker service.
+
+**Minimal working example:**
+Tested on a bare Ubuntu 14.04 amd64 with no Docker installed yet.
+
+``` YAML
+python-pip:
+    pkg.installed
+
+docker-py:
+    pip.installed:
+        - require:
+            pkg: python-pip
+
+mysqld-container:
+    docker.installed:
+        - name: mysqld
+        - hostname: mysqld.dep.institution.tld
+        - image: department/mysqld
+        - require_in: mysqld
+
+mysqld:
+    docker.running:
+        - container: mysqld
+        - binds:
+            /media/volumes/dbs/mysql: /var/lib/mysql
+```
+
+The resulting output will look like this:
+
+```
+   ----------
+          ID: mysqld-container
+    Function: docker.installed
+        Name: mysqld
+      Result: False
+     Comment: image "department/mysqld" does not exist
+     Changes:   
+----------
+          ID: mysqld
+    Function: docker.running
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1379, in call
+                  **cdata['kwargs'])
+                File "/var/cache/salt/minion/extmods/states/dockerio.py", line 652, in running
+                  dns=dns, volumes_from=volumes_from, network_mode=network_mode,
+                File "/var/cache/salt/minion/extmods/modules/dockerio.py", line 890, in start
+                  client = _get_client()
+                File "/var/cache/salt/minion/extmods/modules/dockerio.py", line 273, in _get_client
+                  client._version = client.version()['ApiVersion']
+                File "/usr/local/lib/python2.7/dist-packages/docker/client.py", line 922, in version
+                  return self._result(self._get(self._url("/version")), True)
+                File "/usr/local/lib/python2.7/dist-packages/docker/client.py", line 75, in _get
+                  return self.get(url, **self._set_request_timeout(kwargs))
+                File "/usr/lib/python2.7/dist-packages/requests/sessions.py", line 395, in get
+                  return self.request('GET', url, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/requests/sessions.py", line 383, in request
+                  resp = self.send(prep, **send_kwargs)
+                File "/usr/lib/python2.7/dist-packages/requests/sessions.py", line 486, in send
+                  r = adapter.send(request, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/requests/adapters.py", line 378, in send
+                  raise ConnectionError(e)
+              ConnectionError: UnixHTTPConnectionPool(host='localhost', port=None): Max retries exceeded with url: /run/docker.sock/v1.12/version (Caused by
+ <class 'socket.error'>: [Errno 2] No such file or directory)
+     Changes:
+```

@@ -1,0 +1,153 @@
+This is a follow up to #29662 as this is closed.
+
+The Problem still exists in latest Saltstack release.
+If you try to use udp ports with the `port_bindings` Parameter it doesn't work and must be workarounded with an additional `ports` Parameter.
+
+```
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: 1.11.2
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: 2.7.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.0
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.14 (default, Sep 20 2017, 01:25:59)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.3
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.2
+            ZMQ: 4.2.2
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.75-1-lts
+         system: Linux
+        version: Not Installed
+```
+Testcase:
+```
+docker_container_image_test:
+    docker_container.running:
+        - name: testcase
+        - image: busybox:latest
+        - port_bindings: "1234:1234/udp"
+        - command: "sleep 300"
+```
+creates following container:
+```
+docker ps -a
+CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS               NAMES
+019743b15cf7        busybox:latest      "sleep 300"         59 seconds ago      Up 57 seconds       1234/udp            testcase
+```
+nothing is listening on the host:
+```
+netstat -plun | grep 1234 || echo $?
+1
+```
+docker inspect:
+```
+<snip>
+            "PortBindings": {
+                "1234/udp": [
+                    {
+                        "HostIp": "",
+                        "HostPort": "1234"
+                    }
+                ]
+            },
+<snip>
+            "ExposedPorts": {
+                "1234/udp/tcp": {}
+            },
+<snip>
+            "Ports": {
+                "1234/udp": null
+            },
+<snip>
+```
+so change the testcase:
+```
+docker_container_image_test:
+    docker_container.running:
+        - name: testcase
+        - image: busybox:latest
+        - port_bindings: "1234:1234/udp"
+        - ports: "1234/udp"
+        - command: "sleep 300"
+```
+salt generates following changes:
+```
+     Changes:   
+              ----------
+              container:
+                  ----------
+                  Config:
+                      ----------
+                      ExposedPorts:
+                          ----------
+                          new:
+                              ----------
+                              1234/udp:
+                                  ----------
+                          old:
+                              ----------
+                              1234/udp/tcp:
+                                  ----------
+```
+after that following container is running:
+```
+CONTAINER ID        IMAGE               COMMAND             CREATED              STATUS              PORTS                    NAMES
+d34f7cb5c8c2        busybox:latest      "sleep 300"         About a minute ago   Up About a minute   0.0.0.0:1234->1234/udp   testcase
+```
+listen on the host:
+```
+netstat -plun | grep 1234 || echo $?
+udp6       0      0 :::1234                 :::*                                31891/docker-proxy
+```
+docker inspect:
+```
+<snip>
+            "PortBindings": {
+                "1234/udp": [
+                    {
+                        "HostIp": "",
+                        "HostPort": "1234"
+                    }
+                ]
+            },
+<snip>
+            "ExposedPorts": {
+                "1234/udp": {}
+            },
+<snip>
+            "Ports": {
+                "1234/udp": [
+                    {
+                        "HostIp": "0.0.0.0",
+                        "HostPort": "1234"
+                    }
+                ]
+            },
+<snip>
+```

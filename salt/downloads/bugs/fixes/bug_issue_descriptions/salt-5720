@@ -1,0 +1,56 @@
+### publish.full_data
+
+We've just upgraded from Salt 0.14 to Salt 0.15.3 on Ubuntu; it says in the [release notes](http://docs.saltstack.com/topics/releases/0.15.0.html#peer-system-updates) that the peer system has been improved.
+
+Peer Publish Config:
+
+```
+peer:
+  .*:
+    - test.ping
+  stage:
+    - state.highstate
+    - state.sls
+```
+
+It worked previously; now we are getting timeouts:
+
+```
+root@stage:~# salt-call publish.full_data --out json 'app-*' state.sls vhosts.some_vhost
+[INFO    ] Configuration file path: /etc/salt/minion
+[INFO    ] Publishing 'state.sls' to tcp://192.168.142.76:4506
+{
+    "local": "'state.sls' publish timed out"
+}
+```
+
+`app-*` should match two nodes. `test.ping` works, but it sometimes only returns the result from a single node, instead of both:
+
+```
+root@stage:~# sudo salt-call publish.full_data --out json 'app-*' test.ping
+[INFO    ] Configuration file path: /etc/salt/minion
+[INFO    ] Publishing 'test.ping' to tcp://192.168.142.76:4506
+{
+    "app-01": {
+        "jid": "20130625144941122345",
+        "retcode": 0,
+        "success": true,
+        "cmd": "_return",
+        "ret": true,
+        "fun": "test.ping",
+        "id": "app-01"
+    },
+    "__jid__": "20130625144941122345"
+}
+```
+### side-effects on master
+
+After a timed-out peer run, if I try to run the command directly from master, I get a cryptic error:
+
+```
+root@core:~# salt 'app-*' state.sls vhosts.appthemes_com
+app-01:
+    Data failed to compile:
+----------
+    The function "state.sls" is running as PID 26303 and was started at 2013, Jun 25 13:37:54.498798 with jid 20130625133754498798
+```

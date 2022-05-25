@@ -1,0 +1,425 @@
+In the process of writing some salt orchestration, no matter which options I used, the salt-run orchestration state.sls module/function always ignores the pass/fail return output from the state (that runs on the minion) and the salt-run orchestration is always successful.
+
+I'm using the latest salt released version - 2015.8.3, on both the master and minion (all version info at the bottom).
+
+I first wrote some pass and fail state code:
+
+``` yaml
+# /srv/salt/utils/fail.sls
+cmd-run-false:
+  cmd.run:
+    - name: /bin/false
+```
+
+``` yaml
+# /srv/salt/utils/pass.sls
+cmd-run-true:
+  cmd.run:
+    - name: /bin/true
+```
+
+I next wrote some test orchestration code using state.function:
+
+``` yaml
+# /srv/salt/orch/test/orch-by-func-true.sls
+orch-by-func-true:
+  salt.function:
+    - name: cmd.run
+    - tgt: mfg-test-iws1
+    - arg:
+      - 'true'
+```
+
+Here is the test run and output for orch-by-func-true.sls:
+
+``` bash
+[root@salt test]# salt-run state.orch orch.test.orch-by-func-true
+salt.corp.mutualink.net_master:
+----------
+          ID: orch-by-func-true
+    Function: salt.function
+        Name: cmd.run
+      Result: True
+     Comment: Function ran successfully. Function cmd.run ran on mfg-test-iws1.
+     Started: 18:39:34.214854
+    Duration: 396.539 ms
+     Changes:
+              mfg-test-iws1:
+
+
+Summary for salt.corp.mutualink.net_master
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time: 396.539 ms
+```
+
+``` yaml
+# /srv/salt/orch/test/orch-by-func-false.sls
+orch-by-func-false:
+  salt.function:
+    - name: cmd.run
+    - tgt: mfg-test-iws1
+    - arg:
+      - 'false'
+```
+
+Here is the test run and output for orch-by-func-false.sls:
+
+``` bash
+[root@salt test]# salt-run state.orch orch.test.orch-by-func-false
+[ERROR   ] {'ret': {'mfg-test-iws1': ''}, 'out': 'highstate'}
+salt.corp.mutualink.net_master:
+----------
+          ID: orch-by-func-false
+    Function: salt.function
+        Name: cmd.run
+      Result: False
+     Comment: Running function cmd.run failed on minions: mfg-test-iws1 Function cmd.run ran on mfg-test-iws1.
+     Started: 18:42:51.675954
+    Duration: 397.494 ms
+     Changes:
+              mfg-test-iws1:
+
+
+Summary for salt.corp.mutualink.net_master
+------------
+Succeeded: 0 (changed=1)
+Failed:    1
+------------
+Total states run:     1
+Total run time: 397.494 ms
+```
+
+So far so good, both return the correct return value and the salt-run orchestration behaves correctly.
+
+Next, I wrote some orchestration using state.sls:
+
+``` yaml
+# /srv/salt/orch/test/orch-by-state-true.sls
+orch-by-state-true:
+  salt.state:
+    - name: orch-by-state-true
+    - tgt: mfg-test-iws1
+    - sls: utils.pass
+```
+
+Here is the test run and output for orch-by-state-true.sls:
+
+``` bash
+[root@salt test]# salt-run state.orch orch.test.orch-by-state-true
+salt.corp.mutualink.net_master:
+----------
+          ID: orch-by-state-true
+    Function: salt.state
+      Result: True
+     Comment: States ran successfully. Updating mfg-test-iws1.
+     Started: 18:49:17.100715
+    Duration: 2622.338 ms
+     Changes:
+              mfg-test-iws1:
+              ----------
+                        ID: cmd-run-true
+                  Function: cmd.run
+                      Name: /bin/true
+                    Result: True
+                   Comment: Command "/bin/true" run
+                   Started: 13:49:10.257619
+                  Duration: 23.67 ms
+                   Changes:
+                            ----------
+                            pid:
+                                3630
+                            retcode:
+                                0
+                            stderr:
+                            stdout:
+
+              Summary for mfg-test-iws1
+              ------------
+              Succeeded: 1 (changed=1)
+              Failed:    0
+              ------------
+              Total states run:     1
+              Total run time:  23.670 ms
+
+Summary for salt.corp.mutualink.net_master
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   2.622 s
+```
+
+True case looks good, lets try the false case...
+
+``` yaml
+# /srv/salt/orch/test/orch-by-state-false.sls
+orch-by-state-false:
+  salt.state:
+    - name: orch-by-state-false
+    - tgt: mfg-test-iws1
+    - sls: utils.fail
+```
+
+Here is the test run and output for orch-by-state-false.sls:
+
+``` bash
+[root@salt test]# salt-run state.orch orch.test.orch-by-state-false
+salt.corp.mutualink.net_master:
+----------
+          ID: orch-by-state-false
+    Function: salt.state
+      Result: True
+     Comment: States ran successfully. Updating mfg-test-iws1.
+     Started: 18:52:26.066099
+    Duration: 2721.818 ms
+     Changes:
+              mfg-test-iws1:
+              ----------
+                        ID: cmd-run-false
+                  Function: cmd.run
+                      Name: /bin/false
+                    Result: False
+                   Comment: Command "/bin/false" run
+                   Started: 13:52:19.312700
+                  Duration: 26.119 ms
+                   Changes:
+                            ----------
+                            pid:
+                                3646
+                            retcode:
+                                1
+                            stderr:
+                            stdout:
+
+              Summary for mfg-test-iws1
+              ------------
+              Succeeded: 0 (changed=1)
+              Failed:    1
+              ------------
+              Total states run:     1
+              Total run time:  26.119 ms
+
+Summary for salt.corp.mutualink.net_master
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   2.722 s
+```
+
+This time I think there is a problem. The state fails, but the salt-run orchestration ignores this failure and just succeeds (Succeeded is 1).
+
+The next thing to test was to try and implement a workaround: call the state.sls from the state.function.
+(lets do the false case first)
+
+``` yaml
+# /srv/salt/orch/test/orch-by-state-false-workaround.sls
+orch-by-state-false-workaround:
+  salt.function:
+    - name: state.sls
+    - tgt: mfg-test-iws1
+    - arg:
+      - utils.fail
+```
+
+``` bash
+[root@salt test]# salt-run state.orch orch.test.orch-by-state-false-workaround
+[ERROR   ] {'ret': {'mfg-test-iws1': {'cmd_|-cmd-run-false_|-/bin/false_|-run': {'comment': 'Command "/bin/false" run', 'name': '/bin/false', 'start_time': '13:59:49.792218', 'result': False, 'duration': 26.048999999999999, '__run_num__': 0, 'changes': {'pid': 3678, 'retcode': 1, 'stderr': '', 'stdout': ''}}}}, 'out': 'highstate'}
+salt.corp.mutualink.net_master:
+----------
+          ID: orch-by-state-false-workaround
+    Function: salt.function
+        Name: state.sls
+      Result: False
+     Comment: Running function state.sls failed on minions: mfg-test-iws1 Function state.sls ran on mfg-test-iws1.
+     Started: 18:59:56.721102
+    Duration: 2546.751 ms
+     Changes:
+              mfg-test-iws1:
+              ----------
+                        ID: cmd-run-false
+                  Function: cmd.run
+                      Name: /bin/false
+                    Result: False
+                   Comment: Command "/bin/false" run
+                   Started: 13:59:49.792218
+                  Duration: 26.049 ms
+                   Changes:
+                            ----------
+                            pid:
+                                3678
+                            retcode:
+                                1
+                            stderr:
+                            stdout:
+
+              Summary for mfg-test-iws1
+              ------------
+              Succeeded: 0 (changed=1)
+              Failed:    1
+              ------------
+              Total states run:     1
+              Total run time:  26.049 ms
+
+Summary for salt.corp.mutualink.net_master
+------------
+Succeeded: 0 (changed=1)
+Failed:    1
+------------
+Total states run:     1
+Total run time:   2.547 s
+```
+
+Here, you can see the false workaround case works!  The state fails, and the salt-run orchestration does not ignore the failure (Failed is set to 1).
+
+For good measure, I also tested the positive true workaround case:
+
+``` yaml
+# /srv/salt/orch/test/orch-by-state-true-workaround.sls
+orch-by-state-true-workaround:
+  salt.function:
+    - name: state.sls
+    - tgt: mfg-test-iws1
+    - arg:
+      - utils.pass
+```
+
+Here are the results for the positive true workaround case:
+
+``` bash
+[root@salt test]# salt-run state.orch orch.test.orch-by-state-true-workaround
+salt.corp.mutualink.net_master:
+----------
+          ID: orch-by-state-true-workaround
+    Function: salt.function
+        Name: state.sls
+      Result: True
+     Comment: Function ran successfully. Function state.sls ran on mfg-test-iws1.
+     Started: 19:04:29.652852
+    Duration: 2569.498 ms
+     Changes:
+              mfg-test-iws1:
+              ----------
+                        ID: cmd-run-true
+                  Function: cmd.run
+                      Name: /bin/true
+                    Result: True
+                   Comment: Command "/bin/true" run
+                   Started: 14:04:22.743780
+                  Duration: 23.365 ms
+                   Changes:
+                            ----------
+                            pid:
+                                3716
+                            retcode:
+                                0
+                            stderr:
+                            stdout:
+
+              Summary for mfg-test-iws1
+              ------------
+              Succeeded: 1 (changed=1)
+              Failed:    0
+              ------------
+              Total states run:     1
+              Total run time:  23.365 ms
+
+Summary for salt.corp.mutualink.net_master
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   2.569 s
+```
+
+Is this a bug?
+
+Version info (master):
+
+``` bash
+[root@salt salt]# salt --versions-report
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: 0.20.3
+   python-gnupg: Not Installed
+          smmap: 0.8.1
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 6.7 Final
+        machine: x86_64
+        release: 2.6.32-573.3.1.el6.x86_64
+         system: CentOS 6.7 Final
+```
+
+Version info (mfg-test-iws1 minion):
+
+``` bash
+[root@salt utils]# salt mfg-test-iws1 test.versions_report
+mfg-test-iws1:
+    Salt Version:
+               Salt: 2015.8.3
+
+    Dependency Versions:
+             Jinja2: 2.5.5
+           M2Crypto: 0.21.1
+               Mako: Not Installed
+             PyYAML: 3.08
+              PyZMQ: 14.5.0
+             Python: 2.6.8 (unknown, Nov 14 2015, 01:48:45)
+               RAET: Not Installed
+            Tornado: 4.2.1
+                ZMQ: 4.0.5
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: Not Installed
+              gitdb: Not Installed
+          gitpython: Not Installed
+              ioflo: Not Installed
+            libnacl: Not Installed
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.5
+       mysql-python: Not Installed
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+             pygit2: Not Installed
+       python-gnupg: Not Installed
+              smmap: Not Installed
+            timelib: Not Installed
+
+    System Versions:
+               dist: redhat 5.2 Final
+            machine: i686
+            release: 2.6.18-92.1.22.el5
+             system: CentOS 5.2 Final
+```

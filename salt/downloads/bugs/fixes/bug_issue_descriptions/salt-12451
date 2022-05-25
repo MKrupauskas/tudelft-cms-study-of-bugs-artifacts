@@ -1,0 +1,126 @@
+I worked with orchestrate runner and realized I cannot make `cmd.run` function work anyhow using `state.orchestrate` runner.
+#### Example
+
+It turned out that this issue is reproducible from Salt documentation example for [salt.function](http://docs.saltstack.com/en/latest/topics/tutorials/states_pt5.html#configuration-syntax). Just copy and paste it into `/srv/salt/orchestrate_example.sls`:
+
+```
+cmd.run:
+  salt.function:
+    - tgt: '*'
+    - arg:
+      - rm -rf /tmp/foo
+```
+
+Then run:
+
+```
+salt-run state.orchestrate orchestrate_example
+master.net.example.com:
+----------
+          ID: cmd.run
+    Function: salt.function
+      Result: True
+     Comment: Function master ran successfully on master
+     Changes:   
+              ----------
+              master:
+                  ----------
+                  out:
+                      nested
+                  ret:
+                      TypeError encountered executing cmd.run: run() takes at least 1 argument (0 given). See debug log for more info.  Possibly a missing arguments issue:  ArgSpec(args=['cmd', 'cwd', 'stdin', 'runas', 'shell', 'python_shell', 'env', 'clean_env', 'template', 'rstrip', 'umask', 'output_loglevel', 'quiet', 'timeout', 'reset_system_locale', 'ignore_retcode', 'saltenv'], varargs=None, keywords='kwargs', defaults=(None, None, None, '/bin/sh', True, None, False, None, True, None, 'info', False, None, True, False, 'base'))
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total:     1
+```
+#### Main problems
+
+Note that in the example above I run both master and minion on the same node (`master.net.example.com` in report). The obvious two problems are:
+- It doesn't execute the command.
+- It also reports `Result: True` with `Comment: Function master ran successfully on master`.
+#### Other problems
+
+Now I'll point at some other observations which I don't accept as normal.
+
+If I start additional minions (`minion_one`, `minion_two`) and run `state.orchestrate` with them as well, I get the following output.
+
+```
+ salt-run state.orchestrate orchestrate_example                                                                                                                                                       
+master.net.example.com:
+----------
+          ID: cmd.run
+    Function: salt.function
+      Result: True
+     Comment: Function minion_one, minion_two, master ran successfully on minion_one, minion_two, master
+     Changes:   
+              ----------
+              master:
+                  ----------
+                  out:
+                      nested
+                  ret:
+                      TypeError encountered executing cmd.run: run() takes at least 1 argument (0 given). See debug log for more info.  Possibly a missing arguments issue:  ArgSpec(args=['cmd', 'cwd
+', 'stdin', 'runas', 'shell', 'python_shell', 'env', 'clean_env', 'template', 'rstrip', 'umask', 'output_loglevel', 'quiet', 'timeout', 'reset_system_locale', 'ignore_retcode', 'saltenv'], varargs=N
+one, keywords='kwargs', defaults=(None, None, None, '/bin/sh', True, None, False, None, True, None, 'info', False, None, True, False, 'base'))
+              minion_one:
+                  ----------
+                  out:
+                      nested
+                  ret:
+                      TypeError encountered executing cmd.run: run() takes at least 1 non-keyword argument (0 given). See debug log for more info.  Possibly a missing arguments issue:  ArgSpec(args=
+['cmd', 'cwd', 'stdin', 'runas', 'shell', 'python_shell', 'env', 'clean_env', 'template', 'rstrip', 'umask', 'output_loglevel', 'quiet', 'timeout', 'reset_system_locale', 'ignore_retcode', 'saltenv'
+], varargs=None, keywords='kwargs', defaults=(None, None, None, '/bin/sh', True, None, False, None, True, None, 'info', False, None, True, False, 'base'))
+              minion_two:
+                  ----------
+                  ret:
+                      TypeError encountered executing cmd.run: run() takes at least 1 argument (0 given). See debug log for more info.  Possibly a missing arguments issue:  ArgSpec(args=['cmd', 'cwd
+', 'stdin', 'runas', 'shell', 'python_shell', 'env', 'clean_env', 'template', 'rstrip', 'umask', 'output_loglevel', 'quiet', 'timeout', 'reset_system_locale', 'saltenv'], varargs=None, keywords='kwa
+rgs', defaults=(None, None, None, '/bin/sh', True, (), False, None, True, None, 'info', False, None, True, 'base'))
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total:     1
+```
+-  Instead of naming function, field `Comment` lists minions in two places within the phrase: `Function minion_one, minion_two, master ran successfully on minion_one, minion_two, master`.
+
+Initially I was also annoyed by the inconsistency that `stete.orchestrate` report shows FQDN (`master.net.example.com`) of the master in its header rather than master's minion ID (`master` in my case of dual master-minion-node). But this is linked to the fact that `salt-run` is master-side function and master does not have `minion_id` which makes it FQDN instead. See [this post for details](https://groups.google.com/d/msg/salt-users/ZRfbx3X87ZQ/-Om54PyHsfgJ).
+#### Versions
+
+Master:
+
+```
+salt --versions-report
+           Salt: 2014.1.3
+         Python: 2.7.5 (default, Feb 19 2014, 13:47:28)
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.2
+            ZMQ: 3.2.4
+```
+
+Minion:
+
+```
+ salt-call --versions-report
+           Salt: 2014.1.3
+         Python: 2.7.5 (default, Feb 19 2014, 13:47:28)
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.2
+            ZMQ: 3.2.4
+```

@@ -1,0 +1,109 @@
+This is my first attempt at using the mysql cache module for multi-master.  In the past I've used some form of shared localfs.
+
+In following the setup instructions, I found several separate issues which needed fixing before I managed to get a clean run.
+- The docs claim 2379 is the default port for mysql, which is incorrect - it's 3306
+- The docs specifically call out `pip install python-mysql` which does not exist in PyPi, or anywhere else on the internet.
+- After some code diving, I found that the supported options are in fact MySQLdb, mysqlclient, and PyMySQL.
+- Of those three, MySQLdb doesn't support python3, so the options came down to the last two.
+- Once I'd discovered the python modules needed, and installed them, the REAL adventures began :)
+
+Code issues:
+- Traceback on mutation of dict during iteration (fixed by duping instead of pop()-ing in place)
+- Salt wants to send abnormally large data BLOBs in its `store()` method, large enough that they are refused by a stock MySQL server config in fact.  The value for `max_allowed_packet` is unusually low on AWS RDS by default, and to use a larger value, you must update it on both the SERVER and the CLIENT (bad design, you bet).
+- This led to finding out that mysqlclient doesn't support passing a non-default value, and thus simply cannot be used for salt cache (assuming the large data sizes are "normal" - but there's nothing special about my setup, so I have to assume they are)
+- So in the end, the only option was PyMySQL, which allows tuning `max_allowed_packet` to a usable value.
+- Sadly, Salt's mysql_cache module didn't allow passing in a value (via __opts__), so a small patch was needed there.
+- Next, the stacktraces started complaining about `bytes` not supporting `format()` - joy.
+- A bit of jiggery later, and I'd managed to convince the `store()` function (the only one which uses bytes)
+to play nice.  Previously, the params being passed in were a mix of strings and bytes - so I normalized to bytes first, and then fixed up the complaining call to use % formatting instead.  And yes, I know, I KNOW this is bad form and breaks pylint all ways to heck, but AFAICT it's now the canonical (and apparently only) way to compose bytes arrays, given that the PEP for adding `format()` to bytes was nacked.
+- The LAST issue I found was that salt was producing single-quotes inside the data block, which was throwing the mysql server into a tizzy.  A quick `replace()` on the data fixed up the error, but I'm not 100% positive it won't have adverse effects on things when salt reads it back out again.  I've not encountered any yet, but I also don't know all the code paths involved...
+
+Version info:
+```
+[root@salt1 site-packages]# salt -V
+Salt Version:
+          Salt: 3003.1
+
+Dependency Versions:
+          cffi: 1.14.6
+      cherrypy: unknown
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10
+       libgit2: 1.1.0
+      M2Crypto: Not Installed
+          Mako: 1.1.4
+       msgpack: 0.5.6
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.20
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: 1.6.1
+        Python: 3.7.10 (default, Jun  3 2021, 00:02:01)
+  python-gnupg: Not Installed
+        PyYAML: 4.2
+         PyZMQ: 17.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.2.3
+
+System Versions:
+          dist: amzn 2
+        locale: UTF-8
+       machine: x86_64
+       release: 4.14.232-177.418.amzn2.x86_64
+        system: Linux
+       version: Amazon Linux 2
+```
+Anyway, the patch below is working for me (when using PyMySQL - due to the mentioned issues, I'm unable to test the other implementations effectively at all).  I did test mysqlclient in a small way, by temporarily truncating the data to a smallish value.  It worked properly in that scenario, but of course the pushed data was utterly useless.
+
+```
+[root@salt1 site-packages]# diff -ruN salt salt.1
+diff -ruN salt/cache/mysql_cache.py salt.1/cache/mysql_cache.py
+--- salt/cache/mysql_cache.py	2021-06-09 14:25:04.000000000 +0000
++++ salt.1/cache/mysql_cache.py	2021-07-24 08:01:09.354595517 +0000
+@@ -165,12 +165,17 @@
+         "connect_timeout": __opts__.get("mysql.connect_timeout", None),
+         "autocommit": True,
+     }
++    # Only supported on PyMySQL, so only add if it's defined in the master config
++    if __opts__.get('mysql.max_allowed_packet'):
++        _mysql_kwargs['max_allowed_packet'] = __opts__.get("mysql.max_allowed_packet")
+     _table_name = __opts__.get("mysql.table_name", _table_name)
+     # TODO: handle SSL connection parameters
+
++    kwargs_new = {}
+     for k, v in _mysql_kwargs.items():
+-        if v is None:
+-            _mysql_kwargs.pop(k)
++        if v is not None:
++            kwargs_new[k] = v
++    _mysql_kwargs = kwargs_new
+     kwargs_copy = _mysql_kwargs.copy()
+     kwargs_copy["passwd"] = "<hidden>"
+     log.info("mysql_cache: Setting up client with params: %r", kwargs_copy)
+@@ -184,11 +189,14 @@
+     """
+     _init_client()
+     data = __context__["serial"].dumps(data)
+-    query = (
+-        b"REPLACE INTO {} (bank, etcd_key, data) values('{}', '{}', "
+-        b"'{}')".format(_table_name, bank, key, data)
+-    )
+-
++    # Some values come in as b"", and some as "", so normalized to bytes
++    table_name = _table_name if isinstance(_table_name,
++            bytes) else _table_name.encode('utf-8')
++    bank = bank if isinstance(bank, bytes) else bank.encode('utf-8')
++    key = key if isinstance(key, bytes) else key.encode('utf-8')
++    data = data if isinstance(data, bytes) else data.encode('utf-8')
++    query = b"""REPLACE INTO %b(bank, etcd_key, data) values('%b', '%b',
++            '%b')""" % (table_name, bank, key, data.replace(b"'", b"\\'"))
+     cur, cnt = run_query(client, query)
+     cur.close()
+     if cnt not in (1, 2):
+```

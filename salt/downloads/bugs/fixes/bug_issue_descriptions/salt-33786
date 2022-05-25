@@ -1,0 +1,79 @@
+### Description of Issue/Question
+
+If I define a attributed which has a long value (that will be wrapped internally by slapd), salt will try to modify it over and over again, as it seems it cannot deal with wrapping done by slapd.
+I am trying to configure replication (consumer config at this step) and I hit this bug (details below)
+### Setup
+
+My .sls looks like that:
+
+```
+    - entries:
+      - 'olcDatabase={1}mdb,cn=config':
+        - replace:
+            olcSyncRepl:
+              - '{0}rid=0 provider="ldap://some-master.TLD" searchbase="dc=some,dc=domain" bindmethod=simple binddn="cn=admin,dc=some,dc=domain" credentials="{{ pillar['openldap']['admin-pwd'] }}" logbase="cn=accesslog" logfilter="(&(objectClass=auditWriteObject)(reqResult=0))" schemachecking=on type=refreshAndPersist retry="60 +" syncdata=accesslog'
+```
+
+Please note, above is a ONE line in .sls (if I split it, then it automatically gets encoded into base64 on ldap side and same thing happens)
+
+This produces following ldif in slapd:
+
+```
+olcSyncrepl: {0}rid=0 provider="ldap://some-master.tldtld.tld1" searchbase="
+ dc=domain,dc=work" bindmethod=simple binddn="cn=admin,dc=domain,dc=work" cr
+ edentials="dfendfgrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr" logbase="cn=accesslog"
+  logfilter="(&(objectClass=auditWriteObject)(reqResult=0))" schemachecking=
+ on type=refreshAndPersist retry="60 +" syncdata=accesslog
+```
+
+So, result is not one line... First salt-call succeeds, second produces following error:
+
+```
+LDAPError: exception in ldap backend: TYPE_OR_VALUE_EXISTS({'info': 'modify/add: olcSyncrepl: value #0 already exists', 'desc': 'Type or value exists'},)
+```
+
+It tries to update it when it shouldn't.
+### Steps to Reproduce Issue
+
+Define any attribute that has a long value and will be wrapped by slapd internally.
+
+```
+### Versions Report
+Salt Version:
+Salt: 2016.3.0
+
+Dependency Versions:
+cffi: Not Installed
+cherrypy: Not Installed
+dateutil: 2.2
+gitdb: 0.5.4
+gitpython: 0.3.2 RC1
+ioflo: Not Installed
+Jinja2: 2.7.3
+libgit2: Not Installed
+libnacl: Not Installed
+M2Crypto: Not Installed
+Mako: 1.0.0
+msgpack-pure: Not Installed
+msgpack-python: 0.4.2
+mysql-python: 1.2.3
+pycparser: Not Installed
+pycrypto: 2.6.1
+pygit2: Not Installed
+Python: 2.7.9 (default, Mar 1 2015, 12:57:24)
+python-gnupg: Not Installed
+PyYAML: 3.11
+PyZMQ: 14.4.0
+RAET: Not Installed
+smmap: 0.8.2
+timelib: Not Installed
+Tornado: 4.2.1
+ZMQ: 4.0.5
+
+System Versions:
+dist: debian 8.3
+machine: x86_64
+release: 3.16.0-4-amd64
+system: Linux
+version: debian 8.3
+```

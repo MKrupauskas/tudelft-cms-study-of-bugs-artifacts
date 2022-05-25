@@ -1,0 +1,194 @@
+**Description**
+
+I have a Centos 7 master and an Centos 7 client. salt-ssh exits with the following error:
+
+```
+ERROR: Python version error. Recommendation(s) follow:
+- Install Python 2.6/2.7 Salt dependencies on the Salt SSH 
+  master to interact with Python 2.6/2.7 targets
+- Install Python 3 on the target machine(s)
+```
+
+Centos 7 Client has python versions: 2.6 & 2.7.5. 
+
+Centos 7 Host, where I run salt-ssh from, has python 2.6, 2.7.5, and python 3.6.8. 
+
+I believe this may be a bug as I recently ran this from a manjaro box, identical setup, and there were 0 issues. I had to rekick the manjaro box to centos over the weekend, arrived at this issue, and have been unable to find a solution.
+
+**Setup**
+
+Here is the roster file:
+
+```
+<REDACTED>:
+  host: <REDACTED>
+  user: <REDACTED>
+  passwd: <REDACTED>
+  sudo_user: <REDACTED>
+  thin_dir: /home/<REDACTED>/.salt_auto
+```
+
+**Steps to Reproduce the behavior**
+Here is what I ran, followed by the trace log output. It is confusing to me, as it looks like it searches and eventually finds python2.7, and successfully runs, then returns that it couldn't find it. Uncertain if it is relevant, but running with `-r` for raw ssh commands will succeed without issues. The error mentioned occurs regardless of whether I try to apply states, or run other execution modules.
+
+```[~]$ salt-ssh -c ~/.salt '*' 'uptime'
+[...]
+ERROR: Python version error. Recommendation(s) follow:
+- Install Python 2.6/2.7 Salt dependencies on the Salt SSH 
+  master to interact with Python 2.6/2.7 targets
+- Install Python 3 on the target machine(s)
+
+--------------------------------------------------------------------------------
+echo "ERROR: Unable to locate appropriate python command" >&2
+exit $EX_PYTHON_INVALID
+EOF
+[TRACE   ] <REDACTED>'s password:
+[TRACE   ] + SUDO=
++ '[' -n '' ']'
++ SUDO_USER=<REDACTED>
++ '[' '' ']'
++ '[' '' ']'
++ EX_PYTHON_INVALID=10
++ PYTHON_CMDS='python3 python27 python2.7 python26 python2.6 python2 python'
+[TRACE   ] + for py_cmd in '$PYTHON_CMDS'
++ command -v python3
++ continue
++ for py_cmd in '$PYTHON_CMDS'
++ command -v python27
++ continue
++ for py_cmd in '$PYTHON_CMDS'
++ command -v python2.7
++ python2.7 -c 'import sys; sys.exit(not (sys.version_info >= (2, 6)));'
+[TRACE   ] ++ python2.7 -c 'from __future__ import print_function;import sys; print(sys.executable);'
+[TRACE   ] + py_cmd_path=/usr/bin/python2.7
+++ command -v python2.7
+[TRACE   ] + cmdpath=/usr/bin/python2.7
++ grep 'shell script'
++ file /usr/bin/python2.7
+[TRACE   ] + exec /usr/bin/python2.7 -c 'import base64;
+[...]
+[TRACE   ] "").decode("utf-8"))'
+[DEBUG   ] End of file(EOL). Brain-dead platform.
+[TRACE   ] STDOUT <REDACTED>
+<REDACTED>'s password: 
+/usr/bin/scp
+
+[TRACE   ] STDERR <REDACTED>
++ SUDO=
++ '[' -n '' ']'
++ SUDO_USER=<REDACTED>
++ '[' '' ']'
++ '[' '' ']'
++ EX_PYTHON_INVALID=10
++ PYTHON_CMDS='python3 python27 python2.7 python26 python2.6 python2 python'
++ for py_cmd in '$PYTHON_CMDS'
++ command -v python3
++ continue
++ for py_cmd in '$PYTHON_CMDS'
++ command -v python27
++ continue
++ for py_cmd in '$PYTHON_CMDS'
++ command -v python2.7
++ python2.7 -c 'import sys; sys.exit(not (sys.version_info >= (2, 6)));'
+++ python2.7 -c 'from __future__ import print_function;import sys; print(sys.executable);'
++ py_cmd_path=/usr/bin/python2.7
+++ command -v python2.7
++ cmdpath=/usr/bin/python2.7
++ grep 'shell script'
++ file /usr/bin/python2.7
++ exec /usr/bin/python2.7 -c 'import base64;
+[...]
+[DEBUG   ] RETCODE <REDACTED>: 10
+[DEBUG   ] LazyLoaded nested.output
+[TRACE   ] data = {'<REDACTED>': {'stdout': 'ERROR: Python version error. Recommendation(s) follow:\n- Install Python 2.6/2.7 Sa
+lt dependencies on the...
+```
+If I remove the thin directory on the client, and run without using raw ssh commands, it returns there was an issue dpeloying the thin, however on the client, it looks like it deployed successfully.
+
+Master:
+```
+[~]$ time salt-ssh -c ~/.salt '*' 'uptime'
+[ERROR   ] ERROR: Failure deploying thin, retrying:
+STDOUT:
+<REACTED>'s password: 
+
+STDERR:
+
+RETCODE: 10
+<REACTED>:
+    ----------
+    retcode:
+        10
+    stderr:
+    stdout:
+        ERROR: Python version error. Recommendation(s) follow:
+        - Install Python 2.6/2.7 Salt dependencies on the Salt SSH 
+          master to interact with Python 2.6/2.7 targets
+        - Install Python 3 on the target machine(s)
+```
+
+Client during and after install of thin:
+
+```
+[~]# ls /home/<REACTED>/.salt_auto/
+salt-thin.tgz
+[~]# ls /home/<REACTED>/.salt_auto/
+code-checksum  minion  py3  pyall  salt-call  supported-versions  version
+```
+
+**Expected behavior**
+salt-ssh runs execution modules, or anything really that isn't raw ssh, without an error. 
+
+**Versions Report**
+
+```
+[~]$ salt --versions-report
+
+Salt Version:
+           Salt: 3000.3
+ 
+Dependency Versions:
+           cffi: 1.14.0
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.2
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.20
+       pycrypto: 2.6.1
+   pycryptodome: 3.9.7
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Apr  2 2020, 13:34:55)
+   python-gnupg: Not Installed
+         PyYAML: 5.3.1
+          PyZMQ: 15.3.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.8.2003 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1127.10.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.8.2003 Core
+```
+From the thin client:
+
+```
+[ ~]# cat /home/<REACTED>/.salt_auto/version 
+3000.3
+```
+
+**Additional context**
+
+I am brand new to salt! Started learning a few weeks ago, apologies if I missed something simple, or haven't got all the lingo down yet. 

@@ -1,0 +1,138 @@
+I'm having an issue with `salt-ssh` while running a highstate on a minion.
+The problem here is a rendering error for a custom users SLS which doesn't occur in a normal salt run. The SLS file is written in PyDSL, so I cannot assure it's only a problem for PyDSL states.
+
+```
+root@1404-salt-master ~/.ssh # salt-ssh '*' state.highstate test=True
+[CRITICAL] Rendering SLS base.users failed, render error: 'NoneType' object has no attribute 'building_highstate'
+zabbix-server:
+    - Rendering SLS base.users failed, render error: 'NoneType' object has no attribute 'building_highstate'
+    - Traceback (most recent call last):
+    -   File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2455, in render_state
+    -     sls, rendered_sls=mods
+    -   File "/usr/lib/python2.7/dist-packages/salt/template.py", line 84, in compile_template
+    -     ret = render(input_data, saltenv, sls, **render_kwargs)
+    -   File "/usr/lib/python2.7/dist-packages/salt/renderers/pydsl.py", line 358, in render
+    -     dsl_sls = pydsl.Sls(sls, saltenv, rendered_sls)
+    -   File "/usr/lib/python2.7/dist-packages/salt/utils/pydsl.py", line 117, in __init__
+    -     self.included_highstate = HighState.get_active().building_highstate
+    - AttributeError: 'NoneType' object has no attribute 'building_highstate'
+root@1404-salt-master ~/.ssh # salt 'zabbix-server' state.highstate test=True
+zabbix-server:
+----------
+          ID: basic-packages
+    Function: pkg.installed
+      Result: None
+     Comment: The following packages are set to be installed/updated: sshfs, ncdu, zip.
+     Started: 14:47:40.732026
+    Duration: 971.393 ms
+     Changes:   
+----------
+…
+
+Summary
+-------------
+Succeeded: 38 (unchanged=38, changed=23)
+Failed:     0
+-------------
+Total states run:     38
+
+```
+
+The test run is not the cause of the problem, the problem also occures without test mode activated.
+
+Here's the used users SLS file (written in pydsl):
+
+``` python
+#!pydsl
+# This state creates (login-) users and groups which are defined in the
+# "users"- and "groups"-pillars. Please note that the handling of ssh-logins
+# is partly handled by the ssh-state.
+__pydsl__.set(ordered=True)
+
+sudo_rules = [];
+skel_files = [
+    {'name': 'bashrc', 'target': '.bashrc'},        # aliases and colorful shell
+    {'name': 'selected_editor', 'target': '.selected_editor'}, # set mcedit as default-editor
+    {'name': 'hushlogin', 'target': '.hushlogin'},  # don't show motd on login
+    {'name': 'profile', 'target': '.profile'},      # includes .bashrc for login-shells, we don't need different configs
+    {'target': '.bash_profile', 'absent': True}     # remove specific bash-profile if it exists, we use profile, wich includes bashrc
+]
+
+def place_skel_files(target):
+    for skel in skel_files:
+        if 'absent' in skel and skel['absent'] == True:
+            state(target + '/' + skel['target']).file.absent()
+        else:
+            state(target + '/' + skel['target']).file.managed(
+                source    = 'salt://base/users/files/' + skel['name'],
+                template  = 'jinja',
+                makedirs  = True
+            )
+
+# Place skeleton-files for new users:
+place_skel_files('/etc/skel')
+
+# If the root-user is not configured below, place sekleton-files for him as well:
+if 'root' not in __pillar__['users']:
+    place_skel_files('/root')
+
+
+# Create and configure groups from "groups"-pillar (empty dictionaty if it does not exist):
+for group, details in __pillar__.get('groups', {}).items():
+    # Create group:
+    state('group_' + group).group.present(group)
+
+    # Add sudo-rules:
+    if 'sudo' in details:
+        sudo_rules.append( "\n".join(details['sudo']) )
+
+
+# Create and configure users from "users"-pillar (empty dictionaty if it does not exist):
+for login, details in __pillar__.get('users', {}).items():
+    home = details.get('home', '/home/' + login);
+
+    # Create user:
+    state('user_' + login).user.present(
+        name        = login,
+        groups      = details.get('groups', []),
+        password    = details.get('password_hash', None),
+        home        = home,
+        createhome  = details.get('createhome', True if home else False),
+        shell       = details.get('shell', '/bin/bash'),
+        system      = details.get('system', False),
+        uid         = details.get('uid', None)
+    )
+
+    # Add sudo-rules:
+    if 'sudo' in details:
+        sudo_rules.append( "\n".join(details['sudo']) )
+
+    # Add SSH-key:
+    if home and 'ssh' in details and 'public_key' in details.get('ssh'):
+        state(home + '/.ssh/authorized_keys').file.managed(
+            contents  = details.get('ssh').get('public_key') + "\n",
+            makedirs  = True,
+            user      = login,
+            group     = login,
+            dir_mode  = 700,
+            mode      = 600
+        )
+    if home and 'ssh' in details and 'private_key' in details.get('ssh'):
+        state(home + '/.ssh/id_rsa').file.managed(
+            contents  = details.get('ssh').get('private_key') + "\n",
+            makedirs  = True,
+            user      = login,
+            group     = login,
+            dir_mode  = 700,
+            mode      = 600
+        )
+
+    # Place skeleton-files (in case they have changed):
+    if home:
+        place_skel_files(home)
+
+# Create sudoers-file with user/group-specific rules:
+state('/etc/sudoers.d/users').file.managed(
+    contents = "\n".join(sudo_rules) + "\n"
+)
+```

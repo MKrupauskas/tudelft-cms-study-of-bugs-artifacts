@@ -1,0 +1,39 @@
+I tested this with the current develop branch. I think I found a bug, I tried to create a vmware vm with the salt execution mode as a non-root user: 
+
+```
+salt -c /var/tmp/salt-master/etc/salt/ labminion cloud.create labvc testvm01
+```
+
+For the minion I specified the following config-dir: `/var/tmp/salt-minion/etc/salt/`
+If the root_dir configuration attribute differs from '/' in your minion config, and you run the minion as non-root user who does not own the /etc/salt dir, the cloud create functionality fails with an error:
+
+```
+OSError: [Errno 13] Permission denied: '/etc/salt' 
+```
+
+In salt/minion.py:
+
+```
+return_data = executor.execute()
+```
+
+When the execution starts the opts or the config-dir variable is not passed. If you set the root_dir attribute in your minion configuration file to a custom value then this value will be unset in execution. During the execution your root_dir will default to '/' instead of the custom specified one and Salt will try to create your public keys for your vm to the /etc/salt/pki/ dir and the creation of the folders will fail since as a non-root user you might not have privilege on that folder.
+
+```
+File "salt/cloud/__init__.py", line 1249, in create
+    self.opts['pki_dir'], vm_['pub_key'], key_id
+File "salt/utils/cloud.py", line 179, in accept_key
+    os.makedirs(key_path)
+File "lib/python2.7/os.py", line 150, in makedirs
+    makedirs(head, mode)
+File "lib/python2.7/os.py", line 157, in makedirs
+    mkdir(name, mode)
+OSError: [Errno 13] Permission denied: '/etc/salt'
+```
+
+I checked the opts variable in cloud/**init** create:
+'root_dir': '/'
+And in salt/minion _thread_return:
+'root_dir': '/var/tmp/salt-minion'
+
+I know that this error could be overridden by modifying the /etc/salt dir owner, but that means salt does not really support a not default configuration directory for minions. Can you confirm that this is a bug and not a feature? 

@@ -1,0 +1,23 @@
+Greetings:
+
+I've been trying to build salt and its dependencies to run on a Raspberry Pi 2 (armv7l). The Pi is running RedSleeve, which is CentOS built for the Pi. I'm using the SRPMs from repo.saltstack.com.
+
+All of the dependencies build properly, but Salt itself fails to build during the testing phase. The failure is an overflow as follows:
+
+ --------  Tests with Errors  ----------------------------------------------------------------------
+   -> unit.modules.ipset_test.IpsetTestCase.test_check  ............................................
+       Traceback (most recent call last):
+         File "/home/scott/rpmbuild/BUILD/salt-2015.8.0/salt-2015.8.0/tests/unit/modules/ipset_test.py", line 198, in test_check
+           self.assertTrue(ipset.check('set', '192.168.0.4/31'))
+         File "/home/scott/rpmbuild/BUILD/salt-2015.8.0/salt-2015.8.0/salt/modules/ipset.py", line 446, in check
+           entries = [str(ip) for ip in ipaddress.ip_network(entry)]
+         File "/home/scott/rpmbuild/BUILD/salt-2015.8.0/salt-2015.8.0/salt/ext/ipaddress.py", line 722, in **iter**
+           for x in range(network, broadcast + 1):
+       OverflowError: Python int too large to convert to C long
+   .................................................................................................
+
+---
+
+I dug into it and the original source of ipaddress.py (py2-ipaddress) has noticed this problem and made some changes to their code, but those changes are not integrated into Salt. I merged the upstream ipaddress changes into Salt's copy of the file. Still failed to pass the tests, and it looks like the problematic code snippets in ipaddress had been incorporated in the code of ipset.py, so I incorporated the changes into the ipset.py file as well. After patching ipaddress.py and ipset.py, the RPM builds properly and passes all tests.
+
+I'll generate a pull request with the updates.

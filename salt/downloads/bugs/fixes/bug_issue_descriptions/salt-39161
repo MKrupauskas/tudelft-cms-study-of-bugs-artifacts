@@ -1,0 +1,110 @@
+### Description of Issue/Question
+There are some inconsisencies in salt-ssh regarding pillars defined with match:grain. It seems pillars are defined but not usable. 
+I'm not sure if it is a bug, or a side-effect of the limitations of salt-ssh with minions targeting
+
+### Setup
+/etc/salt/roster : 
+```
+test:
+  host: 10.0.0.1
+  priv: agent-forwarding
+  grains:
+    roles:
+      - apache
+```
+
+/srv/pillar/top.sls
+```
+base:
+  'roles:apache':
+    - match: grain
+    - certs/certbot
+```
+/srv/pillar/certs/certbot.sls
+```
+certs:
+  certbot:
+    - {{ grains['fqdn'] }}
+```
+
+When checking our pillar, we get : 
+```
+$ salt-ssh 'test' grains.get roles
+test:
+    - apache
+
+$ salt-ssh 'test' pillar.items
+test:
+    ----------
+```
+This seems to confirm that grain matching does not work. If I use match:list, or globing, everything works fine. 
+
+However, what puzzles me happens when running a highstate: 
+/srv/salt/top.sls
+```
+base:
+  'certs:certbot':
+    - match: pillar
+    - states/ssl/certs
+
+  'roles:apache':
+    - match: grain
+    - states/apache2
+```
+```
+$ salt-ssh 'test' state.apply test=True
+test:
+[...]
+    - Rendering SLS 'base:states/ssl/certs' failed: Jinja error: 'Pillar key not found: certs'
+[...]
+      {% if pillar['certs'] is defined %}
+      {% if 'certbot' in salt['pillar.keys']('certs') %}    <======================
+```
+The state is run, meaning the pillar exists. But the state can't find it. 
+And if I comment out the lines about certs:certbot, the state for apache2 is run, meaning the gain match here. 
+
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+
+### Versions Report
+```
+$ salt-ssh --versions-report
+Salt Version:
+           Salt: 2016.11.2
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Jun 29 2016, 13:08:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: Not Installed
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: Not Installed
+
+System Versions:
+           dist: debian 8.7
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.7
+```

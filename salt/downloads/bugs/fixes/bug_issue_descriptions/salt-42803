@@ -1,0 +1,260 @@
+### Description of Issue/Question
+We run four masters with the 'str' master type for HA. Over the course of several days, some of the minion's parent process will die, leaving only the child minion alive. I've not been able to track down why, if the first minion in the list becomes 'unavailable', the minion doesn't simply reconnect to one of the other masters. The only recourse is to restart the minion, by killing the, now orphaned, child minion process and starting the minion again. The use of kill is necessary because the init.d script doesn't stop the minion child process since the parent is dead.
+
+This is the only thing in the logs that I can find:
+
+`2017-08-04 15:04:11,176 [salt.minion                                                      ][ERROR   ][5151] ** Master Ping failed. Attempting to restart minion**`
+
+The parent minion process dies immediately after this message appears.
+
+After enabling debug log level, i see the following:
+
+```
+2017-08-08 10:58:15,424 [salt.transport.zeromq                                ][DEBUG   ][8503] SaltReqTimeoutError, retrying. (1/3)
+2017-08-08 10:59:15,462 [salt.transport.zeromq                                ][DEBUG   ][8503] SaltReqTimeoutError, retrying. (2/3)
+2017-08-08 11:00:15,479 [salt.transport.zeromq                                ][DEBUG   ][8503] SaltReqTimeoutError, retrying. (3/3)
+2017-08-08 11:01:15,551 [salt.minion                                          ][INFO    ][8503] fire_master failed: master could not be contacted. Request timed out.
+2017-08-08 11:01:15,551 [salt.minion                                          ][ERROR   ][8503] ** Master Ping failed. Attempting to restart minion**
+2017-08-08 11:01:15,551 [salt.minion                                          ][INFO    ][8503] delaying random_reauth_delay 30s
+```
+At this point the parent minion process has died.
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+Minion configuration:
+```
+sudo egrep -v "^$|^#" /etc/salt/minion
+master:
+    - nacl1
+    - nacl2
+    - nacl3
+    - nacl4
+random_master: True
+master_shuffle: True
+master_type: str
+retry_dns: 0
+master_port: 4506
+user: root
+cachedir: /var/cache/salt/minion
+output: nested
+color: False
+backup_mode: minion
+acceptance_wait_time: 60
+random_reauth_delay: 30
+auth_safemode: False
+auth_tries: 10
+master_tries: -1
+restart_on_error: True
+ping_interval: 5
+grains_refresh_every: 10
+master_alive_interval: 60
+renderer: yaml_jinja
+failhard: True
+state_top: top.sls
+file_client: remote
+hash_type: sha256
+open_mode: False
+permissive_pki_access: False
+state_output_diff: True
+log_file: /var/log/salt/minion
+key_logfile: /var/log/salt/key
+log_level: warning
+log_level_logfile: debug
+log_datefmt: '%H:%M:%S %H:%M:%S'
+log_datefmt_logfile: '%Y-%m-%d %H:%M:%S'
+return: ns_logstash
+zmq_monitor: False
+master_failback: True
+master_failback_interval: 60
+mine_enabled: True
+mine_interval: 60
+ipv6: False
+
+```
+
+Master Configuration:
+
+```
+sudo egrep -v "^$|^#" /etc/salt/master
+default_include: master.d/*.conf
+interface: 10.XX.YY.ZZ
+ipv6: False
+publish_port: 4505
+user: root
+ret_port: 4506
+cachedir: /data/servers/salt/cache
+keep_jobs: 24
+timeout: 30
+output: json
+show_timeout: True
+color: False
+strip_colors: True
+job_cache: True
+minion_data_cache: True
+ping_on_rotate: True
+worker_threads: 100
+auto_accept: True
+file_recv: False
+state_top: top.sls
+renderer: yaml_jinja
+state_verbose: True
+state_output: changes
+file_roots:
+   production:
+      - /data/servers/salt/roots/production/salt_grains
+      - /data/servers/salt/roots/production/salt_firstboot/states
+      - /data/servers/salt/roots/production/salt_states/states
+      - /data/servers/salt/roots/production/protected_salt_states/states
+      - /data/servers/salt/roots/master/configuration_data/
+   pre-production:
+      - /data/servers/salt/roots/pre-production/salt_grains
+      - /data/servers/salt/roots/pre-production/salt_firstboot/states
+      - /data/servers/salt/roots/pre-production/salt_states/states
+      - /data/servers/salt/roots/pre-production/protected_salt_states/states
+      - /data/servers/salt/roots/master/configuration_data/
+   base:
+      - /data/servers/salt/roots/production/salt_grains
+      - /data/servers/salt/roots/production/salt_firstboot/states
+      - /data/servers/salt/roots/production/salt_states/states
+      - /data/servers/salt/roots/production/protected_salt_states/states
+      - /data/servers/salt/roots/master/configuration_data/
+hash_type: sha256
+pillar_roots:
+   production:
+      - /data/servers/salt/roots/production/salt_pillars/pillars
+      - /data/servers/salt/roots/production/protected_salt_pillars/pillars
+   pre-production:
+      - /data/servers/salt/roots/pre-production/salt_pillars/pillars
+      - /data/servers/salt/roots/pre-production/protected_salt_pillars/pillars
+   base:
+      - /data/servers/salt/roots/production/salt_pillars/pillars
+      - /data/servers/salt/roots/production/protected_salt_pillars/pillars
+extension_modules: /data/servers/salt/roots/production/salt_pillars/external
+ext_pillar:
+   - database_information: True
+   - envchecker:
+      envcheckerfile: /data/servers/salt/roots/master/configuration_data/envchecker/envchecker.json
+   - cfd_zonedata: True
+order_masters: True
+syndic_master_port: 4506
+syndic_log_file: /var/log/salt/syndic.log
+log_file: /var/log/salt/master
+key_logfile: /var/log/salt/key
+log_level: warning
+log_level_logfile: warning
+log_datefmt: '%H:%M:%S %H:%M:%S'
+log_datefmt_logfile: '%Y-%m-%d %H:%M:%S'
+reactor:
+   - 'minion_start':
+      - /data/servers/salt/roots/master/salt_reactors/sync_grains.sls
+   - 'salt/presence/change':
+      - /data/servers/salt/roots/master/salt_reactors/new_minions.sls
+return: ns_logstash
+smtp.from: 'salt-master@nacl1'
+smtp.to:  john.zaitz@gmail.com
+smtp.host: localhost
+smtp.subject: '[Salt Master nacl1]'
+presence_events: True
+salt_event_pub_hwm: 128000
+event_publisher_pub_hwm: 64000
+pillar_cache: True
+pillar_cache_ttl: 3600
+pillar_cache_backend: disk
+
+```
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+
+The only way i've been able to reproduce the problem is by adding a iptables DROP rule for the first master in the list of masters.
+
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+Masters:
+```
+Salt Version:
+           Salt: 2016.11.6
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.4.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8.1
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3c1
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 01:49:05)
+   python-gnupg: 0.3.6
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: redhat 6.6 Santiago
+        machine: x86_64
+        release: 2.6.32-504.8.1.el6.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 6.6 Santiago
+```
+
+
+Minions:
+```
+
+Salt Version:
+           Salt: 2016.11.6
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.4.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8.1
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3c1
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.4.3
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 01:49:05)
+   python-gnupg: 0.3.6
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: redhat 6.6 Santiago
+        machine: x86_64
+        release: 2.6.32-504.8.1.el6.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 6.6 Santiago
+
+```

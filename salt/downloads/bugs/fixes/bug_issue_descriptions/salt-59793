@@ -1,0 +1,113 @@
+**Description**
+While executing a custom module from `salt://_modules/<module>.py`, using `__salt__["cmd.run"]` with version `3002.5` , received the following Traceback:
+
+```python
+<minion_id>:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python3/dist-packages/salt/minion.py", line 1890, in _thread_return
+        function_name, function_args, executors, opts, data
+      File "/usr/lib/python3/dist-packages/salt/minion.py", line 1846, in _execute_job_function
+        return_data = self.executors[fname](opts, data, func, args, kwargs)
+      File "/usr/lib/python3/dist-packages/salt/executors/direct_call.py", line 12, in execute
+        return func(*args, **kwargs)
+      File "/var/cache/salt/minion/extmods/modules/covariant.py", line 51, in init_data_disk
+        __salt__["partition.mklabel"](device=target_drive, label_type="gpt")  # noqa: F821
+      File "/usr/lib/python3/dist-packages/salt/modules/parted_partition.py", line 495, in mklabel
+        out = __salt__["cmd.run"](cmd, python_shell=False).splitlines()
+      File "/usr/lib/python3/dist-packages/salt/modules/cmdmod.py", line 1201, in run
+        **kwargs
+      File "/usr/lib/python3/dist-packages/salt/modules/cmdmod.py", line 401, in _run
+        _log_cmd(cmd),
+      File "/usr/lib/python3/dist-packages/salt/modules/cmdmod.py", line 82, in _log_cmd
+        return cmd.split()[0].strip()
+    AttributeError: 'tuple' object has no attribute 'split'
+ERROR: Minions returned with non-zero exit code
+```
+
+**Setup**
+(Please provide relevant configs and/or SLS files (be sure to remove sensitive info).
+
+**Steps to Reproduce the behavior**
+(Include debug logs if possible and relevant)
+
+**Expected behavior**
+A clear and concise description of what you expected to happen.
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+We are running 3002.5 on this minion, it is unclear to me why ` $ salt --versions-report` show 2018.3.4. `salt-minion.service` has been restarted.
+
+```
+$ salt --versions-report
+Salt Version:
+           Salt: 2018.3.4
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.27.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.17 (default, Feb 27 2021, 15:10:58)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: ISO-8859-1
+        machine: x86_64
+        release: 4.15.0-112-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+
+
+$ salt-minion --version
+salt-minion 3002.5
+
+$ pip3 show salt
+Name: salt
+Version: 3002.5
+Summary: Portable, distributed, remote execution and configuration management system
+Home-page: http://saltstack.org
+Author: Thomas S Hatch
+Author-email: thatch45@gmail.com
+License: Apache Software License 2.0
+Location: /usr/lib/python3/dist-packages
+Requires:
+```
+</details>
+
+**Additional context**
+Seems the easy fix is just to add a check see if the object is either a `tuple` or a `list`:
+
+```python
+def _log_cmd(cmd):
+    if not isinstance(cmd, (tuple,list)):
+        return cmd.split()[0].strip()
+    return cmd[0].strip()
+```

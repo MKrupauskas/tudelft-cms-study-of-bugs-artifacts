@@ -1,0 +1,134 @@
+### Description of Issue/Question
+
+This issue is subtle. It causes execution modules to behave differently when called by sls files and on the command line. I found it while supporting my salt module for ceph. I will submit a different bug for that instance. That said I will use the same example for this and the specific bug.
+### Setup
+
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+Assuming you have an execution module that looks like:
+
+```
+def test(dev=None, **kwargs):
+    return kwargs.get("dev")
+```
+
+When called by the command line this works:
+
+```
+ salt '*' ceph.zap  dev=/dev/vdb 
+```
+
+or like this:
+
+```
+salt '*' ceph.zap  /dev/vdb 
+```
+
+but if called like this:
+
+```
+zap_vdb:
+    module.run:
+     - name: ceph_cfg.zap
+     - kwargs: {
+         dev: /dev/vdb
+         }
+```
+
+it produces the following exception:
+
+```
+  2016-08-25 09:20:15,269 [salt.state       ][ERROR   ][32378] Module function ceph_cfg.zap threw an exception. Exception: zap() got multiple values for keyword argument 'dev'
+```
+### Steps to Reproduce Issue
+
+(Include debug logs if possible and relevant.)
+
+you can reproduce this simply by making a prototype execution:
+
+```
+mkdir /srv/salt/_modules/break_test/
+cat << EOF > /srv/salt/_modules/break_test/__init__.py
+# Import Python Libs
+from __future__ import absolute_import
+import logging
+
+
+log = logging.getLogger(__name__)
+
+__virtualname__ = 'break_test'
+def __virtual__():
+    return __virtualname__
+
+
+def test(dev=None, **kwargs):
+    log.error("ran ok")
+    log.error(kwargs)
+    return kwargs.get("dev")
+
+EOF
+salt "*osceph*"  saltutil.sync_all 
+
+cat << EOF > /srv/salt/demo.sls
+break_exception:
+   module.run:
+    - name: break_test.test
+    - kwargs: {
+        dev: /dev/vdb
+        }
+EOF
+salt "*osceph*" state.sls demo
+```
+### Versions Report
+
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+Salt Version:
+           Salt: 2015.8.10
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: Not Installed
+           Mako: 1.0.1
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+         Python: 2.7.12 (default, Jul 01 2016, 15:34:22) [GCC]
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.5
+           cffi: 1.6.0
+       cherrypy: 3.6.0
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: 0.22.0
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.5
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.22.0
+   python-gnupg: 0.3.8
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: SuSE 42.1 x86_64
+        machine: x86_64
+        release: 4.1.27-27-default
+         system: openSUSE  42.1 x86_64
+
+Minion:
+# rpm -qa | grep salt
+
+salt-2015.8.10-76.1.x86_64
+salt-minion-2015.8.10-76.1.x86_64
+
+Master
+# rpm -qa | grep salt
+
+salt-master-2015.8.10-76.8.x86_64
+salt-2015.8.10-76.8.x86_64
+salt-minion-2015.8.10-76.8.x86_64

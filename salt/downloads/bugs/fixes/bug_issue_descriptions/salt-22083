@@ -1,0 +1,64 @@
+I currently have a cron script to automatically update salt-minion on all of my servers
+
+```
+0 */12 * * * apt-get -y install salt-minion
+```
+
+After it installed an update on the PPA 9 days ago, states start failing with
+
+```
+    Data failed to compile:
+----------
+    The function "state.highstate" is running as PID 11360 and was started at 2015, Mar 27 15:34:58.333159 with jid 20150327153458333159
+```
+
+and the following errors appear on the minion logs
+
+```
+2015-03-27 09:35:54,594 [salt.state       ][ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1531, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/states/service.py", line 282, in running
+    if not _available(name, ret):
+  File "/usr/lib/python2.7/dist-packages/salt/states/service.py", line 248, in _available
+    avail = __salt__['service.available'](name)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/upstart.py", line 279, in available
+    return name in get_all()
+  File "/usr/lib/python2.7/dist-packages/salt/modules/upstart.py", line 307, in get_all
+    return sorted(get_enabled() + get_disabled())
+  File "/usr/lib/python2.7/dist-packages/salt/modules/upstart.py", line 241, in get_enabled
+    if _sysv_is_enabled(name):
+  File "/usr/lib/python2.7/dist-packages/salt/modules/upstart.py", line 204, in _sysv_is_enabled
+    return not _sysv_is_disabled(name)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/upstart.py", line 196, in _sysv_is_disabled
+    return not bool(glob.glob('/etc/rc{0}.d/S*{1}'.format(_runlevel(), name)))
+  File "/usr/lib/python2.7/dist-packages/salt/modules/upstart.py", line 136, in _runlevel
+    out = __salt__['cmd.run'](['runlevel', '{0}'.format(_find_utmp())], python_shell=False)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/cmdmod.py", line 616, in run
+    use_vt=use_vt)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/cmdmod.py", line 371, in _run
+    .format(cmd, kwargs, exc)
+CommandExecutionError: Unable to run command ['runlevel', '/run/utmp'] with the context {'with_communicate': True, 'shell': False, 'env': {'LANG': 'en_US.UTF-8', 'LC_ALL': 'C', 'SHELL': '/bin/sh', 'PWD': '/root', 'LOGNAME': 'root', 'HOME': '/root', 'PATH': '/usr/bin:/bin'}, 'stdout': -1, 'close_fds': True, 'stdin': None, 'stderr': -2, 'cwd': '/root'}, reason: [Errno 2] No such file or directory
+```
+
+Additional signs include:
+
+In the salt-master log:
+
+```
+An extra return was detected from minion XXXX, please verify the minion, this could be a replay attack
+```
+
+Minions also cannot run commands using cmd.run, and will usually result in something like below
+
+```
+xxxx:
+    /bin/sh: 1: reboot: not found
+```
+
+Tried the following:
+1. Stopping Minion, deleting the cache and starting minion
+2. Re-adding the keys using salt-minion
+3. Stopping Minion and killing all other salt-minion processes (After stopping, a few remained and failed to stop each time)
+
+Ultimately, the only thing that worked was restarting the entire server (salt-minion)

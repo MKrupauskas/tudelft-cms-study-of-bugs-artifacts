@@ -1,0 +1,92 @@
+**Description**
+The `svn.latest` state correctly uses the `trust_failures` option when running with `test=False`, but fails when running with `test=True`.
+
+**Setup**
+```
+https://svn.example.com/path/to/repo/:
+  svn.latest:
+    - target: /path/to/working-copy
+    - trust_failures: unknown-ca,cn-mismatch,expired
+```
+
+**Steps to Reproduce the behavior**
+- Save the SLS listed above as /srv/salt/test/svn.sls and make it point to a repository on a server that uses an invalid TLS certificate (e.g. an expired one or one that is not signed by a trusted CA).
+- Run `salt myhost.example.com state.apply svn.test test=False`. The working copy is going to be checked out correctly (assuming that the URL of an accessible repository has been specified), even though the server certificate is invalid.
+- Run `salt myhost.example.com state.apply svn.test test=True`. This will fail with the following error:
+
+```
+          ID: https://svn.example.com/path/to/repo/
+    Function: svn.latest
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/salt/state.py", line 2153, in call
+                  ret = self.states[cdata["full"]](
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2087, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/states/svn.py", line 147, in latest
+                  out = __salt__[svn_cmd](cwd, target, user, username, password, *opts)
+                File "/usr/lib/python3/dist-packages/salt/modules/svn.py", line 270, in diff
+                  return _run_svn("diff", cwd, user, username, password, opts)
+                File "/usr/lib/python3/dist-packages/salt/modules/svn.py", line 74, in _run_svn
+                  raise CommandExecutionError(result["stderr"] + "\n\n" + " ".join(cmd))
+              salt.exceptions.CommandExecutionError: svn: E170013: Unable to connect to a repository at URL 'https://svn.example.com/path/to/repo/'
+              svn: E230001: Server SSL certificate verification failed: issuer is not trusted
+              
+              svn --non-interactive diff -r 10:HEAD /path/to/working-copy
+     Started: 21:26:42.579356
+    Duration: 180.997 ms
+     Changes:   
+```
+
+**Expected behavior**
+The `svn.latest` state should honor the `trust_failures` option, even when running in test mode.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 3002.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: 3.4.7
+         pygit2: Not Installed
+         Python: 3.6.9 (default, Apr 18 2020, 01:56:04)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 17.1.2
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist: ubuntu 18.04 Bionic Beaver
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-99-generic
+         system: Linux
+        version: Ubuntu 18.04 Bionic Beaver
+```
+</details>
+
+**Additional context**
+I found out that this bug is caused by `svn.latest` using `svn.info` from the `svn` execution module without passing the appropriate options. When running with `test=False`, `svn.latest` ignores any error when calling `svn.info` and simply continues with calling `svn.checkout` with the right options (thus not resulting in an error). However, when running with `test=True`, an error when calling `svn.info` is fatal.
+
+I am going to try implementing a fix for this bug (by passing the correct options to `svn.info`) and submit a PR with that bugfix.

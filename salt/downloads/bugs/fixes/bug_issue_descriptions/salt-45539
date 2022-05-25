@@ -1,0 +1,327 @@
+### Description of Issue/Question
+
+When attempting to use boto3_route53.rr_present it currently isn't possible to create an A record for the APEX of a zone pointing to an AliasTarget such as an ELB.
+
+The state tries to iterate through the ResourceRecords passed in to do all sorts of magic things with EC2 instances etc. and perform a lookup on ResourceRecords, however when making A records in this manner you don't need to supply any ResourceRecords according to the boto3 API documentation.
+
+My current workaround is to simply do null checking around ResourceRecords in a few places to skip over the validation & remove the param if it's empty when talking to the AWS API
+
+Given also that you can't really create AliasTarget entries without additional information from AWS like HostedZoneId & CanonicalDNSName etc. from ELB's or other resources (like CF or S3) I'm wondering whether there should be some additional features in the state (or modules) to fetch that information at runtime rather than having it statically present in the sls.
+
+I've written modules & states to wrap various bits of the boto_* functionality in salt thus far because statically defining Id's etc. in a pillar just seems unnatural when you can use the API to get that information from the names - an important bit if you are frequently destroying the AWS resources and recreating them and all their internal Id's are changing.
+
+Should the modules / states be a little more feature rich in the way that they handle such things?
+
+For instance states/boto_elb.py supports cname attributes, but this only works for creating route53 cname entries, should it be modified to support other dns record types too?
+
+I digress ...
+
+Should I make a PR for this?
+
+### Setup
+
+Unfortunately you can't just call the state as is based on names of things, you have to fetch id's etc. so bear with me:
+
+the sls:
+```
+elb APEX fake.news.domain:
+    boto_helper.route53_elb_apex_present:
+        - name: fake.news.domain
+        - DomainName: fake.news.domain.
+        - ELBName: my-awesome-elb
+        - keyid: xxx
+        - key: xxx
+        - region: us-west-1
+```
+
+a custom state which backs the sls:
+```
+#!/usr/bin/env python
+
+from exceptions import IndexError
+import logging
+from salt.exceptions import SaltInvocationError
+import traceback
+from boto.ec2 import elb
+
+log = logging.getLogger(__name__)
+
+def __get_elb_zone_id(name):
+    ELB = elb.connect_to_region(os.environ.get('AWS_DEFAULT_REGION'))
+    res = ELB.get_all_load_balancers(load_balancer_names=[name])
+    return res[0].canonical_hosted_zone_name_id
+
+# a wrapper which will create an APEX record based upon an ELBName
+def route53_elb_apex_present(name, DomainName=None, Name=None, ELBName=None, key=None, keyid=None, region=None):
+    try:
+        if not __salt__['boto_elb.exists'](ELBName,region=region,key=key,keyid=keyid):
+            return {
+                'name': name,
+                'changes': {},
+                'result': False,
+                'comment': 'ELB %s not present' % (ELBName)
+            }
+        DNSName = __salt__['boto_elb.get_elb_config'](ELBName,region=region,key=key,keyid=keyid)['dns_name']
+        ZoneId = __get_elb_zone_id(ELBName)
+        AliasTarget = {
+            'DNSName': DNSName,
+            'HostedZoneId': ZoneId,
+            'EvaluateTargetHealth': False
+        }
+        return __states__['boto3_route53.rr_present'](name, DomainName=DomainName, Name=name, Type='A', AliasTarget=AliasTarget, region=region, key=key, keyid=keyid)
+    except Exception as e:
+        return {
+            'name': name,
+            'changes': {},
+            'result': False,
+            'comment': '%s' % (traceback.format_exc())
+        }
+
+```
+
+A patch for `states/boto3_route53.py`
+```
+--- boto3_route53.py	2018-01-18 16:35:47.000000000 +1100
++++ lib/python2.7/site-packages/salt/states/boto3_route53.py	2018-01-18 16:41:13.000000000 +1100
+@@ -595,54 +595,55 @@
+ 
+     # Convert any magic RR values to something AWS will understand, and otherwise clean them up.
+     fixed_rrs = []
+-    for rr in ResourceRecords:
+-        if rr.startswith('magic:'):
+-            fields = rr.split(':')
+-            if fields[1] == 'ec2_instance_tag':
+-                if len(fields) != 5:
+-                    log.warning("Invalid magic RR value seen: '{}'.  Passing as-is.".format(rr))
+-                    fixed_rrs += [rr]
+-                    continue
+-                tag_name = fields[2]
+-                tag_value = fields[3]
+-                instance_attr = fields[4]
+-                good_states = ('pending', 'rebooting', 'running', 'stopping', 'stopped')
+-                r = __salt__['boto_ec2.find_instances'](
+-                        tags={tag_name: tag_value}, return_objs=True, in_states=good_states,
+-                        region=region, key=key, keyid=keyid, profile=profile)
+-                if len(r) < 1:
+-                    ret['comment'] = 'No EC2 instance with tag {} == {} found'.format(tag_name,
+-                            tag_value)
+-                    log.error(ret['comment'])
+-                    ret['result'] = False
+-                    return ret
+-                if len(r) > 1:
+-                    ret['comment'] = 'Multiple EC2 instances with tag {} == {} found'.format(
+-                            tag_name, tag_value)
+-                    log.error(ret['comment'])
+-                    ret['result'] = False
+-                    return ret
+-                instance = r[0]
+-                res = getattr(instance, instance_attr, None)
+-                if res:
+-                    log.debug('Found {} {} for instance {}'.format(instance_attr, res, instance.id))
+-                    fixed_rrs += [_to_aws_encoding(res)]
++    if ResourceRecords:
++        for rr in ResourceRecords:
++            if rr.startswith('magic:'):
++                fields = rr.split(':')
++                if fields[1] == 'ec2_instance_tag':
++                    if len(fields) != 5:
++                        log.warning("Invalid magic RR value seen: '{}'.  Passing as-is.".format(rr))
++                        fixed_rrs += [rr]
++                        continue
++                    tag_name = fields[2]
++                    tag_value = fields[3]
++                    instance_attr = fields[4]
++                    good_states = ('pending', 'rebooting', 'running', 'stopping', 'stopped')
++                    r = __salt__['boto_ec2.find_instances'](
++                            tags={tag_name: tag_value}, return_objs=True, in_states=good_states,
++                            region=region, key=key, keyid=keyid, profile=profile)
++                    if len(r) < 1:
++                        ret['comment'] = 'No EC2 instance with tag {} == {} found'.format(tag_name,
++                                tag_value)
++                        log.error(ret['comment'])
++                        ret['result'] = False
++                        return ret
++                    if len(r) > 1:
++                        ret['comment'] = 'Multiple EC2 instances with tag {} == {} found'.format(
++                                tag_name, tag_value)
++                        log.error(ret['comment'])
++                        ret['result'] = False
++                        return ret
++                    instance = r[0]
++                    res = getattr(instance, instance_attr, None)
++                    if res:
++                        log.debug('Found {} {} for instance {}'.format(instance_attr, res, instance.id))
++                        fixed_rrs += [_to_aws_encoding(res)]
++                    else:
++                        ret['comment'] = 'Attribute {} not found on instance {}'.format(instance_attr,
++                                instance.id)
++                        log.error(ret['comment'])
++                        ret['result'] = False
++                        return ret
+                 else:
+-                    ret['comment'] = 'Attribute {} not found on instance {}'.format(instance_attr,
+-                            instance.id)
++                    ret['comment'] = ('Unknown RR magic value seen: {}.  Please extend the '
++                                      'boto3_route53 state module to add support for your preferred '
++                                      'incantation.'.format(fields[1]))
+                     log.error(ret['comment'])
+                     ret['result'] = False
+                     return ret
+             else:
+-                ret['comment'] = ('Unknown RR magic value seen: {}.  Please extend the '
+-                                  'boto3_route53 state module to add support for your preferred '
+-                                  'incantation.'.format(fields[1]))
+-                log.error(ret['comment'])
+-                ret['result'] = False
+-                return ret
+-        else:
+-            fixed_rrs += [rr]
+-    ResourceRecords = [{'Value': rr} for rr in sorted(fixed_rrs)]
++                fixed_rrs += [rr]
++        ResourceRecords = [{'Value': rr} for rr in sorted(fixed_rrs)]
+ 
+     recordsets = __salt__['boto3_route53.get_resource_records'](HostedZoneId=HostedZoneId,
+             StartRecordName=Name, StartRecordType=Type, region=region, key=key, keyid=keyid,
+@@ -691,9 +692,10 @@
+             return ret
+         ResourceRecordSet = {
+             'Name': Name,
+-            'Type': Type,
+-            'ResourceRecords': ResourceRecords
++            'Type': Type
+         }
++        if ResourceRecords:
++            ResourceRecordSet['ResourceRecords'] = ResourceRecords
+         for u in updatable:
+             ResourceRecordSet.update({u: locals().get(u)}) if locals().get(u) else None
+ 
+
+```
+
+### Steps to Reproduce Issue
+
+Run the state without the patch & you end up with:
+```
+----------
+          ID: elb APEX fake.news.domain
+    Function: boto_helper.route53_elb_apex_present
+        Name: fake.news.domain
+      Result: False
+     Comment: Traceback (most recent call last):
+                File "var/cache/salt/minion/extmods/states/boto_helper.py", line 27, in route53_elb_apex_present
+                  return __states__['boto3_route53.rr_present'](name, DomainName=DomainName, Name=name, Type='A', AliasTarget=AliasTarget, region=region, key=key, keyid=keyid)
+                File "lib/python2.7/site-packages/salt/loader.py", line 1795, in wrapper
+                  return f(*args, **kwargs)
+                File "lib/python2.7/site-packages/salt/states/boto3_route53.py", line 598, in rr_present
+                  for rr in ResourceRecords:
+              TypeError: 'NoneType' object is not iterable
+     Started: 08:54:52.413520
+    Duration: 3059.639 ms
+     Changes:  
+```
+
+If you pass in an empty array for ResourceRecords then you get:
+```
+----------
+          ID: elb APEX fake.news.domain
+    Function: boto_helper.route53_elb_apex_present
+        Name: fake.news.domain
+      Result: False
+     Comment: Traceback (most recent call last):
+                File "var/cache/salt/minion/extmods/states/boto_helper.py", line 27, in route53_elb_apex_present
+                  return __states__['boto3_route53.rr_present'](name, DomainName=DomainName, Name=name, Type='A', ResourceRecords=[], AliasTarget=AliasTarget, region=region, key=key, keyid=keyid)
+                File "lib/python2.7/site-packages/salt/loader.py", line 1795, in wrapper
+                  return f(*args, **kwargs)
+                File "lib/python2.7/site-packages/salt/states/boto3_route53.py", line 710, in rr_present
+                  ChangeBatch=ChangeBatch, region=region, key=key, keyid=keyid, profile=profile):
+                File "lib/python2.7/site-packages/salt/modules/boto3_route53.py", line 874, in change_resource_record_sets
+                  r = conn.change_resource_record_sets(**args)
+                File "lib/python2.7/site-packages/botocore/client.py", line 253, in _api_call
+                  return self._make_api_call(operation_name, kwargs)
+                File "lib/python2.7/site-packages/botocore/client.py", line 517, in _make_api_call
+                  api_params, operation_model, context=request_context)
+                File "lib/python2.7/site-packages/botocore/client.py", line 572, in _convert_to_request_dict
+                  api_params, operation_model)
+                File "lib/python2.7/site-packages/botocore/validate.py", line 270, in serialize_to_request
+                  raise ParamValidationError(report=report.generate_report())
+              ParamValidationError: Parameter validation failed:
+              Invalid length for parameter ChangeBatch.Changes[0].ResourceRecordSet.ResourceRecords, value: 0, valid range: 1-inf
+     Started: 08:57:53.010910
+    Duration: 3995.244 ms
+     Changes:  
+```
+
+If you patch the state to protect around ResourceRecord validation etc. then you can get it work successfully:
+```
+----------
+          ID: elb APEX fake.news.domain
+    Function: boto_helper.route53_elb_apex_present
+        Name: livetutors.com.au
+      Result: True
+     Comment: Route 53 resource record livetutors.com.au with type A created.
+     Started: 09:03:02.059908
+    Duration: 90931.247 ms
+     Changes:   
+              ----------
+              new:
+                  ----------
+                  AliasTarget:
+                      ----------
+                      DNSName:
+                          my-awesome-elb.us-west-1.elb.amazonaws.com
+                      EvaluateTargetHealth:
+                          False
+                      HostedZoneId:
+                          xxxxx
+                  Name:
+                      fake.news.domain
+                  Type:
+                      A
+              old:
+                  None
+```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: 1.8.3
+       cherrypy: Not Installed
+       dateutil: 2.6.0
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.1
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.10 (default, Jul 15 2017, 17:16:57)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.3
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.6
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: x86_64
+        release: 17.3.0
+         system: Darwin
+        version: 10.13.2 x86_64
+```

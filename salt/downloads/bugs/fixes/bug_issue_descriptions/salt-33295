@@ -1,0 +1,91 @@
+### Description of Issue/Question
+
+The service.running state fails on Linux Mint, with `KeyError: 'service.enabled'`. For current versions of Mint, the os and os_family grains are both set to 'LinuxMint' by default. Manually setting them in /etc/salt/grains to "Mint" and "Debian" respectively (which I believe were the old defaults) corrects the behavior. Grepping the modules directory suggests that upstart.py contains the module that should be used, but it is checking the OS grain for 'Mint' as opposed to 'LinuxMint'.
+
+(A similar failed grain lookup seems to break several saltstack formulas, FYI -- so far I've had trouble with ntp-formula and salt-formula)
+### Setup
+
+A simple state can reproduce the behavior:
+
+```
+test-service:
+  service.running:
+    - name: ssh
+```
+### Steps to Reproduce Issue
+
+Use bootstrap to install on a Mint 17.3 box.
+Run the state above and get this:
+
+```
+[INFO    ] Completed state [ssh] at time 22:06:57.799060
+local:
+----------
+          ID: testsvc
+    Function: service.running
+        Name: ssh
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1626, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1492, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/service.py", line 296, in running
+                  before_toggle_enable_status = __salt__['service.enabled'](name)
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 900, in __getitem__
+                  func = super(LazyLoader, self).__getitem__(item)
+                File "/usr/lib/python2.7/dist-packages/salt/utils/lazy.py", line 93, in __getitem__
+                  raise KeyError(key)
+              KeyError: 'service.enabled'
+     Started: 22:06:57.438366
+    Duration: 360.694 ms
+     Changes:   
+```
+### Workaround
+
+Applying the old(?) grains in /etc/salt/grains makes things work again:
+
+```
+os_family: Debian
+os: Mint
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.8  # NOTE: minion is 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+         Python: 2.7.11+ (default, Apr 17 2016, 14:00:29)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: 0.3.8
+          smmap: 0.9.0
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-22-generic
+         system: Ubuntu 16.04 xenial
+```

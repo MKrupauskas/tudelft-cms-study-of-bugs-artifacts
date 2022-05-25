@@ -1,0 +1,45 @@
+### Description of Issue/Question
+
+ In the documentation for sdb modules (https://docs.saltstack.com/en/latest/topics/sdb/), it indicates one should be able to able to make a call such as: 
+
+salt-call sdb.get 'sdb://myvault/secret/salt?saltstack'
+
+however, this appears to be broken. I discovered this while attempting to build my own sdb provider, and started looking at the values passed in for the 'key' for both the get and set methods. If i pass a path like this: 
+
+salt 'myminion' sdb.get 'sdb://myprofile/key1?value1'
+
+it works, and the passed in key received has a value of 
+key1?value1. 
+
+However if i make a call like this: 
+
+salt 'myminion' sdb.get 'sdb://myprofile/key1/key2/key3?value1'
+
+i only get 'key1' as the value. 
+
+I believe the reason for this is due to the code in utils/sdb.py: 
+
+__comps = uri.replace('sdb://', '').split('/')
+
+```
+if len(comps) < 2:
+    return uri
+
+profile = opts.get(comps[0], {})
+if 'driver' not in profile:
+    return uri
+
+fun = '{0}.get'.format(profile['driver'])
+query = comps[1]
+
+loaded_db = salt.loader.sdb(opts, fun)
+return loaded_db[fun](query, profile=profile)__
+```
+
+as you can see, the query variable is populated with only comps[1], not the rest of the path. We should only split after the first '/' element and keep the rest as is (doing a substring?) 
+### Steps to Reproduce Issue
+
+Should be able to easily reproduce with any sdb that takes in a multi-component path. 
+### Versions Report
+
+seems to affect all versions 

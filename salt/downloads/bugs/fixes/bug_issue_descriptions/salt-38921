@@ -1,0 +1,157 @@
+### Description of Issue/Question
+I have a very simple state that i'm try to run, shown below, i'm trying to downgrade permissions in mysql_grants.present state.  This is actually part of a much larger system, but have paired it down to a single state.  The problem seems to be that the revoke code never gets called and if there are other errors they are either not being logged or i'm blind (i'll accept the latter)
+
+It seems that i can repro this on a database based permission like test.*, but i'll comment on this question as its getting pretty long.
+
+BTW, been using salt for years....great product and thanks in advance for the extra pair of eyes.
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+while this uses pillar data that is shown to be correct in the debug logs the simplest version is 
+```
+sudo mkdir -p /srv/salt/
+// add state you see below
+sudo vim /srv/salt/mysql.sls 
+sudo salt-call --local state.sls mysql -l debug
+```
+### Steps to Reproduce Issue
+I've left my print statements in the debug log for more information.  I've added in the - name: "something here" it does not impact the result.
+```
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/mysql.sls:
+update_test_grant:
+  mysql_grants.present:
+    - grant: "INSERT, UPDATE, SELECT, DELETE"
+    - user: jeff
+    - database: "*.*"
+    - host: "10.1.%"
+    - grant_option: False
+    - revoke_first: True
+    - connection_user: root
+    - connection_host: localhost
+    - connection_pass: "root_password"
+
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('update_test_grant', OrderedDict([('mysql_grants.present', [OrderedDict([('grant', 'INSERT, UPDATE, SELECT, DELETE')]), OrderedDict([('user', 'jeff')]), OrderedDict([('database', '*.*')]), OrderedDict([('host', '10.1.%')]), OrderedDict([('grant_option', False)]), OrderedDict([('revoke_first', True)]), OrderedDict([('connection_user', 'root')]), OrderedDict([('connection_host', 'localhost')]), OrderedDict([('connection_pass', 'root_password')])])]))])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/mysql.sls' using 'yaml' renderer: 0.00517892837524
+[DEBUG   ] LazyLoaded mysql.grant_exists
+[DEBUG   ] LazyLoaded mysql_grants.present
+[INFO    ] Running state [update_test_grant] at time 18:18:12.893050
+[INFO    ] Executing state mysql_grants.present for update_test_grant
+[DEBUG   ] Grant Query generated: GRANT INSERT, UPDATE, SELECT, DELETE ON *.* TO %(user)s@%(host)s args {'host': '10.1.%', 'user': 'jeff'}
+[DEBUG   ] Doing query: SELECT column_name from information_schema.COLUMNS WHERE table_schema=%(schema)s and table_name=%(table)s and column_name=%(column)s args: {'column': 'Password', 'table': 'user', 'schema': 'mysql'}
+[DEBUG   ] Doing query: SELECT User,Host FROM mysql.user WHERE User = %(user)s AND Host = %(host)s args: {'host': '10.1.%', 'user': 'jeff'}
+[DEBUG   ] Doing query: SHOW GRANTS FOR %(user)s@%(host)s args: {'host': '10.1.%', 'user': 'jeff'}
+[DEBUG   ] ["GRANT ALL PRIVILEGES ON *.* TO 'jeff'@'10.1.%' WITH GRANT OPTION"]
+[DEBUG   ] _grant_to_tokens entry '{'qry': 'GRANT INSERT, UPDATE, SELECT, DELETE ON *.* TO %(user)s@%(host)s', 'args': {'host': '10.1.%', 'user': 'jeff'}}'
+[DEBUG   ] grant to token 'jeff'::'10.1.%'::'['INSERT', 'UPDATE', 'SELECT', 'DELETE']'::'*.*'
+[DEBUG   ] _grant_to_tokens entry 'GRANT ALL PRIVILEGES ON *.* TO 'jeff'@'10.1.%' WITH GRANT OPTION'
+[DEBUG   ] grant to token 'jeff'::'10.1.%'::'['ALL PRIVILEGES']'::'*.*'
+[DEBUG   ] grants mismatch '{'host': '10.1.%', 'database': '*.*', 'user': 'jeff', 'grant': ['ALL PRIVILEGES']}'<>'{'host': '10.1.%', 'database': '*.*', 'user': 'jeff', 'grant': ['INSERT', 'UPDATE', 'SELECT', 'DELETE']}'
+[DEBUG   ] Grant does not exist, or is perhaps not ordered properly?
+[DEBUG   ] LazyLoaded test.ping
+------  i'm in revoke_first ------
+[DEBUG   ] Doing query: SELECT column_name from information_schema.COLUMNS WHERE table_schema=%(schema)s and table_name=%(table)s and column_name=%(column)s args: {'column': 'Password', 'table': 'user', 'schema': 'mysql'}
+[DEBUG   ] Doing query: SELECT User,Host FROM mysql.user WHERE User = %(user)s AND Host = %(host)s args: {'host': '10.1.%', 'user': 'jeff'}
+[DEBUG   ] Doing query: SHOW GRANTS FOR %(user)s@%(host)s args: {'host': '10.1.%', 'user': 'jeff'}
+[DEBUG   ] ["GRANT ALL PRIVILEGES ON *.* TO 'jeff'@'10.1.%' WITH GRANT OPTION"]
+------ user_grant GRANT ALL PRIVILEGES ON *.* TO 'jeff'@'10.1.%' WITH GRANT OPTION ---------
+[DEBUG   ] _grant_to_tokens entry 'GRANT ALL PRIVILEGES ON *.* TO 'jeff'@'10.1.%' WITH GRANT OPTION'
+[DEBUG   ] grant to token 'jeff'::'10.1.%'::'['ALL PRIVILEGES']'::'*.*'
+------ my_table * ------
+------ BEFORE token_grants-db *.* my_db `*` ------
+[DEBUG   ] Grant Query generated: GRANT INSERT, UPDATE, SELECT, DELETE ON *.* TO %(user)s@%(host)s args {'host': '10.1.%', 'user': 'jeff'}
+[DEBUG   ] Doing query: GRANT INSERT, UPDATE, SELECT, DELETE ON *.* TO %(user)s@%(host)s args: {'host': '10.1.%', 'user': 'jeff'}
+[DEBUG   ] Grant Query generated: GRANT INSERT, UPDATE, SELECT, DELETE ON *.* TO %(user)s@%(host)s args {'host': '10.1.%', 'user': 'jeff'}
+[DEBUG   ] Doing query: SELECT column_name from information_schema.COLUMNS WHERE table_schema=%(schema)s and table_name=%(table)s and column_name=%(column)s args: {'column': 'Password', 'table': 'user', 'schema': 'mysql'}
+[DEBUG   ] Doing query: SELECT User,Host FROM mysql.user WHERE User = %(user)s AND Host = %(host)s args: {'host': '10.1.%', 'user': 'jeff'}
+[DEBUG   ] Doing query: SHOW GRANTS FOR %(user)s@%(host)s args: {'host': '10.1.%', 'user': 'jeff'}
+[DEBUG   ] ["GRANT ALL PRIVILEGES ON *.* TO 'jeff'@'10.1.%' WITH GRANT OPTION"]
+[DEBUG   ] _grant_to_tokens entry '{'qry': 'GRANT INSERT, UPDATE, SELECT, DELETE ON *.* TO %(user)s@%(host)s', 'args': {'host': '10.1.%', 'user': 'jeff'}}'
+[DEBUG   ] grant to token 'jeff'::'10.1.%'::'['INSERT', 'UPDATE', 'SELECT', 'DELETE']'::'*.*'
+[DEBUG   ] _grant_to_tokens entry 'GRANT ALL PRIVILEGES ON *.* TO 'jeff'@'10.1.%' WITH GRANT OPTION'
+[DEBUG   ] grant to token 'jeff'::'10.1.%'::'['ALL PRIVILEGES']'::'*.*'
+[DEBUG   ] grants mismatch '{'host': '10.1.%', 'database': '*.*', 'user': 'jeff', 'grant': ['ALL PRIVILEGES']}'<>'{'host': '10.1.%', 'database': '*.*', 'user': 'jeff', 'grant': ['INSERT', 'UPDATE', 'SELECT', 'DELETE']}'
+[DEBUG   ] Grant does not exist, or is perhaps not ordered properly?
+[INFO    ] Grant 'INSERT, UPDATE, SELECT, DELETE' on '*.*' for user 'jeff' has NOT been added
+[ERROR   ] Failed to execute: "GRANT INSERT, UPDATE, SELECT, DELETE ON *.* TO jeff@10.1.%"
+[INFO    ] Completed state [update_test_grant] at time 18:18:12.941146 duration_in_ms=48.096
+[DEBUG   ] File /var/cache/salt/minion/accumulator/139653393695184 does not exist, no need to cleanup.
+[DEBUG   ] LazyLoaded config.option
+[DEBUG   ] LazyLoaded highstate.output
+```
+
+Here is what i see as the offending piece of code in states/mysql_grants.py with numbers
+```
+162         print "------  i'm in revoke_first ------"
+163         print
+164         print⋅
+165         user_grants = __salt__['mysql.user_grants'](user, host, **connection_args)
+166         if not user_grants:
+167             user_grants = []
+168         for user_grant in user_grants:
+169             print "------ user_grant %s ---------" % user_grant
+170             token_grants = __salt__['mysql.tokenize_grant'](user_grant)
+171             db_part = database.rpartition('.')
+172             my_db = db_part[0]
+173             my_table = db_part[2]
+174             print "------ my_table %s ------" % my_table
+175             my_db = __salt__['mysql.quote_identifier'](my_db, (my_table is '*'))
+176             my_table = __salt__['mysql.quote_identifier'](my_table)
+177             # Removing per table grants in case of database level grant !!!
+178             print " BEFORE token_grants-db %s my_db %s" % (token_grants['database'], my_db)
+179             print
+180             if token_grants['database'] == my_db:
+181                 print "token_grants-db %s my_db %s" % (token_grants['database'], my_db)
+182                 grant_to_revoke = ','.join(token_grants['grant']).rstrip(',')
+183                 __salt__['mysql.grant_revoke'](
+184                     grant=grant_to_revoke,
+185                     database=database,
+186                     user=user,
+187                     host=host,
+188                     grant_option=grant_option,
+189                     escape=escape,
+190                     **connection_args)
+```
+my grants are set to all privileges as you can see above
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+```
+Salt Version:
+           Salt: 2016.11.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.5
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-47-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

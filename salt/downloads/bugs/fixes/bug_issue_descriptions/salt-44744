@@ -1,0 +1,43 @@
+Given the roster file `/etc/default/roster` using two containers:
+
+```
+first:
+  host: 170ae876cb86
+
+second:
+  host: 6e821c5c755d
+```
+
+If roster_defaults is not set, the output is as expected:
+
+```
+# salt-ssh '*' cmd.run hostname
+first:
+    170ae876cb86
+second:
+    6e821c5c755d
+```
+
+But when set:
+
+```
+# cat /etc/salt/master| grep roster_defaults
+roster_defaults: {}
+```
+
+The command is always executed on the same server:
+
+```
+# salt-ssh '*' cmd.run hostname
+first:
+    170ae876cb86
+second:
+    170ae876cb86
+```
+
+Quick&Ugly fix: in [salt/roster/flat.py:RosterMatcher.ret_glob_minions](https://github.com/saltstack/salt/blob/develop/salt/roster/flat.py#L81), replace `minions[minion] = data` with `minions[minion] = dict(data.items())` to work on a copy of `data`.
+
+Various notes:
+
+- from the source code, I think the problem also occurs with other matchers (`ret_pcre_minions()`, `ret_list_minions()`, `ret_nodegroup_minions`, ...).
+- I reproduce the problem with salt-ssh 2017.7.2 (Nitrogen) (the version shipped by salt repository), but not with salt-ssh 2015.8.8 (Beryllium) (verison shipped with Ubuntu/xenial).

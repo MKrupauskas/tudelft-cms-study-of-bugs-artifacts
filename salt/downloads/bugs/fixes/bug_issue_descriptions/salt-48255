@@ -1,0 +1,162 @@
+### Description of Issue/Question
+The `set` method of the salt.sdb.cache module has an error.
+
+It calls cache.set when it should be cache.store.
+
+### Setup
+
+
+### Steps to Reproduce Issue
+Step 1: Configure master/minion with sdb.cache profile.
+
+```yaml
+#/etc/salt/miniond.d/sdb_cache.conf
+cache_sdb:
+    driver: cache
+    bank: my_cache_bank
+```
+Step 2: sun sdb.set command targetting the cache.sdb profile
+#### Log output
+```
+$ salt-run sdb.set sdb://cache_sdb/bob "bob marly" -l debug
+[DEBUG   ] Reading configuration from /Users/kajigga/.virtualenvs/saltdev/etc/salt/master
+[DEBUG   ] Missing configuration file: /Users/kajigga/.saltrc
+[DEBUG   ] Configuration file path: /Users/kajigga/.virtualenvs/saltdev/etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] LazyLoaded sdb.set
+[DEBUG   ] Reading configuration from /Users/kajigga/.virtualenvs/saltdev/etc/salt/master
+[DEBUG   ] Including configuration from '/Users/kajigga/.virtualenvs/saltdev/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /Users/kajigga/.virtualenvs/saltdev/etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Reading configuration from /Users/kajigga/.virtualenvs/saltdev/etc/salt/master
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] MasterEvent PUB socket URI: /Users/kajigga/.virtualenvs/saltdev/var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /Users/kajigga/.virtualenvs/saltdev/var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /Users/kajigga/.virtualenvs/saltdev/var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] LazyLoaded cache.set
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[DEBUG   ] LazyLoaded nested.output
+Exception occurred in runner sdb.set: Traceback (most recent call last):
+  File "/Users/kajigga/dev/repos/salt/salt/client/mixins.py", line 382, in _low
+    data['return'] = self.functions[fun](*args, **kwargs)
+  File "/Users/kajigga/dev/repos/salt/salt/runners/sdb.py", line 42, in set_
+    return salt.utils.sdb.sdb_set(uri, value, __opts__, __utils__)
+  File "/Users/kajigga/dev/repos/salt/salt/utils/sdb.py", line 77, in sdb_set
+    return loaded_db[fun](query, value, profile=profile)
+  File "/Users/kajigga/dev/repos/salt/salt/sdb/cache.py", line 72, in set_
+    cache.set(profile['bank'], key=key, value=value)
+AttributeError: 'Cache' object has no attribute 'set'
+[INFO    ] Runner completed: 20180620162945656816
+[DEBUG   ] Runner return: Exception occurred in runner sdb.set: Traceback (most recent call last):
+  File "/Users/kajigga/dev/repos/salt/salt/client/mixins.py", line 382, in _low
+    data['return'] = self.functions[fun](*args, **kwargs)
+  File "/Users/kajigga/dev/repos/salt/salt/runners/sdb.py", line 42, in set_
+    return salt.utils.sdb.sdb_set(uri, value, __opts__, __utils__)
+  File "/Users/kajigga/dev/repos/salt/salt/utils/sdb.py", line 77, in sdb_set
+    return loaded_db[fun](query, value, profile=profile)
+  File "/Users/kajigga/dev/repos/salt/salt/sdb/cache.py", line 72, in set_
+    cache.set(profile['bank'], key=key, value=value)
+AttributeError: 'Cache' object has no attribute 'set'
+```
+
+Changing line 72 of `salt/sdb/cache.py` from
+
+```cache.set(profile['bank'], key=key, value=value)```
+
+to
+
+```cache.store(profile['bank'], key=key, data=value)```
+
+appears to resolve the issue.
+
+Seting and fetching a value in sdb.cache now works. I will submit a PR
+```
+$ salt-run sdb.set sdb://cache_sdb/bob "bob marly" -l debug
+[DEBUG   ] Reading configuration from /Users/kajigga/.virtualenvs/saltdev/etc/salt/master
+[DEBUG   ] Missing configuration file: /Users/kajigga/.saltrc
+[DEBUG   ] Configuration file path: /Users/kajigga/.virtualenvs/saltdev/etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] LazyLoaded sdb.set
+[DEBUG   ] Reading configuration from /Users/kajigga/.virtualenvs/saltdev/etc/salt/master
+[DEBUG   ] Including configuration from '/Users/kajigga/.virtualenvs/saltdev/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /Users/kajigga/.virtualenvs/saltdev/etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Reading configuration from /Users/kajigga/.virtualenvs/saltdev/etc/salt/master
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] MasterEvent PUB socket URI: /Users/kajigga/.virtualenvs/saltdev/var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /Users/kajigga/.virtualenvs/saltdev/var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /Users/kajigga/.virtualenvs/saltdev/var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] LazyLoaded cache.set
+[DEBUG   ] LazyLoaded localfs.init_kwargs
+[DEBUG   ] LazyLoaded localfs.init_kwargs
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[DEBUG   ] LazyLoaded nested.output
+bob marly
+[INFO    ] Runner completed: 20180620164510073562
+[DEBUG   ] Runner return: bob marly
+```
+and retrieve it.
+
+```
+$ salt-run sdb.get sdb://cache_sdb/bob  -l debug
+[DEBUG   ] Reading configuration from /Users/kajigga/.virtualenvs/saltdev/etc/salt/master
+[DEBUG   ] Missing configuration file: /Users/kajigga/.saltrc
+[DEBUG   ] Configuration file path: /Users/kajigga/.virtualenvs/saltdev/etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] LazyLoaded sdb.get
+[DEBUG   ] Reading configuration from /Users/kajigga/.virtualenvs/saltdev/etc/salt/master
+[DEBUG   ] Including configuration from '/Users/kajigga/.virtualenvs/saltdev/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /Users/kajigga/.virtualenvs/saltdev/etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Reading configuration from /Users/kajigga/.virtualenvs/saltdev/etc/salt/master
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] MasterEvent PUB socket URI: /Users/kajigga/.virtualenvs/saltdev/var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /Users/kajigga/.virtualenvs/saltdev/var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /Users/kajigga/.virtualenvs/saltdev/var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] LazyLoaded cache.get
+[DEBUG   ] LazyLoaded localfs.init_kwargs
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[DEBUG   ] LazyLoaded nested.output
+bob marly
+[INFO    ] Runner completed: 20180620164607653713
+[DEBUG   ] Runner return: bob marly
+```
+
+### Versions Report
+Salt Version:
+           Salt: 2017.7.6
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: 3.4.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.15 (default, May  1 2018, 16:44:08)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 5.0.2
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 17.5.0
+         system: Darwin
+        version: 10.13.4 x86_64

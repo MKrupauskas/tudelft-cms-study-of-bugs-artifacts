@@ -1,0 +1,119 @@
+**Description**
+Running an orchestration that includes a salt.function call to a custom module that returns a dict (a very simple dict) fails to show the custom module returned dict in the orchestration execution output.
+
+If the custom module returns a string, int, or boolean, the return is shown without issues.
+
+Note: The custom module works well, the event bus, and running the runner with --out=raw shows the right data structure
+It's the highstate outputter that fails to display the content.
+ 
+I found that it's due the inclusion of 'out': 'highstate' in the 'changes' dictionary.
+Removing this key in the def function(...) in salt/states/saltmod.py makes the output to work fine.
+
+
+**Setup**
+salt version 3002.2
+
+**Steps to Reproduce the behavior**
+custom execution module: _modules/vessel_engine.py
+
+```
+def full_check():
+    log.info(">>>>>>>> Engine full check")
+    resp = { 'check_A': True, 'check_B': True, 'check_C': True }
+    __context__['retcode'] = 0
+    return resp
+```
+
+orchestration state: vessel/orch_maintenance.sls
+```
+engine_maintenance_check:
+  salt.function:
+    - name: vessel_engine.full_check
+    - tgt: 'saltmaster' # replace by minion pillar
+```
+
+Run the orchestration and observe the return output, observe the 'changes' key it does not include the returned dictionary from the custom module execution. Would the custom module return string, int or boolean, this would be shown.
+
+```
+    ----------
+              ID: engine_maintenance_check
+        Function: salt.function
+            Name: vessel_engine.full_check
+          Result: True
+         Comment: Function ran successfully. Function vessel_engine.full_check ran on saltmaster.
+         Started: 13:41:51.132712
+        Duration: 393.504 ms
+         Changes:
+                  saltmaster:
+
+                  Summary for saltmaster
+                  -----------
+                  Succeeded: 0
+                  Failed:   0
+                  -----------
+                  Total states run:    0
+                  Total run time:  0.000 ms
+    ----------
+```
+
+This seems due the returned dictionary looks like this
+`
+{'name': 'vessel_engine.full_check', 'changes': {'out': 'highstate', 'ret': {'saltmaster': {'check_A': True, 'check_B': True, 'check_C': True}}}, 'comment': 'Function ran successfully. Function vessel_engine.full_check ran on saltmaster.', 'result': True, '__jid__': '20210414144046646323'}
+`
+
+Observe the 'changes': {'out': 'highstate', this seems to be the problem.
+
+I have modified salt/states/saltmod.py to remove the 'out' key from 'changes' in the def function().
+Around line #590, remove 'out' from 'changes'
+    func_ret_out = func_ret['changes'].pop('out',None)
+    return func_ret
+
+func_ret looks like this after removing 'out' from 'changes':
+`
+{'name': 'vessel_engine.full_check', 'changes': {'ret': {'saltmaster': {'check_A': True, 'check_B': True, 'check_C': True}}}, 'comment': 'Function ran successfully. Function vessel_engine.full_check ran on saltmaster.', 'result': True, '__jid__': '20210414144046646323'}
+`
+
+Now when running the orchestration it shows the return dict from the custom module
+`
+----------
+          ID: engine_maintenance_check
+    Function: salt.function
+        Name: vessel_engine.full_check
+      Result: True
+     Comment: Function ran successfully. Function vessel_engine.full_check ran on saltmaster.
+     Started: 13:53:49.171598
+    Duration: 387.474 ms
+     Changes:
+              ----------
+              ret:
+                  ----------
+                  saltmaster:
+                      ----------
+                      check_A:
+                          True
+                      check_B:
+                          True
+                      check_C:
+                          True
+----------
+
+`
+
+
+
+**Expected behavior**
+salt.function show the return data from execution module, even if it's a dictionary
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+salt 3002.2
+
+```
+PASTE HERE
+```
+</details>
+
+**Additional context**
+Add any other context about the problem here.

@@ -1,0 +1,256 @@
+### Description of Issue/Question
+
+I have a state which ensures that a service (eg.: nagios-nrpe-server) is running. This state has a watch on two files and on a git repository.
+If I run this state **with test=True** when the git repository (or one of the watched files) has changed, "service" **state stops the service**.
+
+This only happens on Proxmox hosts with OpenVZ (eg. Proxmox 3) and I think that it is caused by two things :
+- the **"ps" grain** which is executed by service state contains a special ps command for para-virtualization hosts (eg. proxmox hosts) that only lists host processes **returns an error**
+- the **mod_watch()** function of "service" state seems to run the service stop command **without checking if we are in test=True mode**
+
+**Tested on :**
+- a Proxmox 3 (OpenVZ) host => affected (ps grain: complex ps command, see below)
+- a Proxmox 4 (LXC) => NOT affected (ps grain: "ps -efHww")
+
+I searched the issue on different SALT code parts but didn't find the exact problem. If you find it, I can take another look and try to fix the issue with a pull request if you want.
+### Setup
+
+The affected part of my state (customstates/nagios/nrpe/init.sls):
+
+```
+nagios-nrpe-server:
+    service:
+        - running
+        - watch:
+            - file: /etc/nagios/nrpe.d/*.cfg
+            - file: /etc/nagios/nrpe_override.cfg
+            - git: nagios-plugins
+        - sig: /usr/sbin/nrpe
+        - require:
+            - pkg: nagios-nrpe-server
+```
+### Steps to Reproduce Issue
+
+Before all tests, here is the test I ran to show that my nagios nrpe service is well responding :
+
+```
+telnet localhost 5666
+Trying 127.0.0.1...
+Connected to localhost.localdomain.
+Escape character is '^]'.
+```
+
+**To reproduce the unwanted service stop, runs this:**
+
+```
+# salt-call --log-level=debug state.apply customstates.nagios.nrpe test=True
+[INFO    ] Running state [nagios-nrpe-server] at time 17:09:35.222983
+[INFO    ] Executing state service.running for nagios-nrpe-server
+[INFO    ] Executing command 'runlevel' in directory '/root'
+[DEBUG   ] output: N 2
+[INFO    ] Executing command 'ps -fH -p $(grep -l "^envID:[[:space:]]*0\\$" /proc/[0-9]*/status | sed -e "s=/proc/\\([0-9]*\\)/.*=\\1=")  | awk \'{ $7=""; print }\'' in directory '/root'
+[ERROR   ] Command 'ps -fH -p $(grep -l "^envID:[[:space:]]*0\\$" /proc/[0-9]*/status | sed -e "s=/proc/\\([0-9]*\\)/.*=\\1=")  | awk \'{ $7=""; print }\'' failed with return code: 1
+[ERROR   ] stderr: error: process ID list syntax error
+
+Usage:
+ ps [options]
+
+ Try 'ps --help <simple|list|output|threads|misc|all>'
+  or 'ps --help <s|l|o|t|m|a>'
+ for additional help text.
+
+For more details see ps(1).
+[ERROR   ] retcode: 1
+[INFO    ] Executing command 'runlevel' in directory '/root'
+[DEBUG   ] output: N 2
+[INFO    ] Service nagios-nrpe-server is set to start
+[INFO    ] Completed state [nagios-nrpe-server] at time 17:09:35.248848
+[INFO    ] Running state [nagios-nrpe-server] at time 17:09:35.249063
+[INFO    ] Executing state service.mod_watch for nagios-nrpe-server
+[INFO    ] Executing command 'ps -fH -p $(grep -l "^envID:[[:space:]]*0\\$" /proc/[0-9]*/status | sed -e "s=/proc/\\([0-9]*\\)/.*=\\1=")  | awk \'{ $7=""; print }\'' in directory '/root'
+[ERROR   ] Command 'ps -fH -p $(grep -l "^envID:[[:space:]]*0\\$" /proc/[0-9]*/status | sed -e "s=/proc/\\([0-9]*\\)/.*=\\1=")  | awk \'{ $7=""; print }\'' failed with return code: 1
+[ERROR   ] stderr: error: process ID list syntax error
+
+Usage:
+ ps [options]
+
+ Try 'ps --help <simple|list|output|threads|misc|all>'
+  or 'ps --help <s|l|o|t|m|a>'
+ for additional help text.
+
+For more details see ps(1).
+[ERROR   ] retcode: 1
+[INFO    ] Executing command 'service nagios-nrpe-server stop' in directory '/root'
+[DEBUG   ] output: Stopping nagios-nrpe: nagios-nrpe.
+[INFO    ] Service is set to be started
+[INFO    ] Completed state [nagios-nrpe-server] at time 17:09:35.295830
+```
+
+**Here is the end of the trace which tells that the nagios-nrpe-server service "is set to be started":**
+
+```
+----------
+          ID: nagios-plugins
+    Function: git.latest
+        Name: git@git.mydomain.net:infra/nagios.git
+      Result: None
+     Comment: Remote 'origin' would be fetched. Repository would be updated from 6c982df to 7a09408.
+     Started: 10:34:54.698388
+    Duration: 436.679 ms
+     Changes:   
+              ----------
+              revision:
+                  ----------
+                  new:
+                      7a094081efd246bd20ffb28a367cbf38671a8a42
+                  old:
+                      6c982dfe6ddfedb06c0e0d6ca998f5d33dddba83
+----------
+          ID: nagios-nrpe-server
+    Function: service.running
+      Result: None
+     Comment: Service is set to be started
+     Started: 10:34:55.160809
+    Duration: 45.488 ms
+     Changes:   
+----------
+          ID: firewall-nrpe
+    Function: file.managed
+        Name: /etc/firewall-mydomain/local/nrpe.iptables
+      Result: True
+     Comment: The file /etc/firewall-mydomain/local/nrpe.iptables is in the correct state
+     Started: 10:34:55.206624
+    Duration: 96.909 ms
+     Changes:   
+----------
+          ID: nagios-mydomain
+    Function: pkg.purged
+      Result: True
+     Comment: All specified packages are already absent
+     Started: 10:34:55.303737
+    Duration: 10.051 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 11 (unchanged=2, changed=1)
+Failed:    0
+------------
+Total states run:    11
+```
+
+**And the service is no more responding:**
+
+```
+telnet localhost 5666
+Trying 127.0.0.1...^C
+```
+
+**To reproduce the ps failure only, you can do this:**
+
+```
+# salt-call status.pid /usr/sbin/nrpe
+[INFO    ] Got list of available master addresses: ['master.salt.mydomain.net', 'xx.xx.xx.xx, 'yy.yy.yy.yy', 'zz.zz.zz.zz']
+[INFO    ] Executing command 'ps -fH -p $(grep -l "^envID:[[:space:]]*0\\$" /proc/[0-9]*/status | sed -e "s=/proc/\\([0-9]*\\)/.*=\\1=")  | awk \'{ $7=""; print }\'' in directory '/root'
+[ERROR   ] Command 'ps -fH -p $(grep -l "^envID:[[:space:]]*0\\$" /proc/[0-9]*/status | sed -e "s=/proc/\\([0-9]*\\)/.*=\\1=")  | awk \'{ $7=""; print }\'' failed with return code: 1
+[ERROR   ] stderr: error: process ID list syntax error
+
+Usage:
+ ps [options]
+
+ Try 'ps --help <simple|list|output|threads|misc|all>'
+  or 'ps --help <s|l|o|t|m|a>'
+ for additional help text.
+```
+
+**Here is the "ps" grain ran on the Proxmox host:**
+
+```
+salt-call grains.get ps
+[INFO    ] Got list of available master addresses: ['master.salt.mydomain.net', 'xx.xx.xx.xx, 'yy.yy.yy.yy', 'zz.zz.zz.zz']
+local:
+    ps -fH -p $(grep -l "^envID:[[:space:]]*0\$" /proc/[0-9]*/status | sed -e "s=/proc/\([0-9]*\)/.*=\1=")  | awk '{ $7=""; print }'
+```
+### Versions Report
+
+**On a Proxmox host affected:**
+
+```
+# salt-call --versions-report
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: 0.22
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+         Python: 2.7.10 (default, May 29 2015, 09:47:09)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.2
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 7.9 
+        machine: x86_64
+        release: 2.6.32-39-pve
+         system: debian 7.9 
+```
+
+**On the SALT master:**
+
+```
+Salt Version:
+           Salt: 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: 3.5.0
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.3 
+        machine: x86_64
+        release: 2.6.32-19-pve
+         system: debian 8.3 
+```

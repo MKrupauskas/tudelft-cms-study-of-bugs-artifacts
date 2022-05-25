@@ -1,0 +1,63 @@
+When using salt-call on a masterless minion the pillar sqlite3 module runs the query on the default database (`/var/lib/salt/pillar.db`) not the one configured.
+
+```
+CREATE TABLE quickpeek
+    (
+    id INT PRIMARY KEY,
+    internal TEXT,
+    hostname TEXT,
+    value TEXT
+    );
+
+INSERT INTO "quickpeek" VALUES(NULL,'infoheader','standalone.baruwa.com','X-Asante-BaruwaFW-Info:');
+```
+
+```
+pillar:
+  sqlite3:
+    database: '/root/baruwa2.db'
+    timeout: 5.0
+ext_pillar:
+  - sqlite3:
+      fromdb:
+        query: "SELECT internal, value FROM quickpeek WHERE hostname=? OR hostname='default'"
+```
+
+When the salt-call cmd is execute 2 queries are run, the first uses the correct configured database and the second uses the default database which will generate an exception.
+
+`[INFO    ] Querying SQLite3 for information for standalone.baruwa.com`
+`[INFO    ] Querying SQLite3 for information for standalone.baruwa.com`
+
+`OperationalError: unable to open database file` exception is generated if the `/var/lib/salt` directory does not exist.
+
+**Traceback**
+
+```
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/pillar/__init__.py", line 633, in ext_pillar
+    key)
+  File "/usr/lib/python2.6/site-packages/salt/pillar/__init__.py", line 585, in _external_pillar_data
+    ext = self.ext_pillars[key](self.opts['id'], pillar, **val)
+  File "/usr/lib/python2.6/site-packages/salt/pillar/sqlite3.py", line 114, in ext_pillar
+    return SQLite3ExtPillar().fetch(minion_id, pillar, *args, **kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/pillar/sql_base.py", line 434, in fetch
+    with self._get_cursor() as cursor:
+  File "/usr/lib64/python2.6/contextlib.py", line 16, in __enter__
+    return self.gen.next()
+  File "/usr/lib/python2.6/site-packages/salt/pillar/sqlite3.py", line 97, in _get_cursor
+    timeout=float(_options.get('timeout')))
+OperationalError: unable to open database file
+```
+
+`OperationalError: no such table: quickpeek` exception is generated if the `/var/lib/salt` directory exists as the sqlite3 call creates an empty database.
+
+**Traceback**
+
+```
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/pillar/sqlite3.py", line 100, in _get_cursor
+    yield cursor
+  File "/usr/lib/python2.6/site-packages/salt/pillar/sql_base.py", line 437, in fetch
+    cursor.execute(details['query'], (minion_id,))
+OperationalError: no such table: quickpeek
+```

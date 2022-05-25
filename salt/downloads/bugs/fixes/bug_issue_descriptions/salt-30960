@@ -1,0 +1,92 @@
+Given a minion which has no jobs scheduled:
+
+```
+[ec2-user@aws-management ~]$ sudo salt 'www4*' schedule.list                                                                              
+www4.example.com:
+    ----------
+    schedule:
+        ----------
+```
+
+When pushing a `schedule.present` for the first time I would expect `Result: True` but instead I get `Result: Clean`
+
+```
+[ec2-user@aws-management ~]$ sudo salt --state-output=changes 'www4*' state.sls_id php-fpm-memory-leak-workaround php54                   
+www4.example.com:
+  ...[redact 17 clean states which were requirements of the schedule.present]...
+  Name: php-fpm-memory-leak-workaround - Function: schedule.present - Result: Clean
+
+Summary
+-------------
+Succeeded: 18
+Failed:     0
+-------------
+Total states run:     18
+```
+
+Next I checked and saw that it did actually apply the state luckily:
+
+```
+[ec2-user@aws-management ~]$ sudo salt 'www4*' schedule.list
+www4.example.com:
+    schedule:
+      php-fpm-memory-leak-workaround:
+        args:
+        - php-fpm
+        enabled: true
+        function: service.reload
+        jid_include: true
+        maxrunning: 1
+        name: php-fpm-memory-leak-workaround
+        seconds: 3600
+        splay: 600
+```
+
+Edit: I noticed the next command I ran, with `test=True` ended up showing a diff when I would expect it to be `Result: Clean`:
+
+```
+[ec2-user@aws-management ~]$ sudo salt --state-output=changes 'www*' state.sls_id php-fpm-memory-leak-workaround php54 test=True          
+www4.example.com:
+  [redact 17 clean states]
+----------
+          ID: php-fpm-memory-leak-workaround
+    Function: schedule.present
+      Result: True
+     Comment: Job: php-fpm-memory-leak-workaround would be modified in schedule.
+     Started: 00:41:58.753147
+    Duration: 0.584 ms
+     Changes:   
+              ----------
+              diff:
+                  ---  
+                  +++  
+                  @@ -1,5 +1,4 @@
+                   args:['php-fpm']
+                  -enabled:True
+                   function:service.reload
+                   jid_include:True
+                   maxrunning:1
+```
+
+Here are my versions:
+
+```
+[ec2-user@aws-management ~]$ salt --versions
+           Salt: 2015.5.8
+         Python: 2.6.9 (unknown, Dec 17 2015, 01:08:55)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+        Tornado: 4.1
+        timelib: Not Installed
+       dateutil: 2.1
+```

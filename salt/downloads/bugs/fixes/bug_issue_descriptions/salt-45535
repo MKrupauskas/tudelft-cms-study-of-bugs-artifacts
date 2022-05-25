@@ -1,0 +1,93 @@
+### Description of Issue/Question
+
+The `module_dirs` is not copied from the master opts into salt-ssh opts which causes modules and pillars left out of the transfer. 
+
+### Setup
+
+The most straightforward test is a custom pillar in a module_dirs directory. 
+
+I put this pillar file in /srv/salt/extmods/pillar/test.py
+```
+__virtualname__ = 'test_pillars'
+
+def __virtual__():
+  return __virtualname__
+
+def ext_pillar( minion_id, pillar, *args, **kwargs ):
+
+    my_pillar = {'external_pillar': 'test'}
+
+
+    return my_pillar
+```
+and configured my master with these settings
+```
+ext_pillar:
+  - test_pillars: []
+
+module_dirs:
+  - /srv/salt/extmods
+```
+
+### Steps to Reproduce Issue
+see above setup and then run `salt-ssh <minion> pillar.items`
+
+the result will be 
+```
+[DEBUG   ] Could not LazyLoad test_pillars.ext_pillar: 'test_pillars.ext_pillar' is not available.
+[CRITICAL] Specified ext_pillar interface test_pillars is unavailable
+```
+
+### Versions Report
+I started testing this in 2016.11.7. However, I have moved up to see if this was fixed in any version.
+
+```
+Salt Version:
+           Salt: 2017.7.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.5.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+```
+
+### Possable fix?
+
+In testing this I did find that if add these two lines into `salt/client/ssh/__init__.py` around line 913 it works, but am unsure if that is the direction that we want to pursue. 
+```
+            if 'module_dirs' in self.opts:
+                opts_pkg['module_dirs'] = self.opts['module_dirs']
+```

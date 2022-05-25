@@ -1,0 +1,88 @@
+### Description of Issue/Question
+When using external auth is not possible to delete the minion key.
+
+It looks that key name is not passed to `_run_cmd` function in https://github.com/saltstack/salt/blob/develop/salt/key.py#L179
+```
+_run_cmd: {'fun': 'key.delete', 'token': '7590720fd41faa2e98ddb3cd6947934bcf4c9fc5f74928a41ab08c375db22271', 'kwarg': {}, 'arg': [None]}
+```
+I was able to fix it by changing:
+https://github.com/saltstack/salt/blob/develop/salt/key.py#L268
+```
+ ret = self._run_cmd(cmd)
+```
+Into:
+```
+                if self.opts.get('eauth') and cmd in ('accept', 'reject', 'delete'):
+                    ret = self._run_cmd(cmd, args=ret['minions'])
+                else:
+                    ret = self._run_cmd(cmd)
+```
+It looks rather like workaround than a proper solution for me but it's working and I was unable to fix it in better way.
+
+When `eauth` is not used then key name is fetched here: https://github.com/saltstack/salt/blob/develop/salt/key.py#L168
+
+If You agree to such fix I could provide PR or provide better fix with some guidance how to do this in a proper way.
+
+### Setup
+Enable eauth in /etc/salt/master
+```
+external_auth:
+  pam:
+    users%:
+      - '.*'
+      - '@wheel'
+      - '@runner'
+      - '@jobs'
+```
+Add user to group `users`
+
+### Steps to Reproduce Issue
+Log on you user account and execute:
+```
+salt-key -T --auth=pam -d example_minion
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.8
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Jul 13 2018, 13:06:57)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.11.6.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+
+```

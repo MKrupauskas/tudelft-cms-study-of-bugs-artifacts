@@ -1,0 +1,187 @@
+### Description of Issue/Question
+How do i get salt-minion to call salt-call with the correct configuration directory?
+At the moment it always calls with "-c /etc/salt",
+
+Issue is seen on versions from 2016.11.7 to 2018.3.0.
+
+I'm hoping it's just a little config item i've missed...
+
+### Setup
+
+/etc/salt/kmdpaas/minion:
+```
+id: vagrant-bbh-0001
+master: ['salt_master_ip']
+root_dir: /etc/salt/kmdpaas
+config_dir: /etc/salt/kmdpaas
+pki_dir: /pki
+pidfile: /kmdpaas.pid
+sock_dir: /sock
+log_file: /log/kmdpaas
+master_alive_interval: 59
+acceptance_wait_time: 10
+random_reauth_delay: 60
+multiprocessing: true
+hash_type: sha256
+sudo_user: root
+log_level: info
+conf_file: /etc/salt/kmdpaas/minion
+```
+
+/etc/sudoers.d/saltadm:
+```
+saltadm ALL=(ALL) NOPASSWD: /bin/salt-call
+```
+
+systemd unit file for kmdpaas service (salt-minion)
+```
+[Unit]
+Description=The KMDPaaS Salt Minion
+After=syslog.target
+
+[Service]
+User=saltadm
+LimitNOFILE=102642
+PIDFile=/etc/salt/kmdpaas/kmdpaas.pid
+ExecStart=/usr/bin/salt-minion -c /etc/salt/kmdpaas
+ExecStop=/usr/bin/kill $( /usr/bin/cat /etc/salt/kmdpaas/kmdpaas.pid )
+StandardOutput=null
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Steps to Reproduce Issue
+On the salt minion server:
+Ensure that "salt" is NOT resolved either by DNS or by /etc/hosts file.
+Ensure that the default /etc/salt/minion file is NOT present
+Create user saltadm
+Add kmdpaas service
+Start kmdpaas service
+
+At this point, you should see a set of processes like the following:
+```
+[root@vagrant-bbh-minion salt]# ps -ef | grep salt
+saltadm   1886     1  0 10:07 ?        00:00:00 /usr/bin/python /usr/bin/salt-minion -c /etc/salt/kmdpaas
+saltadm   1889  1886  0 10:07 ?        00:00:03 /usr/bin/python /usr/bin/salt-minion -c /etc/salt/kmdpaas
+saltadm   1893  1889  0 10:07 ?        00:00:00 /usr/bin/python /usr/bin/salt-minion -c /etc/salt/kmdpaas
+```
+
+On the salt master server:
+salt vagrant-bbh-0001 test.ping
+
+Now, some extra processes are seen on the minion:
+```
+altadm   2435     1  0 10:43 ?        00:00:00 /usr/bin/python /usr/bin/salt-minion -c /etc/salt/kmdpaas
+root      2436  2435  1 10:43 pts/1    00:00:00 sudo -u root salt-call --out json --metadata -c /etc/salt -- test.ping
+root      2437  2436 14 10:43 pts/1    00:00:00 /usr/bin/python /bin/salt-call --out json --metadata -c /etc/salt -- test.ping
+```
+That is, an extra salt-minion process has been started. This process has called salt-salt, but called with a wrong config_dir, even though the minion is started with the correct config_dir.
+
+After a little bit of time, the salt-master tries to get status of the job (process list on minion):
+```
+saltadm   2475     1  0 10:43 ?        00:00:00 /usr/bin/python /usr/bin/salt-minion -c /etc/salt/kmdpaas
+root      2476  2475  0 10:43 pts/3    00:00:00 sudo -u root salt-call --out json --metadata -c /etc/salt -- saltutil.find_job 20180405104325560768
+root      2477  2476  1 10:43 pts/3    00:00:00 /usr/bin/python /bin/salt-call --out json --metadata -c /etc/salt -- saltutil.find_job 20180405104325560768
+```
+
+And soon after the master sends out:
+```
+root@paas-salt0000:/etc/apt/sources.list.d# salt vagrant-bbh-0001 test.ping
+vagrant-bbh-0001:
+    Minion did not return. [Not connected]
+```
+
+If I create an /etc/salt/minion that points to the correct master, or if i make "salt" resolvable, then there is no problems. Unfortunately, we need multiple salt-minions and salt-masters, so the custom config_dir is necessary in our setup.
+
+### Versions Report
+
+salt-master version:
+```
+root@paas-salt0000:/etc/apt/sources.list.d# salt --versions-report
+Salt Version:
+           Salt: 2018.3.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: 1.10.6
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.5
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Dec  4 2017, 14:50:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-119-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```
+
+Salt-minion version:
+```
+[root@vagrant-bbh-minion salt]# salt-minion --versions-report
+Salt Version:
+           Salt: 2018.3.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.28.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, May 29 2017, 20:42:36)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: oracle 7.4
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.21.1.el7.x86_64
+         system: Linux
+        version: Oracle Linux Server 7.4
+```

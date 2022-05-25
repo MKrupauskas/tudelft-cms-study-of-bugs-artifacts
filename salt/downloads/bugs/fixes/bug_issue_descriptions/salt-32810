@@ -1,0 +1,192 @@
+### Description of Issue/Question
+
+When trying to use a combination of file-based pillar and gitfs pillar, if the 'ext_pillar_first' option is set to True, and you have file-based pillar, it refuses to render the file-based pillar.
+### Setup
+
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+
+config:
+
+```
+git_pillar_provider: pygit2
+log_level_logfile: debug
+ext_pillar_first: True
+git_pillar_provider: pygit2
+git_pillar_pubkey: /root/.ssh/id_rsa.pub
+git_pillar_privkey: /root/.ssh/id_rsa
+pillar_roots:
+  dev:
+    - /srv/pillar
+
+ext_pillar:
+  - git:
+    - ssh://git@github.intuit.com/shajducko/ctg-pillar.git:
+      - env: ctg
+    - ssh://git@github.intuit.com/shajducko/sbg-pillar.git:
+      - env: sbg
+```
+
+/srv/pillar/top.sls:
+
+```
+dev:
+  '*':
+    - common
+```
+
+/srv/pillar/common.sls
+
+```
+foo: bar
+```
+
+shajducko/ctg-pillar/top.sls:
+
+```
+ctg:
+  '*':
+    - ctgcommon
+```
+
+shajducko/ctg-pillar/ctgcommon.sls:
+
+```
+ctg_env: true
+```
+
+shajducko/sbg-pillar/top.sls
+
+```
+sbg:
+  '*':
+    - sbgcommon
+```
+
+shajducko/sbg-pillar/sbgcommon.sls
+
+```
+sbg_env: true
+```
+### Steps to Reproduce Issue
+
+(Include debug logs if possible and relevant.)
+
+Running a refresh and then 'items' returns:
+
+```
+salt-master:
+    ----------
+    _errors:
+        - Rendering SLS 'common' failed. Please see master log for details.
+    ctg_env:
+        True
+    sbg_env:
+        True
+minion1:
+    ----------
+    _errors:
+        - Rendering SLS 'common' failed. Please see master log for details.
+    ctg_env:
+        True
+    sbg_env:
+        True
+minion2:
+    ----------
+    _errors:
+        - Rendering SLS 'common' failed. Please see master log for details.
+    ctg_env:
+        True
+    sbg_env:
+        True
+```
+
+The log message that appears:
+
+```
+2016-04-24 07:31:51,215 [salt.minion      ][DEBUG   ][2175] compound_match: minion1 ? *
+2016-04-24 07:31:51,215 [salt.minion      ][DEBUG   ][2175] compound_match minion1 ? "*" => "True"
+2016-04-24 07:31:51,216 [salt.template    ][DEBUG   ][2175] compile template: /srv/pillar/common.sls
+2016-04-24 07:31:51,219 [salt.pillar      ][CRITICAL][2175] Rendering SLS 'common' failed, render error:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/utils/templates.py", line 178, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/usr/lib/python2.7/site-packages/salt/utils/templates.py", line 315, in render_jinja_tmpl
+    loader = salt.utils.jinja.SaltCacheLoader(opts, saltenv, pillar_rend=context.get('_pillar_rend', False))
+  File "/usr/lib/python2.7/site-packages/salt/utils/jinja.py", line 72, in __init__
+    self.searchpath = opts['file_roots'][saltenv]
+KeyError: 'dev'
+
+2016-04-24 07:31:51,219 [salt.pillar      ][CRITICAL][2175] Pillar render error: Rendering SLS 'common' failed. Please see master log for details.
+```
+
+Unsetting the 'ext_pillar_first', then restarting the master and doing a refresh/items returns:
+
+```
+salt-master:
+    ----------
+    ctg_env:
+        True
+    foo:
+        bar
+    sbg_env:
+        True
+minion1:
+    ----------
+    ctg_env:
+        True
+    foo:
+        bar
+    sbg_env:
+        True
+minion2:
+    ----------
+    ctg_env:
+        True
+    foo:
+        bar
+    sbg_env:
+        True
+```
+### Versions Report
+
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+```
+Salt Version:
+           Salt: 2016.3.0-n/a-66ba352
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.21.0
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.21.4
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.10.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```

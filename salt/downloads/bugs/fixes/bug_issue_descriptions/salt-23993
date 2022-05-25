@@ -1,0 +1,59 @@
+When attempting to apply states that require use of pillar data, we initially got this error:
+
+```
+[salt.pillar] 340ms Got a bad pillar from master, type str, expecting dict:
+```
+
+This is the pillar data that our states refer to:
+
+```
+initial_tokens:
+  cas-01: 0  
+  cas-02: 42535295865117307932921825928971026432     
+  cas-03: 85070591730234615865843651857942052864 
+  cas-04: 127605887595351923798765477786913079296 
+  cas-05: 21267647932558653966460912964485513216 
+  cas-06: 63802943797675961899382738893456539648     
+  cas-07: 106338239662793269832304564822427566080 
+  cas-08: 148873535527910577765226390751398592512
+```
+
+We first tried to fix the issue by adding single quotes around the keys. That resulted in the following exception for cas-02, which seems to occur because our key is too big to be represented as a long.
+
+``` cas-02.mtv.luciddg.com:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1019, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/state.py", line 325, in highstate
+        whitelist=kwargs.get('whitelist')
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2857, in call_highstate
+        self.serial.dump(high, fp_)
+      File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 149, in dump
+        fn_.write(self.dumps(msg))
+      File "/usr/lib/python2.7/dist-packages/salt/payload.py", line 139, in dumps
+        return msgpack.dumps(odict_encoder(msg))
+      File "_msgpack.pyx", line 169, in msgpack._msgpack.packb (msgpack/_msgpack.c:2384)
+      File "_msgpack.pyx", line 153, in msgpack._msgpack.Packer.pack (msgpack/_msgpack.c:2020)
+      File "_msgpack.pyx", line 136, in msgpack._msgpack.Packer._pack (msgpack/_msgpack.c:1761)
+      File "_msgpack.pyx", line 136, in msgpack._msgpack.Packer._pack (msgpack/_msgpack.c:1761)
+      File "_msgpack.pyx", line 142, in msgpack._msgpack.Packer._pack (msgpack/_msgpack.c:1862)
+      File "_msgpack.pyx", line 136, in msgpack._msgpack.Packer._pack (msgpack/_msgpack.c:1761)
+      File "_msgpack.pyx", line 105, in msgpack._msgpack.Packer._pack (msgpack/_msgpack.c:1345)
+    OverflowError: long too big to convert
+```
+
+We finally fixed the issue by adding double quotes inside of single quotes, as below:
+
+```
+initial_tokens:
+  cas-01: '"0"'
+  cas-02: '"42535295865117307932921825928971026432"'     
+  cas-03: '"85070591730234615865843651857942052864"' 
+  cas-04: '"127605887595351923798765477786913079296"' 
+  cas-05: '"21267647932558653966460912964485513216"' 
+  cas-06: '"63802943797675961899382738893456539648"' 
+  cas-07: '"106338239662793269832304564822427566080"' 
+  cas-08: '"148873535527910577765226390751398592512"'
+```
+
+Our (possibly naive) opinion is that our original YAML was properly formed, and should have worked. Also, it seems like Salt should probably handle that msgpack error somehow. Maybe by transmitting the value as string, then converting back to a long in Python.

@@ -1,0 +1,132 @@
+We use the file recurse state and can not update to v2015.8.3 because in combination with gitfs, the state does not work. 
+
+```
+2015-12-11 17:28:20,418 [salt.master      ][ERROR   ][1255] Error in function _file_list:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 1379, in run_func
+    ret = getattr(self, func)(load)
+  File "/usr/lib/python2.7/dist-packages/salt/fileserver/__init__.py", line 607, in file_list
+    ret.update(self.servers[fstr](load))
+  File "/usr/lib/python2.7/dist-packages/salt/fileserver/gitfs.py", line 180, in file_list
+    return gitfs.file_list(load)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/gitfs.py", line 2308, in file_list
+    return self._file_lists(load, 'files')
+  File "/usr/lib/python2.7/dist-packages/salt/utils/gitfs.py", line 2285, in _file_lists
+    repo_files, repo_symlinks = repo.file_list(load['saltenv'])
+  File "/usr/lib/python2.7/dist-packages/salt/utils/gitfs.py", line 1017, in file_list
+    _traverse(tree, blobs, self.root)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/gitfs.py", line 994, in _traverse
+    _traverse(obj, blobs, os.path.join(prefix, entry.name))
+  File "/usr/lib/python2.7/dist-packages/salt/utils/gitfs.py", line 994, in _traverse
+    _traverse(obj, blobs, os.path.join(prefix, entry.name))
+  File "/usr/lib/python2.7/dist-packages/salt/utils/gitfs.py", line 994, in _traverse
+    _traverse(obj, blobs, os.path.join(prefix, entry.name))
+  File "/usr/lib/python2.7/dist-packages/salt/utils/gitfs.py", line 986, in _traverse
+    obj = self.repo[entry.oid]
+  File "/usr/local/lib/python2.7/dist-packages/pygit2/repository.py", line 99, in __getitem__
+    raise KeyError(key)
+KeyError: f16c3f1b33223c7ab82744fb00e6bbc3f48ce61b
+```
+
+This error pops up every time any formula attempts to use the file.recurse state. The file.recurse state is marked as a failure with a message like. 
+
+```
+----------
+          ID: salt-master
+    Function: file.recurse
+        Name: /etc/salt/master.d
+      Result: False
+     Comment: Recurse failed: none of the specified sources were found
+     Started: 17:28:19.378276
+    Duration: 2082.209 ms
+     Changes:
+```
+
+Below you will see I am trying to setup the config files in my master.d directory. I have tested and found this problem in my other formulas. I thought this was a good example since it was cloned at one point from. https://github.com/saltstack-formulas/salt-formula
+
+``` yaml
+salt-master:
+  file.recurse:
+    - name: /etc/salt/master.d
+    - template: jinja
+    - source: salt://salt/files/master.d
+    - clean: True
+  service.running:
+    - enable: True
+    - name: salt-master
+    - watch:
+      - file: salt-master
+      - file: /etc/salt/version_{{ salt.master.version }}_install
+```
+
+My version information is below.
+
+```
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.0.4
+           cffi: 1.1.2
+       cherrypy: 3.2.2
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.22.1
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-49-generic
+         system: Ubuntu 14.04 trusty
+```
+
+Gitfs configuration is as follows.
+
+``` yaml
+
+fileserver_backend:
+
+  - roots
+
+  - git
+
+gitfs_provider: pygit2
+
+gitfs_pubkey: /root/.ssh/id.pub
+
+
+gitfs_privkey: /root/.ssh/id
+
+
+gitfs_user: git
+
+
+gitfs_remotes:
+
+
+    - ssh://git@foo.com/salt/apt-formula.git
+
+
+
+    - ssh://git@foo.com/salt/artifactory-formula.git
+
+```

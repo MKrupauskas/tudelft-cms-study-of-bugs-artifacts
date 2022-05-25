@@ -1,0 +1,80 @@
+TL;DR I can apply states from the 'base' and 'test' environments but not 'dev', despite 'test' and 'dev' being otherwise identical.
+
+I have a simple state called 'core' with no includes or Pillar stored in a Git repository. The Git repository has master, test and dev branches and is mounted using GitFS:
+
+```
+gitfs_remotes:
+  - https://<redacted>/core-formula.git
+    - mountpoint: salt://core/
+  [ . . . ]
+
+gitfs_env_whitelist:
+  - base
+  - test
+  - dev
+```
+
+These commands work as expected:
+
+``` bash
+salt 'myhost' state.apply core
+salt 'myhost' state.apply core saltenv=test
+```
+
+But saltenv=dev fails:
+
+``` bash
+salt 'myhost' state.apply saltenv=dev
+myhost:
+    Data failed to compile:
+----------
+    No matching sls found for 'core' in env 'dev'
+```
+
+Output of `salt-run fileserver.envs`:
+
+```
+- test
+- base
+- dev
+```
+
+Output of `salt-run fileserver.file_list saltenv=test` and `salt-run fileserver.file_list saltenv=dev` are identical: 
+
+```
+- core/README.md
+- core/init.sls
+```
+
+Despite this, running `salt-call state.apply core saltenv=test --log-level=debug` works with the following:
+
+```
+[DEBUG   ] Could not find file from saltenv 'test', 'salt://core.sls'
+[INFO    ] Fetching file from saltenv 'test', ** skipped ** latest already in cache 'salt://core/init.sls'
+```
+
+while `salt-call state.apply core saltenv=dev --log-level=debug` fails:
+
+```
+[DEBUG   ] Could not find file from saltenv 'dev', 'salt://core.sls'
+[DEBUG   ] Could not find file from saltenv 'dev', 'salt://core/init.sls'
+```
+
+Versions Report:
+
+```
+           Salt: 2015.5.2
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+```

@@ -1,0 +1,7 @@
+The symptoms:
+- Sometimes, after doing a number of key rejections with salt.key.Key.reject, some still-accepted minions will be unable to communicate with the master until it is restarted
+- Minion logs will show exceptions in compile_pillar or tune_in, giving a TypeError on "aes = key.private_decrypt(ret['key'], 4)" because the master has returned an empty string instead of a dict.
+
+After much debugging, I found that the multiple MWorker instances were sometimes ending up with different AES keys in their self.crypt member.  This is meant to only be a transitory state after rekeying, because they call call _update_aes before handling a payload.  However, it's not: in some cases, MWorkers fail to detect a new AES key, and thereby hand out the wrong key to authenticating minions, and reject messages from minions which have the right key.  It's anarchy.
+
+The problem is that the MWorker._update_aes method uses mtime to detect new keys.  mtime is not a valid indicator of a file being different, because if multiple updates happen quickly or concurrently (within a second), then one MWorker instance may see the first update, another see the second update, and both have the same mtime so both MWorkers will go forward thinking they are up to date.

@@ -1,0 +1,105 @@
+### Description of Issue/Question
+Unable to checkout external pillar git repo using its git tag. However, using branch names works, and even fetching the repo by its tag works. 
+
+### Setup
+This is the format of the ext_pillar configuration used:
+
+```
+git_pillar_provider: pygit2
+git_pillar_base: <repo tag>
+
+ext_pillar:
+  - git:
+    - <repo_tag> <repo>:
+      - root: pillars
+      - pubkey: /etc/salt/ssh/id_rsa.pub
+      - privkey: /etc/salt/ssh/id_rsa
+```
+### Logs
+```
+2016-12-16 14:38:09,739 [salt.utils.gitfs ][DEBUG   ][67] git_pillar received 1532 objects for remote '<repo tag> <repo>'
+
+...
+
+2016-12-16 14:38:21,276 [salt.utils.gitfs ][ERROR   ][70] Failed to checkout <repo tag> from git_pillar remote '<repo tag> <repo>': local variable 'target_sha' referenced before assignment
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/gitfs.py", line 1088, in checkout
+    if head_sha != target_sha:
+UnboundLocalError: local variable 'target_sha' referenced before assignment
+```
+### Versions Report
+```
+Salt Version:
+           Salt: 2015.8.8
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+         Python: 2.7.5 (default, Sep 15 2016, 22:37:39)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.10.1.el7.x86_64
+         system: CentOS Linux 7.2.1511 Core
+```
+The problem seems to happen because in gitfs.py the checkout def in PyGit2 uses _target_sha_ instead of _tag_sha_ when comparing to _head_sha_ (see below).
+
+```python
+ elif tag_ref in refs:
+                tag_obj = self.repo.revparse_single(tag_ref)
+                if not isinstance(tag_obj, pygit2.Tag):
+                    log.error(
+                        '%s does not correspond to pygit2.Tag object',
+                        tag_ref
+                    )
+                else:
+                    try:
+                        # If no AttributeError raised, this is an annotated tag
+                        tag_sha = tag_obj.target.hex
+                    except AttributeError:
+                        try:
+                            tag_sha = tag_obj.hex
+                        except AttributeError:
+                            # Shouldn't happen, but could if a future pygit2
+                            # API change breaks things.
+                            log.error(
+                                'Unable to resolve %s from %s remote \'%s\' '
+                                'to either an annotated or non-annotated tag',
+                                tag_ref, self.role, self.id,
+                                exc_info_on_loglevel=logging.DEBUG
+                            )
+                            return None
+
+                    if head_sha != target_sha:
+                        if not _perform_checkout(local_ref, branch=False):
+                            return None
+
+                    # Return the relative root, if present
+return self.check_root()
+```
+This portion of code is present since v2015.8.0.
+

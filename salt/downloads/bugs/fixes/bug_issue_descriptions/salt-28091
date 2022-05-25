@@ -1,0 +1,116 @@
+This behavior is present as of 2015.8.0, ~~probably caused by #25946~~ . 
+##### Version report:
+
+```
+Salt Version:
+           Salt: 2015.8.1
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.7.0
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.2
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-46-generic
+         system: Ubuntu 14.04 trusty
+```
+##### Prerequisites:
+- Have a custom module that uses @depends decorator from salt.utils.decorators. In my case, a function depends on 'tabulate', another one on 'requests', but might be broken for many other modules/packages.
+##### Symptoms:
+- state.highstate hangs at "Loaded minion key [key location]" (with --log-level=debug). After pressing ^C, info about an ignored ZeroMQ exception is displayed and execution continues normally (possibly with a few more hangs). The mentioned ZeroMQ exception is:
+
+```
+Exception KeyboardInterrupt in <bound method AsyncZeroMQPubChannel.__del__ of <salt.transport.zeromq.AsyncZeroMQPubChannel object at 0x7fe37dcf4650>> ignored
+```
+##### How to reproduce:
+
+1) Create a very simple custom module:
+
+``` python
+import logging
+import salt.client
+from salt.utils.decorators import depends
+
+log = logging.getLogger(__name__)
+caller = salt.client.Caller()
+
+@depends('tabulate')
+def testfun():
+    print 'I am working!'
+```
+
+2) Import it inside Python shell for the first time and for the second time. The first import just shows the appropriate execption caused by salt.utils.decorators.depends, while the other one hangs with the same behavior as described above:
+
+``` bash
+(dev) p@saltmaster:~/salt/state/_modules$ python
+Python 2.7.6 (default, Jun 22 2015, 17:58:13) 
+[GCC 4.8.2] on linux2
+Type "help", "copyright", "credits" or "license" for more information.
+>>> import testmod
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "testmod.py", line 8, in <module>
+    @depends('tabulate')
+  File "/usr/lib/python2.7/dist-packages/salt/utils/decorators/__init__.py", line 67, in __call__
+    kind = frame.f_globals['__name__'].rsplit('.', 2)[1]
+IndexError: list index out of range
+>>> import testmod
+^CException KeyboardInterrupt in <bound method AsyncZeroMQPubChannel.__del__ of <salt.transport.zeromq.AsyncZeroMQPubChannel object at 0x7fd5a6e125d0>> ignored
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "testmod.py", line 8, in <module>
+    @depends('tabulate')
+  File "/usr/lib/python2.7/dist-packages/salt/utils/decorators/__init__.py", line 67, in __call__
+    kind = frame.f_globals['__name__'].rsplit('.', 2)[1]
+IndexError: list index out of range
+```
+
+3) This is what it looks like during `salt-call state.highstate -l debug`:
+
+```
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', 'saltmaster', 'tcp://192.168.200.10:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (9474)
+[DEBUG   ] Setting zmq_reconnect_ivl to '9474ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+^CException KeyboardInterrupt in <bound method AsyncZeroMQPubChannel.__del__ of <salt.transport.zeromq.AsyncZeroMQPubChannel object at 0x7f7c3842a490>> ignored
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'saltmaster', 'tcp://192.168.200.10:4506', 'aes')
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', 'saltmaster', 'tcp://192.168.200.10:4506')
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+```
+
+I am not 100% sure whether importing the module in Python shell is a representative proof (with all the Salt execution context around missing), _but_ removing the decorator made the hangs during state.highstate disappear. Needless to say, there is no error or warning regarding the custom module in 2015.5.1.
+
+By the way, debugging this one was a 2-day torture because everything from 'trace' output, master logs, minion logs to strace-ing the process points you to some irregularities in ZeroMQ (infinite epoll_wait on ZMQ sockets etc.). Might be a good idea to find a way how to bubble up those exceptions in salt.utils.decorators.depends. Thank you for your attention to this.
+
+**EDIT:** Actually, the problem resurfaced even without the decorator. It looks like it is caused by initializing an instance of Caller class. Moving `caller = salt.client.Caller()` from global scope into functions solved the hangs during state.highstate, but calling any of that module functions that initialize Caller ends with the same error.
+
+**EDIT2/SOLUTION**: Instead of relying on Caller() to load minion config, I tried loading it inside the custom module with salt.config.minion_config() and passing the dict to Caller(). This removed all the issues mentioned so far, but I still have no idea why.

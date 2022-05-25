@@ -1,0 +1,101 @@
+### Description of Issue
+`ERROR executing 'state.sls': '__prerequired__' is
+        an invalid keyword argument for 'file.replace'`
+The error appears when there's a `prereq` with target, that itself depends on part of the target, e.g.
+```sls
+foo:
+  file.replace:
+    …
+    - prereq:
+      - bar
+bar:
+  group.present:
+    - name: test
+  user.present:
+    - name: test
+    - require:
+      - group: bar
+```
+The code above worked in previous version of salt.
+The issue also appears with split target (see below for example).
+
+### Setup
+`bug.sls`:
+```sls
+/tmp/bug.txt:
+  file.managed:
+    - name: /tmp/bug.txt
+    - contents:
+      - foo
+
+file.replace:
+  file.replace:
+    - name: /tmp/bug.txt
+    - pattern: 'foo'
+    - repl: 'bar'
+    - prereq:
+      - test no changes
+      - test changes
+
+test no changes:
+  test.succeed_without_changes:
+    - name: no changes
+test changes:
+  test.succeed_with_changes:
+    - name: changes
+    - require:
+      - test: test no changes
+```
+
+### Steps to Reproduce Issue
+```yaml
+# salt 'host' state.sls bug
+host:
+    ERROR executing 'state.sls': '__prerequired__' is
+        an invalid keyword argument for 'file.replace'
+```
+
+### Versions Report
+```c
+# salt --versions-report
+Salt Version:                 
+           Salt: 2019.2.2
+                      
+Dependency Versions:
+           cffi: 1.13.2
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed 
+      gitpython: Not Installed
+          ioflo: 1.7.5                  
+         Jinja2: 2.10.3
+        libgit2: 0.28.4
+        libnacl: 1.6.1
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 3.9.4
+   pycryptodome: Not Installed
+         pygit2: 1.0.1
+         Python: 3.6.10 (default, Jan  2 2020, 01:55:42)
+   python-gnupg: Not Installed
+         PyYAML: 5.1.2        
+          PyZMQ: 17.1.0        
+           RAET: 0.6.8        
+          smmap: Not Installed          
+        timelib: Not Installed
+        Tornado: 4.5.3 
+            ZMQ: 4.3.2
+                       
+System Versions:              
+           dist: gentoo 2.6   
+         locale: UTF-8
+        machine: x86_64       
+        release: 4.19.10-gentoo
+         system: Linux
+        version: Gentoo Base System 2.6 
+```

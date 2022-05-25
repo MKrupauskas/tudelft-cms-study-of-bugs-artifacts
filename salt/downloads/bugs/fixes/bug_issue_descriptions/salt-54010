@@ -1,0 +1,99 @@
+### Description of Issue
+<!-- Note: Please direct questions to the salt-users google group. Only post issues and feature requests here -->
+The `tuned.active` module call fails with a stack trace on systems with tune-adm 2.10.0
+
+```
+# salt 'mon1*' tuned.active
+mon1.ceph:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python3.6/site-packages/salt/minion.py", line 1664, in _thread_return
+        return_data = minion_instance.executors[fname](opts, data, func, args, kwargs)
+      File "/usr/lib/python3.6/site-packages/salt/executors/direct_call.py", line 12, in execute
+        return func(*args, **kwargs)
+      File "/usr/lib/python3.6/site-packages/salt/modules/tuned.py", line 77, in active
+        return '{0}'.format(match.group('profile'))
+    AttributeError: 'NoneType' object has no attribute 'group'
+ERROR: Minions returned with non-zero exit code
+```
+
+
+### Setup
+(Please provide relevant configs and/or SLS files (Be sure to remove sensitive info).)
+Remove any active profiles.  The tuned-adm command should output the following:
+
+```
+# tuned-adm active
+No current active profile.
+```
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+Run `salt-call tuned.active` on the minion. 
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: 1.11.2
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 3.7.2
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.5 (default, Apr 05 2018, 13:30:06) [GCC]
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.3
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: x86_64
+        release: 4.12.14-32-default
+         system: Linux
+        version: Not Installed
+```
+
+
+I added some logging to `/usr/lib/python3.6/site-packages/salt/modules/tuned.py`
+
+```
+    # turn off all profiles
+    result = __salt__['cmd.run']('tuned-adm active')
+    log.warning("result: {}".format(result))
+    pattern = re.compile(r'''(?P<stmt>current active profile:) (?P<profile>\w+.*)''')
+    match = re.match(pattern, result)
+    log.warning("match: {}".format(match))
+    return '{0}'.format(match.group('profile'))
+```
+
+Here's a snippet from the logs above:
+[ERROR   ] Command 'tuned-adm active' failed with return code: 1
+[ERROR   ] output: No current active profile.
+[WARNING ] result: No current active profile.
+[WARNING ] match: None
+
+Returning early when `tuned-adm active` fails may be the simplest solution.

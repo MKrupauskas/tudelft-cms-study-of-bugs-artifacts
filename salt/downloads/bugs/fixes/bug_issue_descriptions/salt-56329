@@ -1,0 +1,119 @@
+### Description of Issue
+I have some states with 'unless' that are running **regardless** of the unless condition exit code.
+
+### Setup
+After lot of lost time, I deduced that the problem is that in some conditions, when a salt python exception is thrown, the onlyif/unless conditions are not evaluated anymore in **next** state entries.
+
+I succeeded in reproducing with a smaller state:
+```
+zsh_fail_1:
+  cmd.run:
+    - name: echo hey
+    - runas: cristi
+    - unless: test -d ~/.zinit/bin    
+
+zsh_test_1:
+  cmd.run:
+    - name: echo "t1"
+    - onlyif: /bin/false
+```
+When I used some 'test.fail_without_changes' state for 'zsh_fail_1', 'zsh_test_1' is working ok.
+But if you try using it as above, the zsh_test_1 command is executed!
+
+The important part here is that user 'cristi' does not exist, so code gets some python exception like below:
+```
+----------
+          ID: zsh_fail_1
+    Function: cmd.run
+        Name: echo hey
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/salt/modules/cmdmod.py", line 442, in _run
+                  pwd.getpwnam(runas)
+              KeyError: "getpwnam(): name not found: 'cristi'"
+              
+              During handling of the above exception, another exception occurred:
+              
+              Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/salt/state.py", line 1981, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 1977, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/states/cmd.py", line 892, in run
+                  cret = mod_run_check(cmd_kwargs, onlyif, unless, creates)
+                File "/usr/lib/python3/dist-packages/salt/states/cmd.py", line 366, in mod_run_check
+                  cmd = __salt__['cmd.retcode'](unless, ignore_retcode=True, python_shell=True, **cmd_kwargs)
+                File "/usr/lib/python3/dist-packages/salt/modules/cmdmod.py", line 2277, in retcode
+                  **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/modules/cmdmod.py", line 445, in _run
+                  'User \'{0}\' is not available'.format(runas)
+              salt.exceptions.CommandExecutionError: User 'cristi' is not available
+     Started: 11:52:32.097022
+    Duration: 9.035 ms
+     Changes:   
+----------
+          ID: zsh_test_1
+    Function: cmd.run
+        Name: echo "t1"
+      Result: True
+     Comment: Command "echo "t1"" run
+     Started: 11:52:32.106490
+    Duration: 37.838 ms
+     Changes:   
+              ----------
+              pid:
+                  30057
+              retcode:
+                  0
+              stderr:
+              stdout:
+                  t1
+```
+
+
+
+
+### Steps to Reproduce Issue
+See above.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 3000
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.9 (default, Nov  7 2019, 10:44:02)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 5.4.18-1-MANJARO
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```
+Strange value for the 'System Versions' 'release' field. Looks more like the kernel's name  - I'm running salt inside an ubuntu LXD container on a Manjaro distro.

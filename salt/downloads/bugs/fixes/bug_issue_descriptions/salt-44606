@@ -1,0 +1,45 @@
+### Description of Issue/Question
+The `glusterfs.peered` state fails if servers names don't resolve to IPv4 addresses.
+
+### Setup
+
+Give `server1.example.com` and `server2.example.com` AAAA DNS records only (I suppose it'd be the same in `/etc/hosts` as well)
+
+### Steps to Reproduce Issue
+
+Try to peer the above mentioned servers with this state file extract :
+
+```
+glusterfs-pool:
+  glusterfs.peered
+    - names:
+      - server1.example.com
+      - server2.example.com
+``
+Here's the resulting output:
+
+```
+    ID: glusterfs-pool:
+    Function: glusterfs.peered
+    Name: server2.example.com
+    Result: False
+    Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1765, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1705, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/glusterfs.py", line 74, in peered
+                  if socket.gethostbyname(name) in __salt__['network.ip_addrs']():
+              gaierror: [Errno -2] Name or service not known
+```
+
+The reason is simply that `socket.gethostbyname()` is for IPv4 resolution only.
+I already have a workaround, based on `socket.getaddrinfo()`, as Python docs suggest, that I'll be happy to include in mainline (for now it's in a state function that I called `gluster6.peered`)
+
+### Versions Report
+
+This is seen on 2016.11 (Python 2.7) both on master and minion (only the minion is relevant in that case).
+
+From reading the code, it's obvious that it doesn't depend on any 3rd party library.
+
+I've already checked the develop branch, it's the same, and therefore should be affected in the same way.

@@ -1,0 +1,216 @@
+### Description of Issue/Question
+If you define an schedule in pillar data the schedule is implemented.
+If you then try to change the schedule interval, the schedule is updated but fails to
+update the "_schedule.conf" File.
+
+### Setup
+Defined an schedule in "pillars/pandora/init.sls":
+```
+schedule:
+    underworld_pki_run_state:
+        function: state.apply
+        minutes: 1
+        args:
+            - underworld-pki
+```
+So the Schedule is implemented:
+```
+# salt 'pandora*' schedule.list
+pandora.underworld.lan:
+    schedule:
+      underworld_pki_run_state:
+        args:
+        - underworld-pki
+        enabled: true
+        function: state.apply
+        minutes: 1
+```
+and is running:
+```
+# tail -f /var/log/salt/minion | grep "Running scheduled job: underworld_pki_run_state"
+2017-01-03 10:03:37,611 [salt.utils.schedule][INFO    ][23384] Running scheduled job: underworld_pki_run_state
+2017-01-03 10:04:37,611 [salt.utils.schedule][INFO    ][23384] Running scheduled job: underworld_pki_run_state
+2017-01-03 10:05:37,611 [salt.utils.schedule][INFO    ][23384] Running scheduled job: underworld_pki_run_state
+```
+The "_schedule.conf" shows:
+```
+schedule:
+  __mine_interval: {enabled: true, function: mine.update, jid_include: true, maxrunning: 2,
+    minutes: 60, return_job: false}
+  underworld_pki_run_state:
+    args: [underworld-pki]
+    function: state.apply
+    minutes: 1
+```
+
+### Steps to Reproduce Issue
+So now try to alter the timeframe in "pillars/pandora/init.sls":
+```
+schedule:
+    underworld_pki_run_state:
+        function: state.apply
+        minutes: 2
+        args:
+            - underworld-pki
+```
+Update pillars:
+```
+# salt 'pandora*' saltutil.refresh_pillar && date
+pandora.underworld.lan:
+    True
+Di 3. Jan 10:06:50 CET 2017
+```
+So the Schedule shows the right values:
+```
+# salt 'pandora*' schedule.list
+pandora.underworld.lan:
+    schedule:
+      underworld_pki_run_state:
+        args:
+        - underworld-pki
+        enabled: true
+        function: state.apply
+        minutes: 2
+```
+and the schedule is running as expected:
+```
+# tail -f /var/log/salt/minion | grep "Running scheduled job: underworld_pki_run_state"
+2017-01-03 10:08:37,610 [salt.utils.schedule][INFO    ][23384] Running scheduled job: underworld_pki_run_state
+2017-01-03 10:10:37,610 [salt.utils.schedule][INFO    ][23384] Running scheduled job: underworld_pki_run_state
+2017-01-03 10:12:37,611 [salt.utils.schedule][INFO    ][23384] Running scheduled job: underworld_pki_run_state
+```
+But the "_schedule.conf" shows still:
+```
+schedule:
+  __mine_interval: {enabled: true, function: mine.update, jid_include: true, maxrunning: 2,
+    minutes: 60, return_job: false}
+  underworld_pki_run_state:
+    args: [underworld-pki]
+    function: state.apply
+    minutes: 1
+```
+So, now restart the minion:
+```
+# systemctl restart salt-minion && date
+Di 3. Jan 10:16:39 CET 2017
+```
+and look at the logs:
+```
+# tail -f /var/log/salt/minion | grep "Running scheduled job: underworld_pki_run_state"
+2017-01-03 10:16:43,950 [salt.utils.schedule][INFO    ][24129] Running scheduled job: underworld_pki_run_state
+2017-01-03 10:17:43,768 [salt.utils.schedule][INFO    ][24129] Running scheduled job: underworld_pki_run_state
+2017-01-03 10:18:43,768 [salt.utils.schedule][INFO    ][24129] Running scheduled job: underworld_pki_run_state
+```
+The schedule falls back to the 1-Minute intervall, the "schedule.list" shows the right stuff:
+```
+pandora.underworld.lan:
+    schedule:
+      underworld_pki_run_state:
+        args:
+        - underworld-pki
+        enabled: true
+        function: state.apply
+        minutes: 2
+```
+Also an pillar refresh does not work:
+```
+# salt 'pandora*' saltutil.refresh_pillar && date
+pandora.underworld.lan:
+    True
+Di 3. Jan 10:20:13 CET 2017
+
+# tail -f /var/log/salt/minion | grep "Running scheduled job: underworld_pki_run_state"
+2017-01-03 10:20:43,768 [salt.utils.schedule][INFO    ][24129] Running scheduled job: underworld_pki_run_state
+2017-01-03 10:21:43,768 [salt.utils.schedule][INFO    ][24129] Running scheduled job: underworld_pki_run_state
+2017-01-03 10:22:43,767 [salt.utils.schedule][INFO    ][24129] Running scheduled job: underworld_pki_run_state
+```
+Bigger Problem is, that also an change of the timeframe in "pillars/pandora/init.sls" does not do anything now:
+```
+schedule:
+    underworld_pki_run_state:
+        function: state.apply
+        minutes: 5
+        args:
+            - underworld-pki
+```
+looks good:
+```
+# salt 'pandora*' saltutil.refresh_pillar && date
+pandora.underworld.lan:
+    True
+Di 3. Jan 10:23:38 CET 2017
+
+# salt 'pandora*' schedule.list
+pandora.underworld.lan:
+    schedule:
+      underworld_pki_run_state:
+        args:
+        - underworld-pki
+        enabled: true
+        function: state.apply
+        minutes: 5
+```
+But doesn't work:
+```
+2017-01-03 10:23:43,767 [salt.utils.schedule][INFO    ][24129] Running scheduled job: underworld_pki_run_state
+2017-01-03 10:24:43,767 [salt.utils.schedule][INFO    ][24129] Running scheduled job: underworld_pki_run_state
+2017-01-03 10:25:43,767 [salt.utils.schedule][INFO    ][24129] Running scheduled job: underworld_pki_run_state
+```
+Content of "_schedule.conf" is still:
+```
+schedule:
+  __mine_interval: {enabled: true, function: mine.update, jid_include: true, maxrunning: 2,
+    minutes: 60, return_job: false}
+  underworld_pki_run_state:
+    args: [underworld-pki]
+    function: state.apply
+    minutes: 1
+```
+
+### Versions Report
+Installed Salt in Arch Linux.
+```
+Salt Version:
+           Salt: 2016.11.1
+ 
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: 8.5.0
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Dec 21 2016, 07:16:46)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.2.0
+ 
+System Versions:
+           dist:   
+        machine: x86_64
+        release: 4.8.13-1-ARCH
+         system: Linux
+        version: Not Installed
+```
+
+### Workaround
+Only thing to get this "reset":
+```
+systemctl stop salt-minion && rm /etc/salt/minion.d/_schedule.conf && systemctl start salt-minion
+```

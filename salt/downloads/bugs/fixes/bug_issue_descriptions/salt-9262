@@ -1,0 +1,97 @@
+In salt 0.17.2 so far, likely 0.17.4 as well, the following setup of salt is loading the dev:salt.grains pillar data when at no point should it be doing so:
+
+```
+file_roots:
+  base:
+    - /srv/salt/states/base
+  prod:
+    - /srv/salt/states/prod
+  dev:
+    - /srv/salt/states/dev
+
+pillar_roots:
+  base:
+    - /srv/salt/pillars/base
+  prod:
+    - /srv/salt/pillars/prod
+  dev:
+    - /srv/salt/pillars/dev
+```
+
+/srv/salt/states/base/top.sls:
+
+```
+base:
+  '*':
+    - auth
+    - base-install
+prod:
+  'environment:test':
+    - match: grain
+    - salt.grains
+```
+
+/srv/salt/pillars/base/top.sls:
+
+```
+base:
+  '*':
+    - pkg
+
+prod:
+  'environment:test':
+    - match: grain
+    - salt.grains
+
+dev:
+  '*':
+    - test.dev
+```
+
+/srv/salt/pillars/prod/salt/grains.sls:
+
+```
+grains:
+  text: |
+    roles:
+      - default
+    {%- if grains['host'].startswith('test-') %}
+    environment: test
+    {%- else %}
+    environment: production
+    {%- endif %}
+    datacenter: homoe
+    testing: False
+```
+
+/srv/salt/pillars/dev/salt/grains.sls:
+
+```
+grains:
+  text: |
+    roles:
+      - default
+    {%- if grains['host'].startswith('test-') %}
+    environment: test
+    {%- else %}
+    environment: production
+    {%- endif %}
+    datacenter: home-test
+    testing: True
+```
+
+/srv/salt/states/prod/grains/salt.sls:
+
+```
+/etc/salt/grains:
+  file:
+    - managed
+    - user: root
+    - group: root
+    - mode: '0644'
+    - contents: |
+        {{ salt['pillar.get']('grains:text') | indent(8) }}
+```
+
+Situation:
+In every scenario, environment:dev's pillar, though undefined in top to be used, is always applied to the final result somehow overriding.

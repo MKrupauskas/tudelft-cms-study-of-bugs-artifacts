@@ -1,0 +1,113 @@
+### Description of Issue/Question
+
+When using the `docker_container.running` state and using multiple container links, the container is recreated at the next run. This is because the new and old state comparisons include the links in a different order. The `new` order appears to be non-deterministic and will occasionally match the order of the `old` order.
+
+I noticed this after #42743 and it may be relevant.
+
+My suggested fix is to order both new and old sets of links alphabetically before the comparison.
+
+### Setup
+
+```
+run_container_1:
+  docker_container.running:
+    - name: container1
+    - image: nginx
+run_container_2:
+  docker_container.running:
+    - name: container2
+    - image: nginx
+run_container_3:
+  docker_container.running:
+    - name: container3
+    - image: nginx
+run_load_balancer:
+  docker_container.running:
+    - name: loadbalancer
+    - image: nginx
+    - port_bindings:
+      - 80:80
+      - 443:443
+    - links:
+      - container1:container1
+      - container2:container2
+      - container3:container3
+```
+
+### Steps to Reproduce Issue
+
+Run the above state once and see the containers created. The next run will see the `loadbalancer` container recreated.
+
+```
+----------
+          ID: run_load_balancer
+    Function: docker_container.running
+        Name: loadbalancer
+      Result: None
+     Comment: Container 'loadbalancer' would be replaced
+     Started: 14:53:58.545750
+    Duration: 1618.833 ms
+     Changes:   
+              ----------
+              container:
+                  ----------
+                  HostConfig:
+                      ----------
+                      Links:
+                          ----------
+                          new:
+                              - /container1:/container1
+                              - /container2:/container2
+                              - /container3:/container3
+                          old:
+                              - /container2:/container2
+                              - /container3:/container3
+                              - /container1:/container1
+```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.5.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+```
+
+No differences between master and minion.

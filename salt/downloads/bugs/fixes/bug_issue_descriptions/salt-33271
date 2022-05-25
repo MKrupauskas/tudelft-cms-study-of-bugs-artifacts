@@ -1,0 +1,121 @@
+### Description of Issue/Question
+
+Salt Syndic uses large amounts of memory over time, eventually consuming enough memory to cause Linux OOM to kill it off.
+
+The syndic process is using almost 8.5GB in this example.
+
+```
+PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND 
+1011 root      20   0 14.679g 8.471g   7240 S   0.0 72.2  24:32.99 salt-syndic
+```
+
+Another syndic host logged killing the syndic due to OOM
+
+```
+[Fri May 13 17:43:14 2016] Out of memory: Kill process 994 (salt-syndic) score 817 or sacrifice child
+[Fri May 13 17:43:14 2016] Killed process 994 (salt-syndic) total-vm:16944280kB, anon-rss:10350908kB, file-rss:860kB
+[Fri May 13 17:43:15 2016] init: salt-syndic main process (994) killed by KILL signal
+```
+
+I have 4 Syndics deployed with version Salt: 2015.8.8.2, all of my higher minion count local masters with syndics exhibit this problem, the more minions/activity the faster appears to happens.
+
+Syndic logs are clean at WARN, will turn it up to debug.
+### Setup
+
+Syndic Master config
+
+```
+con_cache: True
+gather_job_timeout: 20
+worker_threads: 15
+keep_jobs: 1
+timeout: 10
+show_timeout: True
+ping_on_rotate: True
+auto_accept: True
+external_auth:
+  pam:
+    usera:
+      - '.*'
+      - '@runner'
+      - '@wheel'
+    userb:
+      - '@jobs'
+      - '*':
+        - 'test.*'
+        - 'network.*'
+        - 'state.*'
+    groupa%:
+      - '.*'
+      - '@runner'
+      - '@wheel'
+file_roots:
+  base:
+    - /srv/salt/base/salt-states
+  master:
+    - /srv/salt/master/salt-states
+    - /srv/salt/master/salt-states-opennebula
+  production:
+    - /srv/salt/production/salt-states
+fileserver_backend:
+  - roots
+gitfs_base: base
+ext_pillar:
+  - git: master git@gitlab:cloud/salt-pillar.git
+pillar_opts: False
+syndic_master: salt-mom
+syndic_log_file: /var/log/salt/syndic
+syndic_wait: 13
+rest_cherrypy:
+  ssl_key: /etc/pki/salt/certs/saltapi.key
+  webhook_url: /hook
+  webhook_disable_auth: True
+  port: 8000
+  ssl_crt: /etc/pki/salt/certs/saltapi.crt
+```
+### Steps to Reproduce Issue
+
+Setup Salt MoM with a Salt syndic and a bunch of minions ~1000. Wait 1-3 days (less time with high activity).
+### Versions Report
+
+Both Salt MoM, and Syndics are using same versions, Minions, vary but in one case all Minions match the versions below as well.
+
+```
+Salt Version:
+           Salt: 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.4.0
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: 0.8.2
+       cherrypy: 3.2.2
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-43-generic
+         system: Ubuntu 14.04 trusty
+
+```

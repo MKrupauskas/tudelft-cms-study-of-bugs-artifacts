@@ -1,0 +1,91 @@
+We have been trying to move from cherrypy to tornado but are having problems.
+
+When using cherrypy we had the following:
+
+```
+625 $ curl -si http://localhost:8000/run -H "Accept: */*" -d client=local -d fun=test.ping -d tgt=dtc-master-aus -d username=saltdev -d password=saltdev -d eauth=pam
+HTTP/1.1 200 OK
+Content-Length: 38
+Access-Control-Expose-Headers: GET, POST
+Vary: Accept-Encoding
+Server: CherryPy/3.2.2
+Allow: GET, HEAD, POST
+Access-Control-Allow-Credentials: true
+Date: Wed, 28 Oct 2015 21:08:17 GMT
+Access-Control-Allow-Origin: *
+Content-Type: application/json
+
+{"return": [{"dtc-master-aus": true}]}626 $ 
+```
+
+but on moving to tornado we get:
+
+```
+1083 $ curl -si http://localhost:8000/run -H "Accept: */*" -d client=local -d fun=test.ping -d tgt=dtc-master-aus -d username=saltdev -d password=saltdev -d eauth=pam
+HTTP/1.1 200 OK
+Date: Wed, 28 Oct 2015 21:09:43 GMT
+Content-Length: 16
+Content-Type: application/json
+Server: TornadoServer/4.2.1
+
+{"return": [{}]}1084 $ 
+```
+
+In the tornado environment we have:
+
+```
+[root@flt-master /]# salt --versions-report
+           Salt: 2015.5.5
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 05:13:40)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+        Tornado: 4.2.1
+        timelib: Not Installed
+       dateutil: Not Installed
+```
+
+log:
+
+```
+[root@flt-master /]# 1012 $ docker exec -it flt_master bash
+[root@flt-master /]# cat /var/log/salt/api 
+2015-10-28 20:39:03,539 [salt.utils.process][DEBUG   ][46][140175458899712] Created pidfile: /var/run/salt-api.pid
+2015-10-28 20:39:03,668 [salt.client.netapi][INFO    ][46][140175458899712] Starting rest_tornado.start netapi module
+2015-10-28 20:39:03,831 [salt.utils.process][DEBUG   ][46][140175458899712] Started 'salt.loaded.int.netapi.rest_tornado.start' with pid 82
+2015-10-28 21:06:33,894 [root             ][CRITICAL][82][140175458899712] init a listener
+2015-10-28 21:06:33,894 [salt.utils.event ][DEBUG   ][82][140175458899712] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-28 21:06:33,895 [salt.utils.event ][DEBUG   ][82][140175458899712] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-28 21:06:33,896 [salt.utils.event ][DEBUG   ][82][140175458899712] Sending event - data = {'_stamp': '2015-10-28T21:06:33.895971'}
+2015-10-28 21:06:33,900 [salt.utils.event ][DEBUG   ][82][140175458899712] MasterEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+2015-10-28 21:06:33,901 [salt.utils.event ][DEBUG   ][82][140175458899712] MasterEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+2015-10-28 21:06:33,903 [salt.utils.event ][DEBUG   ][82][140175458899712] Sending event - data = {'_stamp': '2015-10-28T21:06:33.902171'}
+2015-10-28 21:06:44,361 [tornado.access   ][INFO    ][82][140175458899712] 200 POST /run (172.17.42.1) 10467.52ms
+2015-10-28 21:06:44,369 [tornado.application][ERROR   ][82][140175458899712] Future exception was never retrieved: TimeoutException
+[root@flt-master /]# 
+```
+
+Looking at the saltnado.py code, the `CRITICAL` issue seems to be more an `INFO`.
+We have not yet tracked down the `TimeoutException`.
+
+The configuration we are using is:
+
+```
+[root@flt-master /]# cat /etc/salt/master.d/tornado.conf 
+rest_tornado:
+  port: 8000
+  address: 0.0.0.0
+  debug: True
+  disable_ssl: True
+  num_processes: 1
+[root@flt-master /]# 
+```

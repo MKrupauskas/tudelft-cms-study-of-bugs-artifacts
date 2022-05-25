@@ -1,0 +1,116 @@
+### Description of Issue/Question
+When using `mysql_user.present` to update the password for a user on MariaDB 10.1.X, it will fail due to the use of ALTER USER instead of SET PASSWORD.
+@garethgreenaway appears to have made a change to detection of MariaDB in the version detection code (https://github.com/saltstack/salt/commit/d31c902931f910ef264fc63d0a904d82376a3d94) which I believe is where the problem has come in. It forces all MariaDB servers to be set to version 10.2.0 which may be why now the detection for ALTER USER vs UPDATE... SET PASSWORD is now not working (https://github.com/saltstack/salt/commit/d31c902931f910ef264fc63d0a904d82376a3d94#diff-29a8d4513061a20d02e36c542ea18e19R1541)
+
+### Setup
+
+```yaml
+set_localhost_root_password:
+  mysql_user.present:
+    - name: root
+    - host: localhost
+    - password: {{ salt['pillar.get']('mysql.pass') }}
+    - connection_pass: ""
+    - watch:
+      - pkg: install-mariadb
+      - service: mariadb_service_running
+```
+
+### Steps to Reproduce Issue
+```
+[DEBUG   ] Doing query: SELECT VERSION()
+[DEBUG   ] Doing query: SELECT column_name from information_schema.COLUMNS WHERE table_schema=%(schema)s and table_name=%(table)s and column_name=%(column)s args: {u'column': u'Password', u'table': u'user', u'schema': u'mysql'} 
+[DEBUG   ] Doing query: ALTER USER 'root'@'localhost' IDENTIFIED BY 'XXXXXXXX';
+[DEBUG   ] An exception occurred in this state: (1064, "You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'USER 'root'@'localhost' IDENTIFIED BY 'XXXXXXXX'' at line 1")
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1933, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1939, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/states/mysql_user.py", line 174, in present
+    **connection_args):
+  File "/usr/lib/python2.7/dist-packages/salt/modules/mysql.py", line 1498, in user_chpass
+    result = _execute(cur, qry, args)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/mysql.py", line 543, in _execute
+    return cur.execute(qry)
+  File "/usr/lib/python2.7/dist-packages/MySQLdb/cursors.py", line 226, in execute
+    self.errorhandler(self, exc, value)
+  File "/usr/lib/python2.7/dist-packages/MySQLdb/connections.py", line 36, in defaulterrorhandler
+    raise errorvalue
+ProgrammingError: (1064, "You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'USER 'root'@'localhost' IDENTIFIED BY 'XXXXXXXX'' at line 1")
+
+<snip>
+
+local:
+----------
+          ID: set_localhost_root_password
+    Function: mysql_user.present
+        Name: root
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1933, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1939, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/mysql_user.py", line 174, in present
+                  **connection_args):
+                File "/usr/lib/python2.7/dist-packages/salt/modules/mysql.py", line 1498, in user_chpass
+                  result = _execute(cur, qry, args)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/mysql.py", line 543, in _execute
+                  return cur.execute(qry)
+                File "/usr/lib/python2.7/dist-packages/MySQLdb/cursors.py", line 226, in execute
+                  self.errorhandler(self, exc, value)
+                File "/usr/lib/python2.7/dist-packages/MySQLdb/connections.py", line 36, in defaulterrorhandler
+                  raise errorvalue
+              ProgrammingError: (1064, "You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'USER 'root'@'localhost' IDENTIFIED BY 'XXXXXXXX'' at line 1")
+     Started: 09:14:16.925508
+    Duration: 16.904 ms
+```
+
+### Versions Report
+```
+$ mysql -V
+mysql  Ver 15.1 Distrib 10.1.38-MariaDB, for debian-linux-gnu (x86_64) using readline 5.2
+
+
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.3.7
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 12 2018, 14:36:49)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-142-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

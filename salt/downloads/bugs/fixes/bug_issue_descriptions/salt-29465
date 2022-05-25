@@ -1,0 +1,226 @@
+Start with a trivial file, which I called `state/whatever/init.sls`:
+
+``` salt
+success:
+  test.nop: []
+```
+
+Execute this state on some rando:
+
+```
+[admin@bonnie ~]$ sudo salt milo.dallas.charlietango.com state.sls state.whatever
+milo.dallas.charlietango.com:
+----------
+          ID: success
+    Function: test.nop
+      Result: True
+     Comment: Success!
+     Started: 20:45:06.042724
+    Duration: 0.81 ms
+     Changes:   
+
+Summary for milo.dallas.charlietango.com
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:   0.810 ms
+```
+
+Now execute it on a minion that's not currently responding. To simulate this I just stop the `salt-minion` service on my minion with `systemctl stop salt-minion`. After a brief timeout:
+
+```
+[admin@bonnie ~]$ sudo salt milo.dallas.charlietango.com state.sls state.whatever
+milo.dallas.charlietango.com:
+    Minion did not return. [Not connected]
+```
+
+So far so good. Now create an orchestration that invokes this state. Here's mine:
+
+``` salt
+testcase1:
+  salt.state:
+    - tgt: milo.dallas.charlietango.com
+    - sls:
+      - state.whatever
+```
+
+With `salt-minion` running as normal on Milo, run the orchestration, and we get:
+
+```
+[admin@bonnie ~]$ sudo salt-run state.orchestrate orchestrate.testcase
+bonnie.dallas.charlietango.com_master:
+----------
+          ID: testcase1
+    Function: salt.state
+      Result: True
+     Comment: States ran successfully. No changes made to milo.dallas.charlietango.com.
+     Started: 20:49:59.247537
+    Duration: 366.16 ms
+     Changes:   
+
+Summary for bonnie.dallas.charlietango.com_master
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time: 366.160 ms
+```
+
+Now stop the `salt-minion` on Milo and rerun the orchestration and we get, after the expected timeout, this surprising result:
+
+```
+[admin@bonnie ~]$ sudo salt-run state.orchestrate orchestrate.testcase
+bonnie.dallas.charlietango.com_master:
+----------
+          ID: testcase1
+    Function: salt.state
+      Result: True
+     Comment: States ran successfully.
+     Started: 20:50:33.358693
+    Duration: 15099.234 ms
+     Changes:   
+
+Summary for bonnie.dallas.charlietango.com_master
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:  15.099 s
+```
+
+Things get ugly, in my opinion, when you do this:
+
+``` salt
+testcase1:
+  salt.state:
+    - tgt: milo.dallas.charlietango.com
+    - sls:
+      - state.whatever
+
+testcase2:
+  salt.function:
+    - name: test.true
+    - tgt: bonnie.dallas.charlietango.com
+    - onfail:
+      - salt: testcase1
+```
+
+When Milo is not connected, we get this entirely unexpected result:
+
+```
+[admin@bonnie ~]$ sudo salt-run state.orchestrate orchestrate.testcase
+bonnie.dallas.charlietango.com_master:
+----------
+          ID: testcase1
+    Function: salt.state
+      Result: True
+     Comment: States ran successfully.
+     Started: 21:01:50.644215
+    Duration: 15099.056 ms
+     Changes:   
+----------
+          ID: testcase2
+    Function: salt.function
+        Name: test.true
+      Result: True
+     Comment: State was not run because onfail req did not change
+     Started: 
+    Duration: 
+     Changes:   
+
+Summary for bonnie.dallas.charlietango.com_master
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total states run:     2
+Total run time:  15.099 s
+```
+
+As you can see from the run time at the bottom, Milo really wasn't responding when I ran that last orchestration. The master timed out waiting for it. But the master didn't recognize that as a failure, so it didn't trigger the `onfail` requisite in `testcase2`. To the guy sitting at the keyboard, it looks as if the orchestration succeeded just fine, although taking abnormally long.
+
+Here are my version reports for master and minion:
+
+```
+[admin@bonnie ~]$ salt-master --versions-report
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Jun 24 2015, 00:41:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: 0.21.4
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.1.1503 Core
+        machine: x86_64
+        release: 3.10.0-229.14.1.el7.x86_64
+         system: CentOS Linux 7.1.1503 Core
+```
+
+```
+[admin@milo ~]$ salt-minion --versions-report
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Jun 24 2015, 00:41:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.1.1503 Core
+        machine: x86_64
+        release: 3.10.0-229.20.1.el7.x86_64
+         system: CentOS Linux 7.1.1503 Core
+```
+
+Thanks as always.

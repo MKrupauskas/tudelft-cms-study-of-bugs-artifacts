@@ -1,0 +1,92 @@
+### Description of Issue/Question
+salt.minion mishandles the opts['master'] when constructing a master_uri for zeromq to connect to the master returner port when the master is provided in the minion config as an IPv6 address.
+
+zmq requires the master_uri to be in the format `tcp://[::1]:4506` but salt tries to use zmq with something like `tcp://::1:4506` which is not valid, and will quietly fail to connect with no indication the URI is invalid.
+
+### Setup
+The simplest way to reproduce this is to configure salt master to listen on IPv6 `[::]`, and the minion to connect to the master via IPv6, on the same host, via IPv6 localhost address `[::1]`
+
+/etc/salt/master excerpt:
+```
+interface: '::'
+ipv6: True
+```
+(re)start the salt master and verify this is working using `sudo lsof -i tcp:4506` and/or `nc -6 -z ::1 4506`
+
+/etc/salt/minion excerpt:
+```
+master: '::1'
+```
+
+### Steps to Reproduce Issue
+`salt-call --log-level=debug test.ping`
+
+```
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Grains refresh requested. Refreshing grains.
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[DEBUG   ] Loading static grains from /etc/salt/grains
+[DEBUG   ] Connecting to master. Attempt 1 of 1
+[DEBUG   ] Master URI: tcp://::1:4506
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'testbox', 'tcp://::1:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (2375)
+[DEBUG   ] Setting zmq_reconnect_ivl to '2375ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'testbox', 'tcp://::1:4506', 'clear')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://::1:4506
+[DEBUG   ] Trying to connect to: tcp://::1:4506
+[DEBUG   ] salt.crypt.get_rsa_pub_key: Loading public key
+[DEBUG   ] SaltReqTimeoutError, retrying. (1/7)
+...
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.0
+ 
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.27.3
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.27.1
+         Python: 3.6.6 (default, Jul  7 2018, 08:32:58)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.2
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: x86_64
+        release: 17.7.0
+         system: Darwin
+        version: 10.13.6 x86_64
+```

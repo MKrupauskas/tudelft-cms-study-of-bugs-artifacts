@@ -1,0 +1,74 @@
+### Description of Issue/Question
+
+The 2017.7.2 update to SaltStack breaks pkgrepo.managed comments. This is a regression and a re-occurrence of Issue #34963, which was resolved by PR #41820.
+
+### Setup
+```
+# file: /srv/salt/examplerepo.sls
+examplerepo:
+  pkgrepo.managed:
+    - baseurl: http://example.com/repo
+    - enabled: 0
+    - comments:
+      - this is a comment
+```
+
+### Steps to Reproduce Issue
+Initially, running a `state.apply` for the above sls file in test mode correctly reports that the repo will be configured. Running a `state.apply` with test mode turned off also correctly configures the repo file with the desired comments.
+
+The problems happen when the repo has already been configured correctly and no changes need to be made to the repo file. Subsequent runs of `state.apply` will rewrite the repo file every time.  Subsequent runs of `state.apply` with `test=True` will always report that the 
+
+```
+$ cat /etc/yum.repos.d/examplerepo.repo 
+
+[examplerepo]
+name=examplerepo
+enabled=0
+baseurl=http://example.com/repo
+#this is a comment
+$ sudo salt 'master' state.apply examplerepo test=True
+master:
+----------
+          ID: examplerepo
+    Function: pkgrepo.managed
+      Result: None
+     Comment: Package repo 'examplerepo' will be configured. This may cause pkg states to behave differently than stated if this action is repeated without test=True, due to the differences in the configured repositories.
+     Started: 09:42:52.199129
+    Duration: 728.214 ms
+     Changes:   
+
+Summary for master
+------------
+Succeeded: 1 (unchanged=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time: 728.214 ms
+```
+
+### Details
+The issue was caused by commit ca1b1bb6334da6597b97ae411d65b98844c8f661, which modified the _parse_repo_file function in `salt/modules/yumpkg.py` to use [ConfigParser](https://docs.python.org/2/library/configparser.html) for repo file parsing rather than parsing the repo file itself. ConfigParser does not parse comments.
+```
+$ cat /etc/yum.repos.d/examplerepo.repo 
+
+[examplerepo]
+name=examplerepo
+enabled=0
+baseurl=http://example.com/repo
+#this is a comment
+$ python
+Python 2.7.5 (default, Aug  4 2017, 00:39:18) 
+[GCC 4.8.5 20150623 (Red Hat 4.8.5-16)] on linux2
+Type "help", "copyright", "credits" or "license" for more information.
+>>> import ConfigParser
+>>> p = ConfigParser.ConfigParser()
+>>> p.read('/etc/yum.repos.d/examplerepo.repo')
+['/etc/yum.repos.d/examplerepo.repo']
+>>> p.sections()
+['examplerepo']
+>>> p.items('examplerepo')
+[('name', 'examplerepo'), ('enabled', '0'), ('baseurl', 'http://example.com/repo')]
+>>> 
+```
+
+`pkgrepo.managed` yum repo comments will not work until we extend ConfigParser to deal with comments or revert the above commit.

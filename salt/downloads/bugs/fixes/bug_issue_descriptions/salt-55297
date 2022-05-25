@@ -1,0 +1,110 @@
+### Description of Issue
+When using the `file.replace` state, the file's modification date is changed even if there is no changes.
+An older issue was also reporting this issue : https://github.com/saltstack/salt/issues/18841
+
+This behavior is problematic when used on minions with a HIDS or any FIM.
+
+### Setup / Steps to Reproduce Issue
+```
+root@82b264f5f4a4:/srv/salt# touch -m -t 201001010203 /tmp/testfile
+root@82b264f5f4a4:/srv/salt# cat /tmp/testfile
+foo
+bar
+foobar
+barfoo
+
+root@82b264f5f4a4:/srv/salt# stat /tmp/testfile
+  File: /tmp/testfile
+  Size: 23        	Blocks: 8          IO Block: 4096   regular file
+Device: 45h/69d	Inode: 12129251    Links: 1
+Access: (0644/-rw-r--r--)  Uid: (    0/    root)   Gid: (    0/    root)
+Access: 2019-11-13 22:09:03.879964875 +0000
+Modify: 2010-01-01 02:03:00.000000000 +0000
+Change: 2019-11-13 22:08:58.219964896 +0000
+ Birth: -
+root@82b264f5f4a4:/srv/salt# salt-call --local state.apply test
+local:
+----------
+          ID: /tmp/testfile
+    Function: file.replace
+      Result: True
+     Comment: No changes needed to be made
+     Started: 22:09:23.472092
+    Duration: 9.674 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:   9.674 ms
+root@82b264f5f4a4:/srv/salt# stat /tmp/testfile
+  File: /tmp/testfile
+  Size: 23        	Blocks: 8          IO Block: 4096   regular file
+Device: 45h/69d	Inode: 12129251    Links: 1
+Access: (0644/-rw-r--r--)  Uid: (    0/    root)   Gid: (    0/    root)
+Access: 2019-11-13 22:09:03.879964875 +0000
+Modify: 2019-11-13 22:09:23.469964800 +0000
+Change: 2019-11-13 22:09:23.469964800 +0000
+ Birth: -
+root@82b264f5f4a4:/srv/salt# cat /srv/salt/test.sls 
+/tmp/testfile:
+  file.replace:
+    - pattern: fo.
+    - repl: foo
+root@82b264f5f4a4:/srv/salt# 
+```
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+```
+Salt Version:
+           Salt: 2019.2.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Sep 26 2018, 18:42:22)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.4 
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 4.19.83-1-lts
+         system: Linux
+        version: debian 9.4 
+```
+
+A unit test for this problem : https://github.com/slaws/salt/blob/file-replace-idempotency/tests/unit/modules/test_file.py#L120
+
+This commit seems to correct the problem : https://github.com/slaws/salt/commit/d85943e798fecb319bba2a6058690106b5cf3b1d
+
+It does not seem to break the other tests, however I'm not sure this is the best way to correct it.
+ 

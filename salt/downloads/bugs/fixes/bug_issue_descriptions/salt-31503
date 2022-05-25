@@ -1,0 +1,306 @@
+### Expected Behavior
+
+Given this interaction in `jboss-cli.sh`:
+
+```
+[domain@localhost:9990 /] /profile=full-ha/subsystem=logging/root-logger=ROOT:read-resource
+{   
+    "outcome" => "success",
+    "result" => {
+        "filter" => undefined,
+        "filter-spec" => undefined,
+        "handlers" => [
+            "CONSOLE",
+            "FILE",
+            "NETWORK"
+        ],
+        "level" => "INFO"
+    }
+}
+```
+
+Or equivalently this from the command line:
+
+```
+[tmonroe@l-tsmwfdc-101 ~]$ sudo -u wildfly /opt/wildfly/bin/jboss-cli.sh  --connect --command=/profile=full-ha/subsystem=logging/root-logger=ROOT:read-resource
+{
+    "outcome" => "success",
+    "result" => {
+        "filter" => undefined,
+        "filter-spec" => undefined,
+        "handlers" => [
+            "CONSOLE",
+            "FILE",
+            "NETWORK"
+        ],
+        "level" => "INFO"
+    }
+}
+```
+
+I would hope to see this when I attempt to query the state of the JBoss logging configuration via Salt:
+
+```
+[tmonroe@l-tsmsalt-101 ~]$ sudo salt --output=yaml '*wfdc*' jboss7_cli.run_operation '{"controller": "127.0.0.1:9999", "cli_path": "/opt/wildfly/bin/jboss-cli.sh"}' /profile=full-ha/subsystem=logging/root-logger=ROOT:read-resource
+l-tsmwfdc-101.bhyve.local:
+  outcome: success
+  result:
+    filter: null
+    filter-spec: null
+    handlers:
+      - CONSOLE
+      - FILE
+      - NETWORK
+    level: INFO
+  success: true
+```
+### Actual Behavior
+
+What I expect to be parsed as a list under the single key `handlers` got turned into multiple key/value pairs.
+
+```
+[tmonroe@l-tsmsalt-101 ~]$ sudo salt --output=yaml '*wfdc*' jboss7_cli.run_operation '{"controller": "127.0.0.1:9999", "cli_path": "/opt/wildfly/bin/jboss-cli.sh"}' /profile=full-ha/subsystem=logging/root-logger=ROOT:read-resource
+l-tsmwfdc-101.bhyve.local:
+  outcome: success
+  result:
+    FILE: NETWORK
+    filter: null
+    filter-spec: null
+    handlers: CONSOLE
+    level: INFO
+  success: true
+```
+
+It appears that the result parser used by `jboss7_cli.run_operation` is not correctly identifying the list in the output.  Based on the debug logs below it does not even regard `[` and `]` as significant tokens.
+
+The behavior deteriorates if there is an even number of items in the list.  I removed one of the items from the `handlers` list:
+
+```
+[domain@localhost:9990 /] /profile=full-ha/subsystem=logging/root-logger=ROOT:read-resource               
+{
+    "outcome" => "success",
+    "result" => {
+        "filter" => undefined,
+        "filter-spec" => undefined,
+        "handlers" => [
+            "CONSOLE",
+            "FILE"
+        ],
+        "level" => "INFO"
+    }
+}
+```
+
+```
+[tmonroe@l-tsmsalt-101 jboss-platform-validation]$ sudo salt --output=yaml '*wfdc*' jboss7_cli.run_operation '{"controller": "127.0.0.1:9999", "cli_path": "/opt/wildfly/bin/jboss-cli.sh"}' /profile=full-ha/subsystem=logging/root-logger=ROOT:read-resource
+l-tsmwfdc-101.bhyve.local:
+  outcome: success
+  result:
+    FILE: level
+    filter: null
+    filter-spec: null
+    handlers: CONSOLE
+  success: true
+```
+
+In the previous run with three items in `handlers`, `level` was a key; now it is a value!
+### Steps to Reproduce Issue
+
+See above for specific command lines used.  My setup involves a JBoss domain controller and members, but I suspect this can be reproduced in standalone mode if the JBoss command has the initial `/profile=full-ha` removed.
+### Versions Report
+
+This was initially encountered on a CentOS machine running Wildfly 8.2.0.Final:
+
+```
+[tmonroe@l-tsmsalt-101 jboss-platform-validation]$ salt --versions-report
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: 0.20.3
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 6.7 Final
+        machine: x86_64
+        release: 2.6.32-573.7.1.el6.x86_64
+         system: CentOS 6.7 Final
+```
+
+And was also reproduced on a RedHat machine running JBoss EAP 6.4.6.
+
+```
+[Tony.Monroe@s-cdc-jbsalt-01 jboss-platform-validation]$ salt --versions-report
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: 0.20.2
+           Mako: 0.3.4
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+         Python: 2.6.6 (r266:84292, Nov 21 2013, 10:50:32)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 1.4.1
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: 0.20.0
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: 0.20.3
+   python-gnupg: Not Installed
+          smmap: 0.8.1
+        timelib: Not Installed
+
+System Versions:
+           dist: redhat 6.6 Santiago
+        machine: x86_64
+        release: 2.6.32-504.el6.x86_64
+         system: Red Hat Enterprise Linux Server 6.6 Santiago
+
+```
+### Relevant Logs, Configs, or States
+
+When the Salt minion on the CentOS machine is running with `-l debug`:
+
+```
+[DEBUG   ] LazyLoaded jboss7_cli.run_operation
+[DEBUG   ] LazyLoaded cmd.run_all
+[INFO    ] Executing command '/opt/wildfly/bin/jboss-cli.sh --connect --controller="127.0.0.1:9999" --command="/profile=full-ha/subsystem=logging/root-logger=ROOT:read-resource"' in directory '/root'
+[DEBUG   ] stdout: {
+    "outcome" => "success",
+    "result" => {
+        "filter" => undefined,
+        "filter-spec" => undefined,
+        "handlers" => [
+            "CONSOLE",
+            "FILE",
+            "NETWORK"
+        ],
+        "level" => "INFO"
+    }
+}
+[DEBUG   ] cli_command_result={'pid': 15710, 'retcode': 0, 'stderr': '', 'stdout': '{\n    "outcome" => "success",\n    "result" => {\n        "filter" => undefined,\n        "filter-spec" => undefined,\n        "handlers" => [\n            "CONSOLE",\n            "FILE",\n            "NETWORK"\n        ],\n        "level" => "INFO"\n    }\n}'}
+[DEBUG   ] ========= STDOUT:
+{
+    "outcome" => "success",
+    "result" => {
+        "filter" => undefined,
+        "filter-spec" => undefined,
+        "handlers" => [
+            "CONSOLE",
+            "FILE",
+            "NETWORK"
+        ],
+        "level" => "INFO"
+    }
+}
+[DEBUG   ] ========= STDERR:
+
+[DEBUG   ] ========= RETCODE: 0
+[DEBUG   ] tokens=['{', '"outcome"', '=>', '"success"', '"result"', '=>', '{', '"filter"', '=>', 'undefined', '"filter-spec"', '=>', 'undefined', '"handlers"', '=>', '"CONSOLE"', '"FILE"', '"NETWORK"', '"level"', '=>', '"INFO"', '}', '}']
+[DEBUG   ] __process_tokens, start_at=1
+[DEBUG   ] PROCESSING TOKEN 1: "outcome"
+[DEBUG   ]     TYPE: QUOTED STRING
+
+[DEBUG   ]     KEY: outcome
+[DEBUG   ] PROCESSING TOKEN 2: =>
+[DEBUG   ]     TYPE: ASSIGNMENT
+[DEBUG   ] PROCESSING TOKEN 3: "success"
+[DEBUG   ]     TYPE: QUOTED STRING
+[DEBUG   ]     outcome -> success
+[DEBUG   ] PROCESSING TOKEN 4: "result"
+[DEBUG   ]     TYPE: QUOTED STRING
+[DEBUG   ]     KEY: result
+[DEBUG   ] PROCESSING TOKEN 5: =>
+[DEBUG   ]     TYPE: ASSIGNMENT
+[DEBUG   ] PROCESSING TOKEN 6: {
+[DEBUG   ]     TYPE: DICT START
+[DEBUG   ] __process_tokens, start_at=7
+[DEBUG   ] PROCESSING TOKEN 7: "filter"
+[DEBUG   ]     TYPE: QUOTED STRING
+[DEBUG   ]     KEY: filter
+[DEBUG   ] PROCESSING TOKEN 8: =>
+[DEBUG   ]     TYPE: ASSIGNMENT
+[DEBUG   ] PROCESSING TOKEN 9: undefined
+[DEBUG   ]     TYPE: UNDEFINED
+[DEBUG   ]     filter -> undefined (Adding as None to map)
+[DEBUG   ] PROCESSING TOKEN 10: "filter-spec"
+[DEBUG   ]     TYPE: QUOTED STRING
+[DEBUG   ]     KEY: filter-spec
+[DEBUG   ] PROCESSING TOKEN 11: =>
+[DEBUG   ]     TYPE: ASSIGNMENT
+[DEBUG   ] PROCESSING TOKEN 12: undefined
+[DEBUG   ]     TYPE: UNDEFINED
+[DEBUG   ]     filter-spec -> undefined (Adding as None to map)
+[DEBUG   ] PROCESSING TOKEN 13: "handlers"
+[DEBUG   ]     TYPE: QUOTED STRING
+[DEBUG   ]     KEY: handlers
+[DEBUG   ] PROCESSING TOKEN 14: =>
+[DEBUG   ]     TYPE: ASSIGNMENT
+[DEBUG   ] PROCESSING TOKEN 15: "CONSOLE"
+[DEBUG   ]     TYPE: QUOTED STRING
+[DEBUG   ]     handlers -> CONSOLE
+[DEBUG   ] PROCESSING TOKEN 16: "FILE"
+[DEBUG   ]     TYPE: QUOTED STRING
+[DEBUG   ]     KEY: FILE
+[DEBUG   ] PROCESSING TOKEN 17: "NETWORK"
+[DEBUG   ]     TYPE: QUOTED STRING
+[DEBUG   ]     FILE -> NETWORK
+[DEBUG   ] PROCESSING TOKEN 18: "level"
+[DEBUG   ]     TYPE: QUOTED STRING
+[DEBUG   ]     TYPE: QUOTED STRING
+[DEBUG   ]     KEY: level
+[DEBUG   ] PROCESSING TOKEN 19: =>
+[DEBUG   ]     TYPE: ASSIGNMENT
+[DEBUG   ] PROCESSING TOKEN 20: "INFO"
+[DEBUG   ]     TYPE: QUOTED STRING
+[DEBUG   ]     level -> INFO
+[DEBUG   ] PROCESSING TOKEN 21: }
+[DEBUG   ]     TYPE: DICT END
+[DEBUG   ]     DICT = {'filter': None, 'filter-spec': None, 'level': 'INFO', 'FILE': 'NETWORK', 'handlers': 'CONSOLE'}
+[DEBUG   ]     result -> {'filter': None, 'filter-spec': None, 'level': 'INFO', 'FILE': 'NETWORK', 'handlers': 'CONSOLE'}
+[DEBUG   ] PROCESSING TOKEN 22: }
+[DEBUG   ]     TYPE: DICT END
+[DEBUG   ] === RESULT: {'outcome': 'success',
+ 'result': {'FILE': 'NETWORK',
+            'filter': None,
+            'filter-spec': None,
+            'handlers': 'CONSOLE',
+            'level': 'INFO'}}
+[DEBUG   ] Minion return retry timer set to 6 seconds (randomized)
+[INFO    ] Returning information for job: 20160226020834823667
+```

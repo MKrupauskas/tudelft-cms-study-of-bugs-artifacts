@@ -1,0 +1,159 @@
+### Description of Issue/Question
+trying to help someone earlyer today i setup a test to make sure what i was saying would be true. 
+my test consisted of 2 file.recurse states. one requiring the other. the one with the require also had clean: True
+
+when i ran the state it ran as expecting creating the directory and populating it with both file.recurse items. however when i deleted an item from one of the source directories. it was not being deleted with a rerun of the state. 
+
+remove the recurse and clean ran properly. deleted everything not in the single file.recurse [including the other file.recurse files]
+
+readd the require and files were created properly. 
+touch a file in the target directory and clean did not remove it. 
+
+### Setup
+2 states
+
+```
+recurse1:
+  file.recurse:
+    - name: /tmp/testing
+    - source: salt://testing/files/recurse1
+
+recurse2:
+  file.recurse:
+    - name: /tmp/testing
+    - source: salt://testing/files/recurse2
+    - clean: True
+    - require:
+      - file: recurse1
+```
+
+contents of sources
+```
+cd recurse1
+[root@salt01 recurse1]# ls
+a  b  c
+[root@salt01 recurse1]# cd ..
+[root@salt01 files]# cd recurse2
+[root@salt01 recurse2]# ls
+d  e
+```
+after the first run /tmp/testing will have a,b,c,d,e
+if you then touch a file in /tmp/testing or delete a file out of either of the sources
+that file will not be removed in the target on following runs of the state.
+remove the require and everything works as it should [the first recursive runs finds everything is ok. the second deletes everything that doesn't belong to it.]
+
+
+```
+[root@salt01 testing]# touch file
+[root@salt01 testing]# ls
+a  b  c  d  e  file
+[root@salt01 testing]# salt-call state.apply testing.test
+local:
+----------
+          ID: recurse1
+    Function: file.recurse
+        Name: /tmp/testing
+      Result: True
+     Comment: The directory /tmp/testing is in the correct state
+     Started: 12:13:11.322959
+    Duration: 89.382 ms
+     Changes:
+----------
+          ID: recurse2
+    Function: file.recurse
+        Name: /tmp/testing
+      Result: True
+     Comment: The directory /tmp/testing is in the correct state
+     Started: 12:13:11.412760
+    Duration: 33.839 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total states run:     2
+Total run time: 123.221 ms
+[root@salt01 testing]# ls
+a  b  c  d  e  file
+[root@salt01 testing]#
+```
+
+debug output
+```
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('recurse1', OrderedDict([('file.recurse', [OrderedDict([('name', '/tmp/testing')]), OrderedDict([('source', 'salt://testing/files/recurse1')])])])), ('recurse2', OrderedDict([('file.recurse', [OrderedDict([('name', '/tmp/testing')]), OrderedDict([('source', 'salt://testing/files/recurse2')]), OrderedDict([('clean', True)]), OrderedDict([('require', [OrderedDict([('file', 'recurse1')])])])])]))])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/testing/test.sls' using 'yaml' renderer: 0.0402438640594
+[DEBUG   ] LazyLoaded file.recurse
+[INFO    ] Running state [/tmp/testing] at time 12:19:34.749257
+[INFO    ] Executing state file.recurse for /tmp/testing
+[DEBUG   ] LazyLoaded file.source_list
+[DEBUG   ] LazyLoaded cp.list_master
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'salt01.wolfcloud.bad4.us', 'tcp://10.40.0.105:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'salt01.wolfcloud.bad4.us', 'tcp://10.40.0.105:4506')
+[DEBUG   ] In saltenv 'base', looking at rel_path 'testing/files/recurse1/a' to resolve 'salt://testing/files/recurse1/a'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/testing/files/recurse1/a' to resolve 'salt://testing/files/recurse1/a'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://testing/files/recurse1/a', mode up-to-date
+[DEBUG   ] In saltenv 'base', looking at rel_path 'testing/files/recurse1/b' to resolve 'salt://testing/files/recurse1/b'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/testing/files/recurse1/b' to resolve 'salt://testing/files/recurse1/b'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://testing/files/recurse1/b', mode up-to-date
+[DEBUG   ] In saltenv 'base', looking at rel_path 'testing/files/recurse1/c' to resolve 'salt://testing/files/recurse1/c'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/testing/files/recurse1/c' to resolve 'salt://testing/files/recurse1/c'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://testing/files/recurse1/c', mode up-to-date
+[INFO    ] The directory /tmp/testing is in the correct state
+[INFO    ] Completed state [/tmp/testing] at time 12:19:34.837132 duration_in_ms=87.875
+[INFO    ] Running state [/tmp/testing] at time 12:19:34.837584
+[INFO    ] Executing state file.recurse for /tmp/testing
+[DEBUG   ] In saltenv 'base', looking at rel_path 'testing/files/recurse2/d' to resolve 'salt://testing/files/recurse2/d'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/testing/files/recurse2/d' to resolve 'salt://testing/files/recurse2/d'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://testing/files/recurse2/d', mode up-to-date
+[DEBUG   ] In saltenv 'base', looking at rel_path 'testing/files/recurse2/e' to resolve 'salt://testing/files/recurse2/e'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/testing/files/recurse2/e' to resolve 'salt://testing/files/recurse2/e'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://testing/files/recurse2/e', mode up-to-date
+[INFO    ] The directory /tmp/testing is in the correct state
+[INFO    ] Completed state [/tmp/testing] at time 12:19:34.908733 duration_in_ms=71.149
+[DEBUG   ] File /var/cache/salt/minion/accumulator/35284880 does not exist, no need to cleanup.
+[DEBUG   ] LazyLoaded config.option
+```
+### Versions Report
+
+```
+salt-call --versions
+Salt Version:
+           Salt: 2016.11.1
+
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: 8.1.2
+       dateutil: 2.6.0
+          gitdb: 0.6.4
+      gitpython: Not Installed
+          ioflo: 1.6.5
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: 1.5.0
+       M2Crypto: Not Installed
+           Mako: 1.0.6
+   msgpack-pure: 0.1.3
+ msgpack-python: 0.4.8
+   mysql-python: 1.2.5
+      pycparser: 2.17
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: 0.3.9
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: 0.2.4
+        Tornado: 4.4.2
+            ZMQ: 4.1.6
+
+System Versions:
+           dist: centos 7.3.1611 Core
+        machine: x86_64
+        release: 3.10.0-327.10.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core```

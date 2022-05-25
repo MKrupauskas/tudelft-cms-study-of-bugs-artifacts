@@ -1,0 +1,109 @@
+State file:
+
+``` yaml
+/data/mysql:
+  mount.mounted:
+    - device: /dev/mapper/vg01-mysql
+    - fstype: ext4
+    - opts: noatime
+    - mkmnt: true
+    - persist: true
+
+/data/postgresql:
+  mount.mounted:
+    - device: /dev/mapper/vg01-postgresql
+    - fstype: ext4
+    - opts: noatime
+    - mkmnt: true
+    - persist: true
+
+/data:
+  mount.mounted:
+    - device: /dev/mapper/vg01-data
+    - fstype: ext4
+    - opts: acl 
+    - mkmnt: true
+    - persist: true
+```
+
+Some context after applying this state the first time:
+
+``` bash
+[root@testhost~]# ll /dev/mapper/vg01-*
+lrwxrwxrwx 1 root root 7 Aug 26 12:22 /dev/mapper/vg01-data -> ../dm-7
+lrwxrwxrwx 1 root root 7 Aug 26 10:01 /dev/mapper/vg01-home_lv -> ../dm-3
+lrwxrwxrwx 1 root root 7 Aug 26 12:22 /dev/mapper/vg01-mysql -> ../dm-2
+lrwxrwxrwx 1 root root 7 Aug 26 12:22 /dev/mapper/vg01-postgresql -> ../dm-6
+lrwxrwxrwx 1 root root 7 Aug 26 10:01 /dev/mapper/vg01-root_lv -> ../dm-0
+lrwxrwxrwx 1 root root 7 Aug 26 10:01 /dev/mapper/vg01-swap_lv -> ../dm-1
+lrwxrwxrwx 1 root root 7 Aug 26 10:01 /dev/mapper/vg01-tmp_lv -> ../dm-4
+lrwxrwxrwx 1 root root 7 Aug 26 10:01 /dev/mapper/vg01-var_lv -> ../dm-5
+[root@testhost ~]# mount | grep '/data' | column -t
+/dev/mapper/vg01-mysql       on  /data/mysql       type  ext4  (rw,noatime,data=ordered)
+/dev/mapper/vg01-postgresql  on  /data/postgresql  type  ext4  (rw,noatime,data=ordered)
+/dev/mapper/vg01-data        on  /data             type  ext4  (rw,relatime,data=ordered)
+```
+
+When running this state a second time, it returns:
+
+``` yaml
+          ID: /data/mysql
+    Function: mount.mounted
+      Result: None
+     Comment: Unable to unmount
+     Changes:   
+              ----------
+              umount:
+                  Forced unmount because devices don't match. Wanted: /dev/mapper/vg01-mysql (/dev/dm-2), current: ext4, /root/ext4, /dev/mapper/vg01-mysql
+----------
+          ID: /data/postgresql
+    Function: mount.mounted
+      Result: None
+     Comment: Unable to unmount
+     Changes:   
+              ----------
+              umount:
+                  Forced unmount because devices don't match. Wanted: /dev/mapper/vg01-postgresql (/dev/dm-6), current: ext4, /root/ext4, /dev/mapper/vg01-postgresql
+----------
+          ID: /data
+    Function: mount.mounted
+      Result: True
+     Comment: Target was successfully mounted
+     Changes:   
+              ----------
+              mount:
+                  True
+              umount:
+                  Forced unmount because devices don't match. Wanted: /dev/mapper/vg01-data (/dev/dm-7), current: ext4, /root/ext4, /dev/mapper/vg01-data
+```
+
+I literally have no clue (haven't looked at the code yet) how or where salt is getting `/root/ext4`. Additional context for the volume layout:
+
+``` bash
+[root@testhost ~]# vgs
+  VG   #PV #LV #SN Attr   VSize VFree
+  vg01   1   8   0 wz--n- 1.09t    0 
+[root@testhost ~]# lvs
+  LV         VG   Attr       LSize   Pool Origin Data%  Move Log Cpy%Sync Convert
+  data       vg01 -wi-ao---- 778.16g                                             
+  home_lv    vg01 -wi-ao---- 235.25g                                             
+  mysql      vg01 -wi-ao----  10.00g                                             
+  postgresql vg01 -wi-ao----  30.00g                                             
+  root_lv    vg01 -wi-ao----  39.06g                                             
+  swap_lv    vg01 -wi-ao----   2.00g                                             
+  tmp_lv     vg01 -wi-ao----   1.00g                                             
+  var_lv     vg01 -wi-ao----  19.53g                                             
+[root@testhost ~]# salt-call --versions-report
+           Salt: 2014.1.10
+         Python: 2.7.5 (default, Feb 11 2014, 07:46:25)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.2
+            ZMQ: 3.2.4
+```
+
+This is on RHEL7/x86_64.

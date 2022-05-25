@@ -1,0 +1,123 @@
+It appears that when you use both unless and onlyif in a state definition, onlyif takes precedence over unless and the unless statement is ignored. I would expect both onlyif and unless to be run to verify whether or not a state should be run. Here is an example.
+
+```
+[root@server1 test]# pwd
+/vagrant/salt/test
+
+[root@server1 test]# cat init.sls
+test:
+  file.managed:
+    - name: /test.txt
+    - contents: test
+    - unless: echo 1
+    - onlyif: echo 0
+
+[root@server1 test]# salt-call state.sls test --state-output=verbose
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache u'salt://test/init.sls'
+[INFO    ] Running state [/test.txt] at time 14:16:34.662395
+[INFO    ] Executing state file.managed for /test.txt
+[ERROR   ] Exception raised when processing __virtual__ function for nova. Module will not be loaded global name 'novaclient' is not defined
+[WARNING ] salt.loaded.int.module.nova.__virtual__() is wrongly returning `None`. It should either return `True`, `False` or a new name. If you're the developer of the module 'nova', please fix this.
+[INFO    ] Executing command 'echo 0' in directory '/root'
+[INFO    ] File /test.txt is in the correct state
+[INFO    ] Completed state [/test.txt] at time 14:16:35.194239
+local:
+----------
+          ID: test
+    Function: file.managed
+        Name: /test.txt
+      Result: True
+     Comment: File /test.txt is in the correct state
+     Started: 14:16:34.662395
+    Duration: 531.844 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time: 531.844 ms
+```
+
+When I remove the onlyif, the unless gets executed.
+
+```
+[root@server1 test]# cat init.sls
+test:
+  file.managed:
+    - name: /test.txt
+    - contents: test
+    - unless: echo 1
+[root@server1 test]# salt-call state.sls test --state-output=verbose
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** done ** u'test/init.sls'
+[INFO    ] Running state [/test.txt] at time 14:18:12.025800
+[INFO    ] Executing state file.managed for /test.txt
+[ERROR   ] Exception raised when processing __virtual__ function for nova. Module will not be loaded global name 'novaclient' is not defined
+[WARNING ] salt.loaded.int.module.nova.__virtual__() is wrongly returning `None`. It should either return `True`, `False` or a new name. If you're the developer of the module 'nova', please fix this.
+[INFO    ] Executing command 'echo 1' in directory '/root'
+[INFO    ] unless execution succeeded
+[INFO    ] Completed state [/test.txt] at time 14:18:12.587728
+local:
+----------
+          ID: test
+    Function: file.managed
+        Name: /test.txt
+      Result: True
+     Comment: unless execution succeeded
+     Started: 14:18:12.025800
+    Duration: 561.928 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time: 561.928 ms
+```
+
+Debug info
+
+```
+[root@server1 test]# salt-minion --versions-report
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: unknown
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.3.1
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 3.2.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 6.5 Final
+        machine: x86_64
+        release: 2.6.32-431.el6.x86_64
+         system: CentOS 6.5 Final
+```

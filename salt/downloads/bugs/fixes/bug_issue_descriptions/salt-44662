@@ -1,0 +1,130 @@
+### Description of Issue/Question
+
+### Setup
+
+foo.sls
+```
+/tmp/new.txt:
+  file.managed:
+    - source: /tmp/old.txt
+```
+
+### Steps to Reproduce Issue
+
+If source file (`/tmp/old.txt`) is missing then running salt without `test=true` works as expected, an error is raised when running state foo:
+```
+[salt-master] root@salt-master: / $ salt minion1 state.apply foo
+minion1:
+----------
+          ID: /tmp/new.txt
+    Function: file.managed
+      Result: False
+     Comment: Unable to manage file: [Errno 2] No such file or directory: '/tmp/old.txt'
+     Started: 22:51:16.334140
+    Duration: 6.295 ms
+     Changes:   
+
+Summary for minion1
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:   6.295 ms
+```
+But if I run the same state (still, source file is missing) with `test=true` I get an exception:
+```
+[salt-master] root@salt-master: / $ salt minion1 state.apply foo test=true
+minion1:
+----------
+          ID: /tmp/new.txt
+    Function: file.managed
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1843, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1795, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/file.py", line 2313, in managed
+                  **kwargs
+                File "/usr/lib/python2.7/dist-packages/salt/modules/file.py", line 4407, in check_managed_changes
+                  **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/file.py", line 3827, in get_managed
+                  source_sum = _get_local_file_source_sum(source)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/file.py", line 3807, in _get_local_file_source_sum
+                  return {'hsum': get_hash(path, form='sha256'), 'hash_type': 'sha256'}
+                File "/usr/lib/python2.7/dist-packages/salt/modules/file.py", line 560, in get_hash
+                  return salt.utils.get_hash(os.path.expanduser(path), form, chunk_size)
+                File "/usr/lib/python2.7/dist-packages/salt/utils/__init__.py", line 2303, in get_hash
+                  with salt.utils.fopen(path, 'rb') as ifile:
+                File "/usr/lib/python2.7/dist-packages/salt/utils/__init__.py", line 1357, in fopen
+                  fhandle = open(*args, **kwargs)  # pylint: disable=resource-leakage
+              IOError: [Errno 2] No such file or directory: '/tmp/old.txt'
+     Started: 22:51:34.320019
+    Duration: 4.088 ms
+     Changes:   
+
+Summary for minion1
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:   4.088 ms
+```
+Test mode should not fail with an exception.
+
+I can suppress this error by adding `onlyif`:
+```
+/tmp/new.txt:
+  file.managed:
+    - source: /tmp/old.txt
+    - onlyif: test -e /tmp/old.txt
+```
+but that shouldn't be needed.
+
+### Versions Report
+
+```
+[salt-master] root@salt-master: / $ salt --versions-report
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Jan 19 2017, 14:48:08)
+   python-gnupg: 0.3.9
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.0 
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 4.13.13-300.fc27.x86_64
+         system: Linux
+        version: debian 9.0 
+```

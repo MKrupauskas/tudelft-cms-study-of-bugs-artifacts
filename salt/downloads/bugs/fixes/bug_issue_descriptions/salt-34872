@@ -1,0 +1,163 @@
+This is a setup I've been using for about a year, on a variety of 2015 versions, with no issue. Upgrading the minion to 2016.3.1 makes it stop working. I believe it's long-running commands, but maybe something else specific to what I'm doing. 
+
+Take the following state: 
+
+```
+gzcat /root/image-latest.img.gz | dd of=/dev/null bs=1M:
+  cmd.run
+```
+
+Where image-latest.img.gz is a gzipped disk image file, which in normal operation is sent to dd with output to a hard drive, but for sake of example, /dev/null behaves in the same way. Any sufficiently large gz file (100 MB would suffice) will show the end result problem. 
+
+When executing that state from the master via `salt my-deploy state.sls write-disk`, the master claims the minion didn't return. 
+
+```
+[DEBUG   ] Reading configuration from /usr/local/etc/salt/master
+[DEBUG   ] Using cached minion ID from /usr/local/etc/salt/minion_id: dev-salt-master.example.com
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] Configuration file path: /usr/local/etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /usr/local/etc/salt/master
+[DEBUG   ] Using cached minion ID from /usr/local/etc/salt/minion_id: dev-salt-master.example.com
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/usr/local/etc/salt/pki/master', 'dev-salt-master.example.com_master', 'tcp://[::]:4506', 'clear')
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] LazyLoaded local_cache.get_load
+[DEBUG   ] Reading minion list from /var/cache/salt/master/jobs/66/c9f0cb3dfb31a4e0eae44ad32a108d/.minions.p
+[DEBUG   ] get_iter_returns for jid 20160722001528110729 sent to set(['my-deploy']) will timeout at 00:15:33.119337
+[DEBUG   ] Checking whether jid 20160722001528110729 is still running
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/usr/local/etc/salt/pki/master', 'dev-salt-master.example.com_master', 'tcp://[::]:4506', 'clear')
+[DEBUG   ] LazyLoaded no_return.output
+my-deploy:
+    Minion did not return. [Not connected]
+```
+
+But if you watch the minion's log, it's running the command, and it finishes successfully. So the minion works, it just apparently doesn't reply back to the master, leaving it thinking it disconnected. 
+
+Minion log when master reports "Minion did not return". 
+
+```
+[INFO    ] Running state [gzcat /root/image-latest.img.gz | dd of=/dev/null bs=1M] at time 00:15:37.880888
+[INFO    ] Executing state cmd.run for gzcat /root/image-latest.img.gz | dd of=/dev/null bs=1M
+[INFO    ] Executing command 'gzcat /root/image-latest.img.gz | dd of=/dev/null bs=1M' in directory '/root'
+[INFO    ] {'pid': 2344, 'retcode': 0, 'stderr': '0+131072 records in\n8191+1 records out\n8589888000 bytes transferred in 33.619007 secs (255506891 bytes/sec)', 'stdout': ''}
+[INFO    ] Completed state [gzcat /root/image-latest.img.gz | dd of=/dev/null bs=1M] at time 00:16:11.539727 duration_in_ms=33658.839
+[INFO    ] Returning information for job: 20160722001528110729
+```
+
+Master log from 2015.8.1 which works correctly. 
+
+```
+[DEBUG   ] Reading configuration from /usr/local/etc/salt/master
+[DEBUG   ] Using cached minion ID from /usr/local/etc/salt/minion_id: dev-salt-master.example.com
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] Configuration file path: /usr/local/etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /usr/local/etc/salt/master
+[DEBUG   ] Using cached minion ID from /usr/local/etc/salt/minion_id: dev-salt-master.example.com
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/usr/local/etc/salt/pki/master', 'dev-salt-master.example.com_master', 'tcp://[::]:4506', 'clear')
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] LazyLoaded local_cache.get_load
+[DEBUG   ] Reading minion list from /var/cache/salt/master/jobs/ac/a63465b4ec61ac13c59cb3545fa507/.minions.p
+[DEBUG   ] get_iter_returns for jid 20160722042210217054 sent to set(['my-deploy']) will timeout at 04:22:15.225950
+[DEBUG   ] Checking whether jid 20160722042210217054 is still running
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/usr/local/etc/salt/pki/master', 'dev-salt-master.example.com_master', 'tcp://[::]:4506', 'clear')
+[DEBUG   ] Checking whether jid 20160722042210217054 is still running
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/usr/local/etc/salt/pki/master', 'dev-salt-master.example.com_master', 'tcp://[::]:4506', 'clear')
+[DEBUG   ] Checking whether jid 20160722042210217054 is still running
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/usr/local/etc/salt/pki/master', 'dev-salt-master.example.com_master', 'tcp://[::]:4506', 'clear')
+[DEBUG   ] Checking whether jid 20160722042210217054 is still running
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/usr/local/etc/salt/pki/master', 'dev-salt-master.example.com_master', 'tcp://[::]:4506', 'clear')
+[DEBUG   ] jid 20160722042210217054 return from my-deploy
+[DEBUG   ] LazyLoaded highstate.output
+[DEBUG   ] LazyLoaded nested.output
+```
+### Versions Report
+
+Not working:
+
+```
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.3
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.11 (default, Mar 17 2016, 01:24:00)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist:
+        machine: amd64
+        release: 10.2-RELEASE-p14
+         system: FreeBSD
+        version: Not Installed
+```
+
+Working: 
+
+```
+    Salt Version:
+               Salt: 2015.8.1
+
+    Dependency Versions:
+             Jinja2: 2.8
+           M2Crypto: Not Installed
+               Mako: Not Installed
+             PyYAML: 3.11
+              PyZMQ: 14.7.0
+             Python: 2.7.10 (default, Nov  5 2015, 01:15:39)
+               RAET: Not Installed
+            Tornado: 4.3
+                ZMQ: 4.1.3
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: 2.3
+              gitdb: Not Installed
+          gitpython: Not Installed
+              ioflo: Not Installed
+            libnacl: Not Installed
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.2
+       mysql-python: Not Installed
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+             pygit2: Not Installed
+       python-gnupg: Not Installed
+              smmap: Not Installed
+            timelib: Not Installed
+
+    System Versions:
+               dist:
+            machine: amd64
+            release: 10.1-RELEASE-p24
+```
+
+The OS used doesn't matter either way, FreeBSD 10.2 with any 2015 salt version works fine. 

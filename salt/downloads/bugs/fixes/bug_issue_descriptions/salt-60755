@@ -1,0 +1,103 @@
+### Description of Issue
+I am running an inotify beacon that looks for file changes and which calls an orchestration that sends me an email when a file is changed. Looking at the journal for salt-minion, I see multiple repeated exceptions.
+
+I am also having some event loops where a beacon detects that the SSHd config changed, then calls an orchestration which highstates the minion and sends me an email. This beacon seems to get stuck in loops where it will detect a change, highstates, and does it again until the minion service is restarted. The beacon sls does set disable_during_state_run as True. This looping problem may not be related to this issue except that it causes these exceptions - the exception occurs when the file is changed.
+
+### Setup: Minion beacons.conf
+```#######################################################
+# SSH Section
+  SSHD_Files:
+    - files:
+        /etc/ssh/sshd_config:
+          mask:
+            - modify
+    - disable_during_state_run: True
+    - beacon_module: inotify
+  SSHD_Service:
+    - services:
+        sshd:
+          onchangeonly: True
+    - beacon_module: service
+    - disable_during_state_run: True
+#######################################################
+# Some sections in the beacon config do not apply to the minion it is running on, but it is in the minion's beacon config anyway.
+  Svc_Agent_Files:
+    - files:
+        /etc/svc/agent.conf:
+          mask:
+            - modify
+    - disable_during_state_run: True
+    - beacon_module: inotify
+  Svc_Agent_Service:
+    - services:
+        svc-agent:
+          onchangeonly: True
+    - beacon_module: service
+    - disable_during_state_run: True
+```
+
+### Setup: salt-minion Journal
+Hundreds of these exceptions can be called at once.
+```
+[CRITICAL] The beacon errored:
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/minion.py", line 2945, in handle_beacons
+    beacons = self.process_beacons(self.functions)
+  File "/usr/lib/python3.6/site-packages/salt/minion.py", line 513, in process_beacons
+    b_conf, self.opts["grains"]
+  File "/usr/lib/python3.6/site-packages/salt/beacons/__init__.py", line 107, in process
+    self.beacons[close_str](b_config[mod])
+  File "/usr/lib/python3.6/site-packages/salt/loader.py", line 1235, in __call__
+    return self.loader.run(run_func, *args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/loader.py", line 2268, in run
+    return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/contextvars/__init__.py", line 38, in run
+    return callable(*args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/loader.py", line 2283, in _run_as
+    return _func_or_method(*args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/beacons/inotify.py", line 370, in close
+    beacon_name = config.get("_beacon_name", "inotify")
+AttributeError: 'list' object has no attribute 'get'
+```
+
+### Steps to Reproduce Issue
+The exceptions and looping occur when the SSHd config file is modified. It also is likely to occur when other files are modified, though I have not confirmed this.
+
+### Versions Report
+```Salt Version:
+          Salt: 3003.1
+ 
+Dependency Versions:
+          cffi: 1.11.5
+      cherrypy: Not Installed
+      dateutil: 2.6.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10.1
+       libgit2: 0.99.0
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.5.6
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.14
+      pycrypto: Not Installed
+  pycryptodome: Not Installed
+        pygit2: 1.1.1
+        Python: 3.6.8 (default, Mar 19 2021, 05:13:41)
+  python-gnupg: Not Installed
+        PyYAML: 3.12
+         PyZMQ: 19.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+ 
+System Versions:
+          dist: centos 8 
+        locale: UTF-8
+       machine: x86_64
+       release: 4.18.0-305.3.1.el8.x86_64
+        system: Linux
+       version: CentOS Stream 8```

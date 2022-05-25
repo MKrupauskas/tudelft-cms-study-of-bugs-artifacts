@@ -1,0 +1,83 @@
+### Description of Issue/Question
+Issue already described many times in two other issues but both are closed and issue is not fixed.
+#### Linked issues
+- #34600 
+- #27355
+
+### Setup
+- Ubuntu 14.04 + salt-ssh 2016.3.3 on source system
+- Ubuntu 12.04 on target system
+
+### Steps to Reproduce Issue
+- Install salt-ssh 2016.3.3
+- run a highstate on a Ubuntu 12.04 target
+- Result: ImportError:  No module named backports.ssl_match_hostname
+
+### Reason for issue
+ssl_match_hostname.py is inside thin.tgz as py2/salt/ext/ssl_match_hostname.py but the running python scripts can't find it because they import backports.ssl_match_hostname.
+
+### Workaround
+I simply add a symlink for backports folder to thin.tgz as py2/backports -> salt/ext.
+```
+--- /usr/lib/python2.7/dist-packages/salt/utils/thin.py.orig    2016-10-29 23:51:16.465667613 +0000
++++ /usr/lib/python2.7/dist-packages/salt/utils/thin.py 2016-10-30 01:00:40.224248452 +0000
+@@ -292,6 +292,16 @@
+             if tempdir is not None:
+                 shutil.rmtree(tempdir)
+                 tempdir = None
++
++        # workaround for backports
++        os.symlink('salt/ext','/tmp/workaround_symlink_backports')
++        tftp_deref_old = tfp.dereference
++        tfp.dereference = False
++        tfp.add('/tmp/workaround_symlink_backports', arcname=os.path.join('py{0}'.format(py_ver), 'backports'))
++        tfp.dereference = tftp_deref_old
++        os.unlink('/tmp/workaround_symlink_backports')
++        # workaround end
++
+     os.chdir(thindir)
+     tfp.add('salt-call')
+     with salt.utils.fopen(thinver, 'w+') as fp_:
+```
+
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: Not Installed
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-100-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```

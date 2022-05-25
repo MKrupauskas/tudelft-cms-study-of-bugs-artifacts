@@ -1,0 +1,257 @@
+### Description of Issue/Question
+I was trying to add a user (and its group) to a Mac OS machine. `user.present` and `group.present` failed via salt-ssh.
+
+I could fix the `group.present` part by overriding the group-provider (see below at SSH-Roster), but that didnt work for the user module.
+
+### Setup
+zabbix-agent.sls:
+```
+zabbix_agent_group:
+  group.present:
+    - name: zabbix
+    - system: True
+
+zabbix_agent_user:
+  user.present:
+    - name: zabbix
+    - groups:
+      - zabbix
+    - system: True
+    - require:
+      - group: zabbix_agent_group
+```
+
+salt-ssh roster
+```
+mac.machine.lan:
+  host: mac.machine.lan
+  user: salt
+  sudo: True
+  minion_opts:
+    providers:
+      user: mac_user
+      group: mac_group
+```
+
+### Steps to Reproduce Issue
+1. Use the given SLS file and roster (see above) WITHOUT the provider overrides.
+2. `salt-ssh 'mac.machine.lan' state.apply zabbix-agent`
+Result:
+```
+mac.machine.lan:
+----------
+          ID: zabbix
+    Function: group.present
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/var/tmp/.salt_a40eac_salt/py2/salt/state.py", line 1837, in call
+                  **cdata['kwargs'])
+                File "/var/tmp/.salt_a40eac_salt/py2/salt/loader.py", line 1794, in wrapper
+                  return f(*args, **kwargs)
+                File "/private/var/tmp/.salt_a40eac_salt/py2/salt/states/group.py", line 133, in present
+                  members)
+                File "/private/var/tmp/.salt_a40eac_salt/py2/salt/states/group.py", line 49, in _changes
+                  lgrp = __salt__['group.info'](name)
+                File "/var/tmp/.salt_a40eac_salt/py2/salt/loader.py", line 1113, in __getitem__
+                  func = super(LazyLoader, self).__getitem__(item)
+                File "/var/tmp/.salt_a40eac_salt/py2/salt/utils/lazy.py", line 101, in __getitem__
+                  raise KeyError(key)
+              KeyError: 'group.info'
+     Started: 11:22:31.996345
+    Duration: 1691.715 ms
+     Changes:
+```
+3. Add the provider overrides into the salt-ssh roster.
+4. `salt-ssh 'mac.machine.lan' state.apply zabbix-agent`
+Result:
+```
+mac.machine.lan:
+----------
+          ID: zabbix_agent_group
+    Function: group.present
+        Name: zabbix
+      Result: True
+     Comment: New group zabbix created
+     Started: 11:35:15.240235
+    Duration: 160.221 ms
+     Changes:
+              ----------
+              gid:
+                  501
+              members:
+              name:
+                  zabbix
+              passwd:
+                  *
+----------
+          ID: zabbix_agent_user
+    Function: user.present
+        Name: zabbix
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/var/tmp/.salt_a40eac_salt/py2/salt/state.py", line 1837, in call
+                  **cdata['kwargs'])
+                File "/var/tmp/.salt_a40eac_salt/py2/salt/loader.py", line 1794, in wrapper
+                  return f(*args, **kwargs)
+                File "/private/var/tmp/.salt_a40eac_salt/py2/salt/states/user.py", line 486, in present
+                  win_description)
+                File "/private/var/tmp/.salt_a40eac_salt/py2/salt/states/user.py", line 92, in _changes
+                  lshad = __salt__['shadow.info'](name)
+                File "/private/var/tmp/.salt_a40eac_salt/py2/salt/modules/mac_shadow.py", line 159, in info
+                  'account_created': get_account_created(name),
+                File "/private/var/tmp/.salt_a40eac_salt/py2/salt/modules/mac_shadow.py", line 203, in get_account_created
+                  ret = _get_account_policy_data_value(name, 'creationTime')
+                File "/private/var/tmp/.salt_a40eac_salt/py2/salt/modules/mac_shadow.py", line 118, in _get_account_policy_data_value
+                  raise CommandExecutionError('User not found: {0}'.format(name))
+              CommandExecutionError: User not found: zabbix
+     Started: 11:35:15.401298
+    Duration: 32.542 ms
+     Changes:
+```
+
+### Versions Report
+Output of `salt --versions-report`:
+```
+Salt Version:
+           Salt: 2017.7.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: Not Installed
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Jan 19 2017, 14:48:08)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: Not Installed
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: Not Installed
+
+System Versions:
+           dist: debian 9.1
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-3-amd64
+         system: Linux
+        version: debian 9.1
+```
+
+Relevant output of `salt-ssh 'mac.machine.lan' grains.items`:
+
+```
+mac.machine.lan:
+    ----------
+    cpu_model:
+        Intel(R) Core(TM) i5-4308U CPU @ 2.80GHz
+    cpuarch:
+        x86_64
+    gid:
+        0
+    id:
+        mac.machine.lan
+    init:
+        launchd
+    kernel:
+        Darwin
+    kernelrelease:
+        16.7.0
+    localhost:
+        mac.machine.lan
+    manufacturer:
+        Apple Inc.
+    master:
+        salt
+    mem_total:
+        16384
+    model_name:
+        Mac mini
+    nodename:
+        mac.machine.lan
+    num_cpus:
+        4
+    num_gpus:
+        1
+    os:
+        MacOS
+    os_family:
+        MacOS
+    osarch:
+        x86_64
+    osbuild:
+        16G29
+    osfinger:
+        Mac OS X 10.12.6-10
+    osfullname:
+        Mac OS X 10.12.6
+    osmajorrelease:
+        10
+    osrelease:
+        10.12.6
+    osrelease_info:
+        - 10
+        - 12
+        - 6
+    productname:
+        Macmini7,1
+    ps:
+        ps auxwww
+    pythonexecutable:
+        /System/Library/Frameworks/Python.framework/Versions/2.7/Resources/Python.app/Contents/MacOS/Python
+    pythonpath:
+        - /var/tmp/.salt_a40eac_salt/py2
+        - /private/var/tmp/.salt_a40eac_salt
+        - /System/Library/Frameworks/Python.framework/Versions/2.7/lib/python27.zip
+        - /System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7
+        - /System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/plat-darwin
+        - /System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/plat-mac
+        - /System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/plat-mac/lib-scriptpackages
+        - /System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/lib-tk
+        - /System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/lib-old
+        - /System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/lib-dynload
+        - /Library/Python/2.7/site-packages
+        - /System/Library/Frameworks/Python.framework/Versions/2.7/Extras/lib/python
+        - /System/Library/Frameworks/Python.framework/Versions/2.7/Extras/lib/python/PyObjC
+    pythonversion:
+        - 2
+        - 7
+        - 10
+        - final
+        - 0
+    saltpath:
+        /private/var/tmp/.salt_a40eac_salt/py2/salt
+    saltversion:
+        2017.7.1
+    saltversioninfo:
+        - 2017
+        - 7
+        - 1
+        - 0
+    server_id:
+        1076962747
+    shell:
+        /bin/sh
+    uid:
+        0
+    username:
+        root
+    virtual:
+        physical
+```

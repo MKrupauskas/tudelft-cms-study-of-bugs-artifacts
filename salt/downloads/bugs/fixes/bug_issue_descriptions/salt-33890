@@ -1,0 +1,145 @@
+We've upgraded to salt 2016.3.0 from 2014.7.5, now we have a memory leaking issue when running multiple state.sls in a python script. Here I reproduce it by just run a very simple formula - just 3 simple states, for bigger formula, it leaks faster.
+### Setup
+
+Config file:
+
+```
+ cat /root/salt/states/test/minion
+
+# minion configuration used during tests
+master: 127.0.0.1
+log_level: debug
+mysql.default_file: '/etc/mysql/debian.cnf'
+file_client: local
+file_roots:
+   base:
+     - /root/salt/states
+pillar_roots:
+  base:
+    - /root/salt/pillar
+state_verbose: True
+default_include: /etc/salt/minion.d/*.conf
+```
+
+Run master-less 
+### Steps to Reproduce Issue
+
+```
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+from memory_profiler import profile
+
+import salt.client
+import socket
+
+def _get_salt_client(config_file='/root/salt/states/test/minion'):
+    opts = salt.config.minion_config(config_file)
+    opts['id'] = socket.gethostname()
+    caller = salt.client.Caller(mopts=opts)
+    return caller.function
+
+client = _get_salt_client()
+
+@profile
+def statecall():
+    client('state.sls', 'motd')
+
+
+if __name__ == '__main__':
+    for i in range(30):
+        statecall()
+```
+
+Output:
+
+```
+python leak.py >> leak30motd
+
+grep client leak30motd
+    18     43.9 MiB      4.7 MiB       client('state.sls', 'motd')
+    18     48.7 MiB      4.8 MiB       client('state.sls', 'motd')
+    18     50.9 MiB      2.3 MiB       client('state.sls', 'motd')
+    18     54.7 MiB      3.8 MiB       client('state.sls', 'motd')
+    18     55.2 MiB      0.5 MiB       client('state.sls', 'motd')
+    18     58.1 MiB      2.8 MiB       client('state.sls', 'motd')
+    18     58.1 MiB      0.1 MiB       client('state.sls', 'motd')
+    18     60.5 MiB      2.4 MiB       client('state.sls', 'motd')
+    18     60.7 MiB      0.2 MiB       client('state.sls', 'motd')
+    18     62.8 MiB      2.0 MiB       client('state.sls', 'motd')
+    18     63.0 MiB      0.3 MiB       client('state.sls', 'motd')
+    18     64.9 MiB      1.8 MiB       client('state.sls', 'motd')
+    18     65.1 MiB      0.2 MiB       client('state.sls', 'motd')
+    18     67.0 MiB      1.9 MiB       client('state.sls', 'motd')
+    18     67.2 MiB      0.2 MiB       client('state.sls', 'motd')
+    18     69.0 MiB      1.8 MiB       client('state.sls', 'motd')
+    18     69.2 MiB      0.2 MiB       client('state.sls', 'motd')
+    18     71.1 MiB      2.0 MiB       client('state.sls', 'motd')
+    18     71.3 MiB      0.2 MiB       client('state.sls', 'motd')
+    18     73.2 MiB      1.8 MiB       client('state.sls', 'motd')
+    18     73.4 MiB      0.2 MiB       client('state.sls', 'motd')
+    18     75.2 MiB      1.8 MiB       client('state.sls', 'motd')
+    18     75.4 MiB      0.2 MiB       client('state.sls', 'motd')
+    18     77.8 MiB      2.3 MiB       client('state.sls', 'motd')
+    18     77.8 MiB      0.0 MiB       client('state.sls', 'motd')
+    18     79.8 MiB      2.0 MiB       client('state.sls', 'motd')
+    18     79.8 MiB      0.0 MiB       client('state.sls', 'motd')
+    18     81.9 MiB      2.1 MiB       client('state.sls', 'motd')
+    18     81.9 MiB      0.0 MiB       client('state.sls', 'motd')
+    18     84.0 MiB      2.1 MiB       client('state.sls', 'motd')
+
+ tail leak30motd
+
+Filename: leak.py
+
+Line #    Mem usage    Increment   Line Contents
+================================================
+    16     81.9 MiB      0.0 MiB   @profile
+    17                             def statecall():
+    18     84.0 MiB      2.1 MiB       client('state.sls', 'motd')
+
+```
+
+motd formula:
+https://github.com/bclermont/states/blob/master/motd/init.sls
+### Versions Report
+
+```
+salt-call --versions-report
+Salt Version:
+           Salt: 2016.3.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: 0.3.6
+         PyYAML: 3.11
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-85-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```

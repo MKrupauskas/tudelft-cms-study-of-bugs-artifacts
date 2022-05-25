@@ -1,0 +1,173 @@
+**Description**
+
+We are currently in preparation for upgrading to salt 3002.x and observe some odd behavior which looks like a memory leak and it relates to the sync_all call. In a test environment with 7 minions each sync_all call adds roughly 15mb to the used memory in the beginning.
+
+I confirm that this setup has the gitfs and gitpillar provider enabled. That's equal to the current productive salt master version (2019) but we do not observe this massive leak there.
+
+In our setup there is a possibility that many sync_all calls are running in parallel for many minions. While this may not be ideal/best practice, this was no issue in the past. When doing so, the memory consumption is worse than what is shown below and it reaches a point which causes the system to raise errors due to the low memory condition.
+
+This ticket may relate to #58785 but that other issue mentions specific use cases so I am not sure this is a duplicate or not. May it be the pygit memory leak but it is more dramatic in current salt master versions?
+
+**Setup**
+
+Salt-master within a docker container running a bare and current ubuntu 20.4.1 focal fossa.
+
+**Steps to Reproduce the behavior**
+
+```
+cat fill_memory.sh
+for run in {1..100}; do
+  free -m
+  docker exec -it salt-master salt "*" saltutil.sync_all saltenv=something
+done
+./fill_memory.sh > fill_memory.log
+grep buffers/cache fill_memory.log
+-/+ buffers/cache:        975       2731
+-/+ buffers/cache:       1134       2572
+-/+ buffers/cache:       1297       2409
+-/+ buffers/cache:       1234       2472
+-/+ buffers/cache:       1271       2434
+-/+ buffers/cache:       1301       2405
+-/+ buffers/cache:       1347       2359
+-/+ buffers/cache:       1354       2352
+-/+ buffers/cache:       1391       2315
+-/+ buffers/cache:       1428       2278
+-/+ buffers/cache:       1466       2240
+-/+ buffers/cache:       1474       2232
+-/+ buffers/cache:       1477       2229
+-/+ buffers/cache:       1488       2218
+-/+ buffers/cache:       1502       2204
+-/+ buffers/cache:       1514       2192
+-/+ buffers/cache:       1549       2156
+-/+ buffers/cache:       1568       2138
+-/+ buffers/cache:       1566       2139
+-/+ buffers/cache:       1576       2130
+-/+ buffers/cache:       1588       2118
+-/+ buffers/cache:       1604       2102
+-/+ buffers/cache:       1621       2085
+-/+ buffers/cache:       1644       2062
+-/+ buffers/cache:       1641       2065
+-/+ buffers/cache:       1664       2042
+-/+ buffers/cache:       1675       2031
+-/+ buffers/cache:       1663       2042
+-/+ buffers/cache:       1673       2032
+-/+ buffers/cache:       1699       2007
+-/+ buffers/cache:       1688       2018
+-/+ buffers/cache:       1773       1933
+-/+ buffers/cache:       1701       2005
+-/+ buffers/cache:       1709       1997
+-/+ buffers/cache:       1711       1995
+-/+ buffers/cache:       1713       1993
+-/+ buffers/cache:       1714       1991
+-/+ buffers/cache:       1716       1990
+-/+ buffers/cache:       1722       1984
+-/+ buffers/cache:       1723       1983
+-/+ buffers/cache:       1741       1964
+-/+ buffers/cache:       1743       1962
+-/+ buffers/cache:       1744       1962
+-/+ buffers/cache:       1731       1975
+-/+ buffers/cache:       1732       1974
+-/+ buffers/cache:       1735       1971
+-/+ buffers/cache:       1735       1970
+-/+ buffers/cache:       1751       1955
+-/+ buffers/cache:       1740       1965
+-/+ buffers/cache:       1741       1964
+-/+ buffers/cache:       1741       1965
+-/+ buffers/cache:       1743       1963
+-/+ buffers/cache:       1744       1962
+-/+ buffers/cache:       1745       1961
+-/+ buffers/cache:       1764       1942
+-/+ buffers/cache:       1766       1940
+-/+ buffers/cache:       1747       1959
+-/+ buffers/cache:       1766       1939
+-/+ buffers/cache:       1749       1957
+-/+ buffers/cache:       1769       1937
+-/+ buffers/cache:       1770       1936
+-/+ buffers/cache:       1753       1953
+-/+ buffers/cache:       1754       1952
+-/+ buffers/cache:       1755       1951
+-/+ buffers/cache:       1756       1950
+-/+ buffers/cache:       1775       1931
+-/+ buffers/cache:       1759       1947
+-/+ buffers/cache:       1760       1946
+-/+ buffers/cache:       1762       1944
+-/+ buffers/cache:       1781       1925
+-/+ buffers/cache:       1764       1942
+-/+ buffers/cache:       1764       1941
+-/+ buffers/cache:       1766       1940
+-/+ buffers/cache:       1767       1938
+-/+ buffers/cache:       1789       1917
+-/+ buffers/cache:       1788       1918
+-/+ buffers/cache:       1773       1933
+-/+ buffers/cache:       1774       1932
+-/+ buffers/cache:       1774       1932
+-/+ buffers/cache:       1776       1930
+-/+ buffers/cache:       1792       1914
+-/+ buffers/cache:       1778       1927
+-/+ buffers/cache:       1779       1927
+-/+ buffers/cache:       1779       1927
+-/+ buffers/cache:       1799       1907
+-/+ buffers/cache:       1782       1924
+-/+ buffers/cache:       1782       1923
+-/+ buffers/cache:       1783       1923
+-/+ buffers/cache:       1796       1909
+-/+ buffers/cache:       1784       1921
+-/+ buffers/cache:       1806       1899
+-/+ buffers/cache:       1788       1918
+-/+ buffers/cache:       1787       1919
+-/+ buffers/cache:       1800       1906
+-/+ buffers/cache:       1788       1918
+-/+ buffers/cache:       1806       1899
+-/+ buffers/cache:       1810       1895
+-/+ buffers/cache:       1821       1884
+-/+ buffers/cache:       1823       1882
+```
+
+**Expected behavior**
+
+Constant memory consumption reflecting the current workload of the salt master.
+
+**Screenshots**
+
+![2021-01-26_12h49_33](https://user-images.githubusercontent.com/37439392/105841503-01ee4f80-5fd5-11eb-908b-ef04a24c10d6.png)
+
+**Versions Report**
+```
+Salt Version:
+          Salt: 3002.2
+
+Dependency Versions:
+          cffi: 1.14.4
+      cherrypy: unknown
+      dateutil: 2.8.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10.1
+       libgit2: 1.1.0
+      M2Crypto: 0.31.0
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.20
+      pycrypto: Not Installed
+  pycryptodome: 3.9.9
+        pygit2: 1.4.0
+        Python: 3.8.5 (default, Jul 28 2020, 12:59:40)
+  python-gnupg: 0.4.5
+        PyYAML: 5.3.1
+         PyZMQ: 21.0.1
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.3
+
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 4.14.203-116.332.amzn1.x86_64
+        system: Linux
+       version: Ubuntu 20.04 focal
+```

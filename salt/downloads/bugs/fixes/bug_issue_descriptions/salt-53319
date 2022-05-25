@@ -1,0 +1,85 @@
+### Description of Issue
+
+On FreeBSD 11, ever since updating to the Python 3.6 version of Salt, we sporadically see (perhaps 1 out of 10 times) the salt-minion fail to fully start up, though there is no explicit indication of any trouble. The start command exits after appearing to succeed, the salt-minion process is running, and there are no errors reported on command line or in logs, even at DEBUG level, but the minion is unreachable and the process will not go down without a `kill -9`.
+
+### Setup
+
+The only non-default settings in our minion config are these:
+```
+log_file: file:///var/run/log/LOG_LOCAL5
+log_fmt_console: '%(colorlevel)s %(colormsg)s'
+log_level_logfile: debug
+master_finger: '[OUR MASTER FINGERPRINT HERE]'
+```
+and in the master config:
+```
+nodegroups:
+  [OUR LOCALLY DEFINED NODEGROUPS HERE]
+log_file: file:///var/run/log/LOG_LOCAL5
+log_fmt_console: '%(colorlevel)s %(colormsg)s'
+log_level_logfile: debug
+timeout: 5
+```
+We have no non-default runtime variables set for Salt.
+
+### Steps to Reproduce Issue
+
+Logs show the startup getting to the same point every time, before it ceases further activity: on the minion, the final item is always `Closing AsyncZeroMQReqChannel instance`, while on the master the final action is sending the public key. Here are the final few lines from the minion:
+```
+May 16 15:36:36 virt-web 2019-05-16 15:36:36,484 [salt.crypt  :797 ][DEBUG   ][622] Loaded minion key: /usr/local/etc/salt/pki/minion/minion.pem
+May 16 15:36:36 virt-web 2019-05-16 15:36:36,583 [salt.crypt  :207 ][DEBUG   ][622] salt.crypt.get_rsa_pub_key: Loading public key
+May 16 15:36:36 virt-web 2019-05-16 15:36:36,587 [salt.transport.zeromq :227 ][DEBUG   ][622] Closing AsyncZeroMQReqChannel instance
+```
+and from the master:
+```
+May 16 15:36:36 saltmaster 2019-05-16 15:36:36,177 [salt.transport.mixins.auth :407 ][INFO    ][62549] Authentication accepted from virt-web
+May 16 15:36:36 saltmaster 2019-05-16 15:36:36,177 [salt.crypt :207 ][DEBUG   ][62549] salt.crypt.get_rsa_pub_key: Loading public key
+May 16 15:36:36 saltmaster 2019-05-16 15:36:36,186 [salt.utils.event :742 ][DEBUG   ][62549] Sending event: tag = salt/auth; data = {'result': True, 'act': 'accept', 'id': 'virt-web', 'pub': '-----BEGIN PUBLIC KEY----- [OUR PUBLIC KEY HERE...]-----END PUBLIC KEY-----', '_stamp': '2019-05-16T22:36:36.186534'}
+```
+
+### Versions Report
+
+We run the same 2019.2.0 version of Salt on minions and master.
+```
+Salt Version:
+           Salt: 2019.2.0
+
+Dependency Versions:
+           cffi: 1.12.2
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.1
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Apr  2 2019, 01:15:55)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 18.0.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+
+System Versions:
+           dist:
+         locale: US-ASCII
+        machine: amd64
+        release: 11.2-RELEASE-p10
+         system: FreeBSD
+        version: Not Installed
+```
+

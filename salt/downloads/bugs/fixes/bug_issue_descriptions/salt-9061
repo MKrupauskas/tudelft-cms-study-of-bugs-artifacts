@@ -1,0 +1,68 @@
+With this in `nginx/init.sls`:
+
+```
+nginx-systemwide:
+  pkg:
+    - name: nginx
+    - installed
+  service:
+    - running
+    - name: nginx
+    - reload: true
+```
+
+... and this in `webapp/deploy.sls`:
+
+```
+include:
+  - nginx
+
+{% for sitename, site in pillar.get('sites', {}).iteritems() %}
+/etc/nginx/sites-available/{{ sitename }}:
+  file.managed:
+    - source: salt://webapp/site-nginx.jinja
+    - context:
+        site: {{ site }}
+    - template: jinja
+    - watch_in:
+      - service: nginx
+{% endfor %}
+```
+
+... an error is raised:
+
+```
+local:
+    Data failed to compile:
+----------
+    Cannot extend ID nginx in "base:datamarket.webapp.deploy". It is not part of the high state.
+```
+
+But if I change the `nginx` declaration to have that exact ID:
+
+```
+nginx:
+  pkg:
+    - installed
+  service:
+    - running
+    - reload: true
+```
+
+then it works. This is inconsistent with [Requisites documentation](http://docs.saltstack.com/ref/states/requisites.html) which states “Requisites match on both the ID Declaration and the name parameter.” The requisite is not matching on the name parameter.
+
+Worse (because it was harder to troubleshoot), the `watch_in` on `service: nginx` did not raise an error when I had that original `nginx-systemwide` state declaration _and_ this other one:
+
+```
+{% for user, args in pillar['users'].iteritems() %}
+{{ user }}:
+  user:
+    - present
+    - name: {{ user }}
+    - home: /home/{{ user }}
+    - shell: {{ pillar.get('unprivileged_shell', '/bin/bash') }}
+    - fullname: {{ args.get('fullname', user) }}
+{% endfor %}
+```
+
+where, you guessed it, one of the users was named `nginx`. Of course this `nginx` didn't have any `service` state, so `watch_in` on `service: nginx` should have raised a clear error, something like “Can't apply `watch_in` to `service: nginx` because `nginx` has no `service` state”. But it didn't raise any error; it just silently failed to reload my nginx service when changing the file.

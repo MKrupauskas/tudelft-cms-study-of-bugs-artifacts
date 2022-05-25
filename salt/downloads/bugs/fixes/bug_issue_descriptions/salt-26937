@@ -1,0 +1,38 @@
+In the version **2015.8.0rc2 (Beryllium)**, when extensively using Salt API, sometimes HTTP response is 500 and then this sort of traceback is shown in the debug output from the Salt Master:
+
+```
+[DEBUG   ] Error while processing request for: /run
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/netapi/rest_cherrypy/app.py", line 438, in hypermedia_handler
+    ret = cherrypy.serving.request._hypermedia_inner_handler(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/cherrypy/_cpdispatch.py", line 61, in __call__
+    return self.callable(*self.args, **self.kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/netapi/rest_cherrypy/app.py", line 1605, in POST
+    'return': list(self.exec_lowstate()),
+  File "/usr/lib/python2.7/site-packages/salt/netapi/rest_cherrypy/app.py", line 702, in exec_lowstate
+    ret = self.api.run(chunk)
+  File "/usr/lib/python2.7/site-packages/salt/netapi/__init__.py", line 66, in run
+    return l_fun(*f_call.get('args', ()), **f_call.get('kwargs', {}))
+  File "/usr/lib/python2.7/site-packages/salt/netapi/__init__.py", line 183, in wheel
+    return wheel.cmd_sync(kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/wheel/__init__.py", line 90, in cmd_sync
+    return self.master_call(**low)
+  File "/usr/lib/python2.7/site-packages/salt/wheel/__init__.py", line 66, in master_call
+    ret = channel.send(load)
+  File "/usr/lib/python2.7/site-packages/salt/utils/async.py", line 77, in wrap
+    ret = self._block_future(ret)
+  File "/usr/lib/python2.7/site-packages/salt/utils/async.py", line 87, in _block_future
+    return future.result()
+  File "/usr/lib64/python2.7/site-packages/tornado/concurrent.py", line 215, in result
+    self._check_done()
+  File "/usr/lib64/python2.7/site-packages/tornado/concurrent.py", line 293, in _check_done
+    raise Exception("DummyFuture does not support blocking for results")
+```
+
+As it turns out, the `tornado.concurrent.Future` checks for `self._done` to be `True`, while it can turn as such only after the following:
+- Setting a result to the `Future` object
+- Calling all assigned callbacks (this actually sets it True).
+
+So when it is called `return future.result()` in the [`def _block_future`](https://github.com/saltstack/salt/blob/develop/salt/utils/async.py#L80), it obviously will fail, because the result was not yet set.
+
+@jacksontj maybe you could help here?

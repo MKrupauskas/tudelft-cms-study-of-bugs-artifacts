@@ -1,0 +1,190 @@
+### Description of Issue/Question
+
+I have the following issue when running the cloud.present state :
+
+```
+$ salt 'salt*' state.sls logs_cloud/instances                                                                                                                        
+salt.tools:
+----------
+          ID: test-a
+    Function: cloud.present
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1744, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1702, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/cloud.py", line 126, in present
+                  info = __salt__['cloud.create'](cloud_provider, name, opts=opts, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/cloud.py", line 254, in create
+                  info = client.create(provider, names, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 409, in create
+                  mapper.create(vm_))
+                File "/usr/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 1288, in create
+                  output = self.clouds[func](vm_)
+                File "/usr/lib/python2.7/dist-packages/salt/cloud/clouds/ec2.py", line 2510, in create
+                  data, vm_ = request_instance(vm_, location)
+                File "/usr/lib/python2.7/dist-packages/salt/cloud/clouds/ec2.py", line 1757, in request_instance
+                  ex_securitygroupid = securitygroupid(vm_)
+                File "/usr/lib/python2.7/dist-packages/salt/cloud/clouds/ec2.py", line 1183, in securitygroupid
+                  return list(securitygroupid_set)
+              TypeError: 'NoneType' object is not iterable
+     Started: 22:26:25.805204
+    Duration: 1386.472 ms
+     Changes:
+```
+
+If I create a profile and try to run it with salt-cloud, i get the same error :
+```
+$ alt-cloud -p aws_test-profile test-a
+[ERROR   ] There was a profile error: 'NoneType' object is not iterable
+```
+
+The below configuration is based on [this doc](https://docs.saltstack.com/en/latest/topics/cloud/aws.html#simple-launching-into-a-vpc).
+The `salt` security group exists in this AWS region.
+
+### Setup
+```
+$ cat logs_cloud/instances.sls
+
+test-a:
+  cloud.present:
+    - cloud_provider: aws_eu-west-1
+    - image: ami-6f587e1c
+    - size: t2.micro
+    - ssh_username: ubuntu
+    - subnetname: sn-logs-1a
+    - securitygroupname:
+        - salt
+```
+
+```
+$ cat /etc/salt/cloud.providers.d/aws.conf
+
+aws:
+  id: 'use-instance-role-credentials'
+  key: 'use-instance-role-credentials'
+  keyname: salt
+  private_key: /root/.ssh/id_rsa.salt
+  driver: ec2
+  ssh_interface: public_ips
+  minion:
+    master: salt.tools.cinemasgaumontpathe.com
+
+aws_eu-west-1:
+  - extends: aws:ec2
+    location: eu-west-1
+    ssh_interface: private_ips
+```
+
+```
+$ cat /etc/salt/cloud.profiles.d/aws.conf
+
+aws_test-profile:
+  provider: aws_eu-west-1
+  image: ami-6f587e1c
+  ssh_username: ubuntu
+  size: t2.micro
+  subnetid: subnet-8addbcd2
+  securitygroupname:
+    - salt
+  sync_after_install: all
+```
+### Steps to Reproduce Issue
+
+See commands in "Description of the issue" section.
+
+### Versions Report
+```
+$ salt --versions-report
+
+Salt Version:
+           Salt: 2016.11.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+          gitdb: 0.6.4
+      gitpython: 2.0.5
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.4
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12+ (default, Sep 17 2016, 12:08:02)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.2.0
+
+System Versions:
+           dist: Ubuntu 16.10 yakkety
+        machine: x86_64
+        release: 4.8.0-32-generic
+         system: Linux
+        version: Ubuntu 16.10 yakkety
+```
+
+```
+$ pip freeze
+
+apache-libcloud==0.20.0
+backports-abc==0.4
+boto==2.45.0
+boto3==1.4.3
+botocore==1.4.92
+chardet==2.3.0
+cryptography==1.5
+decorator==4.0.6
+docutils==0.13.1
+enum34==1.1.6
+futures==3.0.5
+gitdb==0.6.4
+GitPython==2.0.5
+hjson==2.0.2
+idna==2.1
+ipaddress==1.0.16
+ipython==2.4.1
+Jinja2==2.8
+jmespath==0.9.0
+lockfile==0.12.2
+Mako==1.0.4
+MarkupSafe==0.23
+msgpack-python==0.4.8
+ndg-httpsclient==0.4.2
+netaddr==0.7.18
+pexpect==4.2.0
+ptyprocess==0.5.1
+pyasn1==0.1.9
+pycrypto==2.6.1
+pycurl==7.43.0
+PyMySQL==0.7.6
+pyOpenSSL==16.1.0
+python-apt==1.1.0b5
+python-dateutil==2.4.2
+PyYAML==3.11
+pyzmq==15.2.0
+requests==2.10.0
+s3transfer==0.1.10
+salt==2016.11.1
+simplegeneric==0.8.1
+simplejson==3.8.2
+singledispatch==3.4.0.3
+six==1.10.0
+smmap==0.9.0
+systemd-python==232
+tornado==4.4.2
+urllib3==1.15.1
+```

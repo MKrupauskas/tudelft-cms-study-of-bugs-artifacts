@@ -1,0 +1,118 @@
+### Description of Issue/Question
+
+When running an orch with "subset: 1" (or any other number) I get "```ValueError: dictionary update sequence element #0 has length 1; 2 is required```" Python exception.
+
+Removing "subset" line make orch run as expected.
+
+### Setup
+my-orch.sls
+
+```
+problem:
+  salt.state:
+    - tgt: '*'
+    - sls: my.state.name
+    - subset: 1
+```
+
+### Steps to Reproduce Issue
+
+```
+$ sudo salt-run state.orch my-orch
+
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 1851, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1795, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/states/saltmod.py", line 272, in state
+    cmd_ret = __salt__['saltutil.cmd'](tgt, fun, **cmd_kw)
+  File "/usr/lib/python2.7/site-packages/salt/modules/saltutil.py", line 1322, in cmd
+    client, tgt, fun, arg, timeout, tgt_type, ret, kwarg, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/saltutil.py", line 1287, in _exec
+    fcn_ret.update(ret_comp)
+ValueError: dictionary update sequence element #0 has length 1; 2 is required
+
+my-vm.example.com_master:
+----------
+          ID: problem
+    Function: salt.state
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/site-packages/salt/state.py", line 1851, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1795, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/states/saltmod.py", line 272, in state
+                  cmd_ret = __salt__['saltutil.cmd'](tgt, fun, **cmd_kw)
+                File "/usr/lib/python2.7/site-packages/salt/modules/saltutil.py", line 1322, in cmd
+                  client, tgt, fun, arg, timeout, tgt_type, ret, kwarg, **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/modules/saltutil.py", line 1287, in _exec
+                  fcn_ret.update(ret_comp)
+              ValueError: dictionary update sequence element #0 has length 1; 2 is required
+     Started: 03:38:45.070976
+    Duration: 2349.035 ms
+     Changes:
+
+Summary for my-vm.example.com_master
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:   2.349 s
+```
+
+We debugged this a bit and the exception is in this loop in modules/saltutil.py:
+
+```
+    for ret_comp in _cmd(**cmd_kwargs):
+       	fcn_ret.update(ret_comp)
+```
+
+Normally, _cmd() here returns a generator that returns nested structures with a jid and another attribute holding returned data. But when using "subset", _cmd() returns a dictionary with a single minion id as key and return data as value, so "for" then iterates over dictionary keys and thus .update() blows up trying to update fcn_ret dict with a string value.
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2017.7.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.8.1
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.5
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.10 (default, Dec 19 2015, 08:44:39)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.11.6.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+```

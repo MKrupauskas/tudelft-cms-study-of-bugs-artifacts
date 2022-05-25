@@ -1,0 +1,53 @@
+When using file states if your source files happen to be located in a subdirectory of  tempfile.gettempdir() then salt will delete them after running the state.
+
+Here is an example:
+
+```
+# Create some directories
+$ mkdir -p /tmp/scripts/salt/{conf,states}
+
+# Our conf file
+$ echo -e "file_roots:\n  base:\n    -  /tmp/scripts/salt/states" > /tmp/scripts/salt/conf/minion
+
+# Our source file
+echo dont_remove_me > /tmp/scripts/salt/states/myfile
+
+# Run salt
+$ salt-call --local -c /tmp/scripts/salt/conf state.single file.managed name=/tmp/test source=salt://myfile
+
+# Look at your missing file:
+$ cat /tmp/scripts/salt/states/myfile
+cat: /tmp/scripts/salt/states/myfile: No such file or directory
+```
+
+I dug into the could and it looks like salt.modules.file.__clean_tmp is the culprit:  
+
+``` python
+def __clean_tmp(sfn):
+'''
+Clean out a template temp file
+'''
+if sfn.startswith(tempfile.gettempdir()):
+    # Only clean up files that exist
+    if os.path.exists(sfn):
+        os.remove(sfn)
+```
+
+The salt.modules.file.manage_file function calls on __clean_tmp any source file it's given.  It should really only try to clean _actual_ temporary files.  A stricter check would probably be good enough.
+
+Version information:
+
+```
+Ubuntu 12.04 - 32 bit (inside a chroot)
+
+           Salt: 0.16.0
+         Python: 2.7.3 (default, Aug  1 2012, 05:16:07)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```

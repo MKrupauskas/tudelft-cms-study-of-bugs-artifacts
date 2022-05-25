@@ -1,0 +1,295 @@
+### Description of Issue/Question
+
+an uncaught recursion happens when prereq is setup without a module defined, this looks to not be related to #8210
+
+### Setup
+simple test case
+```
+item1:
+  cmd.run:
+    - name: cat /tmp/content
+    - unless: test -e /tmp/content
+
+item2:
+  file.managed:
+    - name: /tmp/content
+    - contents: 'hi'
+    - prereq:
+      - item1
+```
+
+### Steps to Reproduce Issue
+I would expect an error but not a recursion error. 
+`salt-call --local state.apply recursion_error test=True -l debug 2>&1 | less`
+```
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: master.localhost
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded state.apply
+[DEBUG   ] LazyLoaded saltutil.is_running
+[DEBUG   ] LazyLoaded grains.get
+[DEBUG   ] LazyLoaded roots.envs
+[DEBUG   ] Could not LazyLoad roots.init: 'roots.init' is not available.
+[DEBUG   ] Updating roots fileserver cache
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] Could not find file 'salt://recursion_error.sls' in saltenv 'base'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'recursion_error/init.sls' to resolve 'salt://recursion_error/init.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/recursion_error/init.sls' to resolve 'salt://recursion_error/init.sls'
+[DEBUG   ] compile template: /var/cache/salt/minion/files/base/recursion_error/init.sls
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/recursion_error/init.sls' using 'jinja' renderer: 0.00553703308105
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/recursion_error/init.sls:
+item1:
+  cmd.run:
+    - name: cat /tmp/content
+    - unless: test -e /tmp/content
+
+item2:
+  file.managed:
+    - name: /tmp/content
+    - contents: 'hi'
+    - prereq:
+      - item1
+
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('item1', OrderedDict([('cmd.run', [OrderedDict([('name', 'cat /tmp/content')]), OrderedDict([('unless', 'test -e /tmp/content')])])])), ('item2', OrderedDict([('file.managed', [OrderedDict([('name', '/tmp/content')]), OrderedDict([('contents', 'hi')]), OrderedDict([('prereq', ['item1'])])])]))])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/recursion_error/init.sls' using 'yaml' renderer: 0.00709915161133
+[DEBUG   ] LazyLoaded cmd.run
+[INFO    ] Running state [cat /tmp/content] at time 19:17:11.617011
+[INFO    ] Executing state cmd.run for [cat /tmp/content]
+[DEBUG   ] LazyLoaded cmd.retcode
+[INFO    ] Executing command 'test -e /tmp/content' in directory '/root'
+[DEBUG   ] output:
+[DEBUG   ] Last command return code: 1
+[INFO    ] Command "cat /tmp/content" would have been executed
+[INFO    ] Completed state [cat /tmp/content] at time 19:17:11.637571 duration_in_ms=20.559
+[DEBUG   ] LazyLoaded file.managed
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+RuntimeError: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File "/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 391, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/caller.py", line 134, in run
+    ret = self.call()
+  File "/usr/lib/python2.7/site-packages/salt/cli/caller.py", line 204, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/state.py", line 592, in apply_
+    return sls(mods, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/modules/state.py", line 1109, in sls
+    ret = st_.state.call_high(high_, orchestration_jid)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2531, in call_high
+    ret = self.call_chunks(chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2017, in call_chunks
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+[...]
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2356, in call_chunk
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 2249, in call_chunk
+    low = self._mod_aggregate(low, running, chunks)
+  File "/usr/lib/python2.7/site-packages/salt/state.py", line 769, in _mod_aggregate
+    agg_opt = self.functions['config.option']('state_aggregate')
+  File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1114, in __getitem__
+    func = super(LazyLoader, self).__getitem__(item)
+  File "/usr/lib/python2.7/site-packages/salt/utils/lazy.py", line 91, in __getitem__
+    if self._missing(key):
+RuntimeError: maximum recursion depth exceeded
+```
+
+if you change the state to 
+
+```
+item1:
+  cmd.run:
+    - name: cat /tmp/content
+    - unless: test -e /tmp/content
+
+item2:
+  file.managed:
+    - name: /tmp/content
+    - contents: 'hi'
+    - prereq:
+      - cmd: item1
+```
+and run again. you get expected normal results.
+```
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: master.localhost
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded state.apply
+[DEBUG   ] LazyLoaded saltutil.is_running
+[DEBUG   ] LazyLoaded grains.get
+[DEBUG   ] LazyLoaded roots.envs
+[DEBUG   ] Could not LazyLoad roots.init: 'roots.init' is not available.
+[DEBUG   ] Updating roots fileserver cache
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] Could not find file 'salt://recursion_error.sls' in saltenv 'base'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'recursion_error/init.sls' to resolve 'salt://recursion_error/init.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/recursion_error/init.sls' to resolve 'salt://recursion_error/init.sls'
+[DEBUG   ] compile template: /var/cache/salt/minion/files/base/recursion_error/init.sls
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/recursion_error/init.sls' using 'jinja' renderer: 0.00235891342163
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/recursion_error/init.sls:
+item1:
+  cmd.run:
+    - name: cat /tmp/content
+    - unless: test -e /tmp/content
+
+item2:
+  file.managed:
+    - name: /tmp/content
+    - contents: 'hi'
+    - prereq:
+      - cmd: item1
+
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('item1', OrderedDict([('cmd.run', [OrderedDict([('name', 'cat /tmp/content')]), OrderedDict([('unless', 'test -e /tmp/content')])])])), ('item2', OrderedDict([('file.managed', [OrderedDict([('name', '/tmp/content')]), OrderedDict([('contents', 'hi')]), OrderedDict([('prereq', [OrderedDict([('cmd', 'item1')])])])])]))])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/recursion_error/init.sls' using 'yaml' renderer: 0.00645017623901
+[DEBUG   ] LazyLoaded cmd.run
+[DEBUG   ] LazyLoaded file.managed
+[INFO    ] Running state [cat /tmp/content] at time 19:22:07.172408
+[DEBUG   ] LazyLoaded cmd.retcode
+[INFO    ] Executing command 'test -e /tmp/content' in directory '/root'
+[DEBUG   ] output:
+[DEBUG   ] Last command return code: 1
+[INFO    ] Running state [/tmp/content] at time 19:22:07.203761
+[INFO    ] Executing state file.managed for [/tmp/content]
+[DEBUG   ] LazyLoaded file.check_managed_changes
+[INFO    ] The file /tmp/content is set to be changed
+[INFO    ] Completed state [/tmp/content] at time 19:22:07.213601 duration_in_ms=9.84
+[INFO    ] Running state [cat /tmp/content] at time 19:22:07.213819
+[INFO    ] Executing state cmd.run for [cat /tmp/content]
+[INFO    ] Executing command 'test -e /tmp/content' in directory '/root'
+[DEBUG   ] output:
+[DEBUG   ] Last command return code: 1
+[INFO    ] Command "cat /tmp/content" would have been executed
+[INFO    ] Completed state [cat /tmp/content] at time 19:22:07.219817 duration_in_ms=5.997
+[DEBUG   ] File /var/cache/salt/minion/accumulator/48352080 does not exist, no need to cleanup.
+[DEBUG   ] LazyLoaded config.option
+[DEBUG   ] LazyLoaded highstate.output
+local:
+----------
+          ID: item2
+    Function: file.managed
+        Name: /tmp/content
+      Result: None
+     Comment: The file /tmp/content is set to be changed
+     Started: 19:22:07.203761
+    Duration: 9.84 ms
+     Changes:
+----------
+          ID: item1
+    Function: cmd.run
+        Name: cat /tmp/content
+      Result: None
+     Comment: Command "cat /tmp/content" would have been executed
+     Started: 19:22:07.213820
+    Duration: 5.997 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 2 (unchanged=2)
+Failed:    0
+------------
+Total states run:     2
+Total run time:  15.837 ms
+```
+
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.5.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+```

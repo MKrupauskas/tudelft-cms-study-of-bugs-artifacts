@@ -1,0 +1,184 @@
+**Description**
+The boto2 connection handling (`salt/utils/botomod`) does not work when the AWS profile in use is configured to use assumed roles.
+
+**Setup**
+Example `~/.aws/config` highlighting my use case:
+```
+[default]
+output = table
+region = us-east-1
+duration_seconds = 129600
+
+[profile my-company]
+output = table
+region = us-west-2
+mfa_serial = arn:aws:iam::01234567890:mfa/myuser
+duration_seconds = 129600
+
+[profile admin@my-company]
+role_arn = arn:aws:iam::01234567890:role/admin
+source_profile = my-company
+region = us-west-2
+mfa_serial = arn:aws:iam::01234567890:mfa/myuser
+```
+`config/minion`:
+```
+id: aws-bootstrap
+root_dir: .
+conf_file: config/minion
+master_type: disable
+cachedir: cache/minion
+log_file: log/minion
+```
+
+**Steps to Reproduce the behavior**
+The following operation work in boto3mod:
+```
+# Use the default profile
+salt-call -c config boto3_sns.list_topics
+
+# Specify a profile
+AWS_PROFILE=my-company salt-call -c config boto3_sns.list_topics
+
+# Use a profile that performs an sts assume-role
+AWS_PROFILE=admin@my-company salt-call -c config boto3_sns.list_topics
+```
+The following operations work in modboto:
+```
+# Use the default profile
+salt-call -c config boto_vpc.describe_vpcs
+
+# Specify a profile
+AWS_PROFILE=my-company salt-call -c config boto_vpc.describe_vpcs
+```
+The following operation breaks in modboto:
+```
+# Use a profile that performs an sts assume-role
+AWS_PROFILE=admin@my-company salt-call -c config boto_vpc.describe_vpcs
+```
+
+Error output:
+```
+[WARNING ] Master is set to disable, skipping connection
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+ProfileNotFoundError: Profile "admin@my-company" not found!
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    load_entry_point('salt==3001.1', 'console_scripts', 'salt-call')()
+  File "/usr/lib/python3/dist-packages/salt/scripts.py", line 445, in salt_call
+    client.run()
+  File "/usr/lib/python3/dist-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/lib/python3/dist-packages/salt/cli/caller.py", line 121, in run
+    ret = self.call()
+  File "/usr/lib/python3/dist-packages/salt/cli/caller.py", line 228, in call
+    ret["return"] = self.minion.executors[fname](
+  File "/usr/lib/python3/dist-packages/salt/executors/direct_call.py", line 12, in execute
+    return func(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/modules/boto_vpc.py", line 979, in describe_vpcs
+    conn = _get_conn(region=region, key=key, keyid=keyid, profile=profile)
+  File "/usr/lib/python3/dist-packages/salt/utils/botomod.py", line 201, in get_connection
+    conn = svc_mod.connect_to_region(
+  File "/usr/lib/python3/dist-packages/boto/vpc/__init__.py", line 70, in connect_to_region
+    return connect('ec2', region_name, connection_cls=VPCConnection,
+  File "/usr/lib/python3/dist-packages/boto/regioninfo.py", line 220, in connect
+    return region.connect(**kw_params)
+  File "/usr/lib/python3/dist-packages/boto/regioninfo.py", line 290, in connect
+    return self.connection_cls(region=self, **kw_params)
+  File "/usr/lib/python3/dist-packages/boto/ec2/connection.py", line 95, in __init__
+    super(EC2Connection, self).__init__(aws_access_key_id,
+  File "/usr/lib/python3/dist-packages/boto/connection.py", line 1091, in __init__
+    super(AWSQueryConnection, self).__init__(
+  File "/usr/lib/python3/dist-packages/boto/connection.py", line 551, in __init__
+    self.provider = Provider(self._provider_type,
+  File "/usr/lib/python3/dist-packages/boto/provider.py", line 201, in __init__
+    self.get_credentials(access_key, secret_key, security_token, profile_name)
+  File "/usr/lib/python3/dist-packages/boto/provider.py", line 296, in get_credentials
+    raise ProfileNotFoundError('Profile "%s" not found!' %
+boto.provider.ProfileNotFoundError: Profile "admin@my-company" not found!
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    load_entry_point('salt==3001.1', 'console_scripts', 'salt-call')()
+  File "/usr/lib/python3/dist-packages/salt/scripts.py", line 445, in salt_call
+    client.run()
+  File "/usr/lib/python3/dist-packages/salt/cli/call.py", line 58, in run
+    caller.run()
+  File "/usr/lib/python3/dist-packages/salt/cli/caller.py", line 121, in run
+    ret = self.call()
+  File "/usr/lib/python3/dist-packages/salt/cli/caller.py", line 228, in call
+    ret["return"] = self.minion.executors[fname](
+  File "/usr/lib/python3/dist-packages/salt/executors/direct_call.py", line 12, in execute
+    return func(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/modules/boto_vpc.py", line 979, in describe_vpcs
+    conn = _get_conn(region=region, key=key, keyid=keyid, profile=profile)
+  File "/usr/lib/python3/dist-packages/salt/utils/botomod.py", line 201, in get_connection
+    conn = svc_mod.connect_to_region(
+  File "/usr/lib/python3/dist-packages/boto/vpc/__init__.py", line 70, in connect_to_region
+    return connect('ec2', region_name, connection_cls=VPCConnection,
+  File "/usr/lib/python3/dist-packages/boto/regioninfo.py", line 220, in connect
+    return region.connect(**kw_params)
+  File "/usr/lib/python3/dist-packages/boto/regioninfo.py", line 290, in connect
+    return self.connection_cls(region=self, **kw_params)
+  File "/usr/lib/python3/dist-packages/boto/ec2/connection.py", line 95, in __init__
+    super(EC2Connection, self).__init__(aws_access_key_id,
+  File "/usr/lib/python3/dist-packages/boto/connection.py", line 1091, in __init__
+    super(AWSQueryConnection, self).__init__(
+  File "/usr/lib/python3/dist-packages/boto/connection.py", line 551, in __init__
+    self.provider = Provider(self._provider_type,
+  File "/usr/lib/python3/dist-packages/boto/provider.py", line 201, in __init__
+    self.get_credentials(access_key, secret_key, security_token, profile_name)
+  File "/usr/lib/python3/dist-packages/boto/provider.py", line 296, in get_credentials
+    raise ProfileNotFoundError('Profile "%s" not found!' %
+boto.provider.ProfileNotFoundError: Profile "admin@my-company" not found!
+```
+
+**Expected behavior**
+Expected a list of vpcs.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 3001.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.1.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.9.8
+         pygit2: Not Installed
+         Python: 3.8.2 (default, Jul 16 2020, 14:00:26)
+   python-gnupg: 0.4.5
+         PyYAML: 5.3.1
+          PyZMQ: 18.1.1
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+ 
+System Versions:
+           dist: ubuntu 20.04 focal
+         locale: utf-8
+        machine: x86_64
+        release: 5.4.0-48-generic
+         system: Linux
+        version: Ubuntu 20.04 focal
+```
+</details>
+
+**Additional Information**
+Found while working on: https://github.com/major0/saltstack-aws-boilerplate

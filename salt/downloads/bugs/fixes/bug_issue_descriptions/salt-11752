@@ -1,0 +1,57 @@
+I feel foolish even filing this, but I quadruple-checked it and afaict the following description is valid/accurate...
+
+tl;dr - the alphabetical order of the id's contained in the sls directly affects whether or not the sls runs properly or throws a global KeyError exception.
+
+We have an sls with a single cmd.run to start, and a big chain of states where each 'require's the previous one (ie: a chain of requires... perhaps not the best way to enforce ordering? either way, at a base level it shouldn't be a problem doing it this way afaik)... and each state in the 'require chain' has the initial cmd.run as a prereq. So the logic is, "if this cmd returns changes, run this set of states where the execution order matters".
+
+Anyways... I again built a set of simple test sls'es and narrowed them down to the simplest instance that reliably triggers the error (under 2014.1.0, WITH thatch45's fix to issue #11717 applied ( https://github.com/saltstack/salt/commit/b3c24bb640e22c2d3f17dc568ee29fff1341507c )... here's the version of the test sls in question which _works_ (all my testing is with test=True, FYI, although I don't _think_ that should matter):
+
+```
+one:
+  cmd.run:
+    - name: /bin/echo changed=True
+    - stateful: true
+
+two:
+  file.managed:
+    - name: /tmp/test.ignore2
+    - prereq:
+      - cmd: one
+
+foo:
+  file.managed:
+    - name: /tmp/test.ignore3
+    - prereq:
+      - cmd: one
+    - require:
+      - file: two
+```
+
+And here's a copy of the same SLS, slightly modified, which reliably/consistently throws a KeyError from line 1629 of salt/state.py:
+
+```
+one:
+  cmd.run:
+    - name: /bin/echo changed=True
+    - stateful: true
+
+two:
+  file.managed:
+    - name: /tmp/test.ignore2
+    - prereq:
+      - cmd: one
+
+zoo:
+  file.managed:
+    - name: /tmp/test.ignore3
+    - prereq:
+      - cmd: one
+    - require:
+      - file: two
+```
+
+Notice that the _only_ difference between the two is the third state has an id of 'zoo' instead of 'foo'.
+
+If someone looking at this can replicate/confirm the behaviour prior to proceeding with the bug hunt, I'd be rather grateful - mainly just for my own sanity/to confirm that I'm not doing something dumb/missing something obvious that's NOT actually related to the alphabetical order of the ids/etc. :D 
+
+Thanks... and I fully realize this is going to be annoying in many ways, so... sorry ;)

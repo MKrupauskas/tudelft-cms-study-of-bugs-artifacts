@@ -1,0 +1,129 @@
+### Description of Issue
+I'm trying to use this method to mount my filesystems because I want to use the UUID in fstab, but I've noticed that fstab is changed but no filesystem is mounted.
+
+### Setup
+```
+disk_format_sdb:
+  blockdev.formatted:
+    - name: /dev/sdb
+    - fs_type: xfs
+    - require:
+      - pkg: disks_pkgs
+
+disk_mount_db:
+  file.directory:
+    - name: /server
+    - user: root
+    - group: root
+    - file_mode: 644
+    - dir_mode: 777
+  mount.fstab_present:
+    - name: /dev/sdb
+    - fs_file: /server
+    - fs_vfstype: xfs
+    - mount: True
+    - fs_mntops:
+      - defaults
+    - mount_by: uuid
+    - require:
+      - blockdev: disk_format_sdb
+```
+
+### Steps to Reproduce Issue
+Just use the provided state with an empty of already formated disk.
+
+You can see how the fstab is changed but filesystem is not mounted:
+```
+----------
+          ID: disk_mount_sdb
+    Function: mount.fstab_present
+        Name: /dev/sdb
+      Result: True
+     Comment: /server entry added in /etc/fstab.
+     Started: 13:16:41.941678
+    Duration: 7.495 ms
+     Changes:   
+              ----------
+              persist:
+                  new
+```
+
+If you run the mount -a command then is mounted without problem:
+```
+# mount|grep -i "server"
+# mount -a
+# mount|grep -i "server"
+/dev/sdb on /server type xfs (rw,noatime,nodiratime,attr2,inode64,noquota)
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 3000.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.11
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.7.3 (default, Dec 20 2019, 18:57:59)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+          smmap: 2.0.5
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: debian 10.4 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.19.0-8-cloud-amd64
+         system: Linux
+        version: debian 10.4
+```
+
+Both (minion and master) uses the same OS and Salt version.
+
+I've tried to use also the mounted state getting the filesystem UUID, but on first run when it has to format the disk, the UUID doesn't exists yet so it fails.
+
+
+For now I've created a way to do it with this state:
+```
+disk_mount_sdb:
+  file.directory:
+    - name: /server
+    - user: root
+    - group: root
+    - file_mode: 644
+    - dir_mode: 777
+  mount.fstab_present:
+    - name: /dev/sdb
+    - fs_file: /server
+    - fs_vfstype: ext4
+    - mount: True
+    - fs_mntops:
+      - defaults
+    - mount_by: uuid
+    - require:
+      - blockdev: disk_format_sdb
+  cmd.run:
+    - name: mount /server
+    - onlyif: exit $(mount|grep /dev/sdb|grep /server|wc -l)
+    - require:
+      - blockdev: disk_format_sdb
+```

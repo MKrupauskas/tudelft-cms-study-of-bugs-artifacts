@@ -1,0 +1,128 @@
+I'm having issues with minions going into an unresponsive state, quite similar to issued #5768 and #16680. 
+
+I'm running in multi-master node with two masters. Both are RedHat 6.6 with salt-master from epel:
+
+```
+           Salt: 2014.7.0
+         Python: 2.6.6 (r266:84292, Nov 21 2013, 10:50:32)
+         Jinja2: unknown
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.4
+           Mako: Not Installed
+```
+
+In addition to the default configuration, pillar and state backend, I have worker_threads set to 20 and timeout to 10.
+
+Minions are all RedHat 7.0 with salt-minion from epel:
+
+```
+           Salt: 2014.7.0
+         Python: 2.7.5 (default, Feb 11 2014, 07:46:25)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.4
+           Mako: Not Installed
+```
+
+After installation and start of the minion, it connects to the master successfully and I accept the key on the master. Then when I try applying states on those minions, they do not respond at all. Running with salt -v, I get various output. Some are disconnected, some are not responding, some does answer. 
+
+For those which are not responding, they either run the actual state that's being applied, as evident from the local minion log, or they fail with the minion log full of (error-1):
+
+```
+2015-02-12 15:14:45,521 [salt.minion      ][CRITICAL] An exception occurred while polling the minion
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 1726, in tune_in_no_block
+    self._do_socket_recv(socks)
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 1760, in _do_socket_recv
+    self._handle_payload(payload)
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 866, in _handle_payload
+    payload['sig'] if 'sig' in payload else None)
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 897, in _handle_aes
+    data = self.crypticle.loads(load)
+  File "/usr/lib/python2.7/site-packages/salt/crypt.py", line 791, in loads
+    data = self.decrypt(data)
+  File "/usr/lib/python2.7/site-packages/salt/crypt.py", line 774, in decrypt
+    raise AuthenticationError('message authentication failed')
+AuthenticationError: message authentication failed
+```
+
+Minions with message [Not connected] have logged (error-2):
+
+```
+2015-02-10 20:20:10,329 [salt.log.setup   ][ERROR   ] An un-handled exception was caught by salt's global exception handler:
+SaltReqTimeoutError: SaltReqTimeoutError: after 21600 seconds, ran 3 tries
+Traceback (most recent call last):
+  File "/usr/bin/salt-minion", line 14, in <module>
+    salt_minion()
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 56, in salt_minion
+    minion.start()
+  File "/usr/lib/python2.7/site-packages/salt/__init__.py", line 264, in start
+    self.minion.tune_in()
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 557, in tune_in
+    minion['minion'].pillar_refresh()
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 1411, in pillar_refresh
+    self.opts['environment'],
+  File "/usr/lib/python2.7/site-packages/salt/pillar/__init__.py", line 91, in compile_pillar
+    ret_pillar = self.sreq.crypted_transfer_decode_dictentry(load, dictkey='pillar', tries=3, timeout=7200)
+  File "/usr/lib/python2.7/site-packages/salt/transport/__init__.py", line 234, in crypted_transfer_decode_dictentry
+    ret = self.sreq.send('aes', self.auth.crypticle.dumps(load), tries, timeout)
+  File "/usr/lib/python2.7/site-packages/salt/payload.py", line 224, in send
+    'SaltReqTimeoutError: after {0} seconds, ran {1} tries'.format(timeout * tried, tried)
+SaltReqTimeoutError: SaltReqTimeoutError: after 21600 seconds, ran 3 tries
+```
+
+Other disconnected minions fail Immediately after master accepts the key (error-3):
+
+```
+2015-02-09 16:06:01,652 [salt.crypt       ][ERROR   ] The Salt Master has cached the public key for this node, this salt minion will wait for 10 seconds before attempting to re-authenticate
+2015-02-09 16:06:12,000 [salt.log.setup   ][ERROR   ] An un-handled exception was caught by salt's global exception handler:
+TypeError: string indices must be integers, not str
+Traceback (most recent call last):
+  File "/usr/bin/salt-minion", line 14, in <module>
+    salt_minion()
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 56, in salt_minion
+    minion.start()
+  File "/usr/lib/python2.7/site-packages/salt/__init__.py", line 264, in start
+    self.minion.tune_in()
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 504, in tune_in
+    minions = self.minions()
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 484, in minions
+    minions = self._gen_minions()
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 470, in _gen_minions
+    minions.append(Minion(s_opts, 5, False))
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 603, in __init__
+    opts['environment'],
+  File "/usr/lib/python2.7/site-packages/salt/pillar/__init__.py", line 91, in compile_pillar
+    ret_pillar = self.sreq.crypted_transfer_decode_dictentry(load, dictkey='pillar', tries=3, timeout=7200)
+  File "/usr/lib/python2.7/site-packages/salt/transport/__init__.py", line 236, in crypted_transfer_decode_dictentry
+    aes = key.private_decrypt(ret['key'], 4)
+TypeError: string indices must be integers, not str
+```
+
+This last error message, error-3, is the only one seen consistently directly after accepting keys. The others can occur whenever. Minions previously connected and whom have previously run states and responded correctly, will also stop responding. So it's not isolated as one-time event. 
+
+```
+́́# salt-run manage.up|wc -l; salt-run manage.down|wc -l
+13
+65
+```
+
+Restarting the masters and minions can make the number of minions up increase, but after a while they stop responding again.
+
+For error-3, restarting the minion service will make it reconnect and behave normally. There doesn't seem to be a consistent way to get error-1 and error-2 to stop occuring occationally.

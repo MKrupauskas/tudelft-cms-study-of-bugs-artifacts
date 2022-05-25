@@ -1,0 +1,135 @@
+### Description of Issue/Question
+When running a command through `salt-api` minions under a syndic don't have their results show up in the results.
+
+### Setup
+MoM -> syndics -> minions
+### Steps to Reproduce Issue
+On 2017.7.0 I get the following when running this from the cli on the MoM:
+
+```
+[root@MOM-2017 ~]# salt \* test.version
+syndic02-2017:
+    2017.7.0
+MOM-2017:
+    2017.7.0
+syndic01-2017:
+    2017.7.0
+minion01-syndic01-2017:
+    2017.7.0
+minion01-syndic02-2017:
+    2017.7.0
+```
+
+But when I run the same command through Salt API I get the following:
+
+```
+[root@MOM-2017 ~]# curl -ik http://localhost:8000/run -H 'Accept: application/x-yaml' -H 'Content-type: application/json' -d '[{"client": "local", "tgt": "*", "fun": "test.version", "username": "apiuser", "password": "crappypassword", "eauth": "pam"}]'
+HTTP/1.1 200 OK
+Content-Length: 145
+Access-Control-Expose-Headers: GET, POST
+Vary: Accept-Encoding
+Server: CherryPy/5.6.0
+Allow: GET, HEAD, POST
+Access-Control-Allow-Credentials: true
+Date: Tue, 01 Aug 2017 19:46:04 GMT
+Access-Control-Allow-Origin: *
+Content-Type: application/x-yaml
+
+return:
+- MOM-2017: 2017.7.0
+  minion01-syndic01-2017: false
+  minion01-syndic02-2017: false
+  syndic01-2017: 2017.7.0
+  syndic02-2017: 2017.7.0
+```
+
+I did a git bisect and it's this PR that caused the error:  https://github.com/saltstack/salt/pull/36318
+
+I pulled the code out from that PR and then I get the following:
+
+```
+[root@MOM-2017 ~]# salt \* test.version
+MOM-2017:
+    2017.7.0-373-g47c39a8
+syndic01-2017:
+    2017.7.0-373-g47c39a8
+syndic02-2017:
+    2017.7.0-373-g47c39a8
+minion01-syndic01-2017:
+    2017.7.0-373-g47c39a8
+minion01-syndic02-2017:
+    2017.7.0-373-g47c39a8
+```
+
+and then through Salt API:
+
+```
+
+[root@MOM-2017 ~]# curl -ik http://localhost:8000/run -H 'Accept: application/x-yaml' -H 'Content-type: application/json' -d '[{"client": "local", "tgt": "*", "fun": "test.version", "username": "apiuser", "password": "crappypassword", "eauth": "pam"}]'
+HTTP/1.1 200 OK
+Content-Length: 216
+Access-Control-Expose-Headers: GET, POST
+Vary: Accept-Encoding
+Server: CherryPy/5.6.0
+Allow: GET, HEAD, POST
+Access-Control-Allow-Credentials: true
+Date: Tue, 01 Aug 2017 19:52:09 GMT
+Access-Control-Allow-Origin: *
+Content-Type: application/x-yaml
+
+return:
+- MOM-2017: 2017.7.0-373-g47c39a8
+  minion01-syndic01-2017: 2017.7.0-373-g47c39a8
+  minion01-syndic02-2017: 2017.7.0-373-g47c39a8
+  syndic01-2017: 2017.7.0-373-g47c39a8
+  syndic02-2017: 2017.7.0-373-g47c39a8
+```
+
+As you can see, the minions under the syndics return correctly.
+
+### Versions Report
+here's the versions report
+
+```
+[root@MOM-2017 ~]# salt --versions
+Salt Version:
+           Salt: 2017.7.0
+ 
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.3.1611 Core
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 3.13.0-125-generic
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```

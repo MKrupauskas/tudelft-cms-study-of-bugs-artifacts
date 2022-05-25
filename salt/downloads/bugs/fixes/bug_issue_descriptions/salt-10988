@@ -1,0 +1,116 @@
+If I use the iptables.insert, I get the following error.
+
+```
+     An exception occurred in this state: Traceback (most recent call last):
+          File "/tmp/.salt/salt/state.py", line 1372, in call
+            self.verify_ret(ret)
+          File "/usr/lib64/python2.6/contextlib.py", line 34, in __exit__
+            self.gen.throw(type, value, traceback)
+          File "/tmp/.salt/salt/utils/context.py", line 43, in func_globals_inject
+            yield
+          File "/tmp/.salt/salt/state.py", line 1371, in call
+            **cdata['kwargs'])
+          File "/tmp/.salt/salt/states/iptables.py", line 299, in insert
+            rule = __salt__['iptables.build_rule'](family, **kwargs)
+        TypeError: build_rule() got multiple values for keyword argument 'table'
+```
+
+If I uses the iptables.append, it works as expected.  (however, it doesn't check to see if the rule doesnt already exist).
+
+2 servers:
+saltmaster-mom (master of masters)
+saltmaster1 (normal master)
+
+I tried using salt-ssh and as a minion.  Error is the same.   
+
+> [root@saltmaster1 sysconfig]# cat /etc/redhat-release 
+> Red Hat Enterprise Linux Server release 6.5 (Santiago)
+> 
+> [root@saltmaster-mom yum]# salt-master --versions-report
+> Salt: 2014.1.0
+> Python: 2.6.6 (r266:84292, Nov 21 2013, 10:50:32)
+> Jinja2: 2.2.1
+> M2Crypto: 0.20.2
+> msgpack-python: 0.1.13
+> msgpack-pure: Not Installed
+> pycrypto: 2.0.1
+> PyYAML: 3.10
+> PyZMQ: 2.2.0.1
+> ZMQ: 3.2.4
+
+```
+[root@saltmaster-mom yum]# cat ../salt-master/init.sls 
+{% set baseurl = "salt://salt-master" %}
+
+include:
+  - yum
+
+salt-master:
+  pkg.installed:
+  - require:
+    - pkg: yum-utils-packages
+  service.running:
+  - enable: True
+  - require: 
+    - pkg: salt-master
+    - file: /etc/salt/master.d/master.conf
+  - watch:
+    - file: /etc/salt/master.d/master.conf
+   iptables.insert:
+    - position: 5
+    - table: filter
+    - chain: INPUT
+    - jump: ACCEPT
+    - dport: "4505:4506"
+    - proto: tcp
+    - save: True
+
+/etc/salt/master.d/master.conf:
+  file.managed:
+  - source: {{baseurl}}/master.conf
+  - makedirs: True
+
+salt-syndic:
+  service.running:
+    - enable: True
+    - require: 
+      - pkg: salt-master
+    - watch:
+      - file: /etc/salt/master.d/master.conf
+```
+
+-----  Here is the results changed to an append: ---
+
+```
+iptables_|-salt-master_|-salt-master_|-append:
+    ----------
+    __run_num__:
+        13
+    changes:
+        ----------
+        locale:
+            salt-master
+    comment:
+        Set and Saved iptables rule for salt-master to: iptables -t filter -A INPUT  -p tcp -m tcp --dport 4505:4506 --jump ACCEPT for ipv4
+    name:
+        salt-master
+    result:
+        True
+```
+
+> [root@saltmaster1 sysconfig]# iptables -L
+> Chain INPUT (policy ACCEPT)
+> target     prot opt source               destination  
+> ACCEPT     all  --  anywhere             anywhere            state RELATED,ESTABLISHED 
+> ACCEPT     icmp --  anywhere             anywhere  
+> ACCEPT     all  --  anywhere             anywhere  
+> ACCEPT     tcp  --  anywhere             anywhere            state NEW tcp dpt:ssh 
+> REJECT     all  --  anywhere             anywhere            reject-with icmp-host-prohibited 
+> ACCEPT     tcp  --  anywhere             anywhere            tcp dpts:4505:4506 
+> 
+> Chain FORWARD (policy ACCEPT)
+> target     prot opt source               destination  
+> REJECT     all  --  anywhere             anywhere            reject-with icmp-host-prohibited 
+> 
+> Chain OUTPUT (policy ACCEPT)
+> target     prot opt source               destination   

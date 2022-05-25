@@ -1,0 +1,73 @@
+### Description of Issue/Question
+
+[ERROR   ] Command '['pw', 'user', 'show', '12345']' failed with return code: 67
+[ERROR   ] stderr: pw: no such uid `12345'
+[ERROR   ] retcode: 67
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/local/lib/python3.6/site-packages/salt/state.py", line 1913, in call
+    **cdata['kwargs'])
+  File "/usr/local/lib/python3.6/site-packages/salt/loader.py", line 1898, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/local/lib/python3.6/site-packages/salt/states/user.py", line 563, in present
+    allow_gid_change)
+  File "/usr/local/lib/python3.6/site-packages/salt/states/user.py", line 97, in _changes
+    lshad = __salt__['shadow.info'](name)
+  File "/usr/local/lib/python3.6/site-packages/salt/modules/bsd_shadow.py", line 77, in info
+    python_shell=False).split(':')[5:7]
+ValueError: not enough values to unpack (expected 2, got 0)
+
+----------
+          ID: user12345
+    Function: user.present
+        Name: 12345
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/local/lib/python3.6/site-packages/salt/state.py", line 1913, in call
+                  **cdata['kwargs'])
+                File "/usr/local/lib/python3.6/site-packages/salt/loader.py", line 1898, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/local/lib/python3.6/site-packages/salt/states/user.py", line 563, in present
+                  allow_gid_change)
+                File "/usr/local/lib/python3.6/site-packages/salt/states/user.py", line 97, in _changes
+                  lshad = __salt__['shadow.info'](name)
+                File "/usr/local/lib/python3.6/site-packages/salt/modules/bsd_shadow.py", line 77, in info
+                  python_shell=False).split(':')[5:7]
+              ValueError: not enough values to unpack (expected 2, got 0)
+     Started: 12:03:39.145637
+    Duration: 33.27 ms
+     Changes:
+----------
+
+
+man pw:
+pw [-R rootdir] [-V etcdir] usershow [-n] name|uid | -u uid [-F] [-P]
+        [-7] [-a]
+
+If I add a user that is all numeric, by default it thinks I'm searching for uid instead of name.  To 'force' it to show name, I need to use the '-n' option.
+
+freebsd:# pw useradd -n 12345
+freebsd:# pw usershow 12345
+pw: no such uid `12345'
+freebsd:# pw usershow -n 12345
+12345:*:3692:3692::0:0:User &:/home/12345:/bin/sh
+freebsd:# pw usershow -u 3692
+12345:*:3692:3692::0:0:User &:/home/12345:/bin/sh
+freebsd:#
+
+this fixes the issue:
+
+freebsd:# diff "/usr/local/lib/python3.6/site-packages/salt/modules/bsd_shadow.py" "/usr/local/lib/python3.6/site-packages/salt/modules/bsd_shadow.py.orig"
+76c76
+<             ['pw', 'usershow', '-n', name],
+---
+>             ['pw', 'user', 'show', name],
+freebsd:#
+
+### Setup
+this is using standard user.present module, except username is numeric
+
+### Steps to Reproduce Issue
+add user that the username is all numeric
+
+### Versions Report
+py36-salt-2018.3.3

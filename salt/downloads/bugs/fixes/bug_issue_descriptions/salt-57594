@@ -1,0 +1,30 @@
+**Description**
+salt-minion fails startup on Windows 8.1 x86 and x64 when using the Salt-Minion-3000.1-Py3-x86-Setup.exe or Salt-Minion-3000.1-Py3-x64-Setup.exe, due to api-ms-win-crt-runtime-l1-1-0.dll is missing.
+
+**Setup**
+This is actually due to wusa.. Stop the Windows Update service as if you were planning on using saltstack to bootstrap the windows updates.
+
+If its easier, you can use the following packer template from github.com/boxcutter/windows: https://github.com/boxcutter/windows/blob/master/eval-win81x86-enterprise.json Most of the templates using the evaluation iso will have this issue actually.
+
+Do something like `packer build eval-win81x86-enterprise.json`. The eval iso is at http://care.dlservice.microsoft.com/dl/download/B/9/9/B999286E-0A47-406D-8B3D-5B5AD7373A4A/9600.17050.WINBLUE_REFRESH.140317-1640_X64FRE_ENTERPRISE_EVAL_EN-US-IR3_CENA_X64FREE_EN-US_DV9.ISO if you want to pre-download it.
+
+**Steps to Reproduce the behavior**
+Run the installer (I've been using saltify-windows from salt-cloud, but you can run it normally too). It will fail to install the universal crt (http://repo.saltstack.com/windows/dependencies/64/ucrt/) due to using wusa which requires specific windows updates to be installed in order for wusa to work.
+
+One symptom is that you'll see the salt-minion service hasn't automatically started and remains in the pause state. This is due to Python being unable to be executed.
+
+Event log (Setup) will show the following depending on the patch that the salt-minion installer tried to install:
+```
+Windows update  could not be installed because of error 2147942402 "The system cannot find the file specified." (Command li ne: "wusa  "C:\Users\root\AppData\Local\Temp\nssB607.tmp\Windows8.1-KB2999226-x86.msu" /quiet /norestart")
+```
+
+You can prove that the crt didn't install by running `C:\salt\bin\python --version` and it will display an error from the runtime linker: "api-ms-win-crt-runtime-l1-1-0.dll is missing".
+
+**Expected behavior**
+Salt-minion service should be running, so then updates can be bootstrapped by salt...since we're trying to use salt-cloud after all. But because Python CRT couldn't install due to wusa the service is "paused" or really dead which requires manually repairing things.
+
+**Versions Report**
+salt-Minion-3000.3-Py3-x86-Setup.exe
+salt-Minion-3000.3-Py3-x64-Setup.exe
+
+This issue is the exact same one as #56296, and I documented a potential fix for it on that ticket.

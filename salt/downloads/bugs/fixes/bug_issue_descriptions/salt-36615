@@ -1,0 +1,95 @@
+These two jobs were scheduled at the same time:
+
+```
+schedule:
+  test01:
+    enabled: True
+    function: state.single
+    args:
+      - status.loadavg
+      - 1-min
+    maxrunning: 1
+    returner: local
+    when: 21:30pm
+
+  test02:
+    enabled: True
+    function: state.sls
+    args:
+      - test
+    maxrunning: 1
+    when: 21:30pm
+```
+
+`test.sls` is just a simple service check:
+
+```
+nagios:
+  service.running:
+    - enable: True
+    - onlyif:
+      - nagios -v /etc/nagios/nagios.cfg
+```
+
+`_returners/test.py` (I added some extra log entries for debugging):
+
+```
+# Import python libs
+from __future__ import absolute_import, print_function
+import logging
+log = logging.getLogger(__name__)
+
+def returner(ret):
+    '''
+    Print the return data to the terminal to verify functionality
+    '''
+    log.debug('RET from returner: {0}'.format(ret))
+    print(ret)
+```
+
+```
+2016-09-27 21:30:00,786 [salt.loaded.int.returner.local][DEBUG   ][7429] RET from returner: {'fun_args': ['status.loadavg', '1-min'], 'jid': '20160927213000744753', 'return': ['The function "state.sls" is running as PID 7430 and was started at 2016, Sep 27 21:30:00.752295 with jid 20160927213000752295'], 'success': True, 'schedule': 'test01', 'pid': 7429, 'fun': 'state.single', 'id': 'test01.local'}
+```
+
+So only one job is configured with returner and as you can see from the log entry above, `ret` data is for `state.single` (test01 job) however `return` key shows entry for `state.sls` (test02 job).
+
+```
+# salt --versions
+Salt Version:
+           Salt: 2016.3.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug 18 2016, 15:58:25)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.28.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```

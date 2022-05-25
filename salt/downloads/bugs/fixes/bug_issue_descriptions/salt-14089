@@ -1,0 +1,110 @@
+I'm using dockerio salt state to startup docker containers on a salt minion. Trying to mount volumes into my container is failing. Container is starting but volumes are mounted to the right places.
+
+**Aiming for this**
+
+```
+sudo docker run \
+  --volume=/var/run:/var/run:rw \
+  --volume=/sys/fs/cgroup/:/sys/fs/cgroup:ro \
+  --volume=/var/lib/docker/:/var/lib/docker:ro \
+  --publish=8080:8080 \
+  --detach=true \
+  google/cadvisor
+```
+
+**cadvisor sls file**
+
+```
+cadvisor-image:
+   docker.pulled:
+     - name: google/cadvisor
+     - tag: latest
+     - require_in: cadvisor-container
+     - force: True
+
+cadvisor-container:
+   docker.installed:
+     - name: cadvisor
+     - hostname: cadvisor
+     - image: google/cadvisor
+     - ports:
+       - "8080/tcp"
+     - volumes:
+       - /var/run:/var/run
+       - /sys/fs/cgroup:/sys/fs/cgroup
+       - /var/lib/docker:/var/lib/docker
+     - require_in: cadvisor
+
+cadvisor:
+   docker.running:
+     - container: cadvisor
+     - port_bindings:
+            "8080/tcp":
+                HostIp: ""
+                HostPort: "8080"
+     - binds:
+       /var/run:
+         bind: /var/run
+         rw: true
+       /sys/fs/cgroup:
+         bind: /sys/fs/cgroup
+       /var/lib/docker:
+         bind: /var/lib/docker
+```
+
+According to the [dockerio.py](https://github.com/saltstack/salt/blob/9e0b920cc83352cb9effce6ff01cdff4a250f624/salt/modules/dockerio.py#L568) `/var/run:/var/run` should work.
+
+**docker inspect cadvisor**
+
+```
+    "Volumes": {
+        "/sys/fs/cgroup": "/data/docker/var/lib/docker/vfs/dir/4b73afb95950512f14b1756234d99301cd1092bab090ed6b8d346a33f07592d4",
+        "/var/lib/docker": "/data/docker/var/lib/docker/vfs/dir/d26ca697e1bcc0f33ce2e4da48e7bb063c7820513850aede726e683a6b91cadd",
+        "/var/run": "/data/docker/var/lib/docker/vfs/dir/a78769e20861055f0bb3c85b024a325c61b57451520c8c918b9b73b7586c655d"
+    },
+    "VolumesRW": {
+        "/sys/fs/cgroup": true,
+        "/var/lib/docker": true,
+        "/var/run": true
+    }
+```
+
+**Should look like this if volumes where right**
+
+```
+    "Volumes": {
+        "/sys/fs/cgroup": "/sys/fs/cgroup",
+        "/var/lib/docker": "/var/lib/docker",
+        "/var/run": "/run"
+    },
+    "VolumesRW": {
+        "/sys/fs/cgroup": false,
+        "/var/lib/docker": false,
+        "/var/run": true
+    }
+```
+
+**Versions**
+
+```
+love@master:~$ cat /etc/issue
+Ubuntu 12.04.1 LTS \n \l
+
+love@master:~$ salt server01 cmd.run "docker version"
+server01:
+    Client version: 1.1.1
+    Client API version: 1.13
+    Go version (client): go1.2.1
+    Git commit (client): bd609d2
+    Server version: 1.1.1
+    Server API version: 1.13
+    Go version (server): go1.2.1
+    Git commit (server): bd609d2
+
+love@master:~$ salt server01 cmd.run "salt-minion --version"
+server01:
+    salt-minion 2014.1.7
+
+love@master:~$ salt --version
+salt 2014.1.7
+```

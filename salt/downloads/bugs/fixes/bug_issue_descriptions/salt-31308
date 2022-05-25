@@ -1,0 +1,76 @@
+```
+root@login-euc1-01:~# lsb_release -d
+Description:    Debian GNU/Linux 8.3 (jessie)
+root@login-euc1-01:~# salt-call --version
+salt-call 2015.8.5 (Beryllium)
+```
+
+```
+/data/storage:
+  mount.mounted:
+    - device: gluster-cluster:/gluster
+    - fstype: glusterfs
+    - opts:
+      - defaults
+      - backup-volfile-servers=glusterfs-euc1-01:glusterfs-euc1-02:glusterfs-euc1-03:glusterfs-euc1-04
+    - persist: True
+    - mkmnt: True
+    - mount: True
+```
+
+Here the log from state run after first setup:
+
+```
+2016-02-18 13:27:19,496 [salt.state       ][INFO    ][9950] Running state [/data/storage] at time 13:27:19.496037
+2016-02-18 13:27:19,496 [salt.state       ][INFO    ][9950] Executing state mount.mounted for /data/storage
+2016-02-18 13:27:19,497 [salt.loaded.int.module.cmdmod][INFO    ][9950] Executing command 'mount -l' in directory '/root'
+2016-02-18 13:27:19,505 [salt.loaded.int.module.cmdmod][DEBUG   ][9950] stdout: sysfs on /sys type sysfs (rw,nosuid,nodev,noexec,relatime)
+...
+fusectl on /sys/fs/fuse/connections type fusectl (rw,relatime)
+gluster-cluster:/gluster on /data/storage type fuse.glusterfs (rw,relatime,user_id=0,group_id=0,default_permissions,allow_other,max_read=131072)
+2016-02-18 13:27:19,506 [salt.loaded.int.module.cmdmod][INFO    ][9950] Executing command 'blkid' in directory '/root'
+2016-02-18 13:27:19,514 [salt.loaded.int.module.cmdmod][DEBUG   ][9950] stdout: /dev/xvda1: UUID="af868c19-1411-4fb0-91a4-17899429cd79" TYPE="ext4" PARTUUID="d7f
+2e0e8-01"
+2016-02-18 13:27:19,517 [salt.loaded.int.module.cmdmod][INFO    ][9950] Executing command 'mount -l' in directory '/root'
+2016-02-18 13:27:19,525 [salt.loaded.int.module.cmdmod][DEBUG   ][9950] stdout: sysfs on /sys type sysfs (rw,nosuid,nodev,noexec,relatime)
+...
+gluster-cluster:/gluster on /data/storage type fuse.glusterfs (rw,relatime,user_id=0,group_id=0,default_permissions,allow_other,max_read=131072)
+2016-02-18 13:27:19,525 [salt.loaded.int.module.cmdmod][INFO    ][9950] Executing command 'mount -o defaults,backup-volfile-servers=glusterfs-euc1-01:glusterfs-euc1-02:glusterfs-euc1-03:glusterfs-euc1-04,remount -t glusterfs gluster-cluster:/gluster /data/storage ' in directory '/root'
+2016-02-18 13:27:19,538 [salt.loaded.int.module.cmdmod][ERROR   ][9950] Command 'mount -o defaults,backup-volfile-servers=glusterfs-euc1-01:glusterfs-euc1-02:glusterfs-euc1-03:glusterfs-euc1-04,remount -t glusterfs gluster-cluster:/gluster /data/storage ' failed with return code: 1
+2016-02-18 13:27:19,539 [salt.loaded.int.module.cmdmod][ERROR   ][9950] stderr: Invalid option remount
+2016-02-18 13:27:19,539 [salt.loaded.int.module.cmdmod][ERROR   ][9950] retcode: 1
+2016-02-18 13:27:19,539 [salt.state       ][ERROR   ][9950] {'umount': 'Forced remount because options (backup-volfile-servers=glusterfs-euc1-01:glusterfs-euc1-02:glusterfs-euc1-03:glusterfs-euc1-04) changed'}
+2016-02-18 13:27:19,539 [salt.state       ][INFO    ][9950] Completed state [/data/storage] at time 13:27:19.539437
+```
+
+I tried to put it into the hidden_opts which sounds great from documentation (and issue https://github.com/saltstack/salt/issues/28603 )
+
+https://docs.saltstack.com/en/latest/ref/states/all/salt.states.mount.html#salt.states.mount.mounted
+
+> - hidden_opts
+>   A list of mount options that will be ignored when considering a remount as part of the state application
+
+```
+/data/storage:
+  mount.mounted:
+    - device: gluster-cluster:/gluster
+    - fstype: glusterfs
+    - opts:
+      - defaults
+    - hidden_opts:
+      - backup-volfile-servers=glusterfs-euc1-01:glusterfs-euc1-02:glusterfs-euc1-03:glusterfs-euc1-04
+    - persist: True
+    - mkmnt: True
+    - mount: True
+```
+
+But then I lose the mount parameter. :(
+Seems the "hidden_opts" are wrong named and should be more "ignored_opts" parameter. 
+So we need here some senseful other naming or check validation for fuse/glusterfs systems.
+
+2nd the remount option is not working; I guess thats part of "Fuse" that there is a umount/mount needed instead of remount ?
+
+if the mod_watch check https://github.com/saltstack/salt/commit/4f13ea31006d219262e39edc1d6a15596d9df30d works mostly same as the mount.mounted state It would be e.g. easy to check fstype for `^fuse*` to let switch from remount option to umount / mount ones.
+
+3rd here would it be nice to have default/optional the lazy option `-l` useable. Would be nice to have an optional parameter `- lazy` or `- lazy_unmount` for the state which use it then for umounts if set. 
+Or should be there an additional -umount_opts array for this if there are others filesystem which can set parameters for umount except laziness ?

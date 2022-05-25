@@ -1,0 +1,144 @@
+### Description of Issue/Question
+
+Trying to create VMware vms using salt.  
+
+Works: salt-cloud -p default-profile salttest.domain.net
+Fails: salt-run cloud.profile default-profile salttest.domain.net
+Fails: salt 'saltmaster*' state.apply test_cloud
+
+( all other cloud commands that I have tried so far work, e.g. destroy, list*, etc)
+
+I was able to work around the failing commands by changing line 1399 in `salt/cloud/__init__.py` from
+
+```
+    vms[node] = mapped_providers[prov][prov_name][node]
+```
+
+to 
+
+```
+    vms[node] = {}
+```
+### Setup
+
+/etc/salt/cloud.profiles.d/vmware.conf
+
+```
+'default-profile':
+    provider: 'vcenter'
+    clonefrom: 'centos7-template'
+    num_cpus: 2
+    memory: 2GB
+    devices:
+        disk:
+            Hard disk 1:
+                size: 16
+        network:
+            Network adapter 1:
+                name: dv-lab
+                switch_type: distributed
+    datastore: LAB-DISK
+    datacenter: lab-dc
+    cluster: lab-cluster
+    deploy: True
+    template: False
+    power_on: True
+    ssh_username: root
+    password: thisisnotthepasswordyouthinkitis
+    minion:
+      master: saltmaster-dev01.domain.net
+```
+
+/srv/salt/test_cloud.sls
+
+```
+salttest.domain.net:
+  cloud.profile:
+    - profile: default-profile
+```
+### Steps to Reproduce Issue
+#### runner fail
+
+```
+[root@saltmaster-dev01 ~]# salt-run cloud.profile default-profile salttest.domain.net
+[WARNING ] /usr/lib/python2.7/site-packages/urllib3/connectionpool.py:769: InsecureRequestWarning: Unverified HTTPS request is being made. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.org/en/latest/security.html
+  InsecureRequestWarning)
+
+Exception occurred in runner cloud.profile: Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/client/mixins.py", line 342, in low
+    data['return'] = self.functions[fun](*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/runners/cloud.py", line 110, in profile
+    info = client.profile(prof, instances, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 350, in profile
+    mapper.run_profile(profile, names, vm_overrides=vm_overrides)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 1406, in run_profile
+    vms[node]['provider'] = prov
+TypeError: 'bool' object does not support item assignment
+```
+#### state fail
+
+```
+root@saltmaster-dev01 ~]# salt 'saltmaster*' state.apply test_cloud
+saltmaster-dev01.domain.net
+----------
+          ID: salttest.domain.net
+    Function: cloud.profile
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/site-packages/salt/state.py", line 1626, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1492, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/states/cloud.py", line 272, in profile
+                  info = __salt__['cloud.profile'](profile, name, vm_overrides=kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/modules/cloud.py", line 196, in profile_
+                  info = client.profile(profile, names, vm_overrides=vm_overrides, **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 350, in profile
+                  mapper.run_profile(profile, names, vm_overrides=vm_overrides)
+                File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 1400, in run_profile
+                  # print( mapped_providers[prov][prov_name][node] )
+              TypeError: 'bool' object does not support item assignment
+     Started: 15:38:43.408934
+    Duration: 1106.654 ms
+     Changes:
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: 0.21.0
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.21.4
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.10.1.el7.x86_64
+         system: CentOS Linux 7.2.1511 Core
+```

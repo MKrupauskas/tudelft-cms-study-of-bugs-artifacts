@@ -1,0 +1,162 @@
+### Description of Issue/Question
+
+When using multi-master with the raet transport in 2016.3 I am not able to communicate with the minion from both masters.
+### Setup
+1. Setup a typical multi-master setup but include transport: raet in the configs:
+
+/etc/salt/minion:
+
+```
+master:
+  - 192.168.50.11
+  - 192.168.50.10
+id: minion1
+log_level: debug
+transport: raet
+```
+
+/etc/salt/master:
+
+```
+[root@saltmaster ~]# grep -E -v '^$|#' /etc/salt/master 
+log_level: debug
+transport: raet
+```
+### Steps to Reproduce Issue
+1. start the minion
+2. Accept the key on the second master first 192.168.10.10 `salt-key -A -y`
+3. Accept the key on the first master in the list 192.168.10.11 `salt-key -A -y`
+4. run test.ping from second master:
+
+```
+[root@saltmaster ~]# salt 'minion1' test.ping                                                                                          
+[DEBUG   ] Configuration file path: /etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] RAETEvent Using Jobber Stack at = /var/run/salt/master/master.event532fc5d8c73ea125ee.uxd
+
+[DEBUG   ] LazyLoaded local_cache.get_load
+[DEBUG   ] Reading minion list from /var/cache/salt/master/jobs/e9/55e7f3271b93301f975df92eb29a5c/.minions.p
+[DEBUG   ] get_iter_returns for jid 20160517063246208954 sent to set([u'minion1']) will timeout at 06:32:51.230879
+[DEBUG   ] jid 20160517063246208954 return from minion1
+[DEBUG   ] LazyLoaded nested.output
+minion1:
+    True
+[DEBUG   ] jid 20160517063246208954 found all minions set([u'minion1'])
+```
+1. run test.ping from first master:
+
+```
+[root@saltmaster ~]# salt '*' test.ping
+[DEBUG   ] Configuration file path: /etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] RAETEvent Using Jobber Stack at = /var/run/salt/master/master.event532fc63bdf24e76943.uxd
+
+No minions matched the target. No command was sent, no jid was assigned.
+[DEBUG   ] LazyLoaded nested.output
+ERROR: No return received
+```
+
+Even thought the minion key is accepted and is in the list:
+
+```
+[root@saltmaster ~]# salt-key
+Accepted Keys:
+minion1
+Unaccepted Keys:
+Rejected Keys:
+```
+
+Here is the minion debug log:
+
+```
+[root@saltminion1 ~]# salt-minion -ldebug
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[INFO    ] Setting up the Salt Minion "minion1"
+[DEBUG   ] Created pidfile: /var/run/salt-minion.pid
+[WARNING ] IMPORTANT: Do not use md5 hashing algorithm! Please set "hash_type" to sha256 in Salt Minion config!
+[INFO    ] The Salt Minion is starting up
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] The `lspci` binary is not available on the system. GPU grains will not be available.
+[DEBUG   ] LazyLoaded timezone.get_offset
+Created Jobber Stack jobber532fc705d42a8f4de6
+[DEBUG   ] LazyLoaded test.ping
+[DEBUG   ] LazyLoaded direct_call.get
+Closing Jobber Stack jobber532fc705d42a8f4de6
+[DEBUG   ] **** Lane Router rxMsg **** id=minion1 estate=minion1_minion yard=manor
+   msg={u'load': {u'fun_args': [], u'jid': u'20160517063801944187', u'return': True, u'retcode': 0, u'success': True, u'cmd': u'_return', u'fun': u'test.ping', u'id': u'minion1'}, u'route': {u'src': [u'minion1_minion', u'jobber532fc705d42a8f4de6', u'jid_ret'], u'dst': [u'saltmaster.local_master_master', None, u'remote_cmd']}}
+
+Messenger minion1_minion. Do Message Segment 0 with saltmaster.local_master_master in 5 at 29.1
+Messenger minion1_minion. Done with saltmaster.local_master_master in 5 at 29.2
+Messengent minion1_minion. Do Ack Done Message on Segment 0 with saltmaster.local_master_master in 5 at 29.2
+Messengent minion1_minion. Complete with saltmaster.local_master_master in 5 at 29.2
+[DEBUG   ] **** Road Router rxMsg **** id=minion1 estate=minion1_minion yard=manor
+   msg= {u'route': {u'src': [u'saltmaster.local_master_master', u'worker3', None], u'dst': [u'minion1_minion', u'jobber532fc705d42a8f4de6', u'jid_ret']}, u'return': None}
+
+Error sending to '/var/run/salt/minion/minion1_minion.jobber532fc705d42a8f4de6.uxd' from '/var/run/salt/minion/minion1_minion.manor.uxd: [Errno 2] No such file or directory
+Reaped yard jobber532fc705d42a8f4de6
+Aliver minion1_minion. Must be joined with estate_6635ee321bae11e68c70080027ba8f35 first
+Joiner minion1_minion. Do Join with estate_6635ee321bae11e68c70080027ba8f35 in 6 at 30.0
+ Manage minion1_minion.
+Availables: set([u'saltmaster.local_master_master'])
+Changeds:
+Plus: set([])
+Minus: set([])
+Alloweds: {u'saltmaster.local_master_master': <raet.road.estating.RemoteEstate object at 0x28aa0d0>}
+Aliveds: {u'saltmaster.local_master_master': <raet.road.estating.RemoteEstate object at 0x28aa0d0>}
+Reapeds: {}
+Joiner minion1_minion. Renew from 'estate_6635ee321bae11e68c70080027ba8f35' not allowed on immutable road
+Joiner minion1_minion. Refused by estate_6635ee321bae11e68c70080027ba8f35 in 6 at 30.1
+```
+
+I've also confirmed that the masters are sharing the appropriate keys. And when I remove the `transport: raet` setting multi-master works as is expected. So I'm certain my standard multi-master settings are correct.
+### Versions Report
+
+```
+[root@saltminion1 ~]# salt --versions-report
+Salt Version:
+           Salt: 2016.3.0rc3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: 1.5.4
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: 1.4.3
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Jun 17 2014, 18:11:42)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+           RAET: 0.6.5
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: centos 7.0.1406 Core
+        machine: x86_64
+        release: 3.10.0-123.6.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.0.1406 Core
+```

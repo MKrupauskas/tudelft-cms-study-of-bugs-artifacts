@@ -1,0 +1,67 @@
+### Description of Issue/Question
+
+Using the NAPALM modules, when executing a configuration change on the fly using the `net.load_config` function from the `napalm_network` execution module, it returned empty output and the field `already_configured` was `True`, although there was a configuration change.
+
+### Setup
+
+The configuration file:
+```bash
+richard@salt-master:~$ cat metpack 
+delete policy-options prefix-list TEST-PREFIX-LIST
+```
+The command:
+```bash
+richard@salt-master:~$ sudo salt edge1.th2.par net.load_config filename=/home/richard/metpack test=True
+edge1.th2.par:
+    ----------
+    already_configured:
+        True
+    comment:
+        Configuration discarded.
+    loaded_config:
+    out:
+        None
+    result:
+        True
+```
+Which says that there was nothing to configure, which is not correct.
+After playing a bit more with it and setting the flag `commit=False`, when running `net.compare_config`:
+```bash
+richard@salt-master:~$ sudo salt edge1.th2.par net.compare_config
+edge1.th2.par:
+    ----------
+    comment:
+        Cannot execute "compare_config" on edge1.th2.par. Reason: RpcError(severity: error, bad_element: None, message: Cannot open configuration file: /config/juniper.conf)!
+    out:
+        ----------
+    result:
+        False
+```
+Which reveals that config compare failed, but `net.load_config` didn't trigger the error.
+
+### Steps to Reproduce Issue
+
+Checking the router logs:
+```
+May 16 14:44:52 [33871] Incoming: <?xml version="1.0" encoding="UTF-8"?><nc:rpc xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="urn:uuid:21cfdcf4-ce0b-4324-aa85-f43f44e794f6"><get-configuration compare="rollback" rollback="0" format="text"/></nc:rpc>]]>]]>
+May 16 14:44:52 [33871] Outgoing: <rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" xmlns:junos="http://xml.juniper.net/junos/14.2R6/junos" xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="urn:uuid:21cfdcf4-ce0b-4324-aa85-f43f44e794f6">
+May 16 14:44:52 [33871] Outgoing: <rpc-error>
+May 16 14:44:52 [33871] Outgoing: <error-type>protocol</error-type>
+May 16 14:44:52 [33871] Outgoing: <error-tag>operation-failed</error-tag>
+May 16 14:44:52 [33871] Outgoing: <error-severity>error</error-severity>
+May 16 14:44:52 [33871] Outgoing: <error-message>
+May 16 14:44:52 [33871] Outgoing: Cannot open configuration file: /config/juniper.conf
+May 16 14:44:52 [33871] Outgoing: </error-message>
+May 16 14:44:52 [33871] Outgoing: </rpc-error>
+```
+Which raises an error on compare config (JTAC case underway), although the configuration load succeeded:
+```
+May 16 14:44:51 [33871] Outgoing: <load-configuration-results>
+May 16 14:44:51 [33871] Outgoing: <ok/>
+May 16 14:44:51 [33871] Outgoing: </load-configuration-results>
+```
+While this is a bug on the Juniper side, I think `net.load_config` should also return the error and `result: False`.
+
+### Versions Report
+
+```2016.11.4```

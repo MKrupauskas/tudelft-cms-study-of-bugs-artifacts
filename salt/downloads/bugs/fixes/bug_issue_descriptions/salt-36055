@@ -1,0 +1,173 @@
+### Description of Issue/Question
+
+Creating a cloud instance on 2015.8.10 generates these tags on the event bus:
+
+```
+# salt-run state.event | while read -r t d; do echo $t | grep 'thing'; done
+salt/cloud/thing/creating
+salt/cloud/thing/requesting
+salt/cloud/thing/querying
+salt/cloud/thing/tagging
+salt/cloud/thing/waiting_for_ssh
+salt/cloud/thing/deploying
+salt/cloud/thing/destroying
+salt/cloud/thing/destroyed
+orc/decommission/thing/complete
+```
+
+in response to...
+
+```
+salt-cloud -p known-working-profile thing
+```
+
+followed by
+
+```
+salt-cloud -dy thing
+```
+
+**note**: the instances are successfully created; however, when the instances are deleted, no cleanup is done (minion_id__DELFdfsjksdjhl keys get abandoned on the filesystem)
+
+Since I am setting up in a new environment, I thought I'd give `transport: tcp` a spin.  I did end up switching back to `transport: zmq` for the time being, but switching seemed to have no bearing on the problem.   If I can't get this figured out in the next few business days I'll probably end up moving back to 2015.8.x.
+
+**side note**:  the `tcp` transport piece is sweet.  I didn't run into anything that didn't work that seemed connected to the transport--it seems to perform excellently!  Bravo!    
+### Steps to Reproduce Issue
+
+Launch and/or destroy public cloud instances with salt-cloud using 2016.3.3
+
+This is provider agnostic--Both providers emit nothing.
+
+The salt-master debug logs show no events of the `salt/cloud` prefix.
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: 1.7.0
+       cherrypy: 3.2.2
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-91-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```
+
+2015.8 system
+
+```
+Salt Version:
+           Salt: 2015.8.10
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.1.0
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: 0.6.5
+        Tornado: 4.3
+            ZMQ: 4.1.2
+           cffi: 1.2.1
+       cherrypy: 3.8.0
+       dateutil: 2.5.3
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: 1.5.1
+        libgit2: Not Installed
+        libnacl: 1.4.4
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: 0.3.8
+          smmap: Not Installed
+        timelib: 0.2.4
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-83-generic
+         system: Ubuntu 14.04 trusty
+```
+
+**master_config**
+
+```
+max_open_files: 49152
+grains_cache: True
+cache_jobs: True
+
+fileserver_events: False
+presence_events: True
+state_events: True
+
+file_roots:
+    base:
+        - /srv/salt
+
+
+pillar_roots:
+    base:
+        - /srv/pillar
+
+file_ignore_regex:
+    - '/\.svn($|/)'
+    - '/\.git($|/)'
+
+log_level_logfile: debug
+log_level: critical
+log_fmt_console: '%(levelname)s [%(name)s.%(funcName)s:%(lineno)d]  %(message)s'
+
+extension_modules: /srv/ext_modules
+pillar_opts: False
+
+pidfile: '/var/run/salt/master/salt-master.pid'
+
+default_include: master.d/*.conf
+ipc_write_buffer: dynamic
+```
+
+**cloud config**
+
+```
+log_file: /var/log/salt/cloud
+delete_sshkeys: True
+display_ssh_output: False
+
+
+include:
+    - /srv/etc/salt/cloud.profiles.d/*.conf
+    - /srv/etc/salt/cloud.providers.d/*.conf
+```

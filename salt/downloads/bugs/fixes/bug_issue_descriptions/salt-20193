@@ -1,0 +1,116 @@
+I have a Salt Reactor/State combination that runs a Python script on *nix based servers to pull the hostname/IP address, fire a reactor event, and pass the data to the reactor. The reactor then takes this data and puts it into static pillar data and executes a state file on our AD Domain Controller. This state file runs a PowerShell command to add the *nix hostname/IP address to the DNS server. This state works fine if we run it one at a time ("salt-call state.sls dns.add-entry" or "salt '<hostname>' state.sls dns.add-entry"), but if we run it on multiple servers at the same time, only the first server in the list gets added to the DNS. I've also tried running the PowerShell command as a "job", but that doesn't help either. It seems like cmd.run on Windows doesn't have the ability to run asynchronously. I could be wrong about that, but I'm not really sure what would keep this from working. Below are the files I'm using.
+
+``` yaml
+/srv/salt/dns/add-entry.sls
+pull-dns-info:
+  cmd.script:
+    - source: salt://dns/add-entry.py
+    - user: root
+    - group: root
+    - shell: /bin/bash
+```
+
+``` python
+/srv/salt/dns/add-entry.py
+#!/usr/bin/env python
+
+import socket
+import os
+import platform
+import math
+import time
+import salt
+import salt.client
+from salt.modules.network import ip_addrs
+from salt.modules.network import interfaces
+
+priv_ip_cidr = "10.0.0.0/8"
+
+def getshorthostname():
+
+  fqdn = socket.gethostname()
+  hostname = fqdn.split('.',1)
+
+  return hostname[0]
+
+def getprivateip():
+  priv_ip = salt.modules.network.ip_addrs(cidr=priv_ip_cidr)
+
+  return priv_ip[0]
+
+# Dict for salt event
+hostdata = {'host': {}}
+hostdata['host']['Name'] = getshorthostname()
+hostdata['host']['IPv4Address'] = getprivateip()
+
+# Fire event
+print "Attempting to create DNS A Record"
+caller = salt.client.Caller('/etc/salt/minion')
+caller.sminion.functions['event.fire_master'](hostdata, 'dns/add-entry')
+# Pause
+time.sleep(5)
+print "Event fired"
+```
+
+``` yaml
+/srv/reactor/dns/add-entry.sls
+add-DNSentry:
+  local.state.sls:
+    - tgt: '<DC-HOSTNAME>*'
+    - arg:
+      - dns.add-entry-server
+      - "pillar={ {% for key, value in data['data'].items() %} {{ key }}: {{ value }}, {% endfor %} }"
+```
+
+``` yaml
+/srv/salt/dns/add-entry-server.sls
+add-dnsrecord:
+  cmd.run:
+    - name: "Add-DnsServerResourceRecordA -AsJob -ZoneName <DOMAIN-NAME> {% for key, value in pillar['host'].items() %} -{{ key }} {{ value }}{% endfor %}"
+    - shell: powershell
+```
+
+```
+DEBUG LOG
+[DEBUG   ] Sending event - data = {'tgt_type': 'glob', 
+'jid': '20150129105800785920', 
+'tgt': '<DC-HOSTNAME>*', 
+'_stamp': '2015-01-29T10:58:00.787108', 
+'user': 'sudo_zane.mingee', 
+'arg': ['dns.add-entry-server', 
+"pillar={  host: {'IPv4Address': '10.1.49.251', 
+'Name': 'dvs4g40'}, 
+ }"], 
+ 'fun': 'state.sls', 
+'minions': ['<DC-FQDN>']}
+```
+
+```
+DEBUG LOG
+[DEBUG   ] Sending event - data = {'fun_args': ['dns.add-entry-server', 
+"pillar={  host: {'IPv4Address': '10.1.49.251', 
+'Name': 'dvs4g40'}, 
+ }"], 
+ 'jid': '20150129105800785920', 
+'return': {'cmd_|-add-dnsrecord_|-Add-DnsServerResourceRecordA -AsJob -ZoneName <DOMAIN-NAME>  -IPv4Address 10.1.49.251 -Name dvs4g40_|-run': {'comment': 'Command "Add-DnsServerResourceRecordA -AsJob -ZoneName <DOMAIN-NAME>  -IPv4Address 10.1.49.251 -Name dvs4g40" run', 
+'name': 'Add-DnsServerResourceRecordA -AsJob -ZoneName <DOMAIN-NAME>  -IPv4Address 10.1.49.251 -Name dvs4g40', 
+'start_time': '10:58:05.763000', 
+'result': True, 
+'duration': 2563.0, 
+'__run_num__': 0, 
+'changes': {'pid': 320, 
+'retcode': 0, 
+'stderr': '', 
+'stdout': '\r\nId     Name            PSJobTypeName   State         HasMoreData     Location  \r\n--     ----            -------------   -----         -----------     --------  \r\n1      CimJob1         CimJob          Running       True            <DC-HOSTNAME>'}}}, 
+'retcode': 0, 
+'success': True, 
+'cmd': '_return', 
+'_stamp': '2015-01-29T10:58:08.682238', 
+'fun': 'state.sls', 
+'id': '<DC-FQDN>', 
+'out': 'highstate'}
+```
+
+I can post more logs if needed.
+
+Thanks for all your help!

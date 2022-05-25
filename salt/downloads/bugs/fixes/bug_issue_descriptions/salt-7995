@@ -1,0 +1,89 @@
+I am trying to use the iptables.append state to add some firewall rules. The iptables command that is being built by the iptables state however, has the arguments in the wrong order and hence won't add a rule.
+If I switch the arguments and run the same command from the command line, the rule is being added.
+
+I have the kwargs in pillar like this:
+
+```
+iptables:
+  redis-port:
+    table: filter
+    chain: INPUT
+    jump: ACCEPT
+    proto: tcp
+    match: state
+    connstate: NEW
+    dport: 6379
+    source: 127.0.0.1/32
+```
+
+My iptables/init.sls loops through the arguments for each rule:
+
+```
+{%- if salt['pillar.get']('iptables') %}
+{%- for rule in pillar['iptables'] %}
+{{ grains['id'] }}-{{ rule }}:
+  iptables.append:
+{%- for parameter, value in pillar['iptables'][rule].items() %}
+    - {{ parameter }}: {{ value }}
+{%- endfor %}
+{%- endfor %}
+{%- endif %}
+```
+
+The iptables command that is being built, is the the following in the debug log:
+
+```
+2013-10-21 06:15:18,751 [salt.loaded.int.module.cmdmod               ][INFO    ] Executing command 'iptables -t filter -A INPUT -m state --dport 6379 --proto tcp --jump ACCEPT --source 127.0.0.1/32 --state NEW --__env__ base --__sls__ iptables --order 10405 ' in directory '/root'
+2013-10-21 06:15:18,762 [salt.state                                  ][ERROR   ] Failed to set iptables rule for minion1-redis-port
+```
+
+That command being run from the command line, produces the following error:
+
+```
+root@minion1:/$ iptables -t filter -A INPUT -m state --dport 6379 --proto tcp --jump ACCEPT --source 127.0.0.1/32 --state NEW
+iptables v1.4.12: unknown option "--dport"
+Try `iptables -h' or 'iptables --help' for more information.
+```
+
+Once I put the proto argument before dport, the rule is being added:
+
+```
+root@minion1:/$ iptables -t filter -A INPUT -m state --proto tcp --dport 6379 --jump ACCEPT --source 127.0.0.1/32 --state NEW
+root@minion1:/$ iptables -L INPUT
+Chain INPUT (policy ACCEPT)
+target     prot opt source               destination
+ACCEPT     tcp  --  localhost            anywhere             state NEW tcp dpt:6379
+```
+
+Am I missing something?
+
+The exact same error happens, when I hardcode the parameter values in the init.sls like this:
+
+```
+  iptables.append:
+    - table: filter
+    - chain: INPUT
+    - jump: ACCEPT
+    - proto: tcp
+    - match: state
+    - connstate: NEW
+    - dport: 6379
+    - source: 127.0.0.1/32
+```
+
+dport is being put before proto which makes the command fail.
+
+salt-version report:
+
+```
+           Salt: 0.16.0-3479-g3d9351b
+         Python: 2.7.3 (default, Sep 26 2013, 20:03:06)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```

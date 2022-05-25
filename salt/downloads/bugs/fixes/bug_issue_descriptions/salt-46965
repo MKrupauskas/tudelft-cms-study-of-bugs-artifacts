@@ -1,0 +1,194 @@
+### Description of Issue
+
+When trying to run the zpool state on Linux (Debian Stretch) with Salt version 2018.3 it fails while 2017.7 works fine.
+
+The stacktrace can be seen below, the immediate error is:
+```
+[ERROR   ] Command '/sbin/zpool list -H -p -o name,size' failed with return code: 2
+[ERROR   ] output: invalid option 'p'
+```
+
+### Setup
+
+I used Vagrant with the libvirt provider (but VirtualBox should work, too) to set up a test environment for anyone to reproduce.
+
+Create `Vagrantfile`
+
+```
+cd $(mktemp -d) && cat >Vagrantfile <<EOF
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "debian/stretch64"
+  config.vm.provision :salt do |salt|
+    # This sets the official Salt repositories up for us
+    salt.masterless = true
+  end
+end
+EOF
+```
+Commands
+
+```
+vagrant up
+vagrant ssh
+# Now continue in the vagrant box
+sudo -i
+# add contrib to repo
+cat >/etc/apt/sources.list <<EOF
+deb http://httpredir.debian.org/debian stretch main contrib
+EOF
+
+apt update && apt full-upgrade -y
+
+apt install zfsutils-linux
+modprobe zfs
+```
+Create sparse files for ZFS pool devices:
+```
+dd if=/dev/zero of=/tmp/ztest1 bs=1 count=0 seek=2G
+dd if=/dev/zero of=/tmp/ztest2 bs=1 count=0 seek=2G
+```
+
+Files to be created inside the Vagrant box:
+```
+mkdir -p /srv/salt
+cat >/srv/salt/top.sls <<EOF
+base:
+  '*':
+    - zfs_test
+EOF
+
+cat >/srv/salt/zfs_test.sls <<EOF
+tank:
+  zpool.present:
+    - name: tank
+    - layout: 
+        mirror-0:
+          /tmp/ztest1
+          /tmp/ztest2
+EOF
+```
+
+### Steps to Reproduce Issue
+
+Fire up the above Vagrant environment and just apply the salt state.
+```
+root@stretch:~# salt-call --local state.apply
+[ERROR   ] Command '/sbin/zpool list -H -p -o name,size' failed with return code: 2
+[ERROR   ] output: invalid option 'p'
+usage:
+	list [-gHLPv] [-o property[,...]] [-T d|u] [pool] ... [interval [count]]
+
+the following properties are supported:
+
+	PROPERTY         EDIT   VALUES
+
+	allocated          NO   <size>
+	capacity           NO   <size>
+	dedupratio         NO   <1.00x or higher if deduped>
+	expandsize         NO   <size>
+	fragmentation      NO   <percent>
+	free               NO   <size>
+	freeing            NO   <size>
+	guid               NO   <guid>
+	health             NO   <state>
+	leaked             NO   <size>
+	size               NO   <size>
+	altroot           YES   <path>
+	ashift            YES   <ashift, 9-13, or 0=default>
+	autoexpand        YES   on | off
+	autoreplace       YES   on | off
+	bootfs            YES   <filesystem>
+	cachefile         YES   <file> | none
+	comment           YES   <comment-string>
+	dedupditto        YES   <threshold (min 100)>
+	delegation        YES   on | off
+	failmode          YES   wait | continue | panic
+	listsnapshots     YES   on | off
+	readonly          YES   on | off
+	version           YES   <version>
+	feature@...       YES   disabled | enabled | active
+
+The feature@ properties must be appended with a feature name.
+See zpool-features(5).
+[CRITICAL] Failed to load grains defined in grain file zfs.zfs in function <function zfs at 0x7efdbab38f50>, error:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 756, in grains
+    ret = funcs[key]()
+  File "/usr/lib/python2.7/dist-packages/salt/grains/zfs.py", line 116, in zfs
+    grains = salt.utils.dictupdate.update(grains, _zfs_pool_data(), merge_lists=True)
+  File "/usr/lib/python2.7/dist-packages/salt/grains/zfs.py", line 102, in _zfs_pool_data
+    grains['zpool'][zpool[0]] = _conform_value(zpool[1], True)
+IndexError: list index out of range
+[ERROR   ] Exception raised when processing __virtual__ function for salt.loaded.int.module.zpool. Module will not be loaded: u'zfs_support'
+[WARNING ] salt.loaded.int.module.zpool.__virtual__() is wrongly returning `None`. It should either return `True`, `False` or a new name. If you're the developer of the module 'zpool', please fix this.
+[ERROR   ] Exception raised when processing __virtual__ function for salt.loaded.int.module.zfs. Module will not be loaded: u'zfs_support'
+[WARNING ] salt.loaded.int.module.zfs.__virtual__() is wrongly returning `None`. It should either return `True`, `False` or a new name. If you're the developer of the module 'zfs', please fix this.
+[ERROR   ] State 'zpool.present' was not found in SLS 'zfs_test'
+Reason: 'zpool' __virtual__ returned False: zpool state module can only be loaded on illumos, Solaris, SmartOS, FreeBSD, Linux, ...
+
+local:
+----------
+          ID: tank
+    Function: zpool.present
+      Result: False
+     Comment: State 'zpool.present' was not found in SLS 'zfs_test'
+              Reason: 'zpool' __virtual__ returned False: zpool state module can only be loaded on illumos, Solaris, SmartOS, FreeBSD, Linux, ...
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:   0.000 ms
+```
+
+### Versions Report
+
+```
+root@stretch:~# salt-call --versions-report
+Salt Version:
+           Salt: 2018.3.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Nov 24 2017, 17:33:09)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.4 
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 4.9.0-6-amd64
+         system: Linux
+        version: debian 9.4 
+```

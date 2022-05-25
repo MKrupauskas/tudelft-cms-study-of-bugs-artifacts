@@ -1,0 +1,119 @@
+### Description of Issue/Question
+I'm trying to use the `pgjsonb` returner, but the timestamps that end up in the database are wrong. It looks like the timestamps get inserted with the value of the local clock, but a timezone of UTC.
+
+Example:
+```
+root@saltmaster # date; salt MINION test.ping
+ons nov 15 10:14:46 CET 2017
+MINION:
+    True
+```
+```
+salt=> select max(alter_time) from salt_returns;
+          max           
+------------------------
+ 2017-11-15 11:14:47+01
+(1 row)
+```
+(where CET is UTC+1)
+
+This looks to be because the `pgjsonb` returner [tries to print the timezone](https://github.com/saltstack/salt/blob/62ca0335dbe615e99095be093165976f66d1f08d/salt/returners/pgjsonb.py#L277) using the [undocumented](https://docs.python.org/2/library/time.html#time.strftime) `strftime` modifier `%z` (which no other Salt code uses):
+```
+root@saltmaster # grep -R strftime.*%z /usr/lib/python2.7/site-packages/salt
+/usr/lib/python2.7/site-packages/salt/returners/pgjsonb.py:                              time.strftime('%Y-%m-%d %H:%M:%S %z', time.localtime())))
+/usr/lib/python2.7/site-packages/salt/returners/pgjsonb.py:                              __opts__['id'], time.strftime('%Y-%m-%d %H:%M:%S %z', time.localtime())))
+```
+`%z` always returns `+0000` in Python 2 (which is the default Python in CentOS 7):
+```
+root@saltmaster # python2 <<_EOF_
+import time
+print time.strftime('%Y-%m-%d %H:%M:%S %z', time.localtime())
+_EOF_
+2017-11-15 10:24:35 +0000
+```
+The system `date` command gives the correct value for `%z`:
+```
+root@saltmaster # date +'%Y-%m-%d %H:%M:%S %z'
+2017-11-15 10:24:35 +0100
+```
+And so does Python 3:
+```
+[root@centos7 ~]# python3
+Python 3.4.5 (default, May 29 2017, 15:17:55) 
+[GCC 4.8.5 20150623 (Red Hat 4.8.5-11)] on linux
+Type "help", "copyright", "credits" or "license" for more information.
+>>> import time
+>>> time.strftime('%Y-%m-%d %H:%M:%S %z', time.localtime())
+'2017-11-15 10:32:51 +0100'
+```
+
+[Here](https://stackoverflow.com/questions/32353015/python-time-strftime-z-is-always-zero-instead-of-timezone-offset) is a Stack Overflow discussion about this very issue.
+
+### Steps to Reproduce Issue
+1. Use Python 2 to run Salt.
+1. Use a system timezone other than UTC.
+1. Configure the `pgjsonb` returner.
+1. Look at the timestamps recorded in the `salt_returns` table, column `alter_time`.
+
+PostgreSQL query log:
+```
+2017-11-15 08:52:27.744 GMT [18584] LOG:  statement: BEGIN
+2017-11-15 08:52:27.745 GMT [18584] LOG:  statement: INSERT INTO jids
+                       (jid, load)
+                        VALUES ('20171115095227831632', '{"tgt_type": "glob", "jid": "20171115095227831632", "cmd": "publish", "tgt": "MINION", "kwargs": {"delimiter": ":", "show_timeout": true, "show_jid": false}, "ret": "pgjsonb", "user": "root", "arg": [], "fun": "test.ping"}')
+2017-11-15 08:52:27.746 GMT [18584] LOG:  statement: COMMIT
+2017-11-15 08:52:27.824 GMT [18590] LOG:  statement: BEGIN
+2017-11-15 08:52:27.824 GMT [18590] LOG:  statement: INSERT INTO salt_returns
+                            (fun, jid, return, id, success, full_ret, alter_time)
+                            VALUES ('test.ping', '20171115095227831632', 'true', 'MINION', true, '{"fun_args": [], "jid": "20171115095227831632", "return": true, "retcode": 0, "success": true, "fun": "test.ping", "id": "MINION"}', '2017-11-15 09:52:27 +0000')
+2017-11-15 08:52:27.825 GMT [18590] LOG:  statement: COMMIT
+```
+Note how the `INSERT INTO salt_returns` line inserts a timestamp which claims to be UTC (timezone `+0000`), but is one hour out from the log timestamp which is in actual UTC.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: unknown
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.24.6
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.24.2
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.2.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+```
+```
+[root@postgresql ~]# rpm -q postgresql10-server
+postgresql10-server-10.1-1PGDG.rhel7.x86_64
+```

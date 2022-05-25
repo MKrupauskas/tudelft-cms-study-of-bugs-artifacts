@@ -1,0 +1,102 @@
+**Description**
+
+The `attrs` option of `file.managed` attempts to change file attributes, even if they match except for the `e` (extents) attribute.
+A clear and concise description of what the bug is.
+
+**Setup**
+
+```
+/tmp/immutable-file:
+   file.managed:
+     - contents: ''
+     - attrs: 'i'
+```
+
+**Steps to Reproduce the behavior**
+
+Whether this problem can be reproduced depends on details of the file system used on the minion. When the file system stores the file in a way that it uses extents, the following behavior will be visible:
+
+When apply the state for the first time, everything looks fine. When subsequently applying the state in test mode, the output will look like this:
+
+```
+          ID: /tmp/immutable-file
+    Function: file.managed
+        Name: /tmp/immutable-file
+      Result: None
+     Comment: The file /tmp/immutable-file is set to be changed
+              Note: No changes made, actual changes may
+              be different due to other states.
+     Started: 16:49:48.657780
+    Duration: 29.804 ms
+     Changes:
+              ----------
+              attrs:
+                  i
+```
+
+When actually applying the change again, the state will fail because the immutable attribute is already set and thus `chattr` cannot be used (except for removing the immutable attribute).
+
+```
+          ID: /tmp/immutable-file
+    Function: file.managed
+        Name: /tmp/immutable-file
+      Result: False
+     Comment: Failed to change attributes to i
+     Started: 16:31:04.937077
+    Duration: 113.853 ms
+     Changes:
+```
+
+**Expected behavior**
+
+The `file.managed` state should ignore the `e` (extents) attribute if it is set but not specified as part of the `attrs` option.
+
+From the manpage of `chattr (1)`:
+
+       The 'e' attribute indicates that the file is using extents for  mapping
+       the blocks on disk.  It may not be removed using chattr(1).
+
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+Salt Version:
+           Salt: 3000.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: 0.31.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.9 (default, Apr 18 2020, 01:56:04)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-99-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```
+</details>

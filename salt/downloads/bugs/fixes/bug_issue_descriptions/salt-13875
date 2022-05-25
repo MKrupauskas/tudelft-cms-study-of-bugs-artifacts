@@ -1,0 +1,87 @@
+In a minion configuration, I have this:
+
+```
+master: [ salt-syndic3.corp.domain.tld, salt-syndic4.corp.domain.tld ]
+```
+
+As per many previous discussions, I should be able to be on the master of masters and send a job to the minion and get one return. The job ID is supposed to stay the same and the minion is supposed to only respond once. Instead, I'm seeing multiple responses.
+
+```
+root@boothost:~# salt-call --versions-report
+           Salt: 2014.1.5
+         Python: 2.7.7 (default, Jun  3 2014, 16:16:56)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.3.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+         PyYAML: 3.10
+          PyZMQ: 14.3.1
+            ZMQ: 4.0.4
+```
+
+What I see from the master of masters:
+
+```
+root@salt:/srv/data/var/www/pcsetup# salt -v 'boothost.0010.*' test.ping
+Executing job with jid 20140701084400970905
+-------------------------------------------
+
+boothost.0010.domain.tld:
+    True
+boothost.0010.domain.tld:
+    True
+```
+
+on the minion
+
+```
+[INFO    ] User root Executing command test.ping with jid 20140701084528916901
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20140701084528916901', 'tgt': 'boothost.0010.*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+[INFO    ] User root Executing command test.ping with jid 20140701084528916901
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20140701084528916901', 'tgt': 'boothost.0010.*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+[INFO    ] Returning information for job: 20140701084528916901
+[INFO    ] Returning information for job: 20140701084528916901
+```
+
+during a state.highstate run
+
+```
+[...]
+[INFO    ] File /etc/nullmailer/adminaddr is in the correct state
+[INFO    ] Completed state [/etc/nullmailer/adminaddr] at time 08:52:11.281597
+[INFO    ] Running state [/etc/nullmailer/defaultdomain] at time 08:52:11.282514
+[INFO    ] Executing state file.managed for /etc/nullmailer/defaultdomain
+[INFO    ] File /etc/nullmailer/adminaddr is in the correct state
+[INFO    ] Completed state [/etc/nullmailer/adminaddr] at time 08:52:11.291562
+[INFO    ] Running state [/etc/nullmailer/defaultdomain] at time 08:52:11.292474
+[INFO    ] Executing state file.managed for /etc/nullmailer/defaultdomain
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://etc/nullmailer/defaultdomain'
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[INFO    ] File /etc/nullmailer/defaultdomain is in the correct state
+[INFO    ] Completed state [/etc/nullmailer/defaultdomain] at time 08:52:11.298803
+[INFO    ] Running state [/etc/nullmailer/remotes] at time 08:52:11.299956
+[INFO    ] Executing state file.managed for /etc/nullmailer/remotes
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://etc/nullmailer/defaultdomain'
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[INFO    ] File /etc/nullmailer/defaultdomain is in the correct state
+[...]
+[INFO    ] output: Starting Firewall: ferm.
+[INFO    ] Executing command 'runlevel' in directory '/root'
+[INFO    ] output: Starting Firewall: ferm.
+[INFO    ] Executing command 'runlevel' in directory '/root'
+[INFO    ] output: N 2
+[INFO    ] Executing command 'runlevel' in directory '/root'
+[INFO    ] output: N 2
+[INFO    ] Executing command 'runlevel' in directory '/root'
+[INFO    ] output: N 2
+[INFO    ] {'ferm': True}
+[INFO    ] Completed state [ferm] at time 08:52:16.966269
+[INFO    ] output: N 2
+[INFO    ] Returning information for job: 20140701085325527522
+[INFO    ] {'ferm': True}
+[INFO    ] Completed state [ferm] at time 08:52:16.972554
+[INFO    ] Returning information for job: 20140701085325527522
+```
+
+I get that by the way syndics work, each syndic will send the job to the minion. However, the minion shouldn't be running the job twice. It should see that the job is already being run and run the execution only once. It should also return only to the first one that sent it the job.

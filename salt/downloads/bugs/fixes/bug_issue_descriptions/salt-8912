@@ -1,0 +1,80 @@
+The states.keystone module ignores additional tenants if more than one is specified for a user in defining the user-roles.  It does work correctly for multiple roles if only one tenant is defined.
+
+The following code fails:
+
+```
+admin_user:
+  keystone.user_present:
+    - password: "bogus"
+    - email: admin_user@bogus.imc-chicago.com
+    - tenant: admin_tenant
+    - roles:
+      - service_tenant:
+        - admin_role
+        - user_role
+      - admin_tenant:
+        - admin_role
+  require:
+    - keystone: Keystone_tenants
+    - keystone: Keystone_roles
+    - service: openstack-keystone
+```
+
+(Note the TWO tenants, service_tenant and admin_tenant, that are defining their respective user-roles).  Basically, the service_tenant roles get created, but the admin_tenant role does not.
+
+Not that it should matter (I think the bug is actually that multiple tenants are not recognized), but the above code is rendered from the original sls via pillars and substitution. The actual state and pillar sls snippets are below:
+
+```
+openstack_keystone.sls snippet:
+{% for user, data in pillar['openstack']['users'].items() %}
+{{ user }}:
+  keystone.user_present:
+    - password: "{{ data['password'] }}"
+    - email: {{ data['email'] }}
+    - tenant: {{ data['tenant'] }}
+    - roles:
+  {% for role_tenant, role_tenant_data in data['roles'].items() %}
+      - {{ role_tenant }}:
+    {% for role in role_tenant_data %}
+        - {{ role }}
+    {% endfor %}
+  {% endfor %}
+  require:
+    - keystone: Keystone_tenants
+    - keystone: Keystone_roles
+    - service: openstack-keystone
+{% endfor %}
+```
+
+where the users is defined in the pillar as follows:
+
+```
+/srv/pillar/openstack.sls:
+{# NOTE THAT THE admin_user HAS 2 TENANTS DEFINING 3 USER-ROLES #}
+openstack:
+  users:
+    admin_user:
+      password: 'bogus'
+      email: admin_user@bogus.com
+      tenant: admin_tenant
+      roles:
+        admin_tenant:
+          - admin_role
+        service_tenant:
+          - admin_role
+          - user_role
+    imc_user:
+      password: 'bogus2'
+      email: imc_user@bogus.com
+      tenant: admin_tenant
+      roles:
+        user_tenant:
+          - user_role
+    nova_user:
+      password: 'bogus3'
+      email: nova_user@bogus.com
+      tenant: service_tenant
+      roles:
+        service_tenant:
+          - admin_role
+```

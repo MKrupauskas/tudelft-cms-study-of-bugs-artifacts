@@ -1,0 +1,66 @@
+### Description of Issue
+```
+2019-10-04 02:34:30,824 [salt.transport.ipc:198 ][ERROR   ][26] Exception occurred while handling stream: 3239303 exceeds max_str_len(1048576)
+```
+
+This is actually a dupe of issue #53230 which is closed but discussion is still occurring. I'm not the original reporter, so I'm unable to re-open. According to discussion on the original issue, some msgpack-python versions set some unreasonable values in order to prevent some lame DoS attacks. It seems that `msgpack-pure` doesn't have these constraints.
+
+The settings can be specified using kwargs to `msgpack.Unpacker`. I'm hitting `max_str_len` specifically, however the original reporter has hit `max_bin_len`. There's a few others that are set pretty conservatively in these distro versions of msgpack. The easiest fix would be to warn the user if they're using a dumb version of the module.
+
+I looked around to see if there was any documentation for supported Python module versions but was unable to locate this. This is problematic because `salt-bootstrap` appears to grab msgpack out of the distro's package manager which can result in snagging one of these busted versions.
+
+A better fix would probably be to expose these parameters via salt's configuration files, but either documenting the issue of older msgpack versions, trading performance of `msgpack-python` for `msgpack-pure` or updating `salt-bootstrap` to force install a more recent version of `msgpack-python` using `pip` will all work around the problem.
+
+### Setup
+I hit this by simply using `pkg.list_repo_pkgs` on a minion. Really you need some way to exercise transferring a large amount of data with `msgpack.Unpacker`. Since this is spotted in a couple of places in salt.transport.ipc or salt.transport.tcp either of those will work.
+
+### Steps to Reproduce Issue
+Since all calls to `msgpack.Unpacker` are using the defaults, anything that results in transferring d
+ata larger than 1mb will result in the error. I simply ran the following against a default ubuntu vm which results in the call failing and the above message logged.
+
+`$ salt $id pkg.list_repo_pkgs`
+
+### Versions Report
+Note that msgpack-python is 0.5.6.. This is the most recent version as installed by salt-bootstrap.
+
+```
+           Salt: 2019.2.1
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: 2.8.0
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.14
+          ioflo: 1.7.6
+         Jinja2: 2.10.1
+        libgit2: 0.27.8
+        libnacl: 1.6.1
+       M2Crypto: Not Installed
+           Mako: 1.1.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: 3.9.0
+         pygit2: 0.27.4
+         Python: 2.7.16 (default, Apr 30 2019, 15:54:43)
+   python-gnupg: Not Installed
+         PyYAML: 5.1
+          PyZMQ: 17.0.0
+           RAET: 0.6.8
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 5.0.2
+            ZMQ: 4.3.2
+
+System Versions:
+           dist: fedora 30 Thirty
+         locale: UTF-8
+        machine: x86_64
+        release: 4.14.96-coreos
+         system: Linux
+        version: Fedora 30 Thirty
+```

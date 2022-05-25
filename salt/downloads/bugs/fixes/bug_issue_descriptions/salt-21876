@@ -1,0 +1,259 @@
+## Problem
+
+If global `state_aggregate: True`, even if some `pkg.installed` states explicitly specify `aggregate: False`, they still get aggregated.
+## Reproducible setup
+
+Use Salt minion-only setup with `salt-call` command for simplicity.
+- Minion configuration:
+  
+  ```
+  > cat /etc/salt/minion
+  state_aggregate: True
+  ```
+- Installation of package inside default OS repository:
+  
+  ```
+  > cat /srv/salt/package_inside_yum.sls
+  package_inside:
+      pkg.installed:
+          - name: vim-enhanced
+  ```
+- Installation of package outside default OS repository:
+  
+  ```
+  > cat /srv/salt/package_outside_yum.sls
+  package_outside:
+      pkg.installed:
+          - name: whatever
+          - aggregate: False
+  ```
+- States top file:
+  
+  ```
+  > cat /srv/salt/top.sls
+  base:
+      '*':
+          - package_inside_yum
+          - package_outside_yum
+  ```
+- No pillar files at all.
+## Real problem
+
+Note how "innocent" state `package_inside` in the following output failed due to missing package `whatever` _which has nothing to do with this state_. Move over, state `package_outside` (where `whatever` is referenced) explicitly states `aggregate: False`.
+
+This is a real life problem when non-aggregate-able packages (with `aggregate: False`) must not be tried for installation before additional YUM repositories are configured. Instead, they are prohibitively tried ahead of YUM repository configuration and cause chain of "innocent" states failures only because one of them simply triggers the aggregation.
+
+For example, `git` package on RHEL5 is not available in default OS repository and EPEL YUM configuration should be done first.
+
+Executing `highstate` for the setup above:
+
+```
+salt-call --local state.highstate
+... # see logs separately below
+local:
+----------
+          ID: package_inside
+    Function: pkg.installed
+        Name: vim-enhanced
+      Result: False
+     Comment: The following package(s) were not found, and no possible matches were found in the package db: whatever
+     Started: 15:48:36.127810
+    Duration: 1682.394 ms
+     Changes:   
+----------
+          ID: package_outside
+    Function: pkg.installed
+        Name: whatever
+      Result: False
+     Comment: The following package(s) were not found, and no possible matches were found in the package db: whatever
+     Started: 15:48:37.810667
+    Duration: 315.184 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    2
+------------
+Total states run:     2
+```
+## Detailed output
+
+The output below was captured with either/or:
+- (A) global `state_aggregate: True`
+- (B) global `state_aggregate: False`
+
+Note that the output (B) `state_aggregate: False` is the expected results when `aggregate: False` for individual `pkg.installed` state is actually taken into account
+#### `state_aggregate: True`
+
+```
+> salt-call --local state.highstate
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://top.sls'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/modules'
+[INFO    ] Syncing modules for environment 'base'
+[INFO    ] Loading cache from salt://_modules, for base)
+[INFO    ] Caching directory '_modules/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/states'
+[INFO    ] Syncing states for environment 'base'
+[INFO    ] Loading cache from salt://_states, for base)
+[INFO    ] Caching directory '_states/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/grains'
+[INFO    ] Syncing grains for environment 'base'
+[INFO    ] Loading cache from salt://_grains, for base)
+[INFO    ] Caching directory '_grains/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/renderers'
+[INFO    ] Syncing renderers for environment 'base'
+[INFO    ] Loading cache from salt://_renderers, for base)
+[INFO    ] Caching directory '_renderers/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/returners'
+[INFO    ] Syncing returners for environment 'base'
+[INFO    ] Loading cache from salt://_returners, for base)
+[INFO    ] Caching directory '_returners/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/outputters'
+[INFO    ] Syncing outputters for environment 'base'
+[INFO    ] Loading cache from salt://_outputters, for base)
+[INFO    ] Caching directory '_outputters/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/utils'
+[INFO    ] Syncing utils for environment 'base'
+[INFO    ] Loading cache from salt://_utils, for base)
+[INFO    ] Caching directory '_utils/' for environment 'base'
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://package_inside_yum.sls'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://package_outside_yum.sls'
+[INFO    ] Running state [vim-enhanced] at time 15:50:46.737815
+[INFO    ] Executing state pkg.installed for vim-enhanced
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}' --all --pkgnarrow=installed" in directory '/root'
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{ARCH}'  --pkgnarrow=all --all" in directory '/root'
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}'   --all --quiet --whatprovides whatever" in directory '/root'
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}'   --all --quiet --whatprovides vim-enhanced" in directory '/root'
+[ERROR   ] The following package(s) were not found, and no possible matches were found in the package db: whatever
+[INFO    ] Completed state [vim-enhanced] at time 15:50:48.436168
+[INFO    ] Running state [whatever] at time 15:50:48.436660
+[INFO    ] Executing state pkg.installed for whatever
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}'   --all --quiet --whatprovides whatever" in directory '/root'
+[ERROR   ] The following package(s) were not found, and no possible matches were found in the package db: whatever
+[INFO    ] Completed state [whatever] at time 15:50:48.754567
+local:
+----------
+          ID: package_inside
+    Function: pkg.installed
+        Name: vim-enhanced
+      Result: False
+     Comment: The following package(s) were not found, and no possible matches were found in the package db: whatever
+     Started: 15:51:26.988112
+    Duration: 1732.761 ms
+     Changes:   
+----------
+          ID: package_outside
+    Function: pkg.installed
+        Name: whatever
+      Result: False
+     Comment: The following package(s) were not found, and no possible matches were found in the package db: whatever
+     Started: 15:51:28.721285
+    Duration: 317.343 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    2
+------------
+Total states run:     2
+```
+#### `state_aggregate: False`
+
+```
+> salt-call --local state.highstate                                                                                                                                                                        [20/1885]
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://top.sls'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/modules'
+[INFO    ] Syncing modules for environment 'base'
+[INFO    ] Loading cache from salt://_modules, for base)
+[INFO    ] Caching directory '_modules/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/states'
+[INFO    ] Syncing states for environment 'base'
+[INFO    ] Loading cache from salt://_states, for base)
+[INFO    ] Caching directory '_states/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/grains'
+[INFO    ] Syncing grains for environment 'base'
+[INFO    ] Loading cache from salt://_grains, for base)
+[INFO    ] Caching directory '_grains/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/renderers'
+[INFO    ] Syncing renderers for environment 'base'
+[INFO    ] Loading cache from salt://_renderers, for base)
+[INFO    ] Caching directory '_renderers/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/returners'
+[INFO    ] Syncing returners for environment 'base'
+[INFO    ] Loading cache from salt://_returners, for base)
+[INFO    ] Caching directory '_returners/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/outputters'
+[INFO    ] Syncing outputters for environment 'base'
+[INFO    ] Loading cache from salt://_outputters, for base)
+[INFO    ] Caching directory '_outputters/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/utils'
+[INFO    ] Syncing utils for environment 'base'
+[INFO    ] Loading cache from salt://_utils, for base)
+[INFO    ] Caching directory '_utils/' for environment 'base'
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://package_inside_yum.sls'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://package_outside_yum.sls'
+[INFO    ] Running state [vim-enhanced] at time 15:52:00.552512
+[INFO    ] Executing state pkg.installed for vim-enhanced
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}' --all --pkgnarrow=installed" in directory '/root'
+[INFO    ] Package vim-enhanced is already installed.
+[INFO    ] Completed state [vim-enhanced] at time 15:52:01.030534
+[INFO    ] Running state [whatever] at time 15:52:01.030866
+[INFO    ] Executing state pkg.installed for whatever
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{ARCH}'  --pkgnarrow=all --all" in directory '/root'
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}'   --all --quiet --whatprovides whatever" in directory '/root'
+[ERROR   ] The following package(s) were not found, and no possible matches were found in the package db: whatever
+[INFO    ] Completed state [whatever] at time 15:52:01.983665
+local:
+----------
+          ID: package_inside
+    Function: pkg.installed
+        Name: vim-enhanced
+      Result: True
+     Comment: Package vim-enhanced is already installed.
+     Started: 15:52:00.552512
+    Duration: 478.022 ms
+     Changes:   
+----------
+          ID: package_outside
+    Function: pkg.installed
+        Name: whatever
+      Result: False
+     Comment: The following package(s) were not found, and no possible matches were found in the package db: whatever
+     Started: 15:52:01.030866
+    Duration: 952.799 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 1
+Failed:    1
+------------
+Total states run:     2
+```
+## Software versions
+
+The issue was originally spotted on CentOS 5.5.
+
+```
+> salt-call --versions-report                                                                                                                                                                                       
+           Salt: 2014.7.1
+         Python: 2.6.8 (unknown, Nov  7 2012, 14:47:45)
+         Jinja2: 2.5.5
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.12
+   msgpack-pure: Not Installed
+       pycrypto: 2.3
+        libnacl: Not Installed
+         PyYAML: 3.08
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 2.1.9
+           Mako: Not Installed
+```

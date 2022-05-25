@@ -1,0 +1,68 @@
+### File descriptor leak in salt.client when using the Caller API
+
+Looks very similar to the issue described in #27884 (which was closed without a comment), except that we are using a full setup rather than a local client.
+
+### Steps to Reproduce Issue
+```
+from salt import client
+client.Caller().cmd('state.highstate', test=True)
+```
+
+Every invocation of this results in more file descriptors being allocated. It seems as if some of them are garbage collected from time to time, but in our use case, they are allocated a lot faster than they are deallocated.
+
+Excerpt from `ls la /proc/<pid>/fd`:
+```
+[...]
+0 lrwx------. 1 root root 64 Feb 28 14:49 20 -> socket:[144901766]
+0 lr-x------. 1 root root 64 Feb 28 14:49 21 -> pipe:[144902892]
+0 l-wx------. 1 root root 64 Feb 28 14:49 22 -> pipe:[144902892]
+0 lrwx------. 1 root root 64 Feb 28 14:49 23 -> anon_inode:[eventfd]
+0 lrwx------. 1 root root 64 Feb 28 14:49 24 -> anon_inode:[eventfd]
+0 lrwx------. 1 root root 64 Feb 28 14:49 25 -> anon_inode:[eventpoll]
+0 lrwx------. 1 root root 64 Feb 28 14:49 26 -> anon_inode:[eventfd]
+0 lrwx------. 1 root root 64 Feb 28 14:49 27 -> anon_inode:[eventpoll]
+0 lrwx------. 1 root root 64 Feb 28 14:49 28 -> anon_inode:[eventfd]
+[...]
+```
+
+### Versions Report
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2016.11.2
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: 3.2.2
+       dateutil: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.21.0
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.21.4
+         Python: 2.7.5 (default, Sep 15 2016, 22:37:39)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.36.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```

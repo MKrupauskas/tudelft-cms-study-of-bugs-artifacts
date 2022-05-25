@@ -1,0 +1,99 @@
+Hi guys!
+
+I have configured salt-master with next parameter:
+
+```
+file_roots:
+  base:
+    - /srv/salt
+```
+
+I have created next directory on my machine: _/srv/salt/common_
+
+This directory contains next states (only important here):
+_/srv/salt/common/init.sls_
+
+```
+include:
+  - common.data_helper
+  - common.repos
+```
+
+_/srv/salt/common/data_helper.sls_
+
+```
+save_hosts_data:
+  module.run:
+    - name: common_nodehelper.nodes_net
+```
+
+_/srv/salt/common/repos.sls_
+
+```
+/etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-6:
+  file:
+    - managed
+    - source: salt://common/repos/RPM-GPG-KEY-EPEL-6
+    - mode: 644
+    - user: root
+```
+
+Then I have created in _/srv/salt_ directory next file: _/srv/salt/deploy.sls_
+
+```
+include:
+  - common
+```
+
+So I use this via salt orchestrate module:
+`salt-run state.orch deploy`
+
+It works fine. But once I have found one interesting exception:
+_Installation log_
+
+```
+comment: "Run failed on minions: min1
+Failures:
+    qa137:
+      Name: common_nodehelper.nodes_net - Function: module.run - Result: Changed
+      Name: /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-6 - Function: file.managed - Result: Failed
+
+```
+
+_salt-master log_
+
+```
+2014-12-08 18:42:10,787 [salt.master                                 ][ERROR   ] Error in function _file_hash:
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 1687, in run_func
+    ret = getattr(self, func)(load)
+  File "/usr/lib/python2.6/site-packages/salt/fileserver/__init__.py", line 354, in file_hash
+    return self.servers[fstr](load, fnd)
+  File "/usr/lib/python2.6/site-packages/salt/fileserver/roots.py", line 218, in file_hash
+    os.makedirs(cache_dir)
+  File "/usr/lib64/python2.6/os.py", line 157, in makedirs
+    mkdir(name, mode)
+OSError: [Errno 17] File exists: '/var/cache/salt/master/roots/hash/base/common/repos'
+```
+
+Now I cannot repeat this anymore. It appears only one time. I think this is because of the race in salt stack. It cannot create _cache_dir_ sometimes.
+
+I have next SaltStack version:
+
+```
+# salt --versions-report
+           Salt: 2014.1.4
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+         PyYAML: 3.10
+          PyZMQ: 14.3.1
+            ZMQ: 3.2.4
+```
+
+Looking forward to hearing from you.
+Happy Christmas!
+Thank you in advance!

@@ -1,0 +1,43 @@
+On jenkins.saltstack.com the opensuse test fails with this error:
+
+```
+======================================================================
+FAIL: test_user_present_gid_from_name_default (integration.states.user.UserTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/testing/tests/saltunittest.py", line 54, in wrap
+    return func(cls)
+  File "/testing/tests/integration/states/user.py", line 80, in test_user_present_gid_from_name_default
+    self.assertEqual(group_name, 'salt_test')
+AssertionError: 'users' != 'salt_test'
+```
+
+This is because on a vanilla opensuse system a default user will get gid 'users' not the gid from it's name.
+
+In the following file it says:
+
+``` python
+def test_user_present_gid_from_name_default(self):
+        '''
+        This is a DESTRUCTIVE TEST. It creates a new user on the on the minion.
+        This is an integration test. Not all systems will automatically create
+        a group of the same name as the user, but I don't have access to any.
+        If you run the test and it fails, please fix the code it's testing to
+        work on your operating system.
+        '''
+        ret = self.run_state('user.present', name='salt_test',
+                             gid_from_name=True, home='/var/lib/salt_test')
+        self.assertSaltTrueReturn(ret)
+
+        ret = self.run_function('user.info', ['salt_test'])
+        self.assertReturnNonEmptySaltType(ret)
+        group_name = grp.getgrgid(ret['gid']).gr_name
+
+        self.assertTrue(os.path.isdir('/var/lib/salt_test'))
+        self.assertEqual(group_name, 'salt_test')
+
+        ret = self.run_state('user.absent', name='salt_test')
+        self.assertSaltTrueReturn(ret)
+```
+
+Opensuse is such a system but I don't know how to fix this code...

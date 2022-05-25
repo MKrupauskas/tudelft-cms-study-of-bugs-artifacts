@@ -1,0 +1,134 @@
+The new winrepo sls files can now contain jinja and do get rendered properly. Thanks @jfindlay.
+
+But I just cannot figure how to use `state.show_sls my-sls-file` to see the final rendered output.
+
+As-is, it gives a whole slurr of errors as follows:
+`salt-call --local win.repo.ccleaner`
+
+``` python-traceback
+C:\salt\srv\salt\win\repo>salt-call --local state.show_sls win.repo.ccleaner
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'win/repo/ccleaner.sls'
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+AttributeError: 'float' object has no attribute 'startswith'
+Traceback (most recent call last):
+  File "C:\Python27\lib\runpy.py", line 162, in _run_module_as_main
+    "__main__", fname, loader, pkg_name)
+  File "C:\Python27\lib\runpy.py", line 72, in _run_code
+    exec code in run_globals
+  File "c:\python27\scripts\salt-call.exe\__main__.py", line 9, in <module>
+    sys.exit(salt_call())
+  File "C:\Python27\lib\site-packages\salt\scripts.py", line 227, in salt_call
+    client.run()
+  File "C:\Python27\lib\site-packages\salt\cli\call.py", line 69, in run
+    caller.run()
+  File "C:\Python27\lib\site-packages\salt\cli\caller.py", line 236, in run
+    ret = self.call()
+  File "C:\Python27\lib\site-packages\salt\cli\caller.py", line 138, in call
+    ret['return'] = func(*args, **kwargs)
+  File "C:\Python27\lib\site-packages\salt\modules\state.py", line 980, in show_sls
+    high_, errors = st_.render_highstate({saltenv: mods})
+  File "C:\Python27\lib\site-packages\salt\state.py", line 2808, in render_highstate
+    sls, saltenv, mods, matches)
+  File "C:\Python27\lib\site-packages\salt\state.py", line 2548, in render_state
+    self._handle_state_decls(state, sls, saltenv, errors)
+  File "C:\Python27\lib\site-packages\salt\state.py", line 2704, in _handle_state_decls
+    if key.startswith('_'):
+AttributeError: 'float' object has no attribute 'startswith'
+Traceback (most recent call last):
+  File "C:\Python27\lib\runpy.py", line 162, in _run_module_as_main
+    "__main__", fname, loader, pkg_name)
+  File "C:\Python27\lib\runpy.py", line 72, in _run_code
+    exec code in run_globals
+  File "c:\python27\scripts\salt-call.exe\__main__.py", line 9, in <module>
+  File "C:\Python27\lib\site-packages\salt\scripts.py", line 227, in salt_call
+    client.run()
+  File "C:\Python27\lib\site-packages\salt\cli\call.py", line 69, in run
+    caller.run()
+  File "C:\Python27\lib\site-packages\salt\cli\caller.py", line 236, in run
+    ret = self.call()
+  File "C:\Python27\lib\site-packages\salt\cli\caller.py", line 138, in call
+    ret['return'] = func(*args, **kwargs)
+  File "C:\Python27\lib\site-packages\salt\modules\state.py", line 980, in show_sls
+    high_, errors = st_.render_highstate({saltenv: mods})
+  File "C:\Python27\lib\site-packages\salt\state.py", line 2808, in render_highstate
+    sls, saltenv, mods, matches)
+  File "C:\Python27\lib\site-packages\salt\state.py", line 2548, in render_state
+    self._handle_state_decls(state, sls, saltenv, errors)
+  File "C:\Python27\lib\site-packages\salt\state.py", line 2704, in _handle_state_decls
+    if key.startswith('_'):
+AttributeError: 'float' object has no attribute 'startswith'
+```
+
+If I add `#!yaml` to the first line, I get 
+
+```
+C:\salt\srv\salt\win\repo>salt-call --local state.show_sls win.repo.ccleaner
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'win/repo/ccleaner.sls'
+[CRITICAL] Rendering SLS 'base:win.repo.ccleaner' failed: found character '%' that cannot start any token; line 3
+
+---saltstack
+#!yaml
+# just 32-bit x86 installer available
+{% if grains['cpuarch'] == 'AMD64' %}    <======================
+    {% set PROGRAM_FILES = "C:\Program Files (x86)" %}
+{% else %}
+    {% set PROGRAM_FILES = "C:\Program Files" %}
+{% endif %}
+ccleaner:
+[...]
+
+---
+local:
+    - Rendering SLS 'base:win.repo.ccleaner' failed: found character '%' that cannot start any token; line 3
+    -
+    - ---
+    - #!yaml
+    - # just 32-bit x86 installer available
+    - {% if grains['cpuarch'] == 'AMD64' %}    <======================
+    -     {% set PROGRAM_FILES = "C:\Program Files (x86)" %}
+    - {% else %}
+    -     {% set PROGRAM_FILES = "C:\Program Files" %}
+    - {% endif %}
+    - ccleaner:
+    - [...]
+    - ---
+```
+
+And if I add a first line of `#!jinja` it gives me:
+
+```
+C:\salt\srv\salt\win\repo>salt-call --local state.show_sls win.repo.ccleaner
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'win/repo/ccleaner.sls'
+local:
+    - SLS win.repo.ccleaner does not render to a dictionary
+
+C:\salt\srv\salt\win\repo>
+```
+
+The `ccleaner.sls` comes from salt-winrepo's WIP_Berryllium+jinja branch. (https://github.com/saltstack/salt-winrepo/blob/WIP_Berryllium%2Bjinja/ccleaner.sls)
+
+`salt-call --versions` is:
+
+``` yaml
+C:\salt\srv\salt\win\repo>salt-call --local --versions
+           Salt: 2015.5.3
+         Python: 2.7.8 (default, Jun 30 2014, 16:08:48) [MSC v.1500 64 bit (AMD64)]
+         Jinja2: 2.8
+       M2Crypto: Not Installed
+ msgpack-python: 0.4.6
+   msgpack-pure: 0.1.3
+       pycrypto: 2.6.1
+        libnacl: 1.4.3
+         PyYAML: 3.11
+          ioflo: 1.3.8
+          PyZMQ: 14.7.0
+           RAET: 0.6.3
+            ZMQ: 4.1.2
+           Mako: 1.0.1
+        Tornado: 4.2.1
+```
+
+@jfindlay @twangboy @UtahDave any idea what it takes to enable `state.show_sls` to work on the new jinja allowed/included style winrepo sls files?

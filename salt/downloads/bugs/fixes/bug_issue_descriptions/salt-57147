@@ -1,0 +1,132 @@
+**Description**
+
+When applying a default acl to a directory the permissions are correctly updated but on subsequent runs the permissions are always updated again.
+
+**Setup**
+
+Create the following state file I've called it `debug.defaultacl`
+
+```yaml
+# This does not work as expected applies permissions on each run
+/tmp/test:
+  file.directory:
+    - name: /tmp/test
+  acl.present:
+    - acl_type: d:group
+    - acl_name: adm
+    - perms: r-x
+
+# This works as expected only apply permissions once
+/tmp/test1:
+  file.directory:
+    - name: /tmp/test1
+  acl.present:
+    - acl_type: group
+    - acl_name: adm
+    - perms: r-x
+```
+
+**Steps to Reproduce the behavior**
+Run `state.apply debug.defaultacl` twice the second and subsequent runs will apply the default group permissions for each of the runs. It should not as the permissions aren't changing see output:
+
+```
+----------
+          ID: /tmp/test
+    Function: acl.present
+      Result: True
+     Comment: Updated permissions for adm
+     Started: 00:05:00.045112
+    Duration: 25.995 ms
+     Changes:
+              ----------
+              new:
+                  ----------
+                  acl_name:
+                      adm
+                  acl_type:
+                      d:group
+                  perms:
+                      r-x
+              old:
+                  ----------
+                  acl_name:
+                      adm
+                  acl_type:
+                      d:group
+                  perms:
+                      r-x
+----------
+````
+
+**Expected behavior**
+The second and subsequent runs should not reapply the same permissions over and over again.
+
+I expect the problem is in this piece of code: https://github.com/saltstack/salt/blob/master/salt/states/linux_acl.py#L153
+```python
+octal_sum = sum([_octal.get(i, i) for i in perms])
+need_refresh = False
+for path in __current_perms:
+    acl_found = False
+    for user_acl in __current_perms[path].get(_acl_type, []):
+        if (
+            _search_name in user_acl
+            and user_acl[_search_name]["octal"] == octal_sum
+        ):
+            acl_found = True
+            break
+    if not acl_found:
+        need_refresh = True
+        break
+```
+
+I'm guessing the code is meant to deal with recursive updates but seems to be broken for that purpose, I'm working on a PR to fix the issue.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 2019.2.4
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Apr  2 2020, 13:16:51)
+   python-gnupg: 0.4.3
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.8.2003 Core
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 3.10.0-1062.12.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.8.2003 Core
+
+
+```
+</details>

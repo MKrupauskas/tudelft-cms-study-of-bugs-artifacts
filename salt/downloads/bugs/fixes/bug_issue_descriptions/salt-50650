@@ -1,0 +1,217 @@
+### Description of Issue/Question
+
+I have a bunch of Windows Server VMs (running on VMware vSphere) in my infrastructure and they are all running the same version of Salt Minion. On two of them, the `python.exe` process needs almost all memory that is available on the system.
+
+#### Windows Server 1
+
+* Memory: 6.00 GB
+
+When checking the memory consumption, the process `python.exe` was consuming almost all memory. I then stopped the `salt-minion` process, which took surprisingly long (about 30 seconds), the process `python.exe` was stopped and the 4.5 GB of RAM were free again. 
+
+I then started the salt-minion process again, and till now (5 minutes later) the memory consumption is 63 MB, which seems normal. To me this seems like a memory leak.
+
+#### Windows Server 2
+
+Same behaviour. Regarding this server, I have better statistics. 
+
+The process `python.exe` was consuming the following:
+
+* Commit (KB): 2.883.772
+* Working Set (KB): 1.203.412
+* Shareable (KB): 2.600
+* Private (KB): 1.200.856
+
+Total:
+
+* Available: 95 MB
+* Cached: 84 MB
+* Total: 4095 MB
+* Installed: 4095 MB
+
+After restarting the service:
+
+`python.exe`:
+
+* Commit (KB): 62.688
+* Working Set (KB): 75.860
+* Shareable (KB): 16.648
+* Private (KB): 59.212
+
+Total:
+
+* Available: 1677 MB
+* Cached: 207 MB
+* Total: 4095 MB
+* Installed: 4095 MB
+
+### Setup
+
+My infrastructure is:
+
+* Salt master of masters
+* Salt syndic, that is connected to the salt master of masters
+* Salt minion, that is connected to the Salt syndic and is running on the mentioned Windows Server
+
+### Steps to Reproduce Issue
+
+#### Windows Server 1
+
+The following log is available on the Salt minion. The first two lines must be from stopping and/or starting the Salt minion service:
+
+```
+2018-11-27 12:48:09,415 [salt.modules.cmdmod:673 ][ERROR   ][7868] Failed to decode stderr from command C:\Windows\System32\Wbem\wmic.EXE /namespace:\\root\microsoft\windows\storage path MSFT_PhysicalDisk where (MediaType=3 or MediaType=4) get DeviceID,MediaType /format:table, non-decodable characters have been replaced
+2018-11-27 12:48:13,815 [salt.modules.cmdmod:673 ][ERROR   ][7868] Failed to decode stderr from command C:\Windows\System32\Wbem\wmic.EXE /namespace:\\root\microsoft\windows\storage path MSFT_PhysicalDisk where (MediaType=3 or MediaType=4) get DeviceID,MediaType /format:table, non-decodable characters have been replaced
+2018-11-27 12:58:51,898 [salt.modules.cmdmod:673 ][ERROR   ][9120] Failed to decode stderr from command C:\Windows\System32\Wbem\wmic.EXE /namespace:\\root\microsoft\windows\storage path MSFT_PhysicalDisk where (MediaType=3 or MediaType=4) get DeviceID,MediaType /format:table, non-decodable characters have been replaced
+2018-11-27 12:58:56,678 [salt.modules.cmdmod:673 ][ERROR   ][8976] Failed to decode stderr from command C:\Windows\System32\Wbem\wmic.EXE /namespace:\\root\microsoft\windows\storage path MSFT_PhysicalDisk where (MediaType=3 or MediaType=4) get DeviceID,MediaType /format:table, non-decodable characters have been replaced
+2018-11-27 12:59:06,851 [salt.modules.cmdmod:673 ][ERROR   ][9076] Failed to decode stderr from command C:\Windows\System32\Wbem\wmic.EXE /namespace:\\root\microsoft\windows\storage path MSFT_PhysicalDisk where (MediaType=3 or MediaType=4) get DeviceID,MediaType /format:table, non-decodable characters have been replaced
+2018-11-27 12:59:39,901 [salt.modules.cmdmod:673 ][ERROR   ][4352] Failed to decode stderr from command C:\Windows\System32\Wbem\wmic.EXE /namespace:\\root\microsoft\windows\storage path MSFT_PhysicalDisk where (MediaType=3 or MediaType=4) get DeviceID,MediaType /format:table, non-decodable characters have been replaced
+2018-11-27 12:59:45,174 [salt.modules.cmdmod:673 ][ERROR   ][8316] Failed to decode stderr from command C:\Windows\System32\Wbem\wmic.EXE /namespace:\\root\microsoft\windows\storage path MSFT_PhysicalDisk where (MediaType=3 or MediaType=4) get DeviceID,MediaType /format:table, non-decodable characters have been replaced
+2018-11-27 12:59:55,236 [salt.modules.cmdmod:673 ][ERROR   ][8688] Failed to decode stderr from command C:\Windows\System32\Wbem\wmic.EXE /namespace:\\root\microsoft\windows\storage path MSFT_PhysicalDisk where (MediaType=3 or MediaType=4) get DeviceID,MediaType /format:table, non-decodable characters have been replaced
+```
+
+However, I also have these lines of log on Windows Server VMs, where no memory leak occured so far.
+
+#### Windows Server 2
+
+```
+2018-11-27 13:33:00,622 [salt.modules.cmdmod:673 ][ERROR   ][6000] Failed to decode stderr from command C:\Windows\System32\Wbem\wmic.EXE /namespace:\\root\microsoft\windows\storage path MSFT_PhysicalDisk where (MediaType=3 or MediaType=4) get DeviceID,MediaType /format:table, non-decodable characters have been replaced
+2018-11-27 13:33:08,507 [salt.modules.cmdmod:673 ][ERROR   ][6000] Failed to decode stderr from command C:\Windows\System32\Wbem\wmic.EXE /namespace:\\root\microsoft\windows\storage path MSFT_PhysicalDisk where (MediaType=3 or MediaType=4) get DeviceID,MediaType /format:table, non-decodable characters have been replaced
+```
+
+### Versions Report
+
+#### Centos 7 Salt Syndic
+
+```
+Salt Version:
+           Salt: 2018.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.11
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Jul 13 2018, 13:06:57)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: 2.0.5
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```
+
+#### Windows Server 1
+
+```
+C:\salt>salt-minion --versions-report
+Salt Version:
+           Salt: 2018.3.3
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 10.2.1
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.3
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: 1.6.1
+       M2Crypto: Not Installed
+           Mako: 1.0.6
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.14 (v2.7.14:84471935ed, Sep 16 2017, 20:25:58) [MSC v.1500 64 bit (AMD64)]
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.3
+           RAET: Not Installed
+          smmap: 2.0.5
+        timelib: 0.2.4
+        Tornado: 4.5.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+         locale: cp1252
+        machine: AMD64
+        release: 2016Server
+         system: Windows
+        version: 2016Server 10.0.14393  Multiprocessor Free
+```
+
+#### Windows Server 2
+
+```
+Salt Version:
+           Salt: 2018.3.3
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 10.2.1
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.3
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: 1.6.1
+       M2Crypto: Not Installed
+           Mako: 1.0.6
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.14 (v2.7.14:84471935ed, Sep 16 2017, 20:25:58) [MSC v.1500 64 bit (AMD64)]
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.3
+           RAET: Not Installed
+          smmap: 2.0.5
+        timelib: 0.2.4
+        Tornado: 4.5.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+         locale: cp1252
+        machine: AMD64
+        release: 2016Server
+         system: Windows
+        version: 2016Server 10.0.14393  Multiprocessor Free
+```

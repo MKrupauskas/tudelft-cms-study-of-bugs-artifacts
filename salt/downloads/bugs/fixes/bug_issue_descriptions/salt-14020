@@ -1,0 +1,81 @@
+Prereq checker fails in 2014.1.5.
+
+I know that this creates a recursion loop, but running this with 'require' instead of 'prereq' fails with a "Recursive requisite found" error, instead of the exception noted below.
+
+```
+$ cat ./dev/scr/init.sls
+scratch:
+  file.directory:
+    - name: '/scr'
+    - user: root
+    - group: psgvb
+    - mode: 2770
+    - prereq:
+       - file: '/scr'
+```
+
+Output from running the state:
+
+```
+$ sudo salt '*' state.sls saltenv=dev scr test=True
+pdx-cent6-salt.schrodinger.com:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.6/site-packages/salt/minion.py", line 796, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/python2.6/site-packages/salt/modules/state.py", line 394, in sls
+        ret = st_.state.call_high(high_)
+      File "/usr/lib/python2.6/site-packages/salt/state.py", line 1713, in call_high
+        ret = self.call_chunks(chunks)
+      File "/usr/lib/python2.6/site-packages/salt/state.py", line 1437, in call_chunks
+        running = self.call_chunk(low, running, chunks)
+      File "/usr/lib/python2.6/site-packages/salt/state.py", line 1639, in call_chunk
+        running = self.call_chunk(chunk, running, chunks)
+      File "/usr/lib/python2.6/site-packages/salt/state.py", line 1639, in call_chunk
+        running = self.call_chunk(chunk, running, chunks)
+...
+      File "/usr/lib/python2.6/site-packages/salt/state.py", line 1639, in call_chunk
+        running = self.call_chunk(chunk, running, chunks)
+      File "/usr/lib/python2.6/site-packages/salt/state.py", line 1564, in call_chunk
+        status = self.check_requisite(low, running, chunks)
+      File "/usr/lib/python2.6/site-packages/salt/state.py", line 1482, in check_requisite
+        req = trim_req(req)
+      File "/usr/lib/python2.6/site-packages/salt/state.py", line 94, in trim_req
+        reqfirst = next(iter(req))
+    RuntimeError: maximum recursion depth exceeded while calling a Python object
+```
+
+The show_sls output:
+
+```
+$ sudo salt '*' state.show_sls saltenv=dev scr test=True
+pdx-cent6-salt.schrodinger.com:
+    ----------
+    scratch:
+        ----------
+        __env__:
+            dev
+        __sls__:
+            scr
+        file:
+            ----------
+            - name:
+                /scr
+            ----------
+            - user:
+                root
+            ----------
+            - group:
+                psgvb
+            ----------
+            - mode:
+                2770
+            ----------
+            - prereq:
+                ----------
+                - file:
+                    /scr
+            - directory
+            ----------
+            - order:
+                10000
+```

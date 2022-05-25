@@ -1,0 +1,91 @@
+### Description of Issue/Question
+
+I am running into all sorts of race conditions while implementing a formula utilizing the `boto_*` states.  I looked through the code and only found one instance of `get_waiter()` being called, it's in `salt/modules/boto_s3_bucket.py`.
+
+Maybe I'm missing something here?  :-)
+
+Here's an example.  Unable to delete subnet after terminating an EC2 instance.  `demo00.local` is in `subnet0`, and the only server in that subnet.  The following:
+
+```
+# ... stuff truncated ...
+
+EC2 demo server absent:
+  boto_ec2.instance_absent:
+    - name: demo00.local
+
+Subnet subnet0 absent:
+  boto_vpc.subnet_absent:
+    - name: subnet0
+    - require:
+      - boto_ec2: EC2 demo server absent
+```
+
+Will yield something like:
+
+```
+----------
+          ID: Subnet subnet0 absent
+    Function: boto_vpc.subnet_absent
+        Name: subnet0
+      Result: False
+     Comment: Failed to delete subnet: Bad Request: The subnet 'subnet-63aa8c15' has dependencies and cannot be deleted.
+     Started: 07:25:03.078485
+    Duration: 943.968 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 2 (changed=2)
+Failed:    1
+------------
+```
+
+It seems that SaltStack tries to delete the subnet before the instance has been terminated.  A `get_wait()` might be useful here.  Maybe make it an option?
+
+I have been seeing all sorts of timing related inconsistencies when trying to use SaltStack `boto_*` states for managing _AWS_.  Another example is trying to create an EC2 instance immediately after creating a IAM Role for it.  `boto_iam_role.present` returns immediately, but the `boto_ec2.instance_present` starts before the IAM role is actually created.  This gives the following error:
+
+```
+----------
+          ID: EC2 demo server exists
+    Function: boto_ec2.instance_present
+        Name: demo00.demo-saltstack-vpc.local
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1733, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1652, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/boto_ec2.py", line 783, in instance_present
+                  region=region, key=key, keyid=keyid, profile=profile)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/boto_ec2.py", line 826, in run
+                  network_interfaces=interfaces)
+                File "/usr/lib/python2.7/dist-packages/boto/ec2/connection.py", line 973, in run_instances
+                  verb='POST')
+                File "/usr/lib/python2.7/dist-packages/boto/connection.py", line 1208, in get_object
+                  raise self.ResponseError(response.status, response.reason, body)
+              EC2ResponseError: EC2ResponseError: 400 Bad Request
+              <?xml version="1.0" encoding="UTF-8"?>
+              <Response><Errors><Error><Code>InvalidParameterValue</Code><Message>Value (DEMO-SALTSTACK-MASTER) for parameter iamInstanceProfile.name is invalid. Invalid IAM Instance Profile name</Message></Error></Errors><RequestID>8d31f575-f6b1-4171-8896-f412677e702b</RequestID></Response>
+     Started: 08:19:47.616027
+    Duration: 474.711 ms
+     Changes:
+
+Summary for local
+-------------
+Succeeded: 14 (changed=14)
+Failed:     1
+-------------
+```
+
+Given that these are timing related it can be hit or miss.
+
+Now I am able to work around this by waiting a minute or two then rerunning the command.  I even hack dependency orders.  It works, but seems like using `get_waiter()` and waiting on AWS events to complete would be cleaner.
+### Setup
+
+Please review above...
+### Steps to Reproduce Issue
+
+Please review above...
+### Versions Report
+
+All versions as far as I can tell.

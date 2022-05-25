@@ -1,0 +1,82 @@
+Since the previous #14763 has been closed for some time now, I will open a new issue.
+### The problem:
+
+I create a new external grain, called (fancy, I know) `mooh` under `/srv/salt/_grains/mooh.py`. I then run `salt '*' saltutils.sync_all` and `salt '*' grains.item mooh` to see that it's really there on the minions.
+
+Then I try to target the minions using `salt -G 'mooh:1' cmd.run uptime` and it fails until after I restart the minions.
+### Output
+
+```
+root@host2 # salt 'host1' grains.item mooh
+host1:
+    ----------
+    mooh:
+        1
+root@host2 # salt -G 'mooh:1' cmd.run uptime
+No minions matched the target. No command was sent, no jid was assigned.
+```
+
+Running a minion restart makes the grain available:
+
+```
+root@host2 # salt 'host1' cmd.run 'service salt-minion restart'
+host1:
+    salt-minion stop/waiting
+    salt-minion start/running, process 11805
+root@host2 # salt -G 'mooh:1' cmd.run uptime
+host1:
+     10:45:44 up 3 days, 14:36,  2 users,  load average: 0.13, 0.09, 0.06
+```
+
+The grain itself is extremely simple:
+
+``` python
+#!py
+def mooh():
+        grains = {}
+        grains['mooh'] = 1
+        return grains
+```
+### Renaming the returned grain
+
+I have also tested in changing the grain name (using `grains['booh']` instead of `grains['mooh']` - the filename and the function name remain unchanged) and the behaviour is (almost) the same. 
+
+```
+root@host2 # salt -G 'booh:1' cmd.run uptime
+No minions matched the target. No command was sent, no jid was assigned.
+```
+
+But, when trying to target the old grain again:
+
+```
+root@host2 # salt -G 'mooh:1' cmd.run uptime
+host1:
+    Minion did not return. [No response]
+root@host2 # salt '*' cmd.run uptime
+host1:
+     11:07:10 up 3 days, 14:57,  2 users,  load average: 0.27, 0.16, 0.09
+```
+
+Salt version:
+
+```
+root@host2 # salt '*' --versions-report
+                  Salt: 2015.5.0
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2015.5.0+ds-1trusty1
+```
+
+Thanks in advance,
+Alex

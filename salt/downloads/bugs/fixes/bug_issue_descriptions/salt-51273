@@ -1,0 +1,66 @@
+### Description of Issue/Question
+
+In 2019.2 Fluorine, when I call just a `ping.test` using `auto` authentication, but also want to insert a metadata in there, now I get crash at master: 
+
+```
+salt.exceptions.SaltInvocationError: 'metadata' is an invalid keyword  argument for
+'salt.loaded.int.auth.auto.auth'
+```
+
+This is the reproducer:
+
+```
+curl http://localhost:9080/run \
+    -X POST \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d '[{"eauth": "auto", "tgt":"*", "password":"", "metadata":"Have some donuts!", \
+    "tgt_type":"glob", "client":"local", "fun":"test.ping", "username":"admin"}]'
+```
+
+As you can see, I want my `test.ping` also eat some donuts metadata. So essentially, I send the following JSON:
+
+```json
+[
+  {
+    "eauth": "auto",
+    "tgt": "*",
+    "username":"admin",
+    "password": "",
+    "metadata": "Have some donuts!",
+    "tgt_type": "glob",
+    "client": "local",
+    "fun": "test.ping"
+  }
+]
+```
+
+So since [documentation says](https://docs.saltstack.com/en/latest/ref/netapi/all/salt.netapi.rest_cherrypy.html#salt.netapi.rest_cherrypy.app.Run) "accept username/password/eauth **OR** token", I would expect that metadata should be set alongside with the username and password. But instead of 200/true I receive 500/ISE error.
+
+In current design there seem two ways of fixing this:
+
+- Add "metadata" keyword to the [white-list of of allowed keywords](https://github.com/saltstack/salt/blob/develop/salt/auth/__init__.py#L41-L52) (and then this works).
+- Make all authentication modules [accept also `**kwargs`](https://github.com/saltstack/salt/blob/develop/salt/auth/auto.py#L8).
+
+But to me both ways seem wrong. Because nor I want some metadata throw donuts at my authentication module, neither I like to throw at my authentication module literally everything.
+
+This sort of API request would probably make more sense:
+
+```json
+[
+  {
+    "eauth": {
+        "password": "",
+        "username": "admin",
+        "module": "auto"
+    },
+    "client": "local",
+    "fun": "test.ping",
+    "metadata": "Have some donuts!",
+    "tgt_type": "glob",
+    "tgt": "*"
+  }
+]
+```
+
+But at the moment I do not know which way we would like to fix it (without reverting everything on this topic back to 2018.3 when it was working). @thatch45 @garethgreenaway @dwoz  any ideas here?

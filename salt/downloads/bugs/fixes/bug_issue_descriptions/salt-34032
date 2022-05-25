@@ -1,0 +1,123 @@
+### Description of Issue/Question
+
+I have a generic pillar for configuring docker (**docker.sls**):
+
+```
+docker-pkg:
+  lookup:
+    version: 1.11.0-0~jessie
+    refresh_repo: True
+    config:
+      - DOCKER_OPTS="--default-ulimit=memlock=1073741824:1073741824 --icc=false --ip-forward=true --iptables=true --pidfile=/var/run/docker.pid --userland-proxy=false --cluster-store=consul://127.0.0.1:8500 --cluster-advertise=eth0:2376"
+```
+
+that I want to override with the backend role (**backend.sls**):
+
+```
+docker-pkg:
+  lookup:
+    config:
+      - DOCKER_OPTS="--default-ulimit=memlock=1073741824:1073741824 --icc=true --insecure-registry=docker-registry.service.consul:5000 --ip-forward=true --iptables=true --pidfile=/var/run/docker.pid --userland-proxy=false"
+```
+
+The override works (as defined in https://docs.saltstack.com/en/latest/topics/pillar/#pillar-namespace-flattened) when I have both pillars included in the top file:
+
+```
+'roles:backend':
+  - match: grain
+  - docker
+  - backend
+```
+
+and this gives me the following:
+
+```
+local:
+    ----------
+    lookup:
+        ----------
+        config:
+            - DOCKER_OPTS="--default-ulimit=memlock=1073741824:1073741824 --icc=true --insecure-registry=docker-registry.service.consul:5000 --ip-forward=true --iptables=true --pidfile=/var/run/docker.pid --userland-proxy=false"
+        refresh_repo:
+            True
+        version:
+            1.11.0-0~jessie
+```
+
+but if I then include the `docker` pillar (which has the default pillars) from within the backend pillar, the override rules from the docs do not appear to work:
+
+Top file:
+
+```
+'roles:backend':
+  - match: grain
+  - backend
+```
+
+Backend pillar: 
+
+```
+include:
+  - docker
+
+docker-pkg:
+  lookup:
+    config:
+      - DOCKER_OPTS="--default-ulimit=memlock=1073741824:1073741824 --icc=true --insecure-registry=docker-registry.service.consul:5000 --ip-forward=true --iptables=true --pidfile=/var/run/docker.pid --userland-proxy=false"
+```
+
+which yields the following pillar (note how the config value is from the default pillar and not the backend pillar, which is defined after the include):
+
+```
+local:
+    ----------
+    lookup:
+        ----------
+        config:
+            - DOCKER_OPTS="--default-ulimit=memlock=1073741824:1073741824 --icc=false --ip-forward=true --iptables=true --pidfile=/var/run/docker.pid --userland-proxy=false --cluster-store=consul://127.0.0.1:8500 --cluster-advertise=eth0:2376"
+        refresh_repo:
+            True
+        version:
+            1.11.0-0~jessie
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.4
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.4
+```

@@ -1,0 +1,117 @@
+### Description of Issue/Question
+
+When starting a minion that is attached to two masters in a failover setup if both masters are not running on startup of the minion the minion just hangs and won't re-connect to the master if it is started afterwards.
+### Setup
+1. Minion with the following minion config:
+
+```
+master:
+  - 192.168.50.10
+  - 192.168.50.11
+master_shuffle: True
+master_type: failover
+master_alive_interval: 30
+id: minion1
+log_level: debug
+```
+1. masters not started but key has been accepted on the masters previously
+### Steps to Reproduce Issue
+1. stop both masters
+2. start minion `salt-minion -ldebug`
+3. And you will se it hang and stay at the messages below:
+
+```
+[INFO    ] The Salt Minion is starting up
+[INFO    ] Minion is starting as user 'root'
+[DEBUG   ] AsyncEventPublisher PUB socket URI: /var/run/salt/minion/minion_event_c5a7daa544_pub.ipc
+[DEBUG   ] AsyncEventPublisher PULL socket URI: /var/run/salt/minion/minion_event_c5a7daa544_pull.ipc
+[INFO    ] Starting pull socket on /var/run/salt/minion/minion_event_c5a7daa544_pull.ipc
+[DEBUG   ] Minion 'minion1' trying to tune in
+[DEBUG   ] sync_connect_master
+[INFO    ] Got list of available master addresses: ['192.168.50.10', '192.168.50.11']
+[CRITICAL] 'master_type' set to 'failover' but 'retry_dns' is not 0. Setting 'retry_dns' to 0 to failover to the next master on DNS errors.
+[DEBUG   ] Connecting to master. Attempt 1 of 1
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'minion1', 'tcp://192.168.50.10:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (3826)
+[DEBUG   ] Setting zmq_reconnect_ivl to '3826ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Process Manager starting!
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'minion1', 'tcp://192.168.50.10:4506', 'clear')
+[INFO    ] Master 192.168.50.10 could not be reached, trying next master (if any)
+[WARNING ] Master ip address changed from 192.168.50.10 to 192.168.50.11
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'minion1', 'tcp://192.168.50.11:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (1598)
+[DEBUG   ] Setting zmq_reconnect_ivl to '1598ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'minion1', 'tcp://192.168.50.11:4506', 'clear')
+[INFO    ] Master 192.168.50.11 could not be reached, trying next master (if any)
+[ERROR   ] No master could be reached or all masters denied the minions connection attempt.
+[WARNING ] Fatal functionality error caught by minion handler:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 128, in minion_process
+    minion.start()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/daemons.py", line 359, in start
+    self.minion.tune_in()
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 1996, in tune_in
+    self.sync_connect_master()
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 917, in sync_connect_master
+    raise six.reraise(*future_exception)
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 876, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 926, in connect_master
+    master, self.pub_channel = yield self.eval_master(self.opts, self.timeout, self.safe)
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 870, in run
+    value = future.result()
+  File "/usr/lib/python2.7/dist-packages/tornado/concurrent.py", line 215, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 876, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 561, in eval_master
+    raise last_exc  # pylint: disable=E0702
+SaltClientError: Attempt to authenticate with the salt master failed with timeout error
+[WARNING ] ** Restarting minion **
+[INFO    ] waiting random_reauth_delay 8s
+```
+1. try starting the master after and the minion will not re-connect and stay hanging at that message
+### Versions Report
+
+```
+root@saltminion1:~# salt --versions-report
+Salt Version:
+           Salt: 2016.3.4
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-65-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```

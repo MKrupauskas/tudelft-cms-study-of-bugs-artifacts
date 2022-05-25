@@ -1,0 +1,474 @@
+## Description
+
+I think I've run into an issue that will be a problem for our single-binary builds (or otherwise-isolated salt envs). If you run salt in an isolated env, such as a pyenv venv, pkgrepo stuff can't be configured on Debian-based systems since it is looking for `python-apt`, which is normally resolved via `apt install python3-apt` (or `python2-apt` or `python-apt` packages). Though, that is for making it available via system-level Pythons. I think this may mean that, for isolated envs or for tiamat-generated builds of salt packages, that we need to include `python-apt` from pypi in the reqs. Though, I'm unable to get `python-apt` working in any way outside of the system-level packages.
+
+```bash
+# Referencing where python-apt is found in salt codebase
+17:22 $ grep -irn 'python-apt' salt/
+salt/cloud/deploy/bootstrap-salt.sh:2981:    # Need python-apt for managing packages via Salt
+salt/cloud/deploy/bootstrap-salt.sh:3483:        __PACKAGES="libzmq3 libzmq3-dev lsb-release python-apt python-backports.ssl-match-hostname"
+salt/cloud/deploy/bootstrap-salt.sh:3531:    __PACKAGES="libzmq3 libzmq3-dev lsb-release python-apt python-crypto python-jinja2"
+salt/states/pkgrepo.py:73:    On Ubuntu & Debian systems, the ``python-apt`` package is required to be
+salt/states/pkgrepo.py:74:    installed. To check if this package is installed, run ``dpkg -l python-apt``.
+salt/states/pkgrepo.py:75:    ``python-apt`` will need to be manually installed if it is not present.
+salt/modules/aptpkg.py:10:    For repository management, the ``python-apt`` package must be installed.
+salt/modules/aptpkg.py:151:    Abort if python-apt is not installed
+salt/modules/aptpkg.py:154:        raise CommandExecutionError("Error: 'python-apt' package not installed")
+salt/modules/aptpkg.py:2760:    :depends:   - python-apt module
+```
+
+I get the `Error: 'python-apt' package not installed` on debian-based builds right now when trying to have `pkgrepo` states run, when running in an isolated version of Salt. Installing `python-apt` via `apt` doesn't fix this. We use isolated runs of salt in order to pre-config the AMIs and containers for use in our pipelines, instead of configuring via salt pkgs that make use of system-level python dependencies. I'm going to open an issue with these details, and figure out a way to move.
+
+## Salt via pyenv: steps to reproduce the behavior
+
+```bash
+# Ubuntu 20.04 test
+# Testing using salt from isolated python env (via pyenv)
+# docker container run --rm -it ubuntu:20.04 /bin/bash
+export DEBIAN_FRONTEND="noninteractive"
+export TZ=America/Chicago
+apt update
+apt install curl wget tzdata -y
+curl -fsSL -o /usr/share/keyrings/salt-archive-keyring.gpg https://repo.saltproject.io/py3/ubuntu/20.04/amd64/latest/salt-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/salt-archive-keyring.gpg] https://repo.saltproject.io/py3/ubuntu/20.04/amd64/latest focal main" | tee /etc/apt/sources.list.d/salt.list
+apt update
+apt install salt-minion vim -y
+mkdir /srv/salt
+wget -O /srv/salt/docker.sls https://gist.githubusercontent.com/ScriptAutomate/77775f26c6640d184b0574065ff94d64/raw/7b228aa82e748b927ab619f1f62455c0fa3018ad/docker.sls
+wget -O /srv/salt/pyenv.sls https://gist.githubusercontent.com/ScriptAutomate/11f739325ab458e4c3dbfad70b0a3ed7/raw/0b7852aaabdd7db187532b1c4f8600dc7f017869/pyenv-root.sls
+salt-call --local state.apply pyenv -l debug
+su -
+pyenv install 3.7.7 # Matching python version in Tiamat-generated binaries
+pyenv virtualenv 3.7.7 salt-tester
+pyenv activate salt-tester
+pip install salt
+salt-call --local state.apply docker -l debug
+```
+
+Filtered output:
+
+```
+[DEBUG   ] Refreshing modules...
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] Using pkg_resources to load entry points
+[DEBUG   ] Using pkg_resources to load entry points
+[DEBUG   ] Using pkg_resources to load entry points
+[DEBUG   ] Using pkg_resources to load entry points
+[DEBUG   ] Using pkg_resources to load entry points
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[INFO    ] Completed state [docker-prereqs] at time 19:38:45.978620 (duration_in_ms=3703.861)
+[DEBUG   ] LazyLoaded config.option
+[DEBUG   ] LazyLoaded pkg.mod_repo
+[DEBUG   ] LazyLoaded pkgrepo.managed
+[INFO    ] Running state [deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable] at time 19:38:45.984032
+[INFO    ] Executing state pkgrepo.managed for [deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable]
+[ERROR   ] Failed to examine repo 'deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable': Error: 'python-apt' package not installed
+[INFO    ] Completed state [deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable] at time 19:38:45.985814 (duration_in_ms=1.782)
+local:
+----------
+          ID: docker-prereqs
+    Function: pkg.installed
+      Result: True
+     Comment: The following packages were installed/updated: apt-transport-https
+              The following packages were already installed: ca-certificates, curl, gnupg
+     Started: 19:38:42.274759
+    Duration: 3703.861 ms
+     Changes:   
+              ----------
+              apt-transport-https:
+                  ----------
+                  new:
+                      2.0.6
+                  old:
+----------
+          ID: docker-repo
+    Function: pkgrepo.managed
+        Name: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+      Result: False
+     Comment: Failed to examine repo 'deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable': Error: 'python-apt' package not installed
+     Started: 19:38:45.984032
+    Duration: 1.782 ms
+     Changes:   
+----------
+          ID: docker
+    Function: pkg.installed
+      Result: False
+     Comment: One or more requisite failed: docker.docker-repo
+     Started: 19:38:45.987421
+    Duration: 0.003 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    2
+------------
+Total states run:     3
+Total run time:   3.706 s
+```
+
+If installing `python-apt` (via `apt install python3-apt -y`), that doesn't resolve the problem. The python modules made available via `apt` only makes them available to the system-level Python(s). The same error will still occur.
+
+If installing via the isolated `pip`, within the pyenv env, it can't be installed due to an error with `DistUtilsExtra`, which would normally be discovered via system-level Python if running `apt install python3-distutils-extra`
+
+If trying to install via `pip`:
+
+```
+root@5001a368b964:~# pip install python-apt
+Collecting python-apt
+  Using cached python-apt-0.7.8.tar.bz2 (49 kB)
+    ERROR: Command errored out with exit status 1:
+     command: /root/.pyenv/versions/3.7.7/envs/salt-tester/bin/python3.7 -c 'import sys, setuptools, tokenize; sys.argv[0] = '"'"'/tmp/pip-install-x_5_t5zr/python-apt/setup.py'"'"'; __file__='"'"'/tmp/pip-install-x_5_t5zr/python-apt/setup.py'"'"';f=getattr(tokenize, '"'"'open'"'"', open)(__file__);code=f.read().replace('"'"'\r\n'"'"', '"'"'\n'"'"');f.close();exec(compile(code, __file__, '"'"'exec'"'"'))' egg_info --egg-base /tmp/pip-pip-egg-info-qdcw08ii
+         cwd: /tmp/pip-install-x_5_t5zr/python-apt/
+    Complete output (5 lines):
+    Traceback (most recent call last):
+      File "<string>", line 1, in <module>
+      File "/tmp/pip-install-x_5_t5zr/python-apt/setup.py", line 6, in <module>
+        from DistUtilsExtra.command import *
+    ModuleNotFoundError: No module named 'DistUtilsExtra'
+    ----------------------------------------
+ERROR: Command errored out with exit status 1: python setup.py egg_info Check the logs for full command output.
+```
+
+State rendered:
+
+```yaml
+# Generated by:
+# salt-call --local state.show_sls docker --output yaml
+local:
+  docker-prereqs:
+    pkg:
+    - pkgs:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+    - installed
+    - order: 10000
+    __sls__: docker
+    __env__: base
+  docker-repo:
+    pkgrepo:
+    - humanname: Docker Official
+    - name: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+    - key_url: https://download.docker.com/linux/ubuntu/gpg
+    - dist: focal
+    - file: /etc/apt/sources.list.d/docker.list
+    - managed
+    - order: 10001
+    __sls__: docker
+    __env__: base
+  docker:
+    pkg:
+    - pkgs:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+    - require:
+      - pkgrepo: docker-repo
+    - aggregate: false
+    - installed
+    - order: 10002
+    __sls__: docker
+    __env__: base
+```
+
+Versions report:
+
+```
+# when in pyenv using 3.7.7
+root@e4e9bb17e81c:~# salt --versions-report
+Salt Version:
+          Salt: 3003.1
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 3.0.1
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 1.0.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.10.1
+        pygit2: Not Installed
+        Python: 3.7.7 (default, Jul 23 2021, 01:24:50)
+  python-gnupg: Not Installed
+        PyYAML: 5.4.1
+         PyZMQ: 22.1.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+ 
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 4.19.130-boot2docker
+        system: Linux
+       version: Ubuntu 20.04 focal
+```
+
+## Salt via single-binary (tiamat-generated)
+
+Can replicate against a container of Ubuntu 20.04.
+
+This runs into several other problems, related to libraries meant to call and work with `apt-get`, that either aren't being discovered properly or are not present.
+
+```bash
+# Ubuntu 20.04 test
+# Testing using salt from isolated python env (via single-binary / tiamat-gened)
+# docker container run --rm -it ubuntu:20.04 /bin/bash
+apt update
+apt install wget -y
+wget -O salt.tar.gz https://repo.saltproject.io/salt-singlebin/3003/salt-3003-3-linux-amd64.tar.gz
+tar -xvf salt.tar.gz
+mkdir /srv/salt
+
+# Example where I run into problems
+wget -O /srv/salt/docker.sls https://gist.githubusercontent.com/ScriptAutomate/77775f26c6640d184b0574065ff94d64/raw/7b228aa82e748b927ab619f1f62455c0fa3018ad/docker.sls
+./salt call --local state.show_sls docker --output yaml
+
+# Attempt to run
+./salt call --local state.apply docker -l debug
+```
+
+Filtered output:
+
+```
+[INFO    ] Running state [docker-prereqs] at time 01:17:18.110296
+[INFO    ] Executing state pkg.installed for [docker-prereqs]
+[DEBUG   ] Could not LazyLoad pkg.resolve_capabilities: 'pkg.resolve_capabilities' is not available.
+[INFO    ] Executing command dpkg-query in directory '/root'
+[DEBUG   ] Could not LazyLoad pkg.check_db: 'pkg.check_db' is not available.
+[INFO    ] Executing command apt-cache in directory '/root'
+[ERROR   ] Command 'apt-cache' failed with return code: 1
+[ERROR   ] stderr: apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by apt-cache)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by apt-cache)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.8' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.26' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+[ERROR   ] retcode: 1
+[INFO    ] Executing command apt-cache in directory '/root'
+[ERROR   ] Command 'apt-cache' failed with return code: 1
+[ERROR   ] stderr: apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by apt-cache)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by apt-cache)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.8' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.26' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+[ERROR   ] retcode: 1
+[INFO    ] Executing command apt-cache in directory '/root'
+[ERROR   ] Command 'apt-cache' failed with return code: 1
+[ERROR   ] stderr: apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by apt-cache)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by apt-cache)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.8' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.26' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-cache: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+[ERROR   ] retcode: 1
+[INFO    ] Executing command apt-get in directory '/root'
+[ERROR   ] Command 'apt-get' failed with return code: 1
+[ERROR   ] stderr: apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by apt-get)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by apt-get)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by apt-get)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.8' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.26' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+[ERROR   ] retcode: 1
+[ERROR   ] An error was encountered while installing package(s): apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by apt-get)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by apt-get)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by apt-get)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.8' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.26' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+[INFO    ] Completed state [docker-prereqs] at time 01:17:18.166916 (duration_in_ms=56.621)
+[DEBUG   ] LazyLoaded pkgrepo.managed
+[INFO    ] Running state [deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable] at time 01:17:18.170113
+[INFO    ] Executing state pkgrepo.managed for [deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable]
+[ERROR   ] Failed to examine repo 'deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable': Error: 'python-apt' package not installed
+[INFO    ] Completed state [deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable] at time 01:17:18.171641 (duration_in_ms=1.528)
+[DEBUG   ] File /var/cache/salt/minion/accumulator/139919940803856 does not exist, no need to cleanup
+[DEBUG   ] LazyLoaded state.check_result
+[DEBUG   ] Using pkg_resources to load entry points
+[DEBUG   ] LazyLoaded highstate.output
+local:
+----------
+          ID: docker-prereqs
+    Function: pkg.installed
+      Result: False
+     Comment: An error was encountered while installing package(s): apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by apt-get)
+              apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by apt-get)
+              apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by apt-get)
+              apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+              apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+              apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /lib/x86_64-linux-gnu/libapt-private.so.0.0)
+              apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.20' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+              apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.8' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+              apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `CXXABI_1.3.9' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+              apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.26' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+              apt-get: /tmp/_MEIQ6n3bT/libstdc++.so.6: version `GLIBCXX_3.4.21' not found (required by /lib/x86_64-linux-gnu/libapt-pkg.so.6.0)
+     Started: 01:17:18.110295
+    Duration: 56.621 ms
+     Changes:   
+----------
+          ID: docker-repo
+    Function: pkgrepo.managed
+        Name: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+      Result: False
+     Comment: Failed to examine repo 'deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable': Error: 'python-apt' package not installed
+     Started: 01:17:18.170113
+    Duration: 1.528 ms
+     Changes:   
+----------
+          ID: docker
+    Function: pkg.installed
+      Result: False
+     Comment: One or more requisite failed: docker.docker-repo
+     Started: 01:17:18.172240
+    Duration: 0.002 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 0
+Failed:    3
+------------
+Total states run:     3
+Total run time:  58.151 ms
+[DEBUG   ] Restoring sys.argv to: ['./salt', '--local', 'state.apply', 'docker', '-l', 'debug']
+```
+
+Here, there are more problems going on then simply `python-apt`. There are also library problems that I don't know how to approach.
+
+As for `python-apt`: I attempted `./salt pip install python-apt`, too.
+
+```
+# Cannot be addressed by pypi version of python-apt
+root@5001a368b964:~# ./salt pip install python-apt # Fails to install 
+Collecting python-apt
+  Using cached python-apt-0.7.8.tar.bz2 (49 kB)
+ERROR: No .egg-info directory found in /tmp/pip-pip-egg-info-0j246q7y
+Distribution python-apt was not found installed
+```
+
+I think it is likely the same problem experienced by the `pyenv` env around the `DistUtilsExtra` issue.
+
+State rendered:
+
+```yaml
+# Generated by:
+root@5001a368b964:~# ./salt call --local state.show_sls docker --output yaml
+local:
+  docker-prereqs:
+    pkg:
+    - pkgs:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+    - installed
+    - order: 10000
+    __sls__: docker
+    __env__: base
+  docker-repo:
+    pkgrepo:
+    - humanname: Docker Official
+    - name: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+    - key_url: https://download.docker.com/linux/ubuntu/gpg
+    - dist: focal
+    - file: /etc/apt/sources.list.d/docker.list
+    - managed
+    - order: 10001
+    __sls__: docker
+    __env__: base
+  docker:
+    pkg:
+    - pkgs:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+    - require:
+      - pkgrepo: docker-repo
+    - aggregate: false
+    - installed
+    - order: 10002
+    __sls__: docker
+    __env__: base
+```
+
+
+Versions report:
+
+```
+root@e4e9bb17e81c:~# ./salt --versions-report
+Salt Version:
+          Salt: 3003
+ 
+Dependency Versions:
+          cffi: 1.14.4
+      cherrypy: unknown
+      dateutil: 2.8.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10.1
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 1.0.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.17
+      pycrypto: Not Installed
+  pycryptodome: 3.9.8
+        pygit2: Not Installed
+        Python: 3.7.7 (default, Feb 23 2021, 21:56:10)
+  python-gnupg: 0.4.4
+        PyYAML: 5.3.1
+         PyZMQ: 18.0.1
+         smmap: Not Installed
+       timelib: 0.2.4
+       Tornado: 4.5.3
+           ZMQ: 4.3.1
+ 
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 4.19.130-boot2docker
+        system: Linux
+       version: Ubuntu 20.04 focal
+```

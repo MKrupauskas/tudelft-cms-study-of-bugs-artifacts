@@ -1,0 +1,80 @@
+When trying to deploy an empty managed file, which was previously not empty, the salt minion prefers to use the old cached version instead.
+
+Steps to reproduce : 
+- Deploy a non-empty managed file
+
+``` yaml
+# /srv/salt/test.sls
+/tmp/testfile:
+  file.managed:
+    - source: salt://testfile
+    - template: jinja
+```
+
+/srv/salt/testfile:
+
+``` text
+Not empty
+```
+
+``` shell
+# salt-call state.sls test
+[... snip debug messages ...]
+local:
+----------
+    State: - file
+    Name:      /tmp/testfile
+    Function:  managed
+        Result:    True
+        Comment:   File /tmp/testfile updated
+        Changes:   diff: New file
+# cat /tmp/testfile
+Not empty
+```
+- Empty that file 
+
+``` shell
+# echo -n > /srv/salt/testfile
+# cat /srv/salt/testfile
+# du /srv/salt/testfile
+0   /srv/salt/testfile
+```
+
+The /srv/salt/testfile is now empty
+- Try to re-deploy that file, the salt minion will deploy the old (non-empty) cached version instead
+
+``` shell
+# salt-call state.sls test
+[... snip debug messages ...]
+local:
+----------
+    State: - file
+    Name:      /tmp/testfile
+    Function:  managed
+        Result:    True
+        Comment:   File /tmp/testfile is in the correct state
+        Changes:   
+# cat /tmp/testfile
+Not empty
+# cat /var/cache/salt/minion/files/base/testfile 
+Not empty
+```
+
+So the minion seems to prefer the cached version when the /srv/salt one is empty?
+
+Version information : 
+Distribution: Debian sid, salt packages from http://debian.saltstack.com/debian
+
+``` shell
+# salt --versions-report
+           Salt: 0.16.0
+         Python: 2.7.3 (default, Sep  9 2012, 17:41:34)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.2.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.3
+```

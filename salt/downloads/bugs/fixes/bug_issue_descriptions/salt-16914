@@ -1,0 +1,663 @@
+I've got a an environment containing many instances, and it must be brought up in a specific order, for which I use an overstate.sls file. Each instance has many states, and it's not uncommon to find a
+state failing after 10 other instances have already finished running the states associated with them in overstate.sls (many of which were probably dependencies). With the large list of instance/state dependencies I have, this causes many other instances to fail to come up as well.
+
+Here is a (truncated) example of that:
+
+```
+$ sudo salt-run state.over
+Executing the following Over State:
+all: 
+    match: *
+    require: ['development-app-legacy', 'development-phpepl', 'development-varnish']
+development-app-legacy: 
+    match: app-legacy[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['apache', 'dns', 'memcached', 'php']
+development-appnodes: 
+    match: app[0-9]*.development.somedomain.com
+    require: ['development-buildmaster', 'development-cache', 'development-monitoring', 'development-mta', 'development-search']
+    sls: ['apache', 'blog', 'git']
+development-appnodes-nfsclient: 
+    match: app-nfsclient[0-9]*.development.somedomain.com
+    require: ['development-buildmaster', 'development-cache', 'development-monitoring', 'development-mta', 'development-nfs', 'development-search']
+    sls: ['apache', 'git', 'memcached', 'nfsmount', 'php']
+development-buildmaster: 
+    match: buildmaster.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['apt-utils', 'buildbot', 'dns']
+development-cache: 
+    match: cache[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['dns', 'memcached']
+development-monitoring: 
+    match: monitoring[0-9]*.development.somedomain.com
+    sls: ['dns', 'rsyslog.server']
+development-mta: 
+    match: mta[0-9]*.development.somedomain.com
+    require: ['development-monitoring']
+    sls: ['dns', 'mail-transfer-agent']
+development-nfs: 
+    match: nfs[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['dns', 'nfsexport', 'storage-setup']
+development-phpepl: 
+    match: phpepl[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['apache', 'git', 'phpepl']
+development-proxy: 
+    match: proxy[0-9]*.development.somedomain.com
+    require: ['development-appnodes', 'development-mta', 'development-monitoring']
+    sls: ['dns', 'perlbal', 'squid']
+development-proxy-nfsnodes: 
+    match: proxy-nfsnodes[0-9]*.development.somedomain.com
+    require: ['development-appnodes-nfsclient', 'development-mta', 'development-monitoring']
+    sls: ['dns', 'perlbal', 'squid']
+development-search: 
+    match: search[0-9]*.development.somedomain.com
+    require: ['development-monitoring', 'development-mta']
+    sls: ['dns', 'elasticsearch']
+development-varnish: 
+    match: varnish[0-9]*.development.somedomain.com
+    require: ['development-app-legacy', 'development-monitoring', 'development-mta', 'development-proxy', 'development-proxy-nfsnodes']
+    sls: ['nginx', 'ssl', 'varnish']
+Executed Stage:
+development-monitoring: 
+    match: monitoring[0-9]*.development.somedomain.com
+    sls: ['dns', 'rsyslog.server']
+Stage execution results:
+monitoring0.development.somedomain.com:
+  Name: Run curl command to update my A record - Function: cmd.run - Result: Changed
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total:     1
+Executed Stage:
+development-mta: 
+    match: mta[0-9]*.development.somedomain.com
+    require: ['development-monitoring']
+    sls: ['dns', 'mail-transfer-agent']
+Stage execution results:
+mta0.development.somedomain.com:
+  Name: Run curl command to update my A record - Function: cmd.run - Result: Changed
+  Name: libsasl2-modules - Function: pkg.installed - Result: Changed
+  Name: postfix - Function: pkg.installed - Result: Changed
+  ...etc...
+
+Summary
+-------------
+Succeeded: 17
+Failed:     0
+-------------
+Total:     17
+Executed Stage:
+development-app-legacy: 
+    match: app-legacy[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['apache', 'dns', 'memcached', 'php']
+Stage execution results:
+Executed Stage:
+development-phpepl: 
+    match: phpepl[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['apache', 'git', 'phpepl']
+Stage execution results:
+phpepl0.development.somedomain.com:
+
+Summary
+-----------
+Succeeded: 0
+Failed:   0
+-----------
+Total:    0
+Executed Stage:
+development-buildmaster: 
+    match: buildmaster.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['apt-utils', 'buildbot', 'dns']
+Stage execution results:
+buildmaster.development.somedomain.com:
+  Name: Run curl command to update my A record - Function: cmd.run - Result: Changed
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total:     1
+Executed Stage:
+development-cache: 
+    match: cache[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['dns', 'memcached']
+Stage execution results:
+cache1.development.somedomain.com:
+  Name: /etc/apt/sources.list.d/wheezy-backports.list - Function: file.absent - Result: Changed
+  Name: deb http://ftp.debian.org/debian wheezy-backports main - Function: pkgrepo.managed - Result: Changed
+  Name: /etc/apt/preferences.d/01zeromq - Function: file.managed - Result: Changed
+  ...etc...
+
+
+Summary
+-------------
+Succeeded: 43
+Failed:     0
+-------------
+Total:     43
+Executed Stage:
+development-search: 
+    match: search[0-9]*.development.somedomain.com
+    require: ['development-monitoring', 'development-mta']
+    sls: ['dns', 'elasticsearch']
+Stage execution results:
+search1.development.somedomain.com:
+  Name: Run curl command to update my A record - Function: cmd.run - Result: Changed
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total:     1
+Executed Stage:
+development-appnodes: 
+    match: app[0-9]*.development.somedomain.com
+    require: ['development-buildmaster', 'development-cache', 'development-monitoring', 'development-mta', 'development-search']
+    sls: ['apache', 'blog', 'git']
+Stage execution results:
+app0.development.somedomain.com:
+  Name: /etc/apt/sources.list.d/wheezy-backports.list - Function: file.absent - Result: Changed
+  Name: deb http://ftp.debian.org/debian wheezy-backports main - Function: pkgrepo.managed - Result: Changed
+  Name: buildmaster.development.somedomain.com - Function: ssh_known_hosts.present - Result: Changed
+  ...etc...
+----------
+          ID: Proxy instance to re-run the Perlbal state
+    Function: module.wait
+        Name: event.fire_master
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/pymodules/python2.7/salt/state.py", line 1382, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/pymodules/python2.7/salt/states/module.py", line 203, in run
+                  if ret['changes'].get('ret', {}).get('retcode', 0) != 0:
+              AttributeError: 'bool' object has no attribute 'get'
+     Changes:   
+  Name: update-command-not-found - Function: cmd.run - Result: Changed
+
+Summary
+--------------
+Succeeded: 155
+Failed:      1
+--------------
+Total:     156
+Executed Stage:
+development-proxy: 
+    match: proxy[0-9]*.development.somedomain.com
+    require: ['development-appnodes', 'development-mta', 'development-monitoring']
+    sls: ['dns', 'perlbal', 'squid']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-appnodes failed for stage on minion app0.development.somedomain.com
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+development-nfs: 
+    match: nfs[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['dns', 'nfsexport', 'storage-setup']
+Stage execution results:
+nfs1.development.somedomain.com:
+
+Summary
+-----------
+Succeeded: 0
+Failed:   0
+-----------
+Total:    0
+Executed Stage:
+development-appnodes-nfsclient: 
+    match: app-nfsclient[0-9]*.development.somedomain.com
+    require: ['development-buildmaster', 'development-cache', 'development-monitoring', 'development-mta', 'development-nfs', 'development-search']
+    sls: ['apache', 'git', 'memcached', 'nfsmount', 'php']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-nfs failed for stage on minion nfs1.development.somedomain.com
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+development-proxy-nfsnodes: 
+    match: proxy-nfsnodes[0-9]*.development.somedomain.com
+    require: ['development-appnodes-nfsclient', 'development-mta', 'development-monitoring']
+    sls: ['dns', 'perlbal', 'squid']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-appnodes-nfsclient failed for stage on minion req_|-fail_|-fail_|-None
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+development-varnish: 
+    match: varnish[0-9]*.development.somedomain.com
+    require: ['development-app-legacy', 'development-monitoring', 'development-mta', 'development-proxy', 'development-proxy-nfsnodes']
+    sls: ['nginx', 'ssl', 'varnish']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-proxy-nfsnodes failed for stage on minion req_|-fail_|-fail_|-None
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+all: 
+    match: *
+    require: ['development-app-legacy', 'development-phpepl', 'development-varnish']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-varnish failed for stage on minion req_|-fail_|-fail_|-None
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+```
+
+Note the failure in `Proxy instance to re-run the Perlbal state`. There is a bug somewhere which I need to investigate. However, I don't want to fix it, nuke my instances and re-launch them all again just to give the overstate another shot. I'd much rather the overstate picked up where it left off. Unfortunately, that does not seem possible:
+
+```
+$ sudo salt-run state.over
+Executing the following Over State:
+all: 
+    match: *
+    require: ['development-app-legacy', 'development-phpepl', 'development-varnish']
+development-app-legacy: 
+    match: app-legacy[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['apache', 'dns', 'memcached', 'php']
+development-appnodes: 
+    match: app[0-9]*.development.somedomain.com
+    require: ['development-buildmaster', 'development-cache', 'development-monitoring', 'development-mta', 'development-search']
+    sls: ['apache', 'blog', 'git']
+development-appnodes-nfsclient: 
+    match: app-nfsclient[0-9]*.development.somedomain.com
+    require: ['development-buildmaster', 'development-cache', 'development-monitoring', 'development-mta', 'development-nfs', 'development-search']
+    sls: ['apache', 'git', 'memcached', 'nfsmount', 'php']
+development-buildmaster: 
+    match: buildmaster.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['apt-utils', 'buildbot', 'dns']
+development-cache: 
+    match: cache[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['dns', 'memcached']
+development-monitoring: 
+    match: monitoring[0-9]*.development.somedomain.com
+    sls: ['dns', 'rsyslog.server']
+development-mta: 
+    match: mta[0-9]*.development.somedomain.com
+    require: ['development-monitoring']
+    sls: ['dns', 'mail-transfer-agent']
+development-nfs: 
+    match: nfs[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['dns', 'nfsexport', 'storage-setup']
+development-phpepl: 
+    match: phpepl[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['apache', 'git', 'phpepl']
+development-proxy: 
+    match: proxy[0-9]*.development.somedomain.com
+    require: ['development-appnodes', 'development-mta', 'development-monitoring']
+    sls: ['dns', 'perlbal', 'squid']
+development-proxy-nfsnodes: 
+    match: proxy-nfsnodes[0-9]*.development.somedomain.com
+    require: ['development-appnodes-nfsclient', 'development-mta', 'development-monitoring']
+    sls: ['dns', 'perlbal', 'squid']
+development-search: 
+    match: search[0-9]*.development.somedomain.com
+    require: ['development-monitoring', 'development-mta']
+    sls: ['dns', 'elasticsearch']
+development-varnish: 
+    match: varnish[0-9]*.development.somedomain.com
+    require: ['development-app-legacy', 'development-monitoring', 'development-mta', 'development-proxy', 'development-proxy-nfsnodes']
+    sls: ['nginx', 'ssl', 'varnish']
+Executed Stage:
+development-monitoring: 
+    match: monitoring[0-9]*.development.somedomain.com
+    sls: ['dns', 'rsyslog.server']
+Stage execution results:
+monitoring0.development.somedomain.com:
+
+Summary
+-----------
+Succeeded: 0
+Failed:   0
+-----------
+Total:    0
+Executed Stage:
+development-mta: 
+    match: mta[0-9]*.development.somedomain.com
+    require: ['development-monitoring']
+    sls: ['dns', 'mail-transfer-agent']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-monitoring failed for stage on minion monitoring0.development.somedomain.com
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+development-app-legacy: 
+    match: app-legacy[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['apache', 'dns', 'memcached', 'php']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-monitoring failed for stage on minion monitoring0.development.somedomain.com
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+development-phpepl: 
+    match: phpepl[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['apache', 'git', 'phpepl']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-monitoring failed for stage on minion monitoring0.development.somedomain.com
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+development-buildmaster: 
+    match: buildmaster.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['apt-utils', 'buildbot', 'dns']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-monitoring failed for stage on minion monitoring0.development.somedomain.com
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+development-cache: 
+    match: cache[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['dns', 'memcached']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-monitoring failed for stage on minion monitoring0.development.somedomain.com
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+development-search: 
+    match: search[0-9]*.development.somedomain.com
+    require: ['development-monitoring', 'development-mta']
+    sls: ['dns', 'elasticsearch']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-mta failed for stage on minion req_|-fail_|-fail_|-None
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+development-appnodes: 
+    match: app[0-9]*.development.somedomain.com
+    require: ['development-buildmaster', 'development-cache', 'development-monitoring', 'development-mta', 'development-search']
+    sls: ['apache', 'blog', 'git']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-search failed for stage on minion req_|-fail_|-fail_|-None
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+development-proxy: 
+    match: proxy[0-9]*.development.somedomain.com
+    require: ['development-appnodes', 'development-mta', 'development-monitoring']
+    sls: ['dns', 'perlbal', 'squid']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-monitoring failed for stage on minion monitoring0.development.somedomain.com
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+development-nfs: 
+    match: nfs[0-9]*.development.somedomain.com
+    require: ['development-mta', 'development-monitoring']
+    sls: ['dns', 'nfsexport', 'storage-setup']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-monitoring failed for stage on minion monitoring0.development.somedomain.com
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+development-appnodes-nfsclient: 
+    match: app-nfsclient[0-9]*.development.somedomain.com
+    require: ['development-buildmaster', 'development-cache', 'development-monitoring', 'development-mta', 'development-nfs', 'development-search']
+    sls: ['apache', 'git', 'memcached', 'nfsmount', 'php']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-search failed for stage on minion req_|-fail_|-fail_|-None
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+development-proxy-nfsnodes: 
+    match: proxy-nfsnodes[0-9]*.development.somedomain.com
+    require: ['development-appnodes-nfsclient', 'development-mta', 'development-monitoring']
+    sls: ['dns', 'perlbal', 'squid']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-monitoring failed for stage on minion monitoring0.development.somedomain.com
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+development-varnish: 
+    match: varnish[0-9]*.development.somedomain.com
+    require: ['development-app-legacy', 'development-monitoring', 'development-mta', 'development-proxy', 'development-proxy-nfsnodes']
+    sls: ['nginx', 'ssl', 'varnish']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-proxy-nfsnodes failed for stage on minion req_|-fail_|-fail_|-None
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+Executed Stage:
+all: 
+    match: *
+    require: ['development-app-legacy', 'development-phpepl', 'development-varnish']
+Stage execution results:
+error:
+----------
+          ID: fail
+    Function: req.None
+      Result: False
+     Comment: Requisite development-varnish failed for stage on minion req_|-fail_|-fail_|-None
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+```
+
+We now have the `development-mta` failing because its dependency `development-monitoring` apparently failed. However, there was no failure. The actual situation is that the states already have ran successfully so no change was required. If no change is required, the overstate seems to treat this as a failure. Hence with the reactor intermittently failing for some reason, the overstate is unusable in its current form.
+
+I've tried `salt-run -l debug state.over`, but it didn't seem to tell me anything interesting.
+
+TLDR: The overstate always seems to fail when dependant instances have sls requirements specified that don't need to do anything due to already being in the correct state.
+
+```
+$ sudo salt --versions-report
+           Salt: 2014.1.13-1-g308f526
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.3
+```
+
+I've also observed this behaviour in 2014.1.7 before upgrading.

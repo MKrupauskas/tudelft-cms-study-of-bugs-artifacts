@@ -1,0 +1,83 @@
+We use Centrify to handle authentication from Ubuntu Linux to Active Directory. When running the highstate on a new system, the system is added successfully to the domain and authentication is working properly. However, any states in that same run which refer to users from that service will fail, and I have not been able to find a way to let Salt to know to refresh its awareness of current users.
+
+An example of a state which will fail:
+
+``` jinja
+{% for userkeys in salt ['pillar.get']('et:ssh-keys') -%}
+{% for user,key in userkeys.iteritems() -%}
+/home/{{ user }}/.ssh/authorized_keys:
+  file.managed:
+    - name: /home/{{ user }}/.ssh/authorized_keys
+    - makedirs: true
+    - contents_pillar: et:ssh-keys:{{ user }}
+    - onlyif: 'adquery user {{ user }}'
+    - user: {{ user }}
+    - group: {{ user }}
+    - require:
+      - service: centrifydc
+{% endfor -%}
+{% endfor -%}
+```
+
+If the highstate is run before centrify is configured on the system, this will happen:
+1. Salt will successfully configure centrify and it is immediately available
+2. Each user list in the pillar will produce a failure of the above state, (even though the "onlyif" succeeds for the now-valid username) because uf the - user: {{ user }} and - group: {{ user }} lines as follows:
+
+``` yaml
+ ----------
+           ID: /home/aaron.aardvaark/.ssh/authorized_keys
+     Function: file.managed
+       Result: False
+      Comment: User aaron.aardvaark is not available Group aaron.aardvaark is not available
+      Started: 10:13:07.727391
+     Duration: 43.058 ms
+      Changes:   
+```
+
+If the highstate is run after centrify is configured on the system, the states each succeed, presumably because Salt is now aware of the users because they "existed" at the start of the run.
+
+Removing the offending - user: and - group: lines will succeed, but result in any home directories or files incorrectly owned by root instead of the user. A further workaround can be achieved through cmd.run, but this seems non-optimal.
+
+It seems to me that there ought to be a way to alert Salt to refresh its list of available users, since there are various ways to add a user to the system, but after days of digging, I have yet to be able to identify one. 
+
+``` yaml
+salt-master --versions-report:
+ Salt: 2015.5.0
+ Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+ Jinja2: 2.7.2
+ M2Crypto: 0.21.1
+ msgpack-python: 0.3.0
+ msgpack-pure: Not Installed
+ pycrypto: 2.6.1
+ libnacl: Not Installed
+ PyYAML: 3.10
+ ioflo: Not Installed
+ PyZMQ: 14.0.1
+ RAET: Not Installed
+ ZMQ: 4.0.4
+ Mako: 0.9.1
+ Debian source package: 2015.5.0+ds-1trusty1
+```
+
+``` yaml
+salt-minion --versions-report:
+ Salt: 2015.5.0
+ Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+ Jinja2: 2.7.2
+ M2Crypto: 0.21.1
+ msgpack-python: 0.3.0
+ msgpack-pure: Not Installed
+ pycrypto: 2.6.1
+ libnacl: Not Installed
+ PyYAML: 3.10
+ ioflo: Not Installed
+ PyZMQ: 14.0.1
+ RAET: Not Installed
+ ZMQ: 4.0.4
+ Mako: 0.9.1
+ Debian source package: 2015.5.0+ds-1trusty1
+```
+
+Note our version is a little older due to #24563.
+
+Apologies in advance if there's actually a solution for this that I've missed.

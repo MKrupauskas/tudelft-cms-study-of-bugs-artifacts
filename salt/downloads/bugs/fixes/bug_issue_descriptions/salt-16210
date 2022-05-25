@@ -1,0 +1,102 @@
+This problem was initially reported (and debugged) on irc with babilen.
+
+The problem is whereas pillar is defined (and correctly readed, without errors), pillar.items is empty. The pillar don't work under 2014.1.11 (whereas it is ok under 2014.1.10).
+
+The configuration is masterless, run with unpriviliged user. (My purpose is just to test salt for the moment).
+## Execution tests
+
+```
+$ salt-call --versions-report
+           Salt: 2014.1.11
+         Python: 2.7.8 (default, Sep 23 2014, 11:38:08)
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.11
+          PyZMQ: 14.3.1
+            ZMQ: 4.0.4
+$ salt-call pillar.get hello no-value -c /tmp/salt/etc/salt
+local:
+    no-value
+
+(switching to 2014.1.10)
+$ salt-call --versions-report
+           Salt: 2014.1.10
+         Python: 2.7.8 (default, Sep 23 2014, 11:38:08)
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.11
+          PyZMQ: 14.3.1
+            ZMQ: 4.0.4
+$ salt-call pillar.get hello no-value -c /tmp/salt/etc/salt
+local:
+    world
+```
+
+Here the salt files description:
+## List of files for salt:
+
+There are based at "/tmp/salt"
+
+```
+$ find . -type f
+./etc/salt/minion_id
+./etc/salt/minion.d/masterless.conf
+./etc/salt/minion.d/paths.conf
+./var/salt/states/top.sls
+./var/salt/states/test.sls
+./var/salt/pillar/test.sls
+./var/salt/pillar/top.sls
+```
+## Configuration contents:
+
+```
+$ cat ./etc/salt/minion.d/masterless.conf
+file_client: local
+
+$ cat ./etc/salt/minion.d/paths.conf
+root_dir: /tmp/salt
+
+file_roots:
+  base:
+    - /tmp/salt/var/salt/states
+
+pillar_roots:
+  base:
+    - /tmp/salt/var/salt/pillar
+```
+## State files contents:
+
+```
+$ cat ./var/salt/states/top.sls
+base:
+  '*':
+    - test
+
+$ cat ./var/salt/states/test.sls
+test:
+  file.managed:
+    - name: /tmp/test
+    - contents: "this is just a test on {{ grains['os'] }}: hello {{ salt['pillar.get']('hello', 'no world') }}"
+```
+## Pillar files contents:
+
+```
+$ cat ./var/salt/pillar/top.sls
+base:
+  '*':
+    - test
+
+$ cat ./var/salt/pillar/test.sls
+hello: world
+```
+## Debugging
+
+I have bisect to the first commit which introduce that bad behaviour:  280e1fe4500d2145d16b1d92c9f4053b78863235 (but I have to comment line 21: "from salt.utils.serializers.yamlex import merge_recursive" (No module named serializers.yamlex)).
+
+I currently look at the commit.

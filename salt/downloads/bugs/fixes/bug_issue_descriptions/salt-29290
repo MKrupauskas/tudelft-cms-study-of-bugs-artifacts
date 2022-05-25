@@ -1,0 +1,53 @@
+I've been chasing this for several days and am coming to the conclusion that it does not work.
+
+I am trying to trigger the following state file from a <code>'salt/cloud/*/created'</code> event. 
+
+On the master, I see the reactor properly rendered in the master logfile, I see the following state file rendered. 
+
+On the minion, in a debug logfile I see no indication that the minion was contacted by this reactor.
+
+In an IRC conversation, it has been suggested that this cannot dependably work and that there is no way to assure that the master can communicate with the minion when this event is triggered.
+
+However, in the documentation, I see a nearly identical example of this goal with comments stating that the " a minion fires an event when it is able to receive commands". The doc here: https://docs.saltstack.com/en/latest/topics/cloud/reactor.html#example-reactor-based-highstate
+
+So either I am doing something wrong in this state file or there is a bug, or the doc needs to be updated. Not sure which. I appreciate any help sorting this out.
+
+Running on salt version 2015.8.1 on both master and minion with minion being a Windows instance on EC2.
+
+``` yaml
+minion_sync_all:
+  local.saltutil.sync_all:
+    - tgt: {{ data['name'] }}
+    - refresh: True
+
+minion_mine_update:
+  local.mine.update:
+    - tgt: {{ data['name'] }}
+    - require:
+      - local: minion_sync_all
+
+minion_refresh_pillar:
+  local.saltutil.refresh_pillar:
+    - tgt: {{ data['name'] }}
+    - require:
+      - local: minion_mine_update
+
+refresh_pkg_db:
+  cmd.pkg.refresh_db:
+    - tgt: {{ data['name'] }}
+    - require:
+      - local: minion_refresh_pillar
+
+install_required_windows_minion_software:
+  cmd.state.sls:
+    - name: common.windows
+    - tgt: {{ data['name'] }}
+    - require:
+      - cmd: refresh_pkg_db
+
+highstate_run:
+  cmd.state.highstate:
+    - tgt: {{ data['name'] }}
+    - require:
+      - cmd: install_required_windows_minion_software
+```

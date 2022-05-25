@@ -1,0 +1,70 @@
+I'm experiencing the following:
+- state.highstate works just fine.
+- state.sls [some state] fails to render pillar data
+
+state.sls appears to render pillar data completely differently somehow.
+
+In debugging this, I reduced the pillar file to just a few lines: compute a variable, and then just output it. (For debugging.) The whole file is ~5 lines long, but I still get the same error: and it's point to a line in the file that no longer exists. (Also note that, on the errored line, the error is "undefined variable"; the only variable on that line is "nodes_by_role", and that's definitely defined several lines earlier.)
+
+The error:
+
+```
+[my machine]:
+    Data failed to compile:
+----------
+    Pillar failed to render with the following messages:
+----------
+    Rendering SLS 'parse' failed, render error:
+Undefined jinja variable; line 34 in template
+
+---
+[...]
+
+# always is a list, even if there is only one db node
+{% set db_node_ips = nodes_by_role[1][1:][0]|map(attribute='ip_interfaces')|map(attribute='eth1')|map('first')|list %}
+
+# assumes there is only one metric ip
+{% set metrics_ip = nodes_by_role[2][1:][0][0]['ip_interfaces']['eth1']|first %}    <======================
+
+# always is a list, even if there is only one storage node
+{% set storage_node_ips = nodes_by_role[3][1:][0]|map(attribute='ip_interfaces')|map(attribute='eth1')|map('first')|list %}
+
+# always is a list, even if there is only one work node
+[...]
+```
+
+The SLS file `parse.sls` looks like:
+
+```
+{% set all_grains = salt['saltutil.cmd']('cluster:' ~ grains['cluster'], 'grains.items', expr_form='grain').values()|map(attribute='ret')|list %}
+{% set nodes_by_role = all_grains | groupby('role') %}
+
+nodes_by_role: |
+  {{ nodes_by_role }}
+```
+
+Note how this is completely different than what's visible in the above error.
+(It was changed from that, but no amount of waiting seems to update it.)
+
+The SLS file `test/write_file.sls`:
+
+```
+/root/hi:
+  file:
+    - managed
+    - source: salt://test/templ.sls
+    - template: jinja
+```
+
+The SLS file `test/templ.sls`:
+
+```
+nodes_by_roles: |
+  {{ pillar['nodes_by_role'] }}
+```
+
+And the command:
+
+```
+salt 'my-machine' state.sls test.write_file
+```

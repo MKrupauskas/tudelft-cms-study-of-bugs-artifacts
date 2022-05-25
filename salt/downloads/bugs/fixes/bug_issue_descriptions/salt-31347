@@ -1,0 +1,79 @@
+Hi,
+I am working with junos proxy. There seems to be a problem with the proxy. When I call the call_rpc function from the junos module in gives the following error:
+
+```
+[INFO    ] User sudo_m2 Executing command junos.call_rpc with jid 20160219151941478938
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20160219151941478938', 'tgt': 'dev', 'ret': '', 'user': 'sudo_m2', 'arg': [], 'fun': 'junos.call_rpc'}
+[INFO    ] Starting a new job with PID 6361
+[DEBUG   ] LazyLoaded junos.call_rpc
+[INFO    ] Requesting 'ExecuteRpc'
+[DEBUG   ] queueing <?xml version="1.0" encoding="UTF-8"?><nc:rpc xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="urn:uuid:19048b1e-d6ee-11e5-8f14-08002743900b"><get-chassis-inventory/></nc:rpc>
+[DEBUG   ] Sync request, will wait for timeout=50
+[WARNING ] The minion function caused an exception
+Traceback (most recent call last):
+  File "/usr/local/lib/python2.7/dist-packages/salt/minion.py", line 1071, in _thread_return
+    return_data = func(*args, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/salt/modules/junos.py", line 65, in call_rpc
+    return __proxy__['junos.rpc']()
+  File "/usr/local/lib/python2.7/dist-packages/salt/proxy/junos.py", line 45, in rpc
+    val = thisproxy['conn'].rpc.get_chassis_inventory()
+  File "/usr/local/lib/python2.7/dist-packages/jnpr/junos/rpcmeta.py", line 143, in _exec_rpc
+    return self._junos.execute(rpc, **dec_args)
+  File "/usr/local/lib/python2.7/dist-packages/jnpr/junos/decorators.py", line 71, in wrapper
+    return function(*args, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/jnpr/junos/decorators.py", line 26, in wrapper
+    return function(*args, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/jnpr/junos/device.py", line 570, in execute
+    raise EzErrors.RpcTimeoutError(self, rpc_cmd_e.tag, self.timeout)
+RpcTimeoutError: RpcTimeoutError(host: salt-junos-client, cmd: get-chassis-inventory, timeout: 50)
+[DEBUG   ] SaltEvent PUB socket URI: ipc:///var/run/salt/minion/minion_event_e77989ed21_pub.ipc
+[DEBUG   ] SaltEvent PULL socket URI: ipc:///var/run/salt/minion/minion_event_e77989ed21_pull.ipc
+[DEBUG   ] Sending event - data = {'message': u'The minion function caused an exception', 'args': ('The minion function caused an exception',), '_stamp': '2016-02-19T09:50:31.504465'}
+[DEBUG   ] Handling event "_salt_error\n\n\x83\xa7message\xda\x00'The minion function caused an exception\xa4args\x91\xda\x00'The minion function caused an exception\xa6_stamp\xba2016-02-19T09:50:31.504465"
+[DEBUG   ] Forwarding salt error event tag=_salt_error
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'dev', 'tcp://127.0.0.1:4506', 'aes')
+[DEBUG   ] Initializing new SAuth for ('/etc/salt/pki/minion', 'dev', 'tcp://127.0.0.1:4506')
+[INFO    ] User sudo_m2 Executing command saltutil.find_job with jid 20160219152031505859
+[DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20160219152031505859', 'tgt': 'dev', 'ret': '', 'user': 'sudo_m2', 'arg': ['20160219151941478938'], 'fun': 'saltutil.find_job'}
+```
+
+At first it looks like an error is emitted in the unlying libraries used by the the rpc function, but it's not.
+
+The broken code looks something like this:
+Module:
+
+```
+#salt/modules/junos.py
+def call_rpc():
+    return ___proxy__['junos.rpc']()
+```
+
+Proxy
+
+```
+#salt/proxy/junos.py
+def init(opts):
+    '''
+    Open the connection to the Junos device, login, and bind to the
+    Resource class
+    '''
+    log.debug('Opening connection to junos')
+    thisproxy['conn'] = jnpr.junos.Device(user=opts['proxy']['username'],
+                                            host=opts['proxy']['host'],
+                                            password=opts['proxy']['passwd'])
+    thisproxy['conn'].open()
+
+def rpc():
+    val = thisproxy['conn'].rpc.get_interface_information()
+    return json.dumps(val)
+```
+
+When I make a device connection in rpc itself, the code works just fine:
+
+```
+#salt/proxy/junos.py
+def rpc():
+    dev = jnpr.junos.Device(host='XXXXXXX',user='XXXX',password='XXXXX')
+    dev.open()
+    return json.dumps(dev.rpc.get_interface_information()
+```

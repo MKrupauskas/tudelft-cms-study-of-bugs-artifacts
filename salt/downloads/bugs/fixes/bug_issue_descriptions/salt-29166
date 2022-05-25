@@ -1,0 +1,69 @@
+I want to set a grain in one state, reload_grains: True, do some stuff in the middle, and then change the same grain in another state. I use some jinja below to reload the grain, and set a variable in the state. But the rendering of the code before execution checks to see if the grain exists, doesn't find it, and throws an error.
+
+So a grain set from within the state doesn't apply. I tried to initialize the grain with _grains, but with the current precedence, it always overrides my in state grains. The current precedence is inconsistent between core grains and custom grains.
+
+Sane precedence:
+
+```
+_grains become before /etc/salt/grains instead of after
+```
+
+Documented precedence:
+
+```
+https://docs.saltstack.com/en/latest/topics/targeting/grains.html#precedence
+
+
+Core grains.
+Custom grains in /etc/salt/grains.
+Custom grains in /etc/salt/minion.
+Custom grain modules in _grains directory, synced to minions.
+```
+
+Error:
+
+```
+/var/cache/salt/minion/files/base/baseline/map.jinja(50):
+
+---
+[...]
+    'mirror': 'mirror.foo.com'
+  },
+}
+, grain="mirror", merge=salt['pillar.get']('baseline')) %}
+
+{% do defaults.baseline.update(mirror_map) %}    <======================
+
+{% set settings = salt['pillar.get']('baseline', default=defaults.baseline, merge=True) %}
+
+---
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/utils/templates.py", line 368, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python2.7/site-packages/jinja2/environment.py", line 969, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python2.7/site-packages/jinja2/environment.py", line 742, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 1, in top-level template code
+  File "/usr/lib/python2.7/site-packages/jinja2/environment.py", line 1013, in make_module
+    return TemplateModule(self, self.new_context(vars, shared, locals))
+  File "/usr/lib/python2.7/site-packages/jinja2/environment.py", line 1070, in __init__
+    self._body_stream = list(template.root_render_func(context))
+  File "/var/cache/salt/minion/files/base/baseline/map.jinja", line 50, in top-level template code
+    {% do defaults.baseline.update(mirror_map) %}
+TypeError: 'NoneType' object is not iterable
+```
+
+Jinja:
+
+```
+{% set mirror_map = salt['grains.filter_by']({
+  False: {
+    'mirror': 'mirror.example.com'
+  },
+  True: {
+    'mirror': 'mirror.foo.com'
+  },
+}
+, grain="mirror", merge=salt['pillar.get']('baseline')) %}
+```

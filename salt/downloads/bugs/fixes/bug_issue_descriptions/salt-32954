@@ -1,0 +1,94 @@
+### Description of Issue/Question
+
+Hi all, every time I run glusterfs.peered for my 3 peers for the first time I get this error on first peer:
+
+```
+----------
+          ID: glusterfs_peers
+    Function: glusterfs.peered
+        Name: 172.16.20.101
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1626, in call
+                    **cdata['kwargs'])
+                  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1492, in wrapper
+                    return f(*args, **kwargs)
+                  File "/usr/lib/python2.7/dist-packages/salt/states/glusterfs.py", line 92, in peered                      if newpeers and name in newpeers or any([name in newpeers[x] for x in newpeers]):
+              TypeError: 'NoneType' object is not iterable
+     Started: 19:25:36.955326
+    Duration: 268.857 ms
+     Changes:  
+
+```
+
+The other two peers passed correctly
+
+The problem seems to be, that localhost (in this case node on 172.16.20.101) is not actually added as new peer and newpeers list in code is empty.
+
+When I looked into this I also found out that former peers are not removed from the newpeer list in code so glusterfs.peered output is incorrect when adding new peers on node where some peers already existed. I'll tie pull request with this issue in a moment.
+### Setup
+
+Pillar
+
+```
+glusterfs:
+    server:
+        ----------
+        peers:
+            - 172.16.20.101
+            - 172.16.20.102
+            - 172.16.20.103
+```
+
+SLS
+
+```
+glusterfs_peers:
+  glusterfs.peered:
+    - names: {{ server.peers }}
+    - require:
+      - service: glusterfs_service
+```
+### Steps to Reproduce Issue
+
+Simply create pillar with at least 2 peers defined and run glusterfs.peered
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.8.2
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.19.0-26-generic
+         system: Ubuntu 14.04 trusty
+```

@@ -1,0 +1,49 @@
+I'm getting the following error when creating user accounts on SmartOS with Salt 0.17.4. Although the accounts get created successfully, this traceback is still getting generated. 
+
+```
+ Name: wheel - Function: group.present - Result: True
+ Name: py27-pip - Function: pkg.installed - Result: True
+ Name: foo - Function: group.present - Result: True
+ Name: bzip2 - Function: pkg.installed - Result: True
+ Name: autoconf - Function: pkg.installed - Result: True
+----------
+    State: - user
+    Name:     foo
+    Function:  present
+        Result:    False
+        Comment:   An exception occurred in this state: Traceback (most recent call last):
+  File "salt/state.py", line 1307, in call
+  File "salt/states/user.py", line 373, in present
+  File "salt/modules/solaris_shadow.py", line 208, in set_password
+  TypeError: 'NoneType' object has no attribute '__getitem__'
+
+        Changes:   
+```
+
+Looking at the code here:
+https://github.com/saltstack/salt/blob/v0.17.4/salt/modules/solaris_shadow.py
+
+It appears that the uinfo = info(name) call at line 207 is failing. I think this is triggered by the code here at 118-121 in solaris_shadow.py:
+
+```
+   if len(fields) == 2:
+        # For example:
+        #   root      NL
+        return
+```
+
+This return should return something, even if it is an empty dict. 
+
+I think this issue is related to the fact that passwd on SmartOS can produce variable output. See this snippet from 'man passwd' on SmartOS
+
+```
+     The format of the display is:
+
+       name status mm/dd/yy min max warn
+
+     or, if password aging information is not present,
+
+       name status
+```
+
+Basically, on a new account creation, there may not be password age information present, and thus len==2 and nothing gets returned.

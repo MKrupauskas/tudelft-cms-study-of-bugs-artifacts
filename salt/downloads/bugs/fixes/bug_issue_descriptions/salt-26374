@@ -1,0 +1,118 @@
+Was running a salt command that produced extremely large stdout output (comparable to total memory on the machine), it was unintentional ofc. When i wanted to peek at it with jobs.lookup_jid salt crashed with this:
+
+``` python-traceback
+      # salt-run jobs.lookup_jid 20150817112744579425
+      [ERROR   ] An un-handled exception was caught by salt's global exception handler:
+      MemoryError: 
+      Traceback (most recent call last):
+        File "/usr/bin/salt-run", line 10, in <module>
+          salt_run()
+        File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 250, in salt_run
+          client.run()
+        File "/usr/lib/python2.7/dist-packages/salt/cli/run.py", line 54, in run
+          runner.run()
+        File "/usr/lib/python2.7/dist-packages/salt/runner.py", line 166, in run
+          False)  # Don't daemonize
+        File "/usr/lib/python2.7/dist-packages/salt/client/mixins.py", line 381, in _proc_function
+          return self.low(fun, low)
+        File "/usr/lib/python2.7/dist-packages/salt/client/mixins.py", line 327, in low
+          namespaced_event.fire_event(data, 'ret')
+        File "/usr/lib/python2.7/dist-packages/salt/utils/event.py", line 533, in fire_event
+          self.print_func(tag, data)
+        File "/usr/lib/python2.7/dist-packages/salt/client/mixins.py", line 452, in print_async_event
+          salt.output.display_output(event_data, outputter, self.opts)
+        File "/usr/lib/python2.7/dist-packages/salt/output/__init__.py", line 94, in display_output
+          display_data = try_printout(data, out, opts)
+        File "/usr/lib/python2.7/dist-packages/salt/output/__init__.py", line 46, in try_printout
+          return get_printout(out, opts)(data).rstrip()
+        File "/usr/lib/python2.7/dist-packages/salt/output/highstate.py", line 84, in output
+          return _format_host(host, hostdata)[0]
+        File "/usr/lib/python2.7/dist-packages/salt/output/highstate.py", line 132, in _format_host
+          schanged, ctext = _format_changes(ret['changes'])
+        File "/usr/lib/python2.7/dist-packages/salt/output/highstate.py", line 396, in _format_changes
+          __opts__)
+        File "/usr/lib/python2.7/dist-packages/salt/output/__init__.py", line 172, in out_format
+          return try_printout(data, out, opts)
+        File "/usr/lib/python2.7/dist-packages/salt/output/__init__.py", line 46, in try_printout
+          return get_printout(out, opts)(data).rstrip()
+        File "/usr/lib/python2.7/dist-packages/salt/output/nested.py", line 147, in output
+          nest.display(ret, __opts__.get('nested_indent', 0), '', [])
+      MemoryError
+      Traceback (most recent call last):
+        File "/usr/bin/salt-run", line 10, in <module>
+          salt_run()
+        File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 250, in salt_run
+          client.run()
+        File "/usr/lib/python2.7/dist-packages/salt/cli/run.py", line 54, in run
+          runner.run()
+        File "/usr/lib/python2.7/dist-packages/salt/runner.py", line 166, in run
+          False)  # Don't daemonize
+        File "/usr/lib/python2.7/dist-packages/salt/client/mixins.py", line 381, in _proc_function
+          return self.low(fun, low)
+        File "/usr/lib/python2.7/dist-packages/salt/client/mixins.py", line 327, in low
+          namespaced_event.fire_event(data, 'ret')
+        File "/usr/lib/python2.7/dist-packages/salt/utils/event.py", line 533, in fire_event
+          self.print_func(tag, data)
+        File "/usr/lib/python2.7/dist-packages/salt/client/mixins.py", line 452, in print_async_event
+          salt.output.display_output(event_data, outputter, self.opts)
+        File "/usr/lib/python2.7/dist-packages/salt/output/__init__.py", line 94, in display_output
+          display_data = try_printout(data, out, opts)
+        File "/usr/lib/python2.7/dist-packages/salt/output/__init__.py", line 46, in try_printout
+          return get_printout(out, opts)(data).rstrip()
+        File "/usr/lib/python2.7/dist-packages/salt/output/highstate.py", line 84, in output
+          return _format_host(host, hostdata)[0]
+        File "/usr/lib/python2.7/dist-packages/salt/output/highstate.py", line 132, in _format_host
+          schanged, ctext = _format_changes(ret['changes'])
+        File "/usr/lib/python2.7/dist-packages/salt/output/highstate.py", line 396, in _format_changes
+          __opts__)
+        File "/usr/lib/python2.7/dist-packages/salt/output/__init__.py", line 172, in out_format
+          return try_printout(data, out, opts)
+        File "/usr/lib/python2.7/dist-packages/salt/output/__init__.py", line 46, in try_printout
+          return get_printout(out, opts)(data).rstrip()
+        File "/usr/lib/python2.7/dist-packages/salt/output/nested.py", line 147, in output
+          nest.display(ret, __opts__.get('nested_indent', 0), '', [])
+      MemoryError
+```
+
+Wouldn't it be useful to have a cap on output size displayed to the user? So that he/she sees something like: "blah-blah-blah [output too large, 4G more data not shown]" instead of the traceback. To my understanding, salt also saves this output somewhere on its cache on disk, so perhaps it would make sense to cap size of data saved in that cache, too.
+### My version-report
+#### master
+
+``` yaml
+                      Salt: 2015.5.3
+                    Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                    Jinja2: 2.7.2
+                  M2Crypto: 0.21.1
+            msgpack-python: 0.3.0
+              msgpack-pure: Not Installed
+                  pycrypto: 2.6.1
+                   libnacl: Not Installed
+                    PyYAML: 3.10
+                     ioflo: Not Installed
+                     PyZMQ: 14.0.1
+                      RAET: Not Installed
+                       ZMQ: 4.0.4
+                      Mako: Not Installed
+                   Tornado: Not Installed
+     Debian source package: 2015.5.3+ds-1trusty1
+```
+#### minion
+
+``` yaml
+                  Salt: 2015.5.3
+                    Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+                    Jinja2: 2.7.2
+                  M2Crypto: 0.21.1
+            msgpack-python: 0.3.0
+              msgpack-pure: Not Installed
+                  pycrypto: 2.6.1
+                   libnacl: Not Installed
+                    PyYAML: 3.10
+                     ioflo: Not Installed
+                     PyZMQ: 14.0.1
+                      RAET: Not Installed
+                       ZMQ: 4.0.4
+                      Mako: Not Installed
+                   Tornado: Not Installed
+     Debian source package: 2015.5.3+ds-1trusty1
+```

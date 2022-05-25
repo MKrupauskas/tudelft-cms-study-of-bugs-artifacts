@@ -1,0 +1,176 @@
+### Description of Issue/Question
+When triggering orchestrate module using reactor there is a problem with pillar render if a custom grains are used inside pillar sls.
+
+Below syntax is not working with orchestrate but is working during normal highstate:
+```
+{{ grain.custom_grain }}
+```
+
+Below syntax is always working both with orchestrate and highstate:
+```
+{{ salt['grains.get']('custom_grain') }}
+```
+
+When acessing core grains everything is working fine using both syntax.
+
+Problem also exist when using orchestrate module directly:
+```
+salt-run state.orchestrate orch.test
+
+[CRITICAL] Rendering SLS 'test' failed, render error:
+SaltRenderError: Jinja variable 'dict object' has no attribute 'custom_grain'
+[CRITICAL] Pillar render error: Rendering SLS 'test' failed. Please see master log for details.
+msciciel-salt_master:
+    Data failed to compile:
+----------
+    Pillar failed to render with the following messages:
+----------
+    Rendering SLS 'test' failed. Please see master log for details.
+```
+
+Is it a bug or feature?
+
+### Setup
+/srv/salt/reactor/test.sls:
+```
+test:
+  runner.state.orchestrate:
+    - mods: orch.test
+```
+
+/srv/salt/orch/test.sls:
+```
+state:
+  salt.state:
+    - tgt: '*'
+    - sls:
+      - test
+```
+
+/srv/salt/_grains/custom_grain.py:
+```
+def custom_grain():
+    grains = {'custom_grain': 'test'}
+    return grains
+```
+
+/srv/salt/test.sls:
+```
+{{ salt['pillar.get']('test') }}:
+  pkg.installed
+```
+
+/srv/pillar/top.sls:
+```
+'base':
+  '*':
+    - test
+```
+
+/srv/pillar/test.sls:
+```
+test: {{ grains.custom_grain }}
+```
+
+/etc/salt/master.d/reactor.conf:
+```
+reactor:
+  - 'test':
+    - salt://reactor/test.sls
+```
+
+### Steps to Reproduce Issue
+On salt master:
+salt-run state.event pretty=True
+
+On salt minion:
+salt-call saltutil.sync_grains
+salt-call grains.get custom_grain
+```
+local:
+    test
+```
+salt-call event.send 'test'
+
+Event on salt master:
+```
+salt/run/20190521085428422830/ret       {
+    "_stamp": "2019-05-21T08:54:29.864333",
+    "fun": "runner.state.orchestrate",
+    "fun_args": [
+        "orch.test",
+        {
+            "exclude": null,
+            "orchestration_jid": null,
+            "pillar": null,
+            "pillar_enc": null,
+            "pillarenv": null,
+            "saltenv": "base",
+            "test": null
+        }
+    ],
+    "jid": "20190521085428422830",
+    "return": {
+        "data": {
+            "msciciel-salt_master": [
+                "Pillar failed to render with the following messages:",
+                "Rendering SLS 'test' failed. Please see master log for details."
+            ]
+        },
+        "outputter": "highstate",
+        "retcode": 1
+    },
+    "success": false,
+    "user": "Reactor"
+}
+```
+
+Salt master log:
+```
+SaltRenderError: Jinja variable 'dict object' has no attribute 'custom_grain'
+2019-05-21 08:54:29,783 [salt.pillar      :1036][CRITICAL][23784] Pillar render error: Rendering SLS 'test' failed. Please see master log for details.
+```
+
+### Versions Report
+```
+alt Version:
+           Salt: 2019.2.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Oct 30 2018, 23:45:53)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.6.1810 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-957.1.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.6.1810 Core
+```

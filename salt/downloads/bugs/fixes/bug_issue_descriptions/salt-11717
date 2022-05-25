@@ -1,0 +1,37 @@
+(Related to #6057 and https://github.com/saltstack/salt/commit/1d2dc9b8652262b89559c3580903d748f5e6399b ... likely somewhat related to #8233 and #8210 as well.)
+
+It would seem that the referenced issue/fix does not wholly address the infinite recursion issue in the dependency resolution code related to prerequisites... I've been debugging the code in question (salt/state.py:call_chunk, check_requisite, etc) for a while now but it's very slow going without being the author/having prior knowledge of the logic/etc (heavy non-trivial recursion here).
+
+However, I'm opening a ticket now as I can reliably reproduce the issue (salt-call state.sls <sls in question> ... throws an infinite recursion exception) with a fresh install of 2014.1.0.
+
+I have a number of sample test sls files which result in the issue (and a number of very similar ones which do not)... if anyone looking at this wants more examples along these lines I can provide, but the following sls is the simplest so far that I've been able to create which triggers the error:
+
+```
+two:
+  cmd.run:
+    - name: /bin/echo changed=True
+    - stateful: true
+
+three:
+  cmd.wait:
+    - name: /bin/echo changed=True
+    - stateful: true
+    - watch:
+      - cmd: two
+
+four:
+  file.managed:
+    - name: /tmp/test.ignore
+    - content:
+    - prereq:
+      - cmd: three
+
+five:
+  file.managed:
+    - name: /tmp/test.ignore2
+    - content:
+    - prereq:
+      - file: four
+```
+
+Unlike some of the other issues I've come across related to infinite recursion (either flagged as fixed, or related to a failure to detect a dependency loop), this sample contains no actual dependency loops, it results from a relatively basic but sane (afaict) chain of requisites. (side note: the example may seem somewhat trivial but it's based on a valid need we have in our real sls for a corresponding requisite chain).

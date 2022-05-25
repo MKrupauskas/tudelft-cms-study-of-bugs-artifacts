@@ -1,0 +1,133 @@
+### Description of Issue/Question
+I have an existing zookeeper server where the znode kafka1 already exists. I am trying to run the salt code in the setup section to verify it exists, and get the error below.
+
+I backported the zookeeper state commit back to 2017.7.3.
+
+I am using kazoo 1.2.1 from the python-kazoo Ubuntu 14.04 package. I tried using pip to upgrade to the latest kazoo, 2.4.0, but it didn't help.
+
+Looking at the salt python code it seems to assume that if the znode exists and it has an ACL, that you have specified the acl to match. I am not sure if that is possible in this case.
+
+I tried modifying my salt code, but couldn't find a way that worked. I am not sure it is the ideal solution, but I created the modified version of the state python code. It prevents the error, but it is basically letting you ignore the ACL.
+
+Talking with gtmanfred he said kazoo assumes you specify a password if you specify a username. The original command we were using before the state was "/usr/lib/zookeeper/bin/zkCli.sh create /kafka1 kafka1". So I don't know where the password would have come from.
+
+### Error
+
+    ----------
+              ID: zookeeper_kafka1_znode
+        Function: zookeeper.present
+            Name: /kafka1
+          Result: False
+         Comment: An exception occurred in this state: Traceback (most recent call last):
+                    File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1851, in call
+                      **cdata['kwargs'])
+                    File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1795, in wrapper
+                      return f(*args, **kwargs)
+                    File "/usr/lib/python2.7/dist-packages/salt/states/zookeeper.py", line 158, in present
+                      __salt__['zookeeper.set_acls'](name, acls, version, **connkwargs)
+                    File "/usr/lib/python2.7/dist-packages/salt/modules/zookeeper.py", line 470, in set_acls
+                      return conn.set_acls(path, acls, version)
+                    File "/usr/lib/python2.7/dist-packages/kazoo/client.py", line 1031, in set_acls
+                      return self.set_acls_async(path, acls, version).get()
+                    File "/usr/lib/python2.7/dist-packages/kazoo/handlers/threading.py", line 101, in get
+                      raise self._exception
+                  InvalidACLError: ((), {})
+         Started: 23:16:53.092411
+        Duration: 11.037 ms
+         Changes:
+
+### Code
+
+    Original:
+    salt/states/zookeeper.py:
+    158:            if not _check_acls(chk_acls, cur_acls):
+    159:                __salt__['zookeeper.set_acls'](name, acls, version, **connkwargs)
+
+    Modified:
+    salt/states/zookeeper.py:
+    158:            if not _check_acls(chk_acls, cur_acls) and chk_acls != []:
+    159:                __salt__['zookeeper.set_acls'](name, acls, version, **connkwargs)
+
+### zkCli.sh getacl /kafka1 output
+
+    'world,'anyone
+    : cdrwa
+
+### Setup
+    Original:
+    zookeeper_kafka1_znode:
+      zookeeper.present:
+         - name: /kafka1
+         - value: kafka1
+         - makepath: True
+
+    Modification 1:
+    zookeeper_kafka1_znode:
+      zookeeper.present:
+         - name: /kafka1
+         - value: kafka1
+         - acls:
+           - username: world
+             read: true
+             write: true
+             create: true
+             delete: true
+             admin: true
+         - makepath: True
+
+    Modification 2:
+    zookeeper_kafka1_znode:
+      zookeeper.present:
+         - name: /kafka1
+         - value: kafka1
+         - acls:
+           - read: true
+             write: true
+             create: true
+             delete: true
+             admin: true
+         - makepath: True
+
+
+### Versions Report
+
+    Salt Version:
+               Salt: 2017.7.3
+ 
+    Dependency Versions:
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: 1.5
+          docker-py: Not Installed
+              gitdb: Not Installed
+          gitpython: Not Installed
+              ioflo: Not Installed
+             Jinja2: 2.7.2
+            libgit2: Not Installed
+            libnacl: Not Installed
+           M2Crypto: 0.21.1
+               Mako: 0.9.1
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.6
+       mysql-python: 1.2.3
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+       pycryptodome: Not Installed
+             pygit2: Not Installed
+             Python: 2.7.6 (default, Oct 26 2016, 20:30:19)
+       python-gnupg: Not Installed
+             PyYAML: 3.10
+              PyZMQ: 14.0.1
+               RAET: Not Installed
+              smmap: Not Installed
+            timelib: Not Installed
+            Tornado: 4.2.1
+                ZMQ: 4.0.4
+ 
+    System Versions:
+               dist: Ubuntu 14.04 trusty
+             locale: UTF-8
+            machine: x86_64
+            release: 3.13.0-74-generic
+             system: Linux
+            version: Ubuntu 14.04 trusty

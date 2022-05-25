@@ -1,0 +1,33 @@
+When setting my basedn more than one level above where the users are stored in LDAP, I was getting "Found multiple results for user" errors even though only one user was in the directory. This was disconcerting as I wanted to use Groups, but my basedn for users was lower in the tree.
+
+E.G.
+user OU = "ou=my_users,ou=domain_users,dc=example,dc=com"
+group OU = "ou=groups,dc=example,dc=com"
+Which means the basedn would have to be the user OU in order for authentication to work, but then I couldn't use the Groups option since it is just prepended to basedn.
+
+It turns out that the result was returning several tuples with 'None' as the first item therein for each branch. The following little patch to salt.auth.ldap seems to have allowed me to use a basedn higher up in the tree:
+
+``` diff
+    if not paramvalues['anonymous']:
+        if paramvalues['binddn'] and paramvalues['bindpw']:
+            # search for the user's DN to be used for the actual authentication
+            _ldap = _LDAPConnection(**connargs).ldap
+            log.debug(
+                'Running LDAP user dn search with filter:{0}, dn:{1}, '
+                'scope:{2}'.format(
+                    paramvalues['filter'], basedn, scope
+                )
+            )
+-           result = _ldap.search_s(basedn, int(scope), paramvalues['filter'])
++           s_result = _ldap.search_s(basedn, int(scope), paramvalues['filter'])
++           result = []
++           for res in s_result:
++               if res[0] is not None:
++                   result.append(res)
+            if len(result) < 1:
+                log.warn('Unable to find user {0}'.format(username))
+                return False
+            elif len(result) > 1:
+                log.warn('Found multiple results for user {0}'.format(username))
+                return False
+```

@@ -1,0 +1,85 @@
+### Description of Issue/Question
+In a scenario where you have a master of masters with syndic masters running in Hot,Hot it is possible to see a long delay in events from a minion after a master has gone down. The minion appears to continue to attempt to send events serially instead of marking the master as down and moving it to the end of the list. 
+
+### Setup
+Use the following state on your masters to be called on the minion to fire an expected event.
+```
+event_test_dead_syndic: 
+  module.run: 
+    - name: event.send 
+    - tag: myco/mytag/expected_event
+```
+
+### Overview of architecture
+
+Master of Masters, 2 masters with the same syndic_master, 1 minion connected to both masters. 
+
+### Steps to Reproduce Issue
+
+1. Set up everything in normal working state 
+2. Place state from above on both masters
+2. Verify normal functionality
+3.1 From MoM, run `salt <minion> test.version` 
+3.2 From MoM, run `salt <minion> state.sls event_test` 
+5. From MoM, run `salt <minion> state.sls event_test` 
+3. Stop 'salt-master' service on the 1st syndic 
+4. Open a new session on the minion to monitor it's minion log file 
+5. From MoM, run `salt <minion> state.sls event_test` 
+7.1 This state should return successfully this first time
+6. From MoM, run `salt <minion> test.version` 
+8.1 We will see `'Minion did not return. [No response]'` on the CLI
+8.2 In the minion log we will see `[salt.transport.zeromq][DEBUG   ][1499] SaltReqTimeoutError, retrying. (1/3)` until this finally times out and then we see the minion update the alive master.
+
+As a result of the above, new jobs to this minion are delayed heavily, waiting for this to timeout. 
+Looking at the minion log monitoring session, this INFO level message will show up 5 times, with 4 mins between each. Until after the 5th message is completed, new jobs to this minion will be held in queue till then.
+
+I believe this issue is due to the code [here](https://github.com/saltstack/salt/blob/63a75b3178969546acea5f127986b1acc2fda7af/salt/modules/event.py#L74)
+
+The code is still almost exactly the same in 2018.3.3, so I expect this problem to persist.
+
+The problem appears to occur because `if preload or __opts__.get('__cli') == 'salt-call':` catches that we're calling from the CLI and will then attempt to send the event back to each master serially. 
+
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Oct 30 2018, 23:45:53)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.125-linuxkit
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```

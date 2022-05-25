@@ -1,0 +1,148 @@
+### Description of Issue/Question
+
+We have a state to update **/etc/service** and include a new entry. After applying that state, we don't the change in configuration file.
+
+BTW This is working with salt 2017.7.5 but not in 2018.3.2
+
+### Setup
+Here is a sample state file
+
+```yml
+python-augeas:
+  pkg.installed
+
+mysqlchk-service:
+  augeas.change:
+    - lens: services.lns
+    - context: /files/etc/services
+    - changes:
+      - ins service-name after service-name[last()]
+      - set service-name[last()] "mysqlchk"
+      - set "service-name[. = 'mysqlchk']/port" 9200
+      - set "service-name[. = 'mysqlchk']/protocol" tcp
+      - set "service-name[. = 'mysqlchk']/#comment" "MySQL HAProxy health check"
+    - require:
+      - pkg: python-augeas
+    - unless: grep -qi "mysqlchk" /etc/services
+```
+
+Here is the relevant part of the log 
+
+```
+python-augeas:
+  pkg.installed
+
+mysqlchk-service:
+  augeas.change:
+    - lens: services.lns
+    - context: /files/etc/services
+    - changes:
+      - ins service-name after service-name[last()]
+      - set service-name[last()] "mysqlchk"
+      - set "service-name[. = 'mysqlchk']/port" 9200
+      - set "service-name[. = 'mysqlchk']/protocol" tcp
+      - set "service-name[. = 'mysqlchk']/#comment" "MySQL HAProxy health check"
+    - require:
+      - pkg: python-augeas
+    - unless: grep -qi "mysqlchk" /etc/services
+
+
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([(u'python-augeas', u'pkg.installed'), (u'mysqlchk-service', OrderedDict([(u'augeas.change', [OrderedDict([(u'lens', u'services.lns')]), OrderedDict([(u'context', u'/files/etc/services')]), OrderedDict([(u'changes', [u'ins service-name after service-name[last()]', u'set service-name[last()] "mysqlchk"', u'set "service-name[. = \'mysqlchk\']/port" 9200', u'set "service-name[. = \'mysqlchk\']/protocol" tcp', u'set "service-name[. = \'mysqlchk\']/#comment" "MySQL HAProxy health check"'])]), OrderedDict([(u'require', [OrderedDict([(u'pkg', u'python-augeas')])])]), OrderedDict([(u'unless', u'grep -qi "mysqlchk" /etc/services')])])]))])
+```
+
+```
+[DEBUG   ] Could not LazyLoad augeas.mod_run_check: 'augeas.mod_run_check' is not available.
+[INFO    ] Executing command 'grep -qi "mysqlchk" /etc/services' in directory '/root'
+[DEBUG   ] retcode: 1
+[DEBUG   ] Last command return code: 1
+[DEBUG   ] insert: {u'path': u'/files/etc/services/service-name[last()]', u'before': False, u'label': u'service-name'}
+[DEBUG   ] set: {u'path': u'/files/etc/services/service-name[last()]', u'value': u'mysqlchk'}
+[DEBUG   ] set: {u'path': u"/files/etc/services/service-name[. = 'mysqlchk']/port", u'value': u'9200'}
+[DEBUG   ] set: {u'path': u"/files/etc/services/service-name[. = 'mysqlchk']/protocol", u'value': u'tcp'}
+[DEBUG   ] set: {u'path': u"/files/etc/services/service-name[. = 'mysqlchk']/#comment", u'value': u'MySQL HAProxy health check'}
+[INFO    ] No changes made
+[INFO    ] Completed state [mysqlchk-service] at time 06:38:36.563527 (duration_in_ms=414.774)
+```
+
+and this is salt output
+
+```yml
+local:
+----------
+          ID: python-augeas
+    Function: pkg.installed
+      Result: True
+     Comment: All specified packages are already installed
+     Started: 06:38:35.827478
+    Duration: 319.361 ms
+     Changes:
+----------
+          ID: mysqlchk-service
+    Function: augeas.change
+      Result: True
+     Comment: No changes made
+     Started: 06:38:36.148753
+    Duration: 414.774 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total states run:     2
+Total run time: 734.135 ms
+```
+
+
+### Steps to Reproduce Issue
+
+Just create a state like the one posted above and run it. Check /etc/service and find out that the file does not include the new entry
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2018.3.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Nov 23 2017, 15:49:48)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+         locale: UTF-8
+        machine: x86_64
+        release: 3.13.0-158-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```
+
+Not sure if this could be related to unicode change

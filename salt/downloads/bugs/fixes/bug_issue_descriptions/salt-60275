@@ -1,0 +1,211 @@
+**Description**
+
+With Salt 3003 on the master and minion, running a state that includes:
+
+```
+libvirt-keys:
+    virt.keys:
+      - require:
+          - pkg: libvirt
+```
+
+causes a stack traceback apparently as a result of trying to enumerate a None value while packing the external pillar that the method is intended to create.  Unfortunately as many methods in `virt` rely on `virt.keys` (at least if access to `libvirt` is authenticated) this basically renders `virt.*` unusable.
+
+This (a) worked fine on 3002.3 and earlier, (b) stlll seems to [match the documentation for the state](https://docs.saltproject.io/en/latest/ref/states/all/salt.states.virt.html#salt.states.virt.keys) (which implies all the `**kwargs` are optional), and (c) seems to match the latest tutorials for using `virt.*`, and especially `virt.keys` (eg, https://docs.saltproject.io/en/latest/topics/tutorials/cloud_controller.html) which shows it used without any arguments, and adding a test argument doesn't seem to resolve the problem).
+
+As best I can tell the line in virt.keys that triggers the crash is the one that initially creates the external pillar:
+
+https://github.com/saltstack/salt/blob/b88a23323783dd8ded7a20954f5da112fcc89b14/salt/states/virt.py#L93-L100
+
+as returning before that avoids the crash, and returning immediately after it results in the crash.  (The line can't be entirely skipped, because the entire point of `virt.keys` is to put a bunch of information into an external pillar for other methods to us, and later in the function relies on that external pillar having been created so it can populate it.)
+
+From some initial testing, providing a single kwarg doesn't solve the problem, eg:
+
+```
+libvirt-keys:
+    virt.keys:
+      - country: NZ
+      - require:
+          - pkg: libvirt
+```
+
+still results in the same stack traceback as far as I can tell, despite definitely having kwargs set (verified by forcing an early return with that in the comment):
+
+```
+          ID: libvirt-keys
+    Function: virt.keys
+      Result: True
+     Comment: kwargs: {'country': 'NZ'}
+     Started: 14:42:40.346035
+    Duration: 1.088 ms
+     Changes:
+```
+
+(I've not tried providing all possible arguments, but it seems unlikely to make a difference given this happens before any arguments are checked for.)
+
+**Setup**
+
+Have a libvirt setup on the minion, then run `virt.keys` without arguments:
+
+```
+libvirt:
+    pkg.installed:
+      - pkgs:
+          - qemu-kvm
+          - libvirt-bin
+          - python3-libvirt
+          - libvirt-daemon-system
+# [...]
+libvirt-keys:
+    virt.keys:
+      - require:
+          - pkg: libvirt
+```
+
+**Steps to Reproduce the behavior**
+
+```
+sudo salt VM_HOST state.highstate
+```
+
+(it happens in both test mode and non-test mode, as it reaches the crash very early before that behaviour diverges.)
+
+**Expected behavior**
+
+`virt.keys` should not result in a crash in creating the external pillar, and should return the required keys/certifcates in the external pillar as in 3002 and earlier.
+
+**Screenshots**
+
+<details><summary>virt.keys stack traceback</summary>
+
+```
+----------
+          ID: libvirt-keys
+    Function: virt.keys
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/salt/state.py", line 2172, in call
+                  *cdata["args"], **cdata["kwargs"]
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 1235, in __call__
+                  return self.loader.run(run_func, *args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2268, in run
+                  return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+                File "/usr/lib/python3/dist-packages/contextvars/__init__.py", line 38, in run
+                  return callable(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2283, in _run_as
+                  return _func_or_method(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2316, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/states/virt.py", line 100, in keys
+                  pillar = __salt__["pillar.ext"]({"libvirt": "_"}, pillar_kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 1235, in __call__
+                  return self.loader.run(run_func, *args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2268, in run
+                  return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+                File "/usr/lib/python3/dist-packages/contextvars/__init__.py", line 38, in run
+                  return callable(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2283, in _run_as
+                  return _func_or_method(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/modules/pillar.py", line 513, in ext
+                  ret = pillar_obj.compile_pillar()
+                File "/usr/lib/python3/dist-packages/salt/pillar/__init__.py", line 330, in compile_pillar
+                  load, dictkey="pillar",
+                File "/usr/lib/python3/dist-packages/salt/utils/asynchronous.py", line 126, in wrap
+                  six.reraise(*results[1])
+                File "/usr/lib/python3/dist-packages/salt/ext/six.py", line 693, in reraise
+                  raise value
+                File "/usr/lib/python3/dist-packages/salt/utils/asynchronous.py", line 132, in _target
+                  result = io_loop.run_sync(lambda: getattr(self.obj, key)(*args, **kwargs))
+                File "/usr/lib/python3/dist-packages/salt/ext/tornado/ioloop.py", line 459, in run_sync
+                  return future_cell[0].result()
+                File "/usr/lib/python3/dist-packages/salt/ext/tornado/concurrent.py", line 249, in result
+                  raise_exc_info(self._exc_info)
+                File "<string>", line 4, in raise_exc_info
+                File "/usr/lib/python3/dist-packages/salt/ext/tornado/gen.py", line 309, in wrapper
+                  yielded = next(result)
+                File "/usr/lib/python3/dist-packages/salt/transport/zeromq.py", line 351, in crypted_transfer_decode_dictentry
+                  self._package_load(self.auth.crypticle.dumps(load)),
+                File "/usr/lib/python3/dist-packages/salt/crypt.py", line 1538, in dumps
+                  return self.encrypt(self.PICKLE_PAD + self.serial.dumps(obj))
+                File "/usr/lib/python3/dist-packages/salt/payload.py", line 196, in dumps
+                  msg, default=ext_type_encoder, use_bin_type=use_bin_type
+                File "/usr/lib/python3/dist-packages/salt/utils/msgpack.py", line 133, in packb
+                  return msgpack.packb(o, **_sanitize_msgpack_kwargs(kwargs))
+                File "/usr/lib/python3/dist-packages/msgpack/__init__.py", line 47, in packb
+                  return Packer(**kwargs).pack(o)
+                File "msgpack/_packer.pyx", line 284, in msgpack._packer.Packer.pack
+                File "msgpack/_packer.pyx", line 290, in msgpack._packer.Packer.pack
+                File "msgpack/_packer.pyx", line 287, in msgpack._packer.Packer.pack
+                File "msgpack/_packer.pyx", line 234, in msgpack._packer.Packer._pack
+                File "msgpack/_packer.pyx", line 277, in msgpack._packer.Packer._pack
+                File "/usr/lib/python3/dist-packages/salt/payload.py", line 190, in ext_type_encoder
+                  return dict(obj)
+                File "/usr/lib/python3.6/_collections_abc.py", line 720, in __iter__
+                  yield from self._mapping
+                File "/usr/lib/python3/dist-packages/salt/loader_context.py", line 91, in __iter__
+                  return self.value().__iter__()
+              AttributeError: 'NoneType' object has no attribute '__iter__'
+     Started: 14:21:05.214703
+    Duration: 10.108 ms
+     Changes:   
+```
+</details>
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+salt-master$ salt --versions-report
+Salt Version:
+          Salt: 3003
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.5
+     gitpython: 2.1.11
+        Jinja2: 2.10
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.5.6
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: Not Installed
+        Python: 3.7.3 (default, Jan 22 2021, 20:04:44)
+  python-gnupg: Not Installed
+        PyYAML: 3.13
+         PyZMQ: 17.1.2
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.1
+ 
+System Versions:
+          dist: debian 10 buster
+        locale: UTF-8
+       machine: x86_64
+       release: 4.19.0-16-amd64
+        system: Linux
+       version: Debian GNU/Linux 10 buster
+```
+</details>
+
+Master and Minion are both 3003 when it crashes; Minion is Ubuntu 18.04 LTS rather than Debian 10.
+
+**Additional context**
+
+As best I can tell the crash is happening somewhere in the call stack below:
+
+File "/usr/lib/python3/dist-packages/salt/pillar/__init__.py", line 330, in compile_pillar
+
+but so far I've not been able to figure out what changed between 3002 and 3003 to cause this behaviour (there's a *lot* of change, including someone deciding to reformat a huge quantity of code last year which makes looking for git blame/diffs a lot harder).
+
+It's also possible that this just happens to be the first external pillar usage in this run, and something about the external pillar handling is broken in 3003 and/or by my setup.  But an obscure, deep, stack traceback isn't the best way to report that there is an external pillar compiling issue.
+
+Finally the system in question *does* have the libvirt certificates already created (by salt, much earlier), and they exist on disk.  But it's crashing before it even gets around to checking for those.

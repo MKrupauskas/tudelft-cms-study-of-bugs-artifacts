@@ -1,0 +1,22 @@
+In a single-master setup the minions will try to re-authenticate with the master until they succeed.
+
+But in a multi-master setup we observe the following behavior when starting a minion process:
+- if no masters are up, the minion fails to start
+- if not all masters are up, the minion only authenticates with the masters which are up (if for instance you reboot an appliance which hosts both a salt-master and a salt-minion (in multi-master configuration), after reboot you'll notice the master on that appliance can't address its minion unless you wait a few seconds and restart the minion...)
+
+I would expect the minions to behave the same in both situations. (They should try to re-authenticate with all configured masters.)
+
+We use salt as follows:
+- we have multiple loadbalanced frontend appliances, which each run a salt-master
+- the frontend applications use the salt-master to execute states on the minions
+
+Just to place this in context:
+As the behavior currently stands we need to do the following to make sure everything works ok:
+- we first test.ping all minions
+- if some don't report back, we "normal ping" them
+- if they are online, we try to "regular ssh" restart the minions on them
+  (if they aren't, we fail the command, refusing to execute states as long as not all our minions are up)
+- we then wait a bit, and retry the test.ping
+- once all are reported up (well, authenticated really...), we can execute our states
+
+We would expect only to need to do the first test.ping to make sure they are all up, and then either execute the states, or raise an error if not all were up.

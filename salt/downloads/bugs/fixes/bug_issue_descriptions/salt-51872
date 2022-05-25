@@ -1,0 +1,74 @@
+### Description of Issue/Question
+Salt support running from **non-root user**. When I trying to do a `cron.present` state I have to specify a `user` arg, it doesn't make much sense from non-root user but ok, I set it to the same user Salt is running from and state acts weird:
+
+1) It trying to execute cron commands from this user using a `runas` in many functions which doesn't make any sense and won't work in non-root deployment.
+2) it fails at 1) yet it somehow updates the user cron
+3) It does that in non-idempotent way, so this state always produce a change.
+
+Other observations:
+If we look at the function `write_cron_file` in cron module we cant see a strange condition:
+```
+    if _check_instance_uid_match(user) or __grains__.get('os_family') in ('Solaris', 'AIX'):
+        return __salt__['cmd.retcode'](_get_cron_cmdstr(path),
+                                       runas=user,
+                                       python_shell=False) == 0
+    else:
+        return __salt__['cmd.retcode'](_get_cron_cmdstr(path, user),
+                                       python_shell=False) == 0
+``` 
+`if _check_instance_uid_match(user)` actually compares the user in state with runtime user of salt and, for some reason, if they're the **same** it decides that it need to do a `runas`. But that makes no sense! If they're the same you can actually just fire the `crontab` command and it will be executed from current user - no need for user switch! 
+
+Kinda the same problem I found a few other functions.
+
+One more thing I'd like to add is that cron module and state doesn't have logging at all so debugging them is very hard.
+
+### Setup
+Salt running from non-root user.
+
+### Steps to Reproduce Issue
+Start Salt from non-root user
+Apply `cron.present` state for this user.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2019.2.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.1
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.6 (default, Aug 13 2018, 18:24:23)
+   python-gnupg: 0.4.4
+         PyYAML: 3.13
+          PyZMQ: 18.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.11.6.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+```

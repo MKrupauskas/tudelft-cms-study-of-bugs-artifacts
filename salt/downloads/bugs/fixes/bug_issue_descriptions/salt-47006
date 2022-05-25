@@ -1,0 +1,127 @@
+### Description of Issue/Question
+A couple of proxy minion grains are failing to load properly on 2018.3.0 (FreeBSD) causing both the master and minion to fail.
+
+The offending modules are `grains/marathon.py` and `grains/fx2.py`.
+
+I can provide the `sysutils/py-salt-2018.3.0` port & Makefile if someone else needs to replicate.
+
+### Setup
+`pkg install py36-salt`
+`service salt_master start`
+`service salt_minion start`
+
+### Steps to Reproduce Issue
+After starting the master/minion I see the following in the logs and the service does not work:
+
+```
+==> /var/log/salt/master <==
+2018-04-10 16:42:43,610 [salt.loader                                                                              :763 ][CRITICAL][48291] Failed to load grains defined in grain file opt-1.fx2 in function <function fx2 at 0x80dfa5510>, error:
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.6/site-packages/salt/loader.py", line 756, in grains
+    ret = funcs[key]()
+  File "/usr/local/lib/python3.6/site-packages/salt/grains/fx2.py", line 90, in fx2
+    return _grains()
+  File "/usr/local/lib/python3.6/site-packages/salt/grains/fx2.py", line 72, in _grains
+    (username, password) = _find_credentials()
+  File "/usr/local/lib/python3.6/site-packages/salt/grains/fx2.py", line 41, in _find_credentials
+    usernames.append(__pillar__['proxy'].get('admin_username', 'root'))
+  File "/usr/local/lib/python3.6/site-packages/salt/utils/context.py", line 228, in __getitem__
+    return self._dict()[key]
+KeyError: 'proxy'
+2018-04-10 16:42:43,613 [salt.loader                                                                              :763 ][CRITICAL][48291] Failed to load grains defined in grain file opt-1.marathon in function <function marathon at 0x80dfaeb70>, error:
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.6/site-packages/salt/loader.py", line 756, in grains
+    ret = funcs[key]()
+  File "/usr/local/lib/python3.6/site-packages/salt/grains/marathon.py", line 41, in marathon
+    "{0}/v2/info".format(__opts__['proxy'].get(
+KeyError: 'proxy'
+
+==> /var/log/salt/minion <==
+2018-04-10 16:42:48,701 [salt.loader                                                                              :763 ][CRITICAL][60649] Failed to load grains defined in grain file opt-1.fx2 in function <function fx2 at 0x80de467b8>, error:
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.6/site-packages/salt/loader.py", line 756, in grains
+    ret = funcs[key]()
+  File "/usr/local/lib/python3.6/site-packages/salt/grains/fx2.py", line 90, in fx2
+    return _grains()
+  File "/usr/local/lib/python3.6/site-packages/salt/grains/fx2.py", line 72, in _grains
+    (username, password) = _find_credentials()
+  File "/usr/local/lib/python3.6/site-packages/salt/grains/fx2.py", line 41, in _find_credentials
+    usernames.append(__pillar__['proxy'].get('admin_username', 'root'))
+  File "/usr/local/lib/python3.6/site-packages/salt/utils/context.py", line 228, in __getitem__
+    return self._dict()[key]
+KeyError: 'proxy'
+2018-04-10 16:42:48,703 [salt.loader                                                                              :763 ][CRITICAL][60649] Failed to load grains defined in grain file opt-1.marathon in function <function marathon at 0x80de4de18>, error:
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.6/site-packages/salt/loader.py", line 756, in grains
+    ret = funcs[key]()
+  File "/usr/local/lib/python3.6/site-packages/salt/grains/marathon.py", line 41, in marathon
+    "{0}/v2/info".format(__opts__['proxy'].get(
+KeyError: 'proxy'
+```
+
+### Fix(?)
+To fix these issues I have applied the following patches
+
+```diff
+--- marathon.py	2018-04-02 10:35:12.000000000 -0600
++++ marathon.py.new	2018-04-10 16:53:59.551719000 -0600
+@@ -14,10 +14,10 @@
+
+
+ def __virtual__():
+-    if not salt.utils.platform.is_proxy() or 'proxy' not in __opts__:
+-        return False
+-    else:
++    if salt.utils.platform.is_proxy():
+         return __virtualname__
++    else:
++        return False
+
+
+ def kernel():
+```
+I haven't done enough code-diving yet, but I wonder if it's related to the `salt.utils.platform.is_proxy()` function. Perhaps it's not accounting for FreeBSD properly. /shrug.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.0
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.5 (default, Apr 10 2018, 00:56:14)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.3
+
+System Versions:
+           dist:
+         locale: US-ASCII
+        machine: amd64
+        release: 11.1-RELEASE
+         system: FreeBSD
+        version: Not Installed
+```

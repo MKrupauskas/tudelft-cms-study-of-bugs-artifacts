@@ -1,0 +1,109 @@
+Kinda-regression for #8252
+
+```
+2014-01-15 21:55:25,648 [salt.minion                                 ][WARNING ] The minion function caused an exception
+Traceback (most recent call last):
+  File "/usr/lib64/python2.7/site-packages/salt/minion.py", line 747, in _thread_return
+    return_data = func(*args, **kwargs)
+  File "/usr/lib64/python2.7/site-packages/salt/modules/state.py", line 383, in sls
+    ret = st_.state.call_high(high_)
+  File "/usr/lib64/python2.7/site-packages/salt/state.py", line 1689, in call_high
+    ret = self.call_chunks(chunks)
+  File "/usr/lib64/python2.7/site-packages/salt/state.py", line 1411, in call_chunks
+    running = self.call_chunk(low, running, chunks)
+  File "/usr/lib64/python2.7/site-packages/salt/state.py", line 1615, in call_chunk
+    running = self.call_chunk(chunk, running, chunks)
+  File "/usr/lib64/python2.7/site-packages/salt/state.py", line 1615, in call_chunk
+    running = self.call_chunk(chunk, running, chunks)
+  File "/usr/lib64/python2.7/site-packages/salt/state.py", line 1529, in call_chunk
+    self._mod_init(low)
+  File "/usr/lib64/python2.7/site-packages/salt/state.py", line 565, in _mod_init
+    mret = self.states[minit](low)
+  File "/usr/lib64/python2.7/site-packages/salt/states/pkg.py", line 924, in mod_init
+    ret = __salt__['pkg.ex_mod_init'](low)
+  File "/usr/lib64/python2.7/site-packages/salt/modules/ebuild.py", line 174, in ex_mod_init
+    __salt__['portage_config.enforce_nice_config']()
+  File "/usr/lib64/python2.7/site-packages/salt/modules/portage_config.py", line 72, in enforce_nice_config
+    _order_all_package_confs()
+  File "/usr/lib64/python2.7/site-packages/salt/modules/portage_config.py", line 89, in _order_all_package_confs
+    _package_conf_ordering(conf_file)
+  File "/usr/lib64/python2.7/site-packages/salt/modules/portage_config.py", line 188, in _package_conf_ordering
+    append_to_package_conf(conf, string=line)
+  File "/usr/lib64/python2.7/site-packages/salt/modules/portage_config.py", line 255, in append_to_package_conf
+    atom = _p_to_cp(atom)
+  File "/usr/lib64/python2.7/site-packages/salt/modules/portage_config.py", line 54, in _p_to_cp
+    ret = _porttree().dbapi.xmatch("match-all", p)
+  File "/usr/lib64/python2.7/site-packages/portage/dbapi/porttree.py", line 825, in xmatch
+    mydep = dep_expand(origdep, mydb=self, settings=self.settings)
+  File "/usr/lib64/python2.7/site-packages/portage/proxy/objectproxy.py", line 31, in __call__
+    return result(*args, **kwargs)
+  File "/usr/lib64/python2.7/site-packages/portage/dbapi/dep_expand.py", line 35, in dep_expand
+    mydep = Atom(mydep, allow_repo=True)
+  File "/usr/lib64/python2.7/site-packages/portage/dep/__init__.py", line 1255, in __init__
+    raise InvalidAtom(self)
+InvalidAtom: #
+```
+
+I threw an exception throw in just above `append_to_package_conf(conf, string=line)` in `salt/modules/portage_config.py:188:_package_conf_ordering` to determine what's going on...
+
+```
+  File "/usr/lib64/python2.7/site-packages/salt/modules/portage_config.py", line 186, in _package_conf_ordering
+    raise(Exception(repr(rearrange)))
+Exception: ['# required by salt (argument)\n', 'app-admin/salt **\n', '# required by app-admin/salt-0.16.4\n', '# required by salt (argument)\n', '=dev-python/pyyaml-3.10-r1 ~amd64\n', ...]
+```
+
+To be sure, I went down a frame:
+
+``` python
+    if conf in SUPPORTED_CONFS:
+        if not string:
+            # Snipped
+        else:
+            raise(Exception(string))
+            atom = string.strip().split()[0]
+            new_flags = portage.dep.strip_empty(string.strip().split(' '))[1:]
+            if '/' not in atom:
+                atom = _p_to_cp(atom)
+                string = '{0} {1}'.format(atom, ' '.join(new_flags))
+                if not atom:
+                    return
+```
+
+And sure enough:
+
+```
+  File "/usr/lib64/python2.7/site-packages/salt/modules/portage_config.py", line 188, in _package_conf_ordering
+    append_to_package_conf(conf, string=line)
+  File "/usr/lib64/python2.7/site-packages/salt/modules/portage_config.py", line 252, in append_to_package_conf
+    raise(Exception(string))
+Exception: # required by salt (argument)
+```
+
+I'm calling it a regression as I wasn't seeing this on 0.17.4, but the patch applied in PR #8924 doesn't actually address this particular case.  I'd guess that some other change has resurrected this bug.
+After a lot of digging, I've traced a large part of the issue to this section of `salt/modules/portage_config.py` (around L157):
+
+``` python
+        for triplet in os.walk(path):
+            for file_name in triplet[2]:
+                file_path = '{0}/{1}'.format(triplet[0], file_name)
+                cp = triplet[0][len(path) + 1:] + '/' + file_name
+
+                shutil.copy(file_path, file_path + '.bak')
+                backup_files.append(file_path + '.bak')
+
+                if cp[0] == '/' or cp.split('/') > 2:
+                    rearrange.extend(list(salt.utils.fopen(file_path)))
+                    os.remove(file_path)
+```
+
+So, if you have straight files, os.walk won't yield and this entire block gets skipped.  If you have directories like me:
+path == `"/etc/portage/package.accept_keywords"`
+triplet == `('/etc/portage/package.accept_keywords', [], ['salt'])`
+file_path = `"/etc/portage/package.accept_keywords/salt"`
+triplet[0][len(path) + 1:] == `""`
+cp == `"/whatever_keywords_file"`
+
+Meaning, by my reading, that that last comparison won't fail unless you have nested folders.
+
+Not to mention that the `os.remove` call deletes the original file and a further `os.remove` further down deletes the backup ... but the call to recreate the original isn't called so far as I can see.
+So as is, it looks like emerge support is broken _and_ actively nuking config files?

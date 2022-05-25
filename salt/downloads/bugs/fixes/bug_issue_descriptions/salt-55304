@@ -1,0 +1,131 @@
+### Description of Issue
+we recently figured out that salt is constantly detecting filesystem changes.
+
+### Setup
+debugged it using a plain salt-master installation on centos7.
+just enabled `fileserver_events: True` in salt-master config.
+
+### Steps to Reproduce Issue
+enable above mentioned option in salt `/etc/salt/master`
+add some files to `/srv/salt/`
+
+```
+salt-run state.event pretty=True
+
+salt/fileserver/roots/update    {
+    "_stamp": "2019-11-14T13:53:08.633965", 
+    "backend": "roots", 
+    "changed": true, 
+    "files": {
+        "added": [], 
+        "changed": [
+            "/srv/salt/test3", 
+            "/srv/salt/test2", 
+            "/srv/salt/test1", 
+            "/srv/salt/test6", 
+            "/srv/salt/test5", 
+            "/srv/salt/test4"
+        ], 
+        "removed": []
+    }
+}
+salt/fileserver/roots/update    {
+    "_stamp": "2019-11-14T13:54:08.642110", 
+    "backend": "roots", 
+    "changed": true, 
+    "files": {
+        "added": [], 
+        "changed": [
+            "/srv/salt/test3", 
+            "/srv/salt/test2", 
+            "/srv/salt/test1", 
+            "/srv/salt/test6", 
+            "/srv/salt/test5", 
+            "/srv/salt/test4"
+        ], 
+        "removed": []
+    }
+}
+```
+
+### Versions Report
+Salt Version:
+           Salt: 2019.2.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Oct 30 2018, 23:45:53)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.6.1810 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-957.5.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.6.1810 Core
+
+
+### Fix(?)
+im not much of a developer, but after some investigation, it seems that python2 and python3 are handling floating point numbers differently?
+
+adding some debug output, you can see that when looking for changes the `new_mtime_map` dictionary holds different modification timestamps, than the ones previously written to `/var/cache/salt/master/roots/mtime_map` (and `map1` and `map2` that are being compared... indeed differ.)
+
+```
+2019-11-14 11:40:34,450 [salt.loaded.int.fileserver.roots:185 ][INFO    ][22610] new_mtime_map2: {u'/srv/salt/test3': 1573728513.5432692, u'/srv/salt/test2': 1573728342.5542693, u'/srv/salt/test1': 1573728338.7482693}
+2019-11-14 11:40:34,464 [salt.loaded.int.fileserver.roots:186 ][INFO    ][22610] old_mtime_map2: {u'/srv/salt/test3': u'1573728513.54', u'/srv/salt/test2': u'1573728342.55', u'/srv/salt/test1': u'1573728338.75'}
+2019-11-14 11:40:34,464 [salt.fileserver  :235 ][INFO    ][22610] map1 {u'/srv/salt/test3': u'1573728513.54', u'/srv/salt/test2': u'1573728342.55', u'/srv/salt/test1': u'1573728338.75'}
+2019-11-14 11:40:34,464 [salt.fileserver  :236 ][INFO    ][22610] map2 {u'/srv/salt/test3': 1573728513.5432692, u'/srv/salt/test2': 1573728342.5542693, u'/srv/salt/test1': 1573728338.7482693}
+```
+
+with a little testing against python2 and python3 the following change could(?) be a fix?
+
+```
+diff --git a/salt/fileserver/__init__.py b/salt/fileserver/__init__.py
+index 2145927c2c..b2bc4ac9a6 100644
+--- a/salt/fileserver/__init__.py
++++ b/salt/fileserver/__init__.py
+@@ -217,7 +217,7 @@ def generate_mtime_map(opts, path_map):
+                         # file_ignore_regex or glob
+                         if is_file_ignored(opts, file_path):
+                             continue
+-                        file_map[file_path] = os.path.getmtime(file_path)
++                        file_map[file_path] = format(os.path.getmtime(file_path), '.7f')
+                     except (OSError, IOError):
+                         # skip dangling symlinks
+                         log.info(
+```
+
+at least its comparing successfuly (without finding changes on every run...),
+although i'm not sure if this is the right way of fixing it (i'm not a developer at all)
+```
+2019-11-14 14:09:50,644 [salt.loaded.int.fileserver.roots:185 ][INFO    ][10917] new_mtime_map2: {u'/srv/salt/test3': u'1573728513.5432692', u'/srv/salt/test2': u'1573728342.5542693', u'/srv/salt/test1': u'1573728338.7482693', u'/srv/salt/test6': u'1573737074.5352693', u'/srv/salt/test5': u'1573734116.0152693', u'/srv/salt/test4': u'1573737040.7952693'}
+2019-11-14 14:09:50,645 [salt.loaded.int.fileserver.roots:186 ][INFO    ][10917] old_mtime_map2: {u'/srv/salt/test3': u'1573728513.5432692', u'/srv/salt/test2': u'1573728342.5542693', u'/srv/salt/test1': u'1573728338.7482693', u'/srv/salt/test6': u'1573737074.5352693', u'/srv/salt/test5': u'1573734116.0152693', u'/srv/salt/test4': u'1573737040.7952693'}
+2019-11-14 14:09:50,646 [salt.fileserver  :237 ][INFO    ][10917] map1 {u'/srv/salt/test3': u'1573728513.5432692', u'/srv/salt/test2': u'1573728342.5542693', u'/srv/salt/test1': u'1573728338.7482693', u'/srv/salt/test6': u'1573737074.5352693', u'/srv/salt/test5': u'1573734116.0152693', u'/srv/salt/test4': u'1573737040.7952693'}
+2019-11-14 14:09:50,647 [salt.fileserver  :238 ][INFO    ][10917] map2 {u'/srv/salt/test3': u'1573728513.5432692', u'/srv/salt/test2': u'1573728342.5542693', u'/srv/salt/test1': u'1573728338.7482693', u'/srv/salt/test6': u'1573737074.5352693', u'/srv/salt/test5': u'1573734116.0152693', u'/srv/salt/test4': u'1573737040.7952693'}
+```

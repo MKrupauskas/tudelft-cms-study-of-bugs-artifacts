@@ -1,0 +1,88 @@
+### Description of Issue
+Salt-minion creates thread leak if PTR record is malformed.
+
+### Steps to Reproduce Issue
+
+1.Crete malformed PTR record for any IP on the salt-minion  for example "." ( this was a case with my provider ).
+2. Apply highstate form the master, I have single file.touch in my highstate.
+`/tmp/salt.touch:
+    file.touch`
+3. Execute "systemctl status salt-minion"
+
+In my case I have:
+```
+ salt-minion.service - The Salt Minion
+   Loaded: loaded (/lib/systemd/system/salt-minion.service; enabled; vendor preset: enabled)
+   Active: active (running) since Tue 2020-08-04 22:30:03 EDT; 14h ago
+     Docs: man:salt-minion(1)
+           file:///usr/share/doc/salt/html/contents.html
+           https://docs.saltstack.com/en/latest/contents.html
+ Main PID: 22396 (salt-minion)
+    Tasks: 2008 (limit: 4915)
+   CGroup: /system.slice/salt-minion.service
+           22396 /usr/bin/python3 /usr/bin/salt-minion
+           22404 /usr/bin/python3 /usr/bin/salt-minion
+           22406 /usr/bin/python3 /usr/bin/salt-minion
+```
+### Versions Report
+Salt Version:
+           Salt: 3001
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.6.1
+         pygit2: Not Installed
+         Python: 3.5.3 (default, Jul  9 2020, 13:00:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 17.1.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.1
+
+System Versions:
+           dist: debian 9 stretch
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-13-amd64
+         system: Linux
+        version: Debian GNU/Linux 9 stretch
+
+
+The workaround was to update /usr/lib/python3/dist-packages/salt/modules/network.py.
+However, I am not a dev and have limited knowledge in python, so the proper fix would be much appreciated as we are relying very heavily on saltstack.
+
+```  results = []
+    try:
+        pool = ThreadPool(8)
+        results = pool.map(_lookup_fqdn, addresses)
+        pool.close()
+        pool.join()
+    except Exception as exc:  # pylint: disable=broad-except
+        log.error("Exception while creating a ThreadPool for resolving FQDNs: %s", exc)
+        pool.close()
+
+    for item in results:
+        if item:
+            fqdns.update(item)
+
+    elapsed = time.time() - start
+    log.debug("Elapsed time getting FQDNs: {} seconds".format(elapsed))
+
+    return {"fqdns": sorted(list(fqdns))} ```
+

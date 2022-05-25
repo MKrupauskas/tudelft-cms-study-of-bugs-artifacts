@@ -1,0 +1,163 @@
+Team, I believe we may have a bug in passing dictionaries created with "load_json"
+from one state to another.
+
+The following two Orchestration states:
+  - gather_data
+  - display_data
+
+do the following:
+
+```
+1. Create a string of JSON data
+2. Convert the JSON string to a Jinja Dictionary
+3. Create an new empty dictionary
+4. Add a key to the new dictionary from the converted JSON data
+5. Confirm the value of a key in the new dictionary
+6. Pass the new dictionary to another state which uses the passed data
+
+(The problem is that "u'...'" is becoming a part of the string...)
+
+7. Display the value of the same key as before (shows "u'...')
+8. Display the reverse of the value (shows '...'u)
+```
+
+Notes: 
+  - the problem does not occur when passing dictionaries created as a 
+    standard Jinja dictionary
+  - it appears to be specific to the passing of dictionaries created with "|load_json()" 
+```
+/srv/salt/gather_data.sls
+-------------------------
+{# Define JSON string #}
+{% set raw_json = '{"a": "foo", "b": "bar"}' %}
+
+{# Convert JSON String to a Jinja dictionary #}
+{% set json_data = raw_json|load_json() %}
+
+{# Create an empty Jinja dictionary #}
+{% set my_data = {} %}
+
+{# Update a value in the Jinja dictionary #}
+{% do my_data.update({'a': json_data['a']}) %}
+
+{# Show my_data before passing it to another state as inline pillar data #}
+show_data:
+  test.configurable_test_state:
+    - changes: False
+    - comment: "{{ my_data['a'] }}"
+    - result: True
+
+{# Pass my_data as inline pillar to another orchestration state #}
+pass_data:
+  salt.runner:
+    - name: state.orchestrate
+    - mods: display_data
+    - pillar:
+        my_data: {{ my_data }}
+```
+
+```
+/srv/salt/display_data.sls
+-------------------------
+{# Capture inline pillar data #}
+{% set my_data = salt['pillar.get']('my_data', {"a": "missing"}) %}
+
+{# Display a single value from the my_data dictionary #}
+show_data:
+  test.configurable_test_state:
+    - changes: False
+    - comment: "{{ my_data['a'] }}"
+    - result: True
+
+{# Determine if the unicode indicators (u'...') have become part of the string #}
+show_data_reversed:
+  test.configurable_test_state:
+    - changes: False
+    - comment: "{{ my_data['a']|reverse }}"
+    - result: True
+``` 
+    
+Invocation:
+```salt-run state.sls gather_data```
+
+
+Output:
+```
+saltmaster_master:
+----------
+          ID: show_data
+    Function: test.configurable_test_state
+      Result: True
+     Comment: foo
+     Started: 11:08:22.012224
+    Duration: 0.395 ms
+     Changes:
+----------
+          ID: pass_data
+    Function: salt.runner
+        Name: state.orchestrate
+      Result: True
+     Comment: Runner function 'state.orchestrate' executed.
+     Started: 11:08:22.013452
+    Duration: 696.583 ms
+     Changes:
+              ----------
+              data:
+                  ----------
+                  saltmaster_master:
+                      ----------
+                      test_|-show_data_reversed_|-show_data_reversed_|-configurable_test_state:
+                          ----------
+                          __id__:
+                              show_data_reversed
+                          __run_num__:
+                              1
+                          changes:
+                              ----------
+                          comment:
+                              'oof'u
+                          duration:
+                              0.288
+                          name:
+                              show_data_reversed
+                          result:
+                              True
+                          start_time:
+                              11:08:22.706364
+                      test_|-show_data_|-show_data_|-configurable_test_state:
+                          ----------
+                          __id__:
+                              show_data
+                          __run_num__:
+                              0
+                          changes:
+                              ----------
+                          comment:
+                              u'foo'
+                          duration:
+                              0.382
+                          name:
+                              show_data
+                          result:
+                              True
+                          start_time:
+                              11:08:22.705875
+              outputter:
+                  highstate
+              retcode:
+                  0
+
+Summary for saltmaster_master
+------------
+Succeeded: 2 (changed=1)
+Failed:    0
+------------
+Total states run:     2
+Total run time: 696.978 ms
+```
+
+Note the comments:
+```
+u'foo'  vs  'oof'u
+```
+The string type indicator has become a part of the string.

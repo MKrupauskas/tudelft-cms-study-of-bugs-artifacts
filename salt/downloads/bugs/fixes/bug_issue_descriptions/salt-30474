@@ -1,0 +1,80 @@
+Part of my work on the event reactor includes an orchestration step
+
+/srv/salt/orch/orchestrate-stuff.sls
+
+``` % set targetsite = 'my.awesome.site.com %
+
+stop-my.awesome.site.com:
+    salt.state:
+        - tgt: 'sites:{{ targetsite }}' # <== A minion with sites:my.awesome.site.com exists in the env.
+        - expr_form: 'grain'
+        - sls:
+            - iis-website-stop
+        - pillar:            
+            - websitename: 'devua-{{ targetsite }}'
+```
+
+/srv/salt/iis-website-stop.sls
+
+```
+# file: iis-website-stop.sls
+{% set websitename = salt.pillar.get('websitename') %}
+
+stop-iis-website:
+    cmd.run:
+        - name: Stop-Website -Name {{ websitename }}
+        - shell: 'powershell'
+```
+
+I'm attempting to debug this on the go, however it seems to be crashin and I have no idea what am I doing wrong... Is there anything wrong with my YAML/Jinja?
+
+`sudo salt-run state.orchestrate orch.orchestrate-stuff -l debug` yields the following results:
+
+```
+[WARNING ] Output from salt state not highstate
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last
+):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1594, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1491, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/states/saltmod.py", line 259, in s
+tate
+    for state_item in six.itervalues(m_ret):
+  File "/usr/lib/python2.7/dist-packages/salt/ext/six.py", line 580, in itervalu
+es
+    return iter(d.itervalues(**kw))
+AttributeError: 'str' object has no attribute 'itervalues'
+
+devua-salt01_master:
+----------
+          ID: stop-my.awesome.site.com
+    Function: salt.state
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call l
+ast):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1594
+, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 149
+1, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/saltmod.py",
+line 259, in state
+                  for state_item in six.itervalues(m_ret):
+                File "/usr/lib/python2.7/dist-packages/salt/ext/six.py", line 58
+0, in itervalues
+                  return iter(d.itervalues(**kw))
+              AttributeError: 'str' object has no attribute 'itervalues'
+     Started: 14:54:16.617009
+    Duration: 3803.699 ms
+     Changes:
+
+Summary for devua-salt01_master
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:   3.804 s
+```

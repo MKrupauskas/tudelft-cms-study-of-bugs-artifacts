@@ -1,0 +1,87 @@
+### Description of Issue/Question
+
+Every few days (1 or 2 days) salt-master stops responding and we need to restart salt-master.
+### Setup
+
+We have a number of salt-syndics(about 50) that connect to this salt-master. MasterOfMasters/Syndics are very new version (2016.3.3). We get a fair number of Salt minions(30k+) connected with Syndics
+### Steps to Reproduce Issue
+
+When restart salt-master after a few hours, the EventPublisher  process frequently cost 100% cpu resouce
+*\* and top command shows as follows :*\* 
+
+```
+  PID USER      PR  NI  VIRT  RES  SHR S %CPU %MEM    TIME+  COMMAND                                                                        
+31418 saltadmi  20   0  691m 301m 1540 S  100.0  0.1   4:16.11 /usr/bin/python2.6 /usr/bin/salt-master -d EventPublisher   
+```
+
+**And using command  "strace -p 31418" shows like too many EAGAIN error occurring 
+and the detail is as follows**
+
+```
+sendto(300, "\202\244body\332\3\220syndic/XZ_SedMaster_04/"..., 927, 0, NULL, 0) = -1 EAGAIN (Resource temporarily unavailable)
+sendto(230, "\202\244body\332\3\256salt/auth\n\n\203\246_stamp\272201"..., 957, 0, NULL, 0) = -1 EAGAIN (Resource temporarily unavailable)
+sendto(279, "\202\244body\332\3\220syndic/XZ_SedMaster_04/"..., 927, 0, NULL, 0) = -1 EAGAIN (Resource temporarily unavailable)
+sendto(261, "\202\244body\332\2Rsalt/auth\n\n\203\246_stamp\272201"..., 609, 0, NULL, 0) = -1 EAGAIN (Resource temporarily unavailable)
+sendto(253, "\202\244body\332\3\220syndic/XZ_SedMaster_04/"..., 927, 0, NULL, 0) = -1 EAGAIN (Resource temporarily unavailable)
+sendto(258, "\202\244body\332\3\257salt/auth\n\n\203\246_stamp\272201"..., 958, 0, NULL, 0) = -1 EAGAIN (Resource temporarily unavailable)
+sendto(234, "\202\244body\332\0\22020160914105524082395\n\n\203"..., 159, 0, NULL, 0) = -1 EAGAIN (Resource temporarily unavailable)
+sendto(250, "\202\244body\332\3\256salt/auth\n\n\203\246_stamp\272201"..., 957, 0, NULL, 0) = -1 EAGAIN (Resource temporarily unavailable)
+sendto(238, "\202\244body\332\3\217syndic/YH_SedMaster_01/"..., 926, 0, NULL, 0) = -1 EAGAIN (Resource temporarily unavailable)
+```
+
+**check the master  log on master of masters** ,  can see all the minions(30K+)  connected with syndics auth event is captured like:
+
+```
+2016-09-14 11:26:58,786 [salt.utils.reactor                                   ][DEBUG   ][31469] Gathering reactors for tag salt/auth
+2016-09-14 11:26:58,792 [salt.utils.reactor                                   ][DEBUG   ][31469] Gathering reactors for tag syndic/XZ_SedMast
+er_02/salt/auth2016-09-14 11:26:59,219 [salt.utils.event                                     ][DEBUG   ][31550] Sending event - data = {'_stamp': '2016-09-1
+4T03:26:59.218695', 'tag': 'salt/auth', 'data': {'result': True, '_stamp': '2016-09-14T03:26:58.804824', 'id': '10.104.103.105', 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAwbJFCSx9jwl0YTT1UTwd\n3PlYijCt3L0mQ3c7QCWuZkuMc1eRIRUvp2awix2ge50UOWa/h8yJ8tD19wbZdMRU\n7TnD0iKucsiMpoaBCiO3uBwYKu04dlDZCxhTc32SGmfIZawVIgXsv0ixKZlQrrSA\n8xgqMxDcVy1Y+pSswE6XXDfMnt+Fr/SGEOA4HsVm4QP57Arvg6OK7jTRH+XSEAJp\nks8drOY4vKgT/35OsSexgv/Yqv5SytKhN3Uzo8ccPvkX9B/zadbp7FlFl2sGindm\ngwB88BodpliK2cEcCkekZPKsC/D56aeuHBflqkmOuR+p2Qm/a9lTkF91AiikJNnI\nOAMDTLERutsOibmbJTM0KhIaqAYLctqpZgx5ZO+TZb1BDM9kA4vFT5cSAbGcK/r/\nTtOgeh7JE2pcIGurJBntF++OzJISDk+CgrHMZeEKFaJAneGmyWWPkycvaoJFa0/a\n8O9Zxmjr/BqIGcVunAA7fSVDEKq62Q3uh/RajVRMaUX9KPCo6aO4SN17S8U6hUsi\nMoOX3I9axH/lDdBRxxmlLQg2fpiemhclMjbeiYZDqzdNxaMT4XXrFMtMYQH+rtrD\nyVkYcR8yJFq2qQuossJyN4o0DDbbJZF9Fc5an0bg5ZlTpa8lgG+YhR9O9f7NFt8/\n+RAsyyUJmO2OGx3ZZiEgXwUCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}}2016-09-14 11:26:59,220 [salt.utils.event                                     ][DEBUG   ][31550] Sending event - data = {'result': True, '_st
+amp': '2016-09-14T03:26:59.219794', 'id': '10.104.103.105', 'pub': '-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAwbJFCSx9jwl0YTT1UTwd\n3PlYijCt3L0mQ3c7QCWuZkuMc1eRIRUvp2awix2ge50UOWa/h8yJ8tD19wbZdMRU\n7TnD0iKucsiMpoaBCiO3uBwYKu04dlDZCxhTc32SGmfIZawVIgXsv0ixKZlQrrSA\n8xgqMxDcVy1Y+pSswE6XXDfMnt+Fr/SGEOA4HsVm4QP57Arvg6OK7jTRH+XSEAJp\nks8drOY4vKgT/35OsSexgv/Yqv5SytKhN3Uzo8ccPvkX9B/zadbp7FlFl2sGindm\ngwB88BodpliK2cEcCkekZPKsC/D56aeuHBflqkmOuR+p2Qm/a9lTkF91AiikJNnI\nOAMDTLERutsOibmbJTM0KhIaqAYLctqpZgx5ZO+TZb1BDM9kA4vFT5cSAbGcK/r/\nTtOgeh7JE2pcIGurJBntF++OzJISDk+CgrHMZeEKFaJAneGmyWWPkycvaoJFa0/a\n8O9Zxmjr/BqIGcVunAA7fSVDEKq62Q3uh/RajVRMaUX9KPCo6aO4SN17S8U6hUsi\nMoOX3I9axH/lDdBRxxmlLQg2fpiemhclMjbeiYZDqzdNxaMT4XXrFMtMYQH+rtrD\nyVkYcR8yJFq2qQuossJyN4o0DDbbJZF9Fc5an0bg5ZlTpa8lgG+YhR9O9f7NFt8/\n+RAsyyUJmO2OGx3ZZiEgXwUCAwEAAQ==\n-----END PUBLIC KEY-----\n', 'act': 'accept'}2016-09-14 11:26:59,226 [salt.utils.reactor                                   ][DEBUG   ][31469] Gathering reactors for tag salt/auth
+2016-09-14 11:26:59,236 [salt.utils.reactor                                   ][DEBUG   ][31469] Gathering reactors for tag syndic/YH_SedMaster_05/salt/auth
+```
+
+.....
+### Versions Report
+
+master of masters and the syndic are all the same version
+
+```
+[root@Zabbix_Server_16 ~]# salt --versions-report
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 1.4.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: 0.3.4
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3c1
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Nov 22 2013, 12:16:22)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: redhat 6.3 Santiago
+        machine: x86_64
+        release: 2.6.32-279.el6.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 6.3 Santiago
+```

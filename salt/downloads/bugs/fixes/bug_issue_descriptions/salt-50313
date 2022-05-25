@@ -1,0 +1,149 @@
+### Description of Issue/Question
+When running in docker/kubernetes the salt-master process leaks memory over time
+
+![image](https://user-images.githubusercontent.com/1888506/47736286-a2553e00-dc2b-11e8-8b09-4d0b6a69e029.png)
+
+I have confirmed the same behavior with or without our custom engine installed
+
+### Setup
+Dockerfile:
+
+```
+FROM centos:latest as base
+
+RUN yum -y update && \
+    yum -y install python-ldap python-setproctitle epel-release git && \
+    yum -y install https://repo.saltstack.com/yum/redhat/salt-repo-2018.3-1.el7.noarch.rpm  && \
+    yum clean all
+
+FROM base
+
+RUN yum -y install salt-master virt-what python-pygit2 python-pip && \
+    yum clean all
+
+RUN pip install pika
+
+ADD Dockerfiles/salt-master/entrypoint.sh /entrypoint.sh
+RUN chmod 755 /entrypoint.sh
+
+RUN useradd saltapi
+RUN echo "salt" | passwd --stdin saltapi
+
+EXPOSE 4505/tcp 4506/tcp
+
+ENTRYPOINT ["/entrypoint.sh"]
+
+CMD ["salt-master", "-l", "info"]
+```
+
+Enterypoint.sh
+
+```
+#!/bin/bash
+# Sync gitfs
+/usr/bin/salt-run saltutil.sync_all
+
+# This may be redundant, but ensure we sync the
+# engines after we've got the latest code from gitfs
+/usr/bin/salt-run saltutil.sync_engines
+
+touch /tmp/entrypoint_ran
+
+# Ensure that the saltapi password matches the
+# $SALTAPI_PASSWORD environment variable
+stty -echo
+if [ -n "$SALTAPI_PASSWORD" ];
+    then echo ${SALTAPI_PASSWORD} |  passwd --stdin saltapi;
+fi
+stty echo
+
+# Run command
+exec "$@"
+```
+
+master.conf
+```
+    hash_type: sha512
+    state_aggregate: True
+    log_level_logfile: info
+
+    fileserver_backend:
+      - roots
+      - git
+    gitfs_remotes:
+      - https://states.gitfs.repo
+        - user: secret
+        - password: secret
+    ext_pillar:
+      - git:
+        # HTTPS authentication
+        - master https://pillar.gitfs.repo:
+          - user: secret
+          - password: secret
+    external_auth:
+      pam:
+        saltapi:
+          - .*
+          - '@runner'
+          - '@wheel'
+    custom:
+      rabbitmq:
+        user: salt
+        password: super secret
+        server: superdupersecret
+        exchange: salt-events
+        vhost: salt-events
+        queue: salt-events
+    engines:
+       - custom-salt: {}
+```
+
+### Steps to Reproduce Issue
+1) Launch container
+2) Add one or more minions
+3) Watch as graph slowly rises
+
+### Versions Report
+```
+$ kubectl exec -it saltstack-54c9c75cc4-6mlf9 -c salt-master -- salt --versions-report
+Salt Version:
+           Salt: 2018.3.3
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.26.3
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, Jul 13 2018, 13:06:57)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 4.4.0-133-generic
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```

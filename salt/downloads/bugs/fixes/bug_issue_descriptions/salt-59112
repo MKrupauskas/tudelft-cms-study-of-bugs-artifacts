@@ -1,0 +1,124 @@
+**Description**
+Starting salt-api as a non-root user with an alternative `--log-file=` path will fail.
+
+When starting salt-api under the following conditions, it will fail to start:
+- the default log file at `/var/log/salt/api` does not exist or is inaccessible to the user running salt-api
+- an alternative `--log-file=` path is provided
+
+When the default log file at `/var/log/salt/api` exists, it will accept the alternative `--log-file=` and start as expected.
+
+**Steps to Reproduce the behavior**
+Using an unmodified Ubuntu 20.04 instance:
+```shell
+#!/bin/bash
+wget -O - https://repo.saltstack.com/py3/ubuntu/20.04/amd64/3002/SALTSTACK-GPG-KEY.pub | sudo apt-key add -
+echo 'deb http://repo.saltstack.com/py3/ubuntu/20.04/amd64/3002 focal main' > /etc/apt/sources.list.d/saltstack.list
+apt update
+apt install -y --assume-yes salt-api
+useradd -m -s /bin/bash -U salt-api
+/etc/systemd/system/salt-api.service.d/
+cat > /etc/systemd/system/salt-api.service.d/override.conf <<'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/salt-api --log-file=/home/salt-api/api.log
+User=salt-api
+Group=salt-api
+EOF
+systemctl daemon-reload
+```
+
+A regular `systemctl restart salt-api` will now work just as expected - the output of `systemctl status salt-api` looks good:
+```
+ salt-api.service - The Salt API
+     Loaded: loaded (/lib/systemd/system/salt-api.service; enabled; vendor preset: enabled)
+    Drop-In: /etc/systemd/system/salt-api.service.d
+             override.conf
+     Active: active (running) since Wed 2020-12-09 20:18:30 UTC; 6s ago
+       Docs: man:salt-api(1)
+             file:///usr/share/doc/salt/html/contents.html
+             https://docs.saltstack.com/en/latest/contents.html
+   Main PID: 12414 (salt-api)
+      Tasks: 1 (limit: 1137)
+     Memory: 42.0M
+     CGroup: /system.slice/salt-api.service
+             12414 /usr/bin/python3 /usr/bin/salt-api --log-file=/home/salt-api/api.log
+```
+
+Now move the original log file aside, restart the service and check its status:
+```shell
+mv /var/log/salt/api /var/log/salt/api.mved
+systemctl restart salt-api
+systemctl status salt-api
+```
+
+The result:
+```
+ salt-api.service - The Salt API
+     Loaded: loaded (/lib/systemd/system/salt-api.service; enabled; vendor preset: enabled)
+    Drop-In: /etc/systemd/system/salt-api.service.d
+             override.conf
+     Active: failed (Result: exit-code) since Wed 2020-12-09 20:21:45 UTC; 2s ago
+       Docs: man:salt-api(1)
+             file:///usr/share/doc/salt/html/contents.html
+             https://docs.saltstack.com/en/latest/contents.html
+    Process: 12602 ExecStart=/usr/bin/salt-api --log-file=/home/salt-api/api.log (code=exited, status=1/FAILURE)
+   Main PID: 12602 (code=exited, status=1/FAILURE)
+
+Dec 09 20:21:45 apibug systemd[1]: Starting The Salt API...
+Dec 09 20:21:45 apibug systemd[1]: Started The Salt API.
+Dec 09 20:21:45 apibug salt-api[12602]: No permissions to access "/var/log/salt/api", are you running as the correct user?
+Dec 09 20:21:45 apibug systemd[1]: salt-api.service: Main process exited, code=exited, status=1/FAILURE
+Dec 09 20:21:45 apibug systemd[1]: salt-api.service: Failed with result 'exit-code'.
+```
+
+As soon as the original log file `/var/log/salt/api` exists again, it just starts as expected.
+
+**Expected behavior**
+I expect `salt-api` to simply accept the provided path for `--log-file=` without having to rely on the presence of the completely unrelated file `/var/log/salt/api` which is the default path for this log file.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+Salt Version:
+          Salt: 3002.2
+
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: 8.9.1
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.6
+     gitpython: 3.0.7
+        Jinja2: 2.10.1
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: Not Installed
+        Python: 3.8.5 (default, Jul 28 2020, 12:59:40)
+  python-gnupg: 0.4.5
+        PyYAML: 5.3.1
+         PyZMQ: 18.1.1
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.2
+
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 5.4.0-56-generic
+        system: Linux
+       version: Ubuntu 20.04 focal
+```
+</details>
+
+**Additional context**
+This seems to be problem of the function `verify_log_files()` used in `salt/cli/api.py`.

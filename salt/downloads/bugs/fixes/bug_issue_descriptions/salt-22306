@@ -1,0 +1,38 @@
+Salt version 2014.7.4
+
+To reproduce the problem I'm running salt in masterless mode. I've configured the following in /etc/salt/minion
+
+```
+ext_pillar:
+    - s3:
+        bucket: salt-pillars
+        keyid: AKI***
+        key: Fok***
+        multiple_env: True
+        verify_ssl: True
+```
+
+I have the bucket set up with /base/top.sls, /base/test.sls.
+
+/base/top.sls:
+
+```
+base:
+  '*':
+    - test
+```
+
+/base/test.sls:
+
+```
+testing:
+  - yes: very
+```
+
+When I run `salt-call pillar.get test -l debug` it downloads the top.sls and test.sls files to `/var/cache/salt/minion/pillar_s3fs/base/salt-pillars/base/top.sls`. Then at pillars/s3.py:132 opts['pillar_roots'][environment] = [pillar_dir]. At this point pillar_dir is set to `/var/cache/salt/minion/pillar_s3fs/base/salt-pillars`. That is the parent directory of what should be the actual root in the case of multiple_env. I believe the correct code is:
+
+```
+opts['pillar_roots'][environment] = [os.path.join(pillar_dir, environment)] if multiple_env else [pillar_dir]
+```
+
+I'll try to submit a PR once I figure out how to set up a development env.

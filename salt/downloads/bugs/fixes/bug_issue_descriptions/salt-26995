@@ -1,0 +1,43 @@
+Trying to utilize `artifactory.downloaded` to deploy an assembly artifact to a minion. I've placed a copy of an example along with steps I've taken to try and diagnose at https://gist.github.com/jbouse/bd5260e2a7635867f973 including `salt --versions-report` output. This is slightly different from #19879 in that I'm not getting the error that artifactory.downloaded is unavailable. Instead I get the following:
+
+```
+$ salt minion-id state.sls test
+minion-id:
+----------
+           ID: myco-artifact
+     Function: artifactory.downloaded
+       Result: False
+      Comment: An exception occurred in this state: Traceback (most recent call last):
+            File "/usr/lib/python2.6/site-packages/salt/state.py", line 1563, in call
+              self.verify_ret(ret)
+            File "/usr/lib/python2.6/site-packages/salt/state.py", line 796, in verify_ret
+              'Malformed state return, return must be a dict'
+          SaltException: Malformed state return, return must be a dict
+      Started: 12:44:50.671013
+     Duration: 62.355 ms
+```
+
+If I use salt-call and call artifactory.get_snapshot with both version and snapshot_version then I am successful but calling artifactory.downloaded in the state file which is the same as calling with snapshot_version=None fails and there doesn't appear to be anyway to call artifactory.downloaded and pass snapshot_version along as the internal call to artifactory.get_snapshot doesn't pass a snapshot_version parameter.
+
+Calling artifactory.get_snapshot in attempt to duplicate the call from within artifactory.downloaded I get the following traceback:
+
+```
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.6/site-packages/salt/scripts.py", line 227, in salt_call
+    client.run()
+  File "/usr/lib/python2.6/site-packages/salt/cli/call.py", line 69, in run
+    caller.run()
+  File "/usr/lib/python2.6/site-packages/salt/cli/caller.py", line 236, in run
+    ret = self.call()
+  File "/usr/lib/python2.6/site-packages/salt/cli/caller.py", line 138, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.6/site-packages/salt/modules/artifactory.py", line 73, in get_snapshot
+    snapshot_url, file_name = _get_snapshot_url(artifactory_url, repository, group_id, artifact_id, version, packaging, snapshot_version)
+  File "/usr/lib/python2.6/site-packages/salt/modules/artifactory.py", line 117, in _get_snapshot_url
+    snapshot_version_metadata = _get_snapshot_version_metadata(artifactory_url=artifactory_url, repository=repository, group_id=group_id, artifact_id=artifact_id, version=version)
+  File "/usr/lib/python2.6/site-packages/salt/modules/artifactory.py", line 239, in _get_snapshot_version_metadata
+    assert version == metadata.find('version').text
+AssertionError
+```

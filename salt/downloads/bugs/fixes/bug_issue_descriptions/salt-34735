@@ -1,0 +1,116 @@
+### Description of Issue/Question
+
+Somehow my master lost the knowledge about pillars on some minions. I have 6 minions with the following pillar:
+
+``` yaml
+labels:
+  lb: true
+```
+
+On one day only 4 started reporting instead of 6 and **there were no indication that anything is missing**:
+
+```
+ivan@foo4:~$ sudo salt -I labels:lb:true test.ping
+foo26:
+    True
+foo12:
+    True
+foo19:
+    True
+foo35:
+    True
+```
+
+Once I figured that out from people complaining that some certs have different expiration dates (luckily they were all still valid), I synced everything across the fleet:
+
+```
+ivan@foo4:~$ sudo salt -b 10 '*' saltutil.sync_all
+```
+
+Then my lost minions were found, but were not responding according to salt cli:
+
+```
+ivan@foo4:~$ sudo salt -I labels:lb:true test.ping
+foo26:
+    True
+foo12:
+    True
+foo19:
+    True
+foo35:
+    True
+foo41:
+    Minion did not return. [No response]
+foo49:
+    Minion did not return. [No response]
+```
+
+This is unexpected, since I just saw them replying successfully to `saltutil.sync_all` command.
+
+Here comes the fun, they actually reply when you target them by names:
+
+```
+ivan@foo4:~$ sudo salt -L foo12,foo19,foo26,foo35,foo41,foo49 test.ping
+foo26:
+    True
+foo19:
+    True
+foo12:
+    True
+foo35:
+    True
+foo49:
+    True
+foo41:
+    True
+```
+
+I checked pillar cache on master and it was fresh (after `saltutil.sync_all` everywhere). I did `strace` on salt minion during label match run and it was silent. I did the same during name match and it got chatty.
+
+Salt master restart did not fix the issue. When I target `*` problematic minions respond.
+
+My guess is that master does not send commands to these minions for some reason.
+### Steps to Reproduce Issue
+
+Unknown.
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: 0.3.6
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.4
+        machine: x86_64
+        release: 4.4.10-cloudflare
+         system: Linux
+        version: debian 8.4
+```

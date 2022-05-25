@@ -1,0 +1,163 @@
+### Description of Issue
+
+When running trying to set the system locale on a fresh system ("C") to `en_US.UTF-8` Salt version 2018.3 fails while 2017.7 works without a hitch.
+
+The stacktrace can be seen below, the immediate error is `AttributeError: 'unicode' object has no attribute 'get'`.
+
+### Setup
+
+I used Vagrant with the libvirt provider (but VirtualBox should work, too) to set up a test environment for anyone to reproduce.
+
+Create `Vagrantfile`
+```sh
+cd $(mktemp -d) && cat >Vagrantfile <<EOF
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "debian/stretch64"
+  config.vm.provision :salt do |salt|
+    # This sets the official Salt repositories up for us
+    salt.masterless = true
+  end
+end
+EOF
+```
+
+Commands
+```sh
+vagrant up
+vagrant ssh
+# Now continue in the vagrant box
+sudo -i
+apt update && apt full-upgrade -y
+```
+
+Files to be created inside the Vagrant box:
+```sh
+mkdir -p /srv/salt
+cat >/srv/salt/top.sls <<EOF
+base:
+  '*':
+    - language_barrier
+EOF
+
+cat >/srv/salt/language_barrier.sls <<EOF
+language:
+  locale.present:
+    - name: en_US.UTF-8
+
+
+mother_tongue:
+  locale.system:
+    - name: en_US.UTF-8
+    - require:
+      - locale: language
+EOF
+```
+
+
+### Steps to Reproduce Issue
+
+Fire up the above Vagrant environment and just apply the salt state.
+
+```sh
+root@stretch:~% salt-call --local state.apply
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1878, in call
+    **cdata['kwargs'])
+  File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1823, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/states/locale.py", line 50, in system
+    if __salt__['locale.get_locale']() == name:
+  File "/usr/lib/python2.7/dist-packages/salt/modules/localemod.py", line 138, in get_locale
+    ret = (_parse_dbus_locale() if dbus is not None else _localectl_status()['system_locale']).get('LANG', '')
+AttributeError: 'unicode' object has no attribute 'get'
+
+local:
+----------
+          ID: language
+    Function: locale.present
+        Name: en_US.UTF-8
+      Result: True
+     Comment: Generated locale en_US.UTF-8
+     Started: 10:20:19.034264
+    Duration: 551.23 ms
+     Changes:
+              ----------
+              locale:
+                  en_US.UTF-8
+----------
+          ID: mother_tongue
+    Function: locale.system
+        Name: en_US.UTF-8
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1878, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1823, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/locale.py", line 50, in system
+                  if __salt__['locale.get_locale']() == name:
+                File "/usr/lib/python2.7/dist-packages/salt/modules/localemod.py", line 138, in get_locale
+                  ret = (_parse_dbus_locale() if dbus is not None else _localectl_status()['system_locale']).get('LANG', '')
+              AttributeError: 'unicode' object has no attribute 'get'
+     Started: 10:20:19.586080
+    Duration: 20.058 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    1
+------------
+Total states run:     2
+Total run time: 571.288 ms
+```
+
+
+### Versions Report
+
+```
+root@stretch:~% salt-call --versions-report
+Salt Version:
+           Salt: 2018.3.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Nov 24 2017, 17:33:09)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+
+System Versions:
+           dist: debian 9.4
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 4.9.0-6-amd64
+         system: Linux
+        version: debian 9.4
+```

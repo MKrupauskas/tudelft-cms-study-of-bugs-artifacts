@@ -1,0 +1,116 @@
+### Description of Issue
+On Py 3 only, doing a recursive mode set with file.directory attempts to read and set permissions on symlinks (the links themselves, not targets). This causes salt to show that there were 'changes' on every highstate and could set off other onchanges requisites, even if there where no actual changes.
+
+### Setup
+This sls will easily reproduce the issue:
+```
+/tmp/test547/standard_folder/standard_file:
+  file.managed:
+    - target: /tmp/test547
+    - makedirs: True
+
+/tmp/test547/link_folder/link:
+  file.symlink:
+    - target: /tmp/test547
+    - makedirs: True
+
+/tmp/test547/:
+  file.directory:
+    - user: root
+    - group: root
+    - dir_mode: '0755'
+    - recurse:
+      - mode
+```
+
+### Steps to Reproduce Issue
+Just doing a state.apply of sls above will show changes on every run even though no changes will actually occur after the initial creation. While this is just a sample, we are running into this issue largely  with virtual envs and they can also be used in troubleshooting. Creating a virtual env and then setting the permissions with a recursive file.directory will produce dozens to hundreds of no-op changes due to the amount of links in a virtual env.
+
+### Versions Report
+This has also been tried on 2.1 salt with python 3 with the same issue. Both 2.2 and 2.1 work as expected if using py2 instead of py3
+```
+Salt Version:
+           Salt: 2019.2.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.8.0
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.2 (default, Oct  8 2019, 13:06:37)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-1100-aws
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```
+### Expectations
+Py3 should have this output. (taken from a server running py2)
+```
+local:
+  Name: /tmp/test547/standard_folder/standard_file - Function: file.managed - Result: Clean Started: - 20:18:37.207328 Duration: 5.152 ms
+  Name: /tmp/test547/ - Function: file.directory - Result: Clean Started: - 20:18:37.212632 Duration: 2.079 ms
+  Name: /tmp/test547/link_folder/link - Function: file.symlink - Result: Clean Started: - 20:18:37.214890 Duration: 4.019 ms
+
+Summary for local
+------------
+Succeeded: 3
+Failed:    0
+------------
+Total states run:     3
+Total run time:  11.250 ms
+```
+Instead of this.
+```
+local:
+  Name: /tmp/test547/standard_folder/standard_file - Function: file.managed - Result: Clean Started: - 20:14:03.641678 Duration: 5.825 ms
+----------
+          ID: /tmp/test547/
+    Function: file.directory
+      Result: True
+     Comment: Directory /tmp/test547 updated
+     Started: 20:14:03.647647
+    Duration: 1.989 ms
+     Changes:
+              ----------
+              /tmp/test547/link_folder/link:
+                  ----------
+                  mode:
+                      0755
+  Name: /tmp/test547/link_folder/link - Function: file.symlink - Result: Clean Started: - 20:14:03.649771 Duration: 4.463 ms
+
+Summary for local
+------------
+Succeeded: 3 (changed=1)
+Failed:    0
+------------
+Total states run:     3
+Total run time:  12.277 ms
+```
+

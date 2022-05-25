@@ -1,0 +1,62 @@
+Hi,
+
+I am using presence events to trigger a number of actions via the reactor system, but am unable to test the setup in vagrant because `CkMinions.connected_ids()` always returns all locally running minions regardless of the fact if salt-minion is running or not.
+
+The culprit for this behaviour is 1f890ea9 and the fact that `network.ip_addrs()` contains an IP on the master that is _also_ present on the minions. A minion will therefore _always_ be seen as online despite the fact that `salt.utils.network.local_port_tcp` picks up the fact that one of them went online just fine and included the IP of the locally running minion just fine before.
+
+I am not sure why that commit was necessary in the first place and why one cannot simply use the addresses returned by `network.local_port_tcp` to determine which minions are online as that functions contains locally running minions already.
+
+So, what I see is the following:
+
+```
+# salt '*' grains.item ipv4
+minion1:
+  ipv4:
+      10.0.2.15
+      127.0.0.1
+      192.168.33.35
+minion2:
+  ipv4:
+      10.0.2.15
+      127.0.0.1
+      192.168.33.36
+# salt '*' network.ip_addrs
+minion1:
+    - 10.0.2.15
+    - 192.168.33.35
+minion2:
+    - 10.0.2.15
+    - 192.168.33.36
+# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 16436 qdisc noqueue state UNKNOWN 
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:a2:8e:cc brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.15/24 brd 10.0.2.255 scope global eth0
+    inet6 fe80::a00:27ff:fea2:8ecc/64 scope link 
+       valid_lft forever preferred_lft forever
+3: eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:9d:2f:c5 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.33.34/24 brd 192.168.33.255 scope global eth1
+# python
+Python 2.7.3 (default, Mar 13 2014, 11:03:55) 
+[GCC 4.7.2] on linux2
+Type "help", "copyright", "credits" or "license" for more information.
+>>> import salt.utils.network
+>>> salt.utils.network.local_port_tcp(4505)
+set(['127.0.0.1', '0.0.0.0', '192.168.33.35', '192.168.33.36'])
+>>> salt.utils.network.local_port_tcp(4505)
+set(['0.0.0.0', '127.0.0.1', '192.168.33.36'])
+>>> import salt.config
+>>> master_opt = salt.config.master_config("/etc/salt/master")
+>>> ckminions = salt.utils.minions.CkMinions(master_opt)
+>>> ckminions.connected_ids()
+set(['minion1', 'minion2',])
+```
+
+I stopped the salt-minion on `minion1` between the two `salt.utils.network.local_port_tcp(4505)` runs which properly reflects that one of the minions came down. As `addrs` at this point contain `127.0.0.1` the previously cached value in `CkMinions.ip_addrs` which _does_ contain `192.168.33.35` is added to `addrs`.
+
+I'd argue in favour of reverting 1f890ea9 but there might be reasons not to do that.

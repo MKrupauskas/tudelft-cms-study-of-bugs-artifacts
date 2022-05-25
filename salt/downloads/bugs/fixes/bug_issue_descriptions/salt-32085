@@ -1,0 +1,107 @@
+### Description of Issue/Question
+
+I am attempting to use `pip.installed` with `bin_env` set to a virtualenv created by `virtualenv.managed`.  
+This is the error I'm getting when trying to install `psycopg2` which requires `pg_config` to be in the config:
+
+```
+Collecting psycopg2==2.6.1 (from -r /tmp/tmpGlfckr (line 47))
+  Using cached psycopg2-2.6.1.tar.gz
+    Complete output from command python setup.py egg_info:
+    running egg_info
+    creating pip-egg-info/psycopg2.egg-info
+    writing pip-egg-info/psycopg2.egg-info/PKG-INFO
+    writing top-level names to pip-egg-info/psycopg2.egg-info/top_level.txt
+    writing dependency_links to pip-egg-info/psycopg2.egg-info/dependency_links.txt
+    writing manifest file 'pip-egg-info/psycopg2.egg-info/SOURCES.txt'
+    warning: manifest_maker: standard file '-c' not found
+
+    Error: pg_config executable not found.
+
+    Please add the directory containing pg_config to the PATH
+    or specify the full executable path with the option:
+
+        python setup.py build_ext --pg-config /path/to/pg_config build ...
+
+    or with the pg_config option in 'setup.cfg'.
+
+    ----------------------------------------   Running setup.py (path:/tmp/pip-build-jOEEZd/django-pdb-0.4.2/setup.py) egg_info for package django-pdb-0.4.2 produced metadata for project name django-pdb. Fix your #egg=django-pdb-0.4.2 fragments.
+Command "python setup.py egg_info" failed with error code 1 in /tmp/pip-build-jOEEZd/psycopg2/
+```
+
+If I do not set `bin_env` (and do not use a virtualenv), my modified PATH works correctly and `psycopg2` gets installed with no issue.  `activate` seems to honor existing the PATH with this bit:
+
+``` bash
+_OLD_VIRTUAL_PATH="$PATH"
+PATH="$VIRTUAL_ENV/bin:$PATH"
+export PATH
+```
+
+I suspect this might mean my env vars are not getting set if `bin_env` is being used?
+### Setup
+
+Simplified version of my state:
+
+``` yaml
+myapp:
+  file.directory:
+    - name: /opt/myvenv
+  virtualenv.managed:
+    - name: /opt/myvenv
+    - require:
+         - file: myapp
+  pip.installed:
+    - name: psycopg2==2.6.1
+    - bin_env: /opt/myvenv
+    - env_vars:
+        PATH: /usr/pgsql-9.4/bin:/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin
+    - require:
+         - virtualenv: myapp
+```
+
+I've also tried copying `env_vars` to the `virtualenv.managed` section.
+### Steps to Reproduce Issue
+
+The above example state _should_ be enough to cause the error if you have virtualenv installed.   Postgres also would need to be installed for pg_config to exist.   I'm using the repos from http://yum.postgresql.org/repopackages.php#pg94  to install postgres on centos 7.
+### Versions Report
+
+Note, I'm currently only testing this with a masterless salt minion in vagrant.
+
+```
+[root@myapp-dev myapp]# salt-call --versions-report
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.5 (default, Nov 20 2015, 02:00:19)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.10.1.el7.x86_64
+         system: CentOS Linux 7.2.1511 Core
+```

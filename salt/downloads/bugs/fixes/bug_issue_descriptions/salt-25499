@@ -1,0 +1,142 @@
+I found a reproducable test case for a disturbing problem.
+
+The minion MINION has currently IP-address 10.144.76.86.
+In the past it probably has been 10.144.73.58, but not now.
+
+On MINION, I set a grain called magni_config to the value of 3.
+In the past it probably has been 1.
+
+To my great surprise file.recurse overwrites the cache of grains and pillars (/var/cache/salt/master/minions/MINION/data.p) with both, outdated values.
+As you can see below, it reverts value magni_config to the outdated value of 1 and it wrongly adds the outdated IP-address.
+When I look directly into file  /salt/conf/grains on MINION it contains the correct value, proving that the error is 'local' to the salt-master.
+
+Below is the complete and (apart from the minion name) unmodified sequence of action.
+
+I have about 40 minions and about 50% suffer from 'grain cache flashbacks'.
+The minion which never executes ‘file.recurse’ does not suffer under 'grain cache flashbacks'.
+
+The documentation says that grains should be 'static'.
+What is the precise definition of 'static'?
+My minions are Laptops and can change their IP-address, possibly several times a day.
+Does this make the IP-address 'not static enough'?
+
+An attempt to explain what I observe:
+- The module 'file' keeps an ‘in-memory’ cache of grains.
+- This in-memory cache is not invalidated if the module 'grains' updates the file cache.
+- When the module 'file' is executed, it overwrites the file cache with the in-memory cache.
+- Desaster.
+
+Could you please verify/falsify this hypothesis?
+
+I looked for similar issues and just found:
+In https://github.com/saltstack/salt/issues/14691  @ryepup  says:  "It almost seems like state.sls is somehow clearing the custom grains that didn't exist when the minion first booted up."
+
+In https://github.com/saltstack/salt/issues/14691   the hypothesis is that the Windows threading model is related, but here the threading model of the minion can hardly be part of the problem because the minion has the correct grain (in /salt/conf/grains).
+
+```
+
+markus@debian:~$ sudo salt MINION state.sls config
+MINION:
+----------
+          ID: magni_config_setter
+    Function: grains.present
+        Name: magni_config
+      Result: True
+     Comment: Set grain magni_config to 3
+     Started: 22:53:09.346000
+    Duration: 3229.0 ms
+     Changes:
+              ----------
+              magni_config:
+                  3
+
+Summary
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+
+
+markus@debian:~$ sudo salt MINION grains.item ipv4
+MINION:
+    ----------
+    ipv4:
+        - 10.144.76.86
+
+
+markus@debian:~$ sudo salt MINION state.sls santa
+MINION:
+----------
+          ID: /apps/dhlcopy/north
+    Function: file.recurse
+      Result: True
+     Comment: The directory /apps/dhlcopy/north is in the correct state
+     Started: 22:54:36.113000
+    Duration: 811.0 ms
+     Changes:
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+
+
+markus@debian:~$ sudo salt MINION grains.item ipv4
+MINION:
+    ----------
+    ipv4:
+        - 10.144.73.58
+        - 10.144.76.86
+
+
+markus@debian:~$ sudo salt MINION grains.item magni_config
+MINION:
+    ----------
+    magni_config:
+        1
+
+
+markus@debian:~ $ sudo salt MINION cmd.run cwd=/salt/conf 'type grains'
+MINION:
+    magni_config: 3
+
+
+markus@debian:~$ sudo salt MINION cmd.run cwd=/salt 'salt-call --versions-report'
+MINION:
+               Salt: 2014.7.2
+             Python: 2.7.5 (default, May 15 2013, 22:43:36) [MSC v.1500 32 bit (Intel)]
+             Jinja2: 2.7.1
+           M2Crypto: 0.21.1
+     msgpack-python: 0.4.2
+       msgpack-pure: Not Installed
+           pycrypto: 2.6
+            libnacl: Not Installed
+             PyYAML: 3.11
+              ioflo: Not Installed
+              PyZMQ: 14.1.1
+               RAET: Not Installed
+                ZMQ: 4.0.4
+               Mako: Not Installed
+
+
+markus@debian:~$ salt --versions-report
+                  Salt: 2015.5.0
+                Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+                Jinja2: 2.6
+              M2Crypto: 0.21.1
+        msgpack-python: 0.1.10
+          msgpack-pure: Not Installed
+              pycrypto: 2.6
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 13.1.0
+                  RAET: Not Installed
+                   ZMQ: 3.2.3
+                  Mako: 0.7.0
+ Debian source package: 2015.5.0+ds-1~bpo70+1
+
+```

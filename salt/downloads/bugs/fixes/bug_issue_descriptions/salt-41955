@@ -1,0 +1,60 @@
+### Description of Issue/Question
+
+When running any state using the rabbitmq_* modules with rabbitmq-server version 3.6.10 (and maybe higher) the run fales with the following message:
+```
+Comment: An exception occurred in this state: Traceback (most recent call last):
+            File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1564, in call
+              **cdata['kwargs'])
+            File "/usr/lib/python2.7/dist-packages/salt/states/rabbitmq_user.py", line 158, in present
+              if _check_perms_changes(name, perms, runas=runas):
+            File "/usr/lib/python2.7/dist-packages/salt/states/rabbitmq_user.py", line 49, in _check_perms_changes
+              existing_perms = __salt__['rabbitmq.list_user_permissions'](name, runas=runas)
+            File "/usr/lib/python2.7/dist-packages/salt/modules/rabbitmq.py", line 369, in list_user_permissions
+              return _output_to_dict(res)
+            File "/usr/lib/python2.7/dist-packages/salt/modules/rabbitmq.py", line 94, in _output_to_dict
+              key, values = row.split('\t', 1)
+          ValueError: need more than 1 value to unpack
+```
+This error is caused by a change of the output of rabbitmqctl.
+
+#### Output comparision
+
+Output before 3.6.10:
+```
+~# rabbitmqctl list_users
+Listing users ...
+magento2        []
+support@root360.de      [administrator]
+tecdivision     [monitoring]
+```
+
+Output with 3.6.10:
+```
+~# rabbitmqctl list_users
+Listing users
+magento2        []
+support@root360.de      [administrator]
+tecdivision     [monitoring]
+```
+
+#### Result of error analysis
+The modules strip the first line of the output only when it starts with 'Listing' and ends with '...', see _safe_output() in https://github.com/saltstack/salt/blob/develop/salt/modules/rabbitmq.py#L130.
+As the '...' are missing in 3.6.10 the first line isn't stripped anymore but processed by _output_to_dict().
+Because the line does not contain '\t' the conversion fails and the mentioned error is printed.
+
+### Setup
+Example sls:
+```
+manage_rabbitmq_users:
+  rabbitmq_user.present:
+    - name: test
+    - password: test
+```
+
+### Steps to Reproduce Issue
+
+1. install rabbitmq-server in version 3.6.10, e.g. from https://packagecloud.io/rabbitmq/rabbitmq-server/ubuntu/
+2. run salt state using the rabbitmq_* modules
+
+### Versions Report
+all version up to master of salt as long as rabbitmq-server is 3.6.10 (and maybe higher)

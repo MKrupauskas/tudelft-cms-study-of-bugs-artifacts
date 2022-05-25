@@ -1,0 +1,697 @@
+**Description**
+When executing state.sls using salt-call involving ncclient (local connection to a netconf-server), salt-call shows some warnings and doesn't return
+
+**Setup and Steps to Reproduce the behavior**
+1. Download and install confd-basic-7.3 (https://developer.cisco.com/site/confD/downloads/)
+[root@test salt]# /bin/sh confd-basic-7.3.linux.x86_64.installer.bin /opt/confd/
+[root@test salt]# export CONFD_DIR=/opt/confd
+[root@test salt]# source /opt/confd/confdrc
+[root@test salt]# ssh-keygen -t rsa -f $CONFD_DIR/etc/confd/ssh/ssh_host_rsa_key -q -N ""
+[root@test salt]pip3 install paramiko ncclient
+2. install libconfd
+[root@test salt]# yum -y install make gcc openssl-devel
+[root@test salt]# tar xvzf confd-basic-7.3.libconfd.tar.gz -C /opt/confd/ --strip-components=1
+[root@test salt]# source /opt/confd/confdrc
+[root@test salt]# make -C /opt/confd/libconfd EXTRA_CFLAGS="-DMAXDEPTH=32 -DMAXKEYLEN=16" -C ${CONFD_DIR}/libconfd install install_crypto
+3. Add a local user admin
+[root@test salt]# useradd admin
+[root@test salt]# echo 'admin:admin' | chpasswd
+4. Install Saltstack 3000.1
+[root@test salt]# yum -y install https://repo.saltstack.com/py3/redhat/salt-py3-repo-latest.el8.noarch.rpm
+[root@test salt]# yum -y install salt-master salt-minion
+[root@test salt]# systemctl enable --now salt-master salt-minion
+5. Write the module
+[root@test salt]# cat _modules/test_ncclient.py
+```
+# -*- coding: utf-8 -*-
+
+import logging
+try:
+    from ncclient import manager
+    LOAD_MODULE = True
+except ImportError:
+    LOAD_MODULE = False
+
+__virtualname__ = 'test_ncclient'
+
+def __virtual__():
+    if LOAD_MODULE:
+        return __virtualname__
+    return False
+
+def _get_logger():
+    logger = logging.getLogger(__name__)
+    return logger
+
+def _get_connection_params():
+    params = {'host': '127.0.0.1', 'port': 2022, 'device_params': {'name': 'default'}, 'username': 'admin', 'password': 'admin'}
+    params['hostkey_verify'] = False
+    params['allow_agent'] = False
+    params['look_for_keys'] = False
+    return params
+
+def ping():
+    try:
+        params = _get_connection_params()
+        with manager.connect(**params) as conn:
+            return True
+    except Exception as excp:
+        _get_logger().exception('Failed to ping')
+    return False
+```
+6. Write the custom state
+[root@test salt]# cat _states/test_ncclient.py
+```
+# -*- coding: utf-8 -*-
+
+import logging
+
+__virtualname__ = 'test_ncclient'
+
+def __virtual__():
+  return __virtualname__ if 'test_ncclient.ping' in __salt__ else False
+
+def _get_logger():
+  logger = logging.getLogger(__name__)
+  return logger
+
+def pinged(name):
+  ret = {'name': name, 'changes': {}, 'result': False, 'comment': ''}
+  ret['result'] =  __salt__['test_ncclient.ping']()
+  return ret
+```
+7. Write the state file to run with state.sls
+[root@test salt]# cat test_ncclient.sls
+```
+ping_ncclient:
+  test_ncclient.pinged
+```
+8. Executing the state doesn't complete cleanly - 
+[root@test salt]# salt-call state.sls test_ncclient
+```
+local:
+----------
+          ID: ping_ncclient
+    Function: test_ncclient.pinged
+      Result: True
+     Comment:
+     Started: 18:50:39.975075
+    Duration: 216.926 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time: 216.926 ms
+Exception ignored in: <bound method RemoteClient.__del__ of <salt.fileclient.RemoteClient object at 0x7f05c19deeb8>>
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/fileclient.py", line 1032, in __del__
+  File "/usr/lib/python3.6/site-packages/salt/fileclient.py", line 1046, in destroy
+  File "/usr/lib/python3.6/site-packages/salt/utils/asynchronous.py", line 83, in close
+  File "/usr/lib/python3.6/site-packages/salt/transport/zeromq.py", line 234, in close
+AttributeError: 'NoneType' object has no attribute 'debug'
+Exception ignored in: <bound method SyncWrapper.__del__ of <salt.utils.asynchronous.SyncWrapper object at 0x7f05c1946780>>
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/utils/asynchronous.py", line 107, in __del__
+  File "/usr/lib/python3.6/site-packages/salt/utils/asynchronous.py", line 83, in close
+  File "/usr/lib/python3.6/site-packages/salt/transport/zeromq.py", line 234, in close
+AttributeError: 'NoneType' object has no attribute 'debug'
+Exception ignored in: <bound method AsyncZeroMQReqChannel.__del__ of <salt.transport.zeromq.AsyncZeroMQReqChannel object at 0x7f05c1990860>>
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/transport/zeromq.py", line 258, in __del__
+AttributeError: 'NoneType' object has no attribute 'error'
+Exception ignored in: <bound method AsyncReqMessageClientPool.__del__ of <salt.transport.zeromq.AsyncReqMessageClientPool object at 0x7f05c1930f60>>
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/transport/zeromq.py", line 1099, in __del__
+  File "/usr/lib/python3.6/site-packages/salt/transport/zeromq.py", line 1079, in close
+  File "/usr/lib/python3.6/site-packages/salt/transport/zeromq.py", line 1150, in close
+TypeError: '<' not supported between instances of 'NoneType' and 'tuple'
+```
+9. Executing the following is OK - 
+salt-call state.single test_ncclient.pinged name # state.single works
+salt-call test_ncclient.ping # module works
+salt \* state.sls test_ncclient # state.sls file works if run remotely through master 
+
+**Expected behavior**
+salt-call should return cleanly.
+
+**Versions Report**
+```
+Salt Version:
+           Salt: 3000.1
+
+Dependency Versions:
+           cffi: 1.14.0
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.20
+       pycrypto: Not Installed
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Nov 21 2019, 19:31:34)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 17.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.2
+
+System Versions:
+           dist: centos 8.1.1911 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 4.18.0-147.5.1.el8_1.x86_64
+         system: Linux
+        version: CentOS Linux 8.1.1911 Core
+```
+
+Log message - 
+```
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: test
+[TRACE   ] The required configuration section, 'fluent_handler', was not found the in the configuration. Not loading the fluent logging handlers module.
+[TRACE   ] None of the required configuration sections, 'logstash_udp_handler' and 'logstash_zmq_handler', were found in the configuration. Not loading the Logstash logging handlers module.
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Grains refresh requested. Refreshing grains.
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[TRACE   ] 'dig' could not be found in the following search path: '['/opt/confd//bin', '/opt/confd//bin', '/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin']'
+[TRACE   ] 'drill' could not be found in the following search path: '['/opt/confd//bin', '/opt/confd//bin', '/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin']'
+[TRACE   ] 'host' could not be found in the following search path: '['/opt/confd//bin', '/opt/confd//bin', '/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin']'
+[TRACE   ] 'nslookup' could not be found in the following search path: '['/opt/confd//bin', '/opt/confd//bin', '/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin']'
+[TRACE   ] 'esxcli' could not be found in the following search path: '['/opt/confd//bin', '/opt/confd//bin', '/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin']'
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False, False) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False, False) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False, False) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False, False) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False, False) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False, False) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False, False) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False, False) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Depends decorator instantiated with dep list of (False,) and kwargs {}
+[TRACE   ] Error loading grains.napalm: "napalm"" (/usr/lib/python3.6/site-packages/salt/grains/napalm.py) cannot be loaded: NAPALM is not installed: ``pip install napalm``
+[TRACE   ] Loading core.append_domain grain
+[TRACE   ] Loading core.cwd grain
+[TRACE   ] Loading core.default_gateway grain
+[TRACE   ] Loading core.dns grain
+[TRACE   ] Loading core.fqdns grain
+[TRACE   ] Loading core.get_machine_id grain
+[TRACE   ] Loading core.get_master grain
+[TRACE   ] Loading core.get_server_id grain
+[TRACE   ] Loading core.hostname grain
+[TRACE   ] Loading core.hwaddr_interfaces grain
+[TRACE   ] Loading core.id_ grain
+[TRACE   ] Loading core.ip4_interfaces grain
+[TRACE   ] Loading core.ip6_interfaces grain
+[TRACE   ] Loading core.ip_fqdn grain
+[TRACE   ] Loading core.ip_interfaces grain
+[TRACE   ] Loading core.linux_distribution grain
+[TRACE   ] Loading core.locale_info grain
+[TRACE   ] Loading core.os_data grain
+[TRACE   ] Adding systemd grains
+[TRACE   ] Adding init grain
+[TRACE   ] Getting lsb_release distro information
+[TRACE   ] lsb_release python bindings not available
+[TRACE   ] Attempting to parse /etc/lsb-release
+[TRACE   ] Failed to parse /etc/lsb-release: [Errno 2] No such file or directory: '/etc/lsb-release'
+[TRACE   ] Failed to get lsb_distrib_id, trying to parse os-release
+[TRACE   ] Getting OS name, release, and codename from platform.linux_distribution()
+[TRACE   ] 'virt-what' could not be found in the following search path: '['/opt/confd//bin', '/opt/confd//bin', '/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin']'
+[TRACE   ] 'virt-what' could not be found in the following search path: '['/opt/confd//bin', '/opt/confd//bin', '/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin']'
+[TRACE   ] 'dmidecode' could not be found in the following search path: '['/opt/confd//bin', '/opt/confd//bin', '/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin']'
+[TRACE   ] Loading core.path grain
+[TRACE   ] Loading core.pythonexecutable grain
+[TRACE   ] Loading core.pythonpath grain
+[TRACE   ] Loading core.pythonversion grain
+[TRACE   ] Loading core.saltpath grain
+[TRACE   ] Loading core.saltversion grain
+[TRACE   ] Loading core.saltversioninfo grain
+[TRACE   ] Loading core.zmqversion grain
+[TRACE   ] Loading disks.disks grain
+[TRACE   ] Device dm-1 reports itself as an SSD
+[TRACE   ] Device dm-2 reports itself as an SSD
+[TRACE   ] Device dm-0 reports itself as an SSD
+[TRACE   ] Device sda reports itself as an SSD
+[TRACE   ] Loading extra.config grain
+[TRACE   ] Loading extra.shell grain
+[TRACE   ] Loading mdadm.mdadm grain
+[TRACE   ] Loading minion_process.grains grain
+[TRACE   ] Loading opts.opts grain
+[TRACE   ] Loading zfs.zfs grain
+[DEBUG   ] LazyLoaded zfs.is_supported
+[TRACE   ] 'zfs-fuse' could not be found in the following search path: '['/opt/confd//bin', '/opt/confd//bin', '/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin']'
+[TRACE   ] 'zpool' could not be found in the following search path: '['/opt/confd//bin', '/opt/confd//bin', '/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin']'
+[TRACE   ] 'man' could not be found in the following search path: '['/opt/confd//bin', '/opt/confd//bin', '/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin']'
+[DEBUG   ] Connecting to master. Attempt 1 of 1
+[DEBUG   ] "salt" Not an IP address? Assuming it is a hostname.
+[DEBUG   ] Master URI: tcp://172.17.0.10:4506
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (8910)
+[DEBUG   ] Setting zmq_reconnect_ivl to '8910ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506', 'clear')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://172.17.0.10:4506
+[DEBUG   ] Trying to connect to: tcp://172.17.0.10:4506
+[TRACE   ] Inserted key into loop_instance_map id 140441318276512 for key ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506', 'clear') and process 11168
+[DEBUG   ] salt.crypt.get_rsa_pub_key: Loading public key
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] salt.crypt.get_rsa_key: Loading private key
+[DEBUG   ] salt.crypt._get_key_with_evict: Loading private key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] salt.crypt.get_rsa_pub_key: Loading public key
+[DEBUG   ] Closing AsyncZeroMQReqChannel instance
+[DEBUG   ] Connecting the Minion to the Master publish port, using the URI: tcp://172.17.0.10:4505
+[DEBUG   ] salt.crypt.get_rsa_key: Loading private key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://172.17.0.10:4506
+[DEBUG   ] Trying to connect to: tcp://172.17.0.10:4506
+[TRACE   ] Inserted key into loop_instance_map id 140441328763512 for key ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506', 'aes') and process 11168
+[TRACE   ] ext_pillar_extra_data = {}
+[DEBUG   ] salt.crypt.get_rsa_key: Loading private key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Closing AsyncZeroMQReqChannel instance
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded state.sls
+[DEBUG   ] LazyLoaded direct_call.execute
+[DEBUG   ] LazyLoaded saltutil.is_running
+[DEBUG   ] LazyLoaded grains.get
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] key: test, ret: _|-
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://172.17.0.10:4506
+[DEBUG   ] Trying to connect to: tcp://172.17.0.10:4506
+[TRACE   ] Inserted key into loop_instance_map id 140441283606512 for key ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506', 'aes') and process 11168
+[DEBUG   ] Gathering pillar data for state run
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://172.17.0.10:4506
+[DEBUG   ] Trying to connect to: tcp://172.17.0.10:4506
+[TRACE   ] Inserted key into loop_instance_map id 140441283222160 for key ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506', 'aes') and process 11168
+[TRACE   ] ext_pillar_extra_data = {}
+[DEBUG   ] salt.crypt.get_rsa_key: Loading private key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Closing AsyncZeroMQReqChannel instance
+[DEBUG   ] Finished gathering pillar data for state run
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] In saltenv 'base', looking at rel_path 'test_ncclient.sls' to resolve 'salt://test_ncclient.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/test_ncclient.sls' to resolve 'salt://test_ncclient.sls'
+[DEBUG   ] compile template: /var/cache/salt/minion/files/base/test_ncclient.sls
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://172.17.0.10:4506
+[DEBUG   ] Trying to connect to: tcp://172.17.0.10:4506
+[TRACE   ] Inserted key into loop_instance_map id 140441282690352 for key ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506', 'aes') and process 11168
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/test_ncclient.sls' using 'jinja' renderer: 0.012377262115478516
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/test_ncclient.sls:
+ping_ncclient:
+  test_ncclient.pinged
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('ping_ncclient', 'test_ncclient.pinged')])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/test_ncclient.sls' using 'yaml' renderer: 0.00023651123046875
+[DEBUG   ] LazyLoaded config.option
+[DEBUG   ] LazyLoaded test_ncclient.ping
+[DEBUG   ] LazyLoaded test_ncclient.pinged
+[INFO    ] Running state [ping_ncclient] at time 19:04:09.289559
+[INFO    ] Executing state test_ncclient.pinged for [ping_ncclient]
+[DEBUG   ] [host None session 0x7fbb135d0cc0] <SSHSession(session, initial daemon)> created: client_capabilities=<dict_keyiterator object at 0x7fbb0adc64f8>
+[DEBUG   ] starting thread (client mode): 0xfad40160
+[DEBUG   ] Local version/idstring: SSH-2.0-paramiko_2.7.1
+[DEBUG   ] Remote version/idstring: SSH-2.0-ConfD-7.3
+[INFO    ] Connected (version 2.0, client ConfD-7.3)
+[DEBUG   ] kex algos:['diffie-hellman-group14-sha256', 'diffie-hellman-group14-sha1', 'diffie-hellman-group18-sha512', 'diffie-hellman-group-exchange-sha256', 'diffie-hellman-group-exchange-sha1', 'diffie-hellman-group1-sha1'] server key:['ssh-rsa'] client encrypt:['aes128-ctr', 'aes192-ctr', 'aes256-ctr', 'aes128-cbc', 'aes256-cbc', '3des-cbc'] server encrypt:['aes128-ctr', 'aes192-ctr', 'aes256-ctr', 'aes128-cbc', 'aes256-cbc', '3des-cbc'] client mac:['hmac-sha2-512', 'hmac-sha2-256', 'hmac-sha1', 'hmac-md5', 'hmac-sha1-96', 'hmac-md5-96'] server mac:['hmac-sha2-512', 'hmac-sha2-256', 'hmac-sha1', 'hmac-md5', 'hmac-sha1-96', 'hmac-md5-96'] client compress:['none', 'zlib'] server compress:['none', 'zlib'] client lang:[''] server lang:[''] kex follows?False
+[DEBUG   ] Kex agreed: diffie-hellman-group-exchange-sha256
+[DEBUG   ] HostKey agreed: ssh-rsa
+[DEBUG   ] Cipher agreed: aes128-ctr
+[DEBUG   ] MAC agreed: hmac-sha2-256
+[DEBUG   ] Compression agreed: none
+[DEBUG   ] Got server p (2048 bits)
+[DEBUG   ] kex engine KexGexSHA256 specified hash_algo <built-in function openssl_sha256>
+[DEBUG   ] Switch to new keys ...
+[DEBUG   ] userauth is OK
+[INFO    ] Authentication (password) successful!
+[DEBUG   ] [chan 0] Max packet in: 32768 bytes
+[DEBUG   ] [chan 0] Max packet out: 32768 bytes
+[DEBUG   ] Secsh channel 0 opened.
+[DEBUG   ] [chan netconf-subsystem-0] Sesch channel 0 request ok
+[DEBUG   ] [host 127.0.0.1 session 0x7fbb135d0cc0] installing listener <ncclient.transport.session.NotificationHandler object at 0x7fbafad59160>
+[DEBUG   ] [host 127.0.0.1 session 0x7fbb135d0cc0] installing listener <ncclient.transport.session.HelloHandler object at 0x7fbafad590f0>
+[DEBUG   ] [host 127.0.0.1 session 0x7fbb135d0cc0] queueing <?xml version="1.0" encoding="UTF-8"?><nc:hello xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0"><nc:capabilities><nc:capability>urn:ietf:params:netconf:base:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:base:1.1</nc:capability><nc:capability>urn:ietf:params:netconf:capability:writable-running:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:candidate:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:confirmed-commit:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:rollback-on-error:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:startup:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:url:1.0?scheme=http,ftp,file,https,sftp</nc:capability><nc:capability>urn:ietf:params:netconf:capability:validate:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:xpath:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:notification:1.0</nc:capability><nc:capability>urn:liberouter:params:netconf:capability:power-control:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:interleave:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:with-defaults:1.0</nc:capability></nc:capabilities></nc:hello>
+[DEBUG   ] [host 127.0.0.1 session 0x7fbb135d0cc0] starting main loop
+[DEBUG   ] [host 127.0.0.1 session 0x7fbb135d0cc0] selector type = EpollSelector
+[DEBUG   ] [host 127.0.0.1 session 0x7fbb135d0cc0] parsing netconf v1.0
+[INFO    ] [host 127.0.0.1 session 0x7fbb135d0cc0] Received message from host
+[DEBUG   ] [host 127.0.0.1 session 0x7fbb135d0cc0] Received:
+<?xml version="1.0" encoding="UTF-8"?>
+<hello xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+<capabilities>
+<capability>urn:ietf:params:netconf:base:1.0</capability>
+<capability>urn:ietf:params:netconf:base:1.1</capability>
+<capability>urn:ietf:params:netconf:capability:confirmed-commit:1.1</capability>
+<capability>urn:ietf:params:netconf:capability:confirmed-commit:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:writable-running:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:candidate:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:rollback-on-error:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:url:1.0?scheme=ftp,sftp,file</capability>
+<capability>urn:ietf:params:netconf:capability:validate:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:validate:1.1</capability>
+<capability>urn:ietf:params:netconf:capability:xpath:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:partial-lock:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:with-defaults:1.0?basic-mode=explicit&amp;also-supported=report-all-tagged,report-all</capability>
+<capability>urn:ietf:params:netconf:capability:yang-library:1.0?revision=2019-01-04&amp;module-set-id=42c491d626bb38a8030f232e6eda285b</capability>
+<capability>urn:ietf:params:netconf:capability:yang-library:1.1?revision=2019-01-04&amp;content-id=42c491d626bb38a8030f232e6eda285b</capability>
+<capability>http://tail-f.com/ns/aaa/1.1?module=tailf-aaa&amp;revision=2018-09-12</capability>
+<capability>http://tail-f.com/ns/common/query?module=tailf-common-query&amp;revision=2017-12-15</capability>
+<capability>http://tail-f.com/ns/kicker?module=tailf-kicker&amp;revision=2017-09-28</capability>
+<capability>http://tail-f.com/ns/netconf/query?module=tailf-netconf-query&amp;revision=2017-01-06</capability>
+<capability>http://tail-f.com/ns/progress?module=tailf-progress&amp;revision=2018-06-14</capability>
+<capability>http://tail-f.com/yang/acm?module=tailf-acm&amp;revision=2013-03-07</capability>
+<capability>http://tail-f.com/yang/common?module=tailf-common&amp;revision=2019-11-30</capability>
+<capability>http://tail-f.com/yang/common-monitoring?module=tailf-common-monitoring&amp;revision=2019-04-09</capability>
+<capability>http://tail-f.com/yang/confd-monitoring?module=tailf-confd-monitoring&amp;revision=2019-10-30</capability>
+<capability>http://tail-f.com/yang/netconf-monitoring?module=tailf-netconf-monitoring&amp;revision=2019-03-28</capability>
+<capability>http://tail-f.com/yang/xsd-types?module=tailf-xsd-types&amp;revision=2017-11-20</capability>
+<capability>urn:ietf:params:xml:ns:netconf:base:1.0?module=ietf-netconf&amp;revision=2011-06-01&amp;features=writable-running,confirmed-commit,candidate,rollback-on-error,validate,xpath,url</capability>
+<capability>urn:ietf:params:xml:ns:netconf:partial-lock:1.0?module=ietf-netconf-partial-lock&amp;revision=2009-10-19</capability>
+<capability>urn:ietf:params:xml:ns:yang:iana-crypt-hash?module=iana-crypt-hash&amp;revision=2014-08-06&amp;features=crypt-hash-sha-512,crypt-hash-sha-256,crypt-hash-md5</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-inet-types?module=ietf-inet-types&amp;revision=2013-07-15</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-netconf-acm?module=ietf-netconf-acm&amp;revision=2018-02-14</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-netconf-monitoring?module=ietf-netconf-monitoring&amp;revision=2010-10-04</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-netconf-notifications?module=ietf-netconf-notifications&amp;revision=2012-02-06</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-netconf-with-defaults?module=ietf-netconf-with-defaults&amp;revision=2011-06-01</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-x509-cert-to-name?module=ietf-x509-cert-to-name&amp;revision=2014-12-10</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-yang-types?module=ietf-yang-types&amp;revision=2013-07-15</capability>
+</capabilities>
+<session-id>34</session-id></hello>
+[DEBUG   ] [host 127.0.0.1 session 0x7fbb135d0cc0] dispatching message to <ncclient.transport.session.NotificationHandler object at 0x7fbafad59160>: <?xml version="1.0" encoding="UTF-8"?>
+<hello xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+<capabilities>
+<capability>urn:ietf:params:netconf:base:1.0</capability>
+<capability>urn:ietf:params:netconf:base:1.1</capability>
+<capability>urn:ietf:params:netconf:capability:confirmed-commit:1.1</capability>
+<capability>urn:ietf:params:netconf:capability:confirmed-commit:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:writable-running:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:candidate:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:rollback-on-error:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:url:1.0?scheme=ftp,sftp,file</capability>
+<capability>urn:ietf:params:netconf:capability:validate:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:validate:1.1</capability>
+<capability>urn:ietf:params:netconf:capability:xpath:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:partial-lock:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:with-defaults:1.0?basic-mode=explicit&amp;also-supported=report-all-tagged,report-all</capability>
+<capability>urn:ietf:params:netconf:capability:yang-library:1.0?revision=2019-01-04&amp;module-set-id=42c491d626bb38a8030f232e6eda285b</capability>
+<capability>urn:ietf:params:netconf:capability:yang-library:1.1?revision=2019-01-04&amp;content-id=42c491d626bb38a8030f232e6eda285b</capability>
+<capability>http://tail-f.com/ns/aaa/1.1?module=tailf-aaa&amp;revision=2018-09-12</capability>
+<capability>http://tail-f.com/ns/common/query?module=tailf-common-query&amp;revision=2017-12-15</capability>
+<capability>http://tail-f.com/ns/kicker?module=tailf-kicker&amp;revision=2017-09-28</capability>
+<capability>http://tail-f.com/ns/netconf/query?module=tailf-netconf-query&amp;revision=2017-01-06</capability>
+<capability>http://tail-f.com/ns/progress?module=tailf-progress&amp;revision=2018-06-14</capability>
+<capability>http://tail-f.com/yang/acm?module=tailf-acm&amp;revision=2013-03-07</capability>
+<capability>http://tail-f.com/yang/common?module=tailf-common&amp;revision=2019-11-30</capability>
+<capability>http://tail-f.com/yang/common-monitoring?module=tailf-common-monitoring&amp;revision=2019-04-09</capability>
+<capability>http://tail-f.com/yang/confd-monitoring?module=tailf-confd-monitoring&amp;revision=2019-10-30</capability>
+<capability>http://tail-f.com/yang/netconf-monitoring?module=tailf-netconf-monitoring&amp;revision=2019-03-28</capability>
+<capability>http://tail-f.com/yang/xsd-types?module=tailf-xsd-types&amp;revision=2017-11-20</capability>
+<capability>urn:ietf:params:xml:ns:netconf:base:1.0?module=ietf-netconf&amp;revision=2011-06-01&amp;features=writable-running,confirmed-commit,candidate,rollback-on-error,validate,xpath,url</capability>
+<capability>urn:ietf:params:xml:ns:netconf:partial-lock:1.0?module=ietf-netconf-partial-lock&amp;revision=2009-10-19</capability>
+<capability>urn:ietf:params:xml:ns:yang:iana-crypt-hash?module=iana-crypt-hash&amp;revision=2014-08-06&amp;features=crypt-hash-sha-512,crypt-hash-sha-256,crypt-hash-md5</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-inet-types?module=ietf-inet-types&amp;revision=2013-07-15</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-netconf-acm?module=ietf-netconf-acm&amp;revision=2018-02-14</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-netconf-monitoring?module=ietf-netconf-monitoring&amp;revision=2010-10-04</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-netconf-notifications?module=ietf-netconf-notifications&amp;revision=2012-02-06</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-netconf-with-defaults?module=ietf-netconf-with-defaults&amp;revision=2011-06-01</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-x509-cert-to-name?module=ietf-x509-cert-to-name&amp;revision=2014-12-10</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-yang-types?module=ietf-yang-types&amp;revision=2013-07-15</capability>
+</capabilities>
+<session-id>34</session-id></hello>
+[DEBUG   ] [host 127.0.0.1 session 0x7fbb135d0cc0] dispatching message to <ncclient.transport.session.HelloHandler object at 0x7fbafad590f0>: <?xml version="1.0" encoding="UTF-8"?>
+<hello xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+<capabilities>
+<capability>urn:ietf:params:netconf:base:1.0</capability>
+<capability>urn:ietf:params:netconf:base:1.1</capability>
+<capability>urn:ietf:params:netconf:capability:confirmed-commit:1.1</capability>
+<capability>urn:ietf:params:netconf:capability:confirmed-commit:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:writable-running:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:candidate:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:rollback-on-error:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:url:1.0?scheme=ftp,sftp,file</capability>
+<capability>urn:ietf:params:netconf:capability:validate:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:validate:1.1</capability>
+<capability>urn:ietf:params:netconf:capability:xpath:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:partial-lock:1.0</capability>
+<capability>urn:ietf:params:netconf:capability:with-defaults:1.0?basic-mode=explicit&amp;also-supported=report-all-tagged,report-all</capability>
+<capability>urn:ietf:params:netconf:capability:yang-library:1.0?revision=2019-01-04&amp;module-set-id=42c491d626bb38a8030f232e6eda285b</capability>
+<capability>urn:ietf:params:netconf:capability:yang-library:1.1?revision=2019-01-04&amp;content-id=42c491d626bb38a8030f232e6eda285b</capability>
+<capability>http://tail-f.com/ns/aaa/1.1?module=tailf-aaa&amp;revision=2018-09-12</capability>
+<capability>http://tail-f.com/ns/common/query?module=tailf-common-query&amp;revision=2017-12-15</capability>
+<capability>http://tail-f.com/ns/kicker?module=tailf-kicker&amp;revision=2017-09-28</capability>
+<capability>http://tail-f.com/ns/netconf/query?module=tailf-netconf-query&amp;revision=2017-01-06</capability>
+<capability>http://tail-f.com/ns/progress?module=tailf-progress&amp;revision=2018-06-14</capability>
+<capability>http://tail-f.com/yang/acm?module=tailf-acm&amp;revision=2013-03-07</capability>
+<capability>http://tail-f.com/yang/common?module=tailf-common&amp;revision=2019-11-30</capability>
+<capability>http://tail-f.com/yang/common-monitoring?module=tailf-common-monitoring&amp;revision=2019-04-09</capability>
+<capability>http://tail-f.com/yang/confd-monitoring?module=tailf-confd-monitoring&amp;revision=2019-10-30</capability>
+<capability>http://tail-f.com/yang/netconf-monitoring?module=tailf-netconf-monitoring&amp;revision=2019-03-28</capability>
+<capability>http://tail-f.com/yang/xsd-types?module=tailf-xsd-types&amp;revision=2017-11-20</capability>
+<capability>urn:ietf:params:xml:ns:netconf:base:1.0?module=ietf-netconf&amp;revision=2011-06-01&amp;features=writable-running,confirmed-commit,candidate,rollback-on-error,validate,xpath,url</capability>
+<capability>urn:ietf:params:xml:ns:netconf:partial-lock:1.0?module=ietf-netconf-partial-lock&amp;revision=2009-10-19</capability>
+<capability>urn:ietf:params:xml:ns:yang:iana-crypt-hash?module=iana-crypt-hash&amp;revision=2014-08-06&amp;features=crypt-hash-sha-512,crypt-hash-sha-256,crypt-hash-md5</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-inet-types?module=ietf-inet-types&amp;revision=2013-07-15</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-netconf-acm?module=ietf-netconf-acm&amp;revision=2018-02-14</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-netconf-monitoring?module=ietf-netconf-monitoring&amp;revision=2010-10-04</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-netconf-notifications?module=ietf-netconf-notifications&amp;revision=2012-02-06</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-netconf-with-defaults?module=ietf-netconf-with-defaults&amp;revision=2011-06-01</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-x509-cert-to-name?module=ietf-x509-cert-to-name&amp;revision=2014-12-10</capability>
+<capability>urn:ietf:params:xml:ns:yang:ietf-yang-types?module=ietf-yang-types&amp;revision=2013-07-15</capability>
+</capabilities>
+<session-id>34</session-id></hello>
+[DEBUG   ] [host 127.0.0.1 session-id 34] Sending message
+[DEBUG   ] [host 127.0.0.1 session-id 34] discarding listener <ncclient.transport.session.HelloHandler object at 0x7fbafad590f0>
+[INFO    ] [host 127.0.0.1 session-id 34] Sending:
+<?xml version="1.0" encoding="UTF-8"?><nc:hello xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0"><nc:capabilities><nc:capability>urn:ietf:params:netconf:base:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:base:1.1</nc:capability><nc:capability>urn:ietf:params:netconf:capability:writable-running:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:candidate:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:confirmed-commit:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:rollback-on-error:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:startup:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:url:1.0?scheme=http,ftp,file,https,sftp</nc:capability><nc:capability>urn:ietf:params:netconf:capability:validate:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:xpath:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:notification:1.0</nc:capability><nc:capability>urn:liberouter:params:netconf:capability:power-control:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:interleave:1.0</nc:capability><nc:capability>urn:ietf:params:netconf:capability:with-defaults:1.0</nc:capability></nc:capabilities></nc:hello>]]>]]>
+[DEBUG   ] [host 127.0.0.1 session-id 34] After 'hello' message selecting netconf:base:1.1 for encoding
+[INFO    ] [host 127.0.0.1 session-id 34] initialized: session-id=34 | server_capabilities=<dict_keyiterator object at 0x7fbb0bbe1548>
+[DEBUG   ] [host 127.0.0.1 session-id 34] installing listener <ncclient.operations.rpc.RPCReplyListener object at 0x7fbafad402e8>
+[INFO    ] [host 127.0.0.1 session-id 34] Requesting 'CloseSession'
+[DEBUG   ] [host 127.0.0.1 session-id 34] queueing <?xml version="1.0" encoding="UTF-8"?><nc:rpc xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="urn:uuid:f93cf531-c053-439d-bf68-f2e9535a1a38"><nc:close-session/></nc:rpc>
+[DEBUG   ] [host 127.0.0.1 session-id 34] Sync request, will wait for timeout=30
+[DEBUG   ] [host 127.0.0.1 session-id 34] Sending message
+[INFO    ] [host 127.0.0.1 session-id 34] Sending:
+
+#184
+<?xml version="1.0" encoding="UTF-8"?><nc:rpc xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="urn:uuid:f93cf531-c053-439d-bf68-f2e9535a1a38"><nc:close-session/></nc:rpc>
+##
+
+[DEBUG   ] [host 127.0.0.1 session-id 34] _parse11: starting
+[DEBUG   ] [host 127.0.0.1 session-id 34] _parse11: working with buffer of 235 bytes
+[DEBUG   ] [host 127.0.0.1 session-id 34] _parse11: matching from 0 bytes from start of buffer
+[DEBUG   ] [host 127.0.0.1 session-id 34] _parse11: regular expression start=0, end=6
+[DEBUG   ] [chan netconf-subsystem-0] EOF sent (netconf-subsystem-0)
+[DEBUG   ] [host 127.0.0.1 session-id 34] _parse11: found chunk delimiter
+[DEBUG   ] [host 127.0.0.1 session-id 34] _parse11: chunk size 225 bytes
+[DEBUG   ] [host 127.0.0.1 session-id 34] _parse11: appending 225 bytes
+[DEBUG   ] [host 127.0.0.1 session-id 34] _parse11: fragment = "<?xml version="1.0" encoding="UTF-8"?>
+<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="urn:uuid:f93cf531-c053-439d-bf68-f2e9535a1a38" xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0"><ok/></rpc-reply>"
+[DEBUG   ] [host 127.0.0.1 session-id 34] _parse11: matching from 231 bytes from start of buffer
+[DEBUG   ] [host 127.0.0.1 session-id 34] _parse11: regular expression start=0, end=4
+[DEBUG   ] [host 127.0.0.1 session-id 34] _parse11: found end of message delimiter
+[INFO    ] [host 127.0.0.1 session-id 34] Received message from host
+[DEBUG   ] [host 127.0.0.1 session-id 34] Received:
+<?xml version="1.0" encoding="UTF-8"?>
+<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="urn:uuid:f93cf531-c053-439d-bf68-f2e9535a1a38" xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0"><ok/></rpc-reply>
+[DEBUG   ] [host 127.0.0.1 session-id 34] dispatching message to <ncclient.operations.rpc.RPCReplyListener object at 0x7fbafad402e8>: <?xml version="1.0" encoding="UTF-8"?>
+<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="urn:uuid:f93cf531-c053-439d-bf68-f2e9535a1a38" xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0"><ok/></rpc-reply>
+[DEBUG   ] [host 127.0.0.1 session-id 34] Delivering to <ncclient.operations.session.CloseSession object at 0x7fbafad40208>
+[DEBUG   ] [host 127.0.0.1 session-id 34] dispatching message to <ncclient.transport.session.NotificationHandler object at 0x7fbafad59160>: <?xml version="1.0" encoding="UTF-8"?>
+<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="urn:uuid:f93cf531-c053-439d-bf68-f2e9535a1a38" xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0"><ok/></rpc-reply>
+[DEBUG   ] [host 127.0.0.1 session-id 34] _parse11: saving back rest of message after 235 bytes, original size 235
+[DEBUG   ] [host 127.0.0.1 session-id 34] _parse11: ending
+[INFO    ] No changes made for ping_ncclient
+[INFO    ] Completed state [ping_ncclient] at time 19:04:09.508429 (duration_in_ms=218.871)
+[DEBUG   ] File /var/cache/salt/minion/accumulator/140441283222104 does not exist, no need to cleanup
+[DEBUG   ] LazyLoaded state.check_result
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://172.17.0.10:4506
+[DEBUG   ] Trying to connect to: tcp://172.17.0.10:4506
+[TRACE   ] Inserted key into loop_instance_map id 140441048944880 for key ('/etc/salt/pki/minion', 'test', 'tcp://172.17.0.10:4506', 'aes') and process 11168
+[DEBUG   ] Closing AsyncZeroMQReqChannel instance
+[DEBUG   ] LazyLoaded highstate.output
+[TRACE   ] data = {'local': {'test_ncclient_|-ping_ncclient_|-ping_ncclient_|-pinged': {'name': 'ping_ncclient', 'changes': {}, 'result': True, 'comment': '', '__sls__': 'test_ncclient', '__run_num__': 0, 'start_time': '19:04:09.289558', 'duration': '218.871 ms', '__id__': 'ping_ncclient'}}}
+local:
+----------
+          ID: ping_ncclient
+    Function: test_ncclient.pinged
+      Result: True
+     Comment: 
+     Started: 19:04:09.289558
+    Duration: 218.871 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time: 218.871 ms
+[DEBUG   ] Closing AsyncZeroMQReqChannel instance
+Exception ignored in: <bound method RemoteClient.__del__ of <salt.fileclient.RemoteClient object at 0x7f70895d1f60>>
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/fileclient.py", line 1032, in __del__
+  File "/usr/lib/python3.6/site-packages/salt/fileclient.py", line 1046, in destroy
+  File "/usr/lib/python3.6/site-packages/salt/utils/asynchronous.py", line 83, in close
+  File "/usr/lib/python3.6/site-packages/salt/transport/zeromq.py", line 234, in close
+AttributeError: 'NoneType' object has no attribute 'debug'
+Exception ignored in: <bound method SyncWrapper.__del__ of <salt.utils.asynchronous.SyncWrapper object at 0x7f7089539860>>
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/utils/asynchronous.py", line 107, in __del__
+  File "/usr/lib/python3.6/site-packages/salt/utils/asynchronous.py", line 83, in close
+  File "/usr/lib/python3.6/site-packages/salt/transport/zeromq.py", line 234, in close
+AttributeError: 'NoneType' object has no attribute 'debug'
+Exception ignored in: <bound method AsyncZeroMQReqChannel.__del__ of <salt.transport.zeromq.AsyncZeroMQReqChannel object at 0x7f7089566588>>
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/transport/zeromq.py", line 258, in __del__
+AttributeError: 'NoneType' object has no attribute 'error'
+Exception ignored in: <bound method AsyncReqMessageClientPool.__del__ of <salt.transport.zeromq.AsyncReqMessageClientPool object at 0x7f7089523e80>>
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/transport/zeromq.py", line 1099, in __del__
+  File "/usr/lib/python3.6/site-packages/salt/transport/zeromq.py", line 1079, in close
+  File "/usr/lib/python3.6/site-packages/salt/transport/zeromq.py", line 1150, in close
+TypeError: '<' not supported between instances of 'NoneType' and 'tuple'
+```

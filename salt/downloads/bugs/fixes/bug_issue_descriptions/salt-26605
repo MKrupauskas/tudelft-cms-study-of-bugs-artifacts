@@ -1,0 +1,135 @@
+So I want Salt to clear out the `/etc/apt/sources.list.d` folder of any sources.list files it doesn't manage.
+
+First attempt:
+
+``` saltstack
+core-apt-sources-dir-clean:
+  file.directory:
+    - name: /etc/apt/sources.list.d
+    - user: root
+    - group: root
+    - mode: 755
+    - clean: True
+    - require:
+      - pkgrepo: core-apt-ubuntu
+
+core-apt-ubuntu:
+  pkgrepo.managed:
+    - file: /etc/apt/sources.list.d/ubuntu.list
+    - name: deb [arch=amd64] https://{{ repouser }}:{{ repopass }}@repo.company.com/ubuntu/ {{ grains['lsb_distrib_codename'] }} production
+    - key_url: salt://core/apt/files/aptly.pub
+```
+
+Nope:
+
+```
+----------
+          ID: core-apt-ubuntu
+    Function: pkgrepo.managed
+        Name: deb [arch=amd64] https://user:pass@repo.company.com/ubuntu/ trusty production
+      Result: True
+     Comment: Configured package repo 'deb [arch=amd64] https://user:pass@config.pathintelligence.com/ubuntu/ trusty production'
+     Started: 14:11:25.777941
+    Duration: 4029.592 ms
+     Changes:
+              ----------
+              repo:
+                  deb [arch=amd64] https://user:pass@repo.company.com/ubuntu trusty production
+----------
+          ID: core-apt-sources-dir-clean
+    Function: file.directory
+        Name: /etc/apt/sources.list.d
+      Result: True
+     Comment: Files cleaned from directory /etc/apt/sources.list.d
+     Started: 14:11:29.807755
+    Duration: 0.886 ms
+     Changes:
+              ----------
+              removed:
+                  - /etc/apt/sources.list.d/ubuntu.list
+```
+
+Ok, maybe it can only exclude something if it's a file:
+
+``` saltstack
+core-apt-sources-dir-clean:
+  file.directory:
+    - name: /etc/apt/sources.list.d
+    - user: root
+    - group: root
+    - mode: 755
+    - clean: True
+    - require:
+      - file: core-apt-ubuntu
+
+core-apt-ubuntu:
+  file.managed:
+    - name: /etc/apt/sources.list.d/ubuntu.list
+    - source: salt://core/apt/files/ubuntu.list.jinja
+    - template: jinja
+    - user: root
+    - group: root
+    - mode: 644
+    - makedirs: True
+```
+
+```
+----------
+          ID: core-apt-ubuntu
+    Function: file.managed
+        Name: /etc/apt/sources.list.d/ubuntu.list
+      Result: True
+     Comment: File /etc/apt/sources.list.d/ubuntu.list updated
+     Started: 14:36:44.264193
+    Duration: 4.971 ms
+     Changes:
+              ----------
+              diff:
+                  New file
+              mode:
+                  0644
+----------
+          ID: core-apt-sources-dir-clean
+    Function: file.directory
+        Name: /etc/apt/sources.list.d
+      Result: True
+     Comment: Files cleaned from directory /etc/apt/sources.list.d
+     Started: 14:36:44.270779
+    Duration: 0.973 ms
+     Changes:
+              ----------
+              removed:
+                     - /etc/apt/sources.list.d/ubuntu.list
+```
+
+Nope.
+
+The docs are a little sparse:
+
+```
+clean
+    Make sure that only files that are set up by salt and required by this function are kept. If this option is set then everything in this directory will be deleted unless it is required.
+require
+    Require other resources such as packages or files
+exclude_pat
+    When 'clean' is set to True, exclude this pattern from removal list and preserve in the destination.
+```
+
+Which to me reads that if something is required the end file it produces (if in that directory) won't get removed, which doesn't appear to be the case.
+
+I also gave `exclude_pat` a go with no joy:
+
+``` saltstack
+core-apt-sources-dir-clean:
+  file.directory:
+    - name: /etc/apt/sources.list.d
+    - user: root
+    - group: root
+    - mode: 755
+    - clean: True
+    - exclude_pat: '(myrepo|ubuntu).list'
+```
+
+Also tried `(myrepo|ubuntu)` & `(myrepo|ubuntu)\.list` with no joy.
+
+Tested on salt versions v2015.5.0 to v2015-5-5 and 2015.8 (all from git using the bootstrap), running on Ubuntu 14.04.

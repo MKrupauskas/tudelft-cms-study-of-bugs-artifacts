@@ -1,0 +1,132 @@
+### Description of Issue/Question
+
+I'm using the `npm.boostrap` state, and since it requires npm/nodejs to be installed to work, I have the `npm.bootstrap` state require the `pkg.installed` step for installing `nodejs`.
+
+I expect the `npm.bootstrap` state to succeed since it runs after `nodejs` gets installed, but it always fails on the very first `state.highstate` run due to:
+
+```
+Reason: 'npm' __virtual__ returned False: 'npm' binary not found on system
+```
+
+I suspect this is due to the LazyLoader trying to load the `npm.bootstrap` module way too early (before `nodejs` is installed), and therefore caching the failure for the rest of the run, causing all `npm` modules to fail. I'm not sure how LazyLoader works though.
+
+The second time I run `state.highstate` it works fine since the module detects the existence of `npm` correctly. The strange part is that if I try to manually uninstall the `nodejs` package and run `state.highstate` again, it detects `npm` correctly, and I can no longer repro. The only time the issue arises is on the first `state.highstate` on a fresh box.
+### Setup
+
+ I have the following states setup:
+
+```
+nodejs:
+  pkg.latest
+
+nodejs-repo:
+  pkg.installed:
+    - name: apt-transport-https
+    - require_in:
+      - pkgrepo: nodejs-repo
+  pkgrepo.managed:
+    - humanname: NodeSource Node.js Repository
+    - name: "deb https://deb.nodesource.com/node_5.x {{ grains['oscodename'] }} main"
+    - file: /etc/apt/sources.list.d/nodesource.list
+    - key_url: https://deb.nodesource.com/gpgkey/nodesource.gpg.key
+    - require_in:
+      pkg: nodejs
+
+npm-pkgs:
+  npm.bootstrap:
+    - name: {{ some_path_here }}
+    - user: {{ some_user_here }}
+    - watch:
+      - pkg: nodejs
+```
+### Steps to Reproduce Issue
+
+Using the above SLS files, try to `salt-call state.highstate` and see it fail to run `npm.bootstrap` due to:
+
+```
+----------
+          ID: nodejs
+    Function: pkg.latest
+      Result: True
+     Comment: The following packages were successfully installed/upgraded: nodejs
+     Started: 18:08:45.949016
+    Duration: 2970.6 ms
+     Changes:
+              ----------
+              libc-ares2:
+                  ----------
+                  new:
+                      1.10.0-2
+                  old:
+              libv8-3.14.5:
+                  ----------
+                  new:
+                      3.14.5.8-5ubuntu2
+                  old:
+              nodejs:
+                  ----------
+                  new:
+                      0.10.25~dfsg2-2ubuntu1
+                  old:
+----------
+          ID: npm-pkgs
+    Function: npm.bootstrap
+        Name: <some path here>
+      Result: False
+     Comment: State 'npm.bootstrap' was not found in SLS 'webstack.website'
+              Reason: 'npm' __virtual__ returned False: 'npm' binary not found on system
+     Started:
+    Duration:
+     Changes:
+----------
+```
+
+Using `-l debug` there's a message about the LazyLoader failing to load the module, but this happens way before it gets to installing `nodejs`:
+
+```
+[DEBUG   ] LazyLoaded npm.bootstrap
+[ERROR   ] State 'npm.bootstrap' was not found in SLS 'webstack.website'
+Reason: 'npm' __virtual__ returned False: 'npm' binary not found on system
+```
+### Versions Report
+
+Both master and minion are on 2015.8.7 (my Vagrant testing setup puts master on the same box as minion here).
+
+```
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.4
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-85-generic
+         system: Ubuntu 14.04 trusty
+```

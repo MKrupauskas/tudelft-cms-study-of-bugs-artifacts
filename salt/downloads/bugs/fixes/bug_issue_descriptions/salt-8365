@@ -1,0 +1,40 @@
+on Fedora later than 17, many previously static, on-disk files have been moved into tmpfs mounts.  See [their rationale](https://fedoraproject.org/wiki/Features/var-run-tmpfs).
+
+Either way, when a Fedora system boots, /var/run (symlinked into /run, which is mounted with tmpfs) is empty.  The salt-minion doesn't attempt to create the directory (or test for its existence, AFAICT) prior to trying to write a file there. 
+
+Our hack was to have our salt systemd unit file (using execstartpre) create the directory before executing salt-minion.
+
+Below, is the traceback we receive:
+
+```
+[INFO    ] Minion is starting as user 'root'
+[DEBUG   ] Minion "scanner-sodiumchloride.aq.virus" trying to tune in
+[DEBUG   ] Minion PUB socket URI: ipc:///var/run/salt/minion/minion_event_33da0283373a7ba70c686d4e8a97678c_pub.ipc
+[DEBUG   ] Minion PULL socket URI: ipc:///var/run/salt/minion/minion_event_33da0283373a7ba70c686d4e8a97678c_pull.ipc
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+ZMQError: No such file or directory
+Traceback (most recent call last):
+  File "/bin/salt-minion", line 14, in <module>
+    salt_minion()
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 30, in salt_minion
+    minion.start()
+  File "/usr/lib/python2.7/site-packages/salt/__init__.py", line 215, in start
+    self.minion.tune_in()
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 991, in tune_in
+    self.epub_sock.bind(epub_uri)
+  File "socket.pyx", line 432, in zmq.core.socket.Socket.bind (zmq/core/socket.c:3870)
+  File "checkrc.pxd", line 23, in zmq.core.checkrc._check_rc (zmq/core/socket.c:5712)
+ZMQError: No such file or directory
+Traceback (most recent call last):
+  File "/bin/salt-minion", line 14, in <module>
+    salt_minion()
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 30, in salt_minion
+    minion.start()
+  File "/usr/lib/python2.7/site-packages/salt/__init__.py", line 215, in start
+    self.minion.tune_in()
+  File "/usr/lib/python2.7/site-packages/salt/minion.py", line 991, in tune_in
+    self.epub_sock.bind(epub_uri)
+  File "socket.pyx", line 432, in zmq.core.socket.Socket.bind (zmq/core/socket.c:3870)
+  File "checkrc.pxd", line 23, in zmq.core.checkrc._check_rc (zmq/core/socket.c:5712)
+zmq.error.ZMQError: No such file or directory
+```

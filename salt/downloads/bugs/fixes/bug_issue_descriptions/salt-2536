@@ -1,0 +1,49 @@
+Even when `salt.client.LocalClient` instances are not shared, running them simultaneously in multiple threads results in whole Python process crashing in `zmq/core/context.so`. This issue is also reproducible with `LocalClient` being reused/shared across multiple threads.
+
+The following test script demonstrates the issue:
+
+```
+import salt.client
+import time
+import threading
+
+
+def spawn_local_client_and_run():
+
+    def local_client_run():
+        client = salt.client.LocalClient(c_path='/etc/salt/master')
+        client.cmd('ondev-salt', 'anything')
+
+    counter = 0
+    while True:
+        t = threading.Thread(target=local_client_run, name=('thread%d' % counter))
+        t.start()
+        counter += 1
+        #100 simultaneous threads is ought to be enough for anyone!
+        if counter % 100 == 0:
+            print '.'
+            time.sleep(1)
+
+
+if __name__ == '__main__':
+    spawn_local_client_and_run()
+```
+
+On my Ubuntu 12.10 it crashes almost immediately with the following stack trace:
+
+```
+  *** glibc detected *** python: double free or corruption (out): 0x00007f315400b760 ***
+  ======= Backtrace: =========
+  /lib/x86_64-linux-gnu/libc.so.6(+0x7eb96)[0x7f3171b37b96]
+  /usr/lib/python2.7/dist-packages/zmq/core/context.so(+0x3c61)[0x7f316edf5c61]
+  python[0x4c99d4]
+  /usr/lib/python2.7/dist-packages/zmq/core/context.so(+0x3d4f)[0x7f316edf5d4f]
+  /usr/lib/python2.7/dist-packages/zmq/core/socket.so(+0x61f3)[0x7f316ebe11f3]
+  python[0x4b59f9]
+  python[0x48a7e0]
+  python[0x4b5483]
+  python(PyEval_EvalCodeEx+0x1b0)[0x467220]
+  ...
+```
+
+It would first seem like the issue is with bad usage of ZMQ in `salt.client` (as suggested by https://github.com/zeromq/pyzmq/issues/131), but to me that code looks OK (i.e. it doesn't use a global socket, which might be shared across threads). May be several LocalClient instances are sharing some resources, which they should not, or maybe it is a ZMQ issue after all?

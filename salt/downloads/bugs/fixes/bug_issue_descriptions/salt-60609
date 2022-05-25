@@ -1,0 +1,352 @@
+**Description**
+
+I have a `map.jinja` file in my formula which causes an error like so only when the minion Jinja2 version is == 3.
+
+```
+Data failed to compile:
+----------
+    Rendering SLS 'base:pulledpork.pkg' failed: Jinja variable 'salt' is undefined
+/var/cache/salt/minion/files/base/snort/map.jinja(2):
+---
+{% import_yaml 'snort/defaults.yaml' as default_settings %}
+{% set settings = salt['pillar.get']('snort', default_settings.snort, merge=True) %}    <======================
+{% if settings.get("version") %}
+{% set ver = settings["version"].split(":",1) %}
+{% if ver | length == 1 %}{% set main_ver = ver[0] %}{% else %}{% set main_ver = ver[1] %}{% endif %}
+{% else %}
+{% set main_ver = "3" %}
+[...]
+```
+
+It works OK if I downgrade Jinja2 python package on minion to be 2.11
+
+**Setup**
+
+Here are the relevant files
+
+`pulledpork/init.sls`
+
+```
+include:
+  - pulledpork.pkg
+  - pulledpork.config
+```
+
+`pulledpork/map.jinja`
+
+```
+{% import_yaml 'pulledpork/defaults.yaml' as default_settings %}
+{% from 'snort/map.jinja' import snort3 %}
+{% set pulledpork = salt['pillar.get']('pulledpork', default=default_settings.pulledpork, merge=True) %}
+{% set snort3 = snort3 %}
+```
+
+`pulledpork/pkg.sls`
+
+```
+{% from 'pulledpork/map.jinja' import pulledpork with context %}
+
+include:
+  - custom_repo
+  
+pulledpork:
+  pkg.installed:
+    - version: {{salt["pillar.get"]("pulledpork:rpm_name")}}
+    - require:
+      - pkgrepo: custom_repo_stable
+      - pkgrepo: custom_repo_testing
+```
+
+`snort/map.jinja`
+
+```
+{% import_yaml 'snort/defaults.yaml' as default_settings %}
+{% set settings = salt['pillar.get']('snort', default_settings.snort, merge=True) %}
+{% if settings.get("version") %}
+{% set ver = settings["version"].split(":",1) %}
+{% if ver | length == 1 %}{% set main_ver = ver[0] %}{% else %}{% set main_ver = ver[1] %}{% endif %}
+{% else %}
+{% set main_ver = "3" %}
+{% endif %}
+{% if main_ver.startswith("3") %}{% set snort3 = True %}{% else %}{% set snort3 = False %}{% endif %}
+```
+
+**Steps to Reproduce the behavior**
+
+Create the above looking states and run on a minion where Jinja2 >= 3.0 is installed.
+
+Debug logs
+
+```
+# salt-call -l debug state.sls pulledpork test=True
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Override  __grains__: <module 'salt.loaded.int.log_handlers.sentry_mod' from '/usr/local/lib/python3.6/site-packages/salt/log/handlers/sentry_mod.py'>
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Grains refresh requested. Refreshing grains.
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Override  __utils__: <module 'salt.loaded.int.grains.zfs' from '/usr/local/lib/python3.6/site-packages/salt/grains/zfs.py'>
+[DEBUG   ] Elapsed time getting FQDNs: 0.137648344039917 seconds
+[DEBUG   ] Loading static grains from /etc/salt/grains
+[DEBUG   ] LazyLoaded zfs.is_supported
+[DEBUG   ] Connecting to master. Attempt 1 of 1
+[DEBUG   ] "salt" Not an IP address? Assuming it is a hostname.
+[DEBUG   ] Master URI: tcp://10.44.0.254:4506
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'testids3', 'tcp://10.44.0.254:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (1864)
+[DEBUG   ] Setting zmq_reconnect_ivl to '1864ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'testids3', 'tcp://10.44.0.254:4506', 'clear')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://10.44.0.254:4506
+[DEBUG   ] Trying to connect to: tcp://10.44.0.254:4506
+[DEBUG   ] salt.crypt.get_rsa_pub_key: Loading public key
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] salt.crypt.get_rsa_key: Loading private key
+[DEBUG   ] salt.crypt._get_key_with_evict: Loading private key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] salt.crypt.get_rsa_pub_key: Loading public key
+[DEBUG   ] Closing AsyncZeroMQReqChannel instance
+[DEBUG   ] Connecting the Minion to the Master publish port, using the URI: tcp://10.44.0.254:4505
+[DEBUG   ] salt.crypt.get_rsa_key: Loading private key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'testids3', 'tcp://10.44.0.254:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'testids3', 'tcp://10.44.0.254:4506')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://10.44.0.254:4506
+[DEBUG   ] Trying to connect to: tcp://10.44.0.254:4506
+[DEBUG   ] salt.crypt.get_rsa_key: Loading private key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Closing AsyncZeroMQReqChannel instance
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] LazyLoaded state.sls
+[DEBUG   ] LazyLoaded direct_call.execute
+[DEBUG   ] LazyLoaded saltutil.is_running
+[DEBUG   ] Override  __grains__: <module 'salt.loaded.int.module.grains' from '/usr/local/lib/python3.6/site-packages/salt/modules/grains.py'>
+[DEBUG   ] LazyLoaded grains.get
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'testids3', 'tcp://10.44.0.254:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'testids3', 'tcp://10.44.0.254:4506')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://10.44.0.254:4506
+[DEBUG   ] Trying to connect to: tcp://10.44.0.254:4506
+[DEBUG   ] Gathering pillar data for state run
+[DEBUG   ] Finished gathering pillar data for state run
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Could not find file 'salt://pulledpork.sls' in saltenv 'base'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'pulledpork/init.sls' to resolve 'salt://pulledpork/init.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/pulledpork/init.sls' to resolve 'salt://pulledpork/init.sls'
+[DEBUG   ] compile template: /var/cache/salt/minion/files/base/pulledpork/init.sls
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] Using importlib_metadata to load entry points
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'testids3', 'tcp://10.44.0.254:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'testids3', 'tcp://10.44.0.254:4506')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://10.44.0.254:4506
+[DEBUG   ] Trying to connect to: tcp://10.44.0.254:4506
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/pulledpork/init.sls' using 'jinja' renderer: 0.028260469436645508
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/pulledpork/init.sls:
+include:
+  - pulledpork.pkg
+  - pulledpork.config
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('include', ['pulledpork.pkg', 'pulledpork.config'])])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/pulledpork/init.sls' using 'yaml' renderer: 0.0004444122314453125
+[DEBUG   ] In saltenv 'base', looking at rel_path 'pulledpork/pkg.sls' to resolve 'salt://pulledpork/pkg.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/pulledpork/pkg.sls' to resolve 'salt://pulledpork/pkg.sls'
+[DEBUG   ] compile template: /var/cache/salt/minion/files/base/pulledpork/pkg.sls
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] In saltenv 'base', looking at rel_path 'pulledpork/map.jinja' to resolve 'salt://pulledpork/map.jinja'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/pulledpork/map.jinja' to resolve 'salt://pulledpork/map.jinja'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'pulledpork/defaults.yaml' to resolve 'salt://pulledpork/defaults.yaml'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/pulledpork/defaults.yaml' to resolve 'salt://pulledpork/defaults.yaml'
+[PROFILE ] Time (in seconds) to render import_yaml 'pulledpork/defaults.yaml': 0.011656045913696289
+[DEBUG   ] In saltenv 'base', looking at rel_path 'snort/map.jinja' to resolve 'salt://snort/map.jinja'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/snort/map.jinja' to resolve 'salt://snort/map.jinja'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'snort/defaults.yaml' to resolve 'salt://snort/defaults.yaml'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/snort/defaults.yaml' to resolve 'salt://snort/defaults.yaml'
+[PROFILE ] Time (in seconds) to render import_yaml 'snort/defaults.yaml': 0.013499736785888672
+[ERROR   ] Rendering exception occurred
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.6/site-packages/salt/utils/templates.py", line 497, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/local/lib/python3.6/site-packages/jinja2/environment.py", line 1304, in render
+    self.environment.handle_exception()
+  File "/usr/local/lib/python3.6/site-packages/jinja2/environment.py", line 925, in handle_exception
+    raise rewrite_traceback_stack(source=source)
+  File "<template>", line 1, in top-level template code
+  File "/usr/local/lib/python3.6/site-packages/jinja2/environment.py", line 1412, in make_module
+    return TemplateModule(self, ctx)
+  File "/usr/local/lib/python3.6/site-packages/jinja2/environment.py", line 1542, in __init__
+    body_stream = list(template.root_render_func(context))  # type: ignore
+  File "/var/cache/salt/minion/files/base/pulledpork/map.jinja", line 2, in top-level template code
+    {% from 'snort/map.jinja' import snort3 %}
+  File "/usr/local/lib/python3.6/site-packages/jinja2/environment.py", line 1412, in make_module
+    return TemplateModule(self, ctx)
+  File "/usr/local/lib/python3.6/site-packages/jinja2/environment.py", line 1542, in __init__
+    body_stream = list(template.root_render_func(context))  # type: ignore
+  File "/var/cache/salt/minion/files/base/snort/map.jinja", line 2, in top-level template code
+    {% set settings = salt['pillar.get']('snort', default_settings.snort, merge=True) %}
+  File "/usr/local/lib/python3.6/site-packages/jinja2/sandbox.py", line 303, in getitem
+    return obj[argument]
+jinja2.exceptions.UndefinedError: 'salt' is undefined
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.6/site-packages/salt/utils/templates.py", line 261, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/usr/local/lib/python3.6/site-packages/salt/utils/templates.py", line 504, in render_jinja_tmpl
+    raise SaltRenderError("Jinja variable {}{}".format(exc, out), buf=tmplstr)
+salt.exceptions.SaltRenderError: Jinja variable 'salt' is undefined
+/var/cache/salt/minion/files/base/snort/map.jinja(2):
+---
+{% import_yaml 'snort/defaults.yaml' as default_settings %}
+{% set settings = salt['pillar.get']('snort', default_settings.snort, merge=True) %}    <======================
+{% if settings.get("version") %}
+{% set ver = settings["version"].split(":",1) %}
+{% if ver | length == 1 %}{% set main_ver = ver[0] %}{% else %}{% set main_ver = ver[1] %}{% endif %}
+{% else %}
+{% set main_ver = "3" %}
+[...]
+---
+[CRITICAL] Rendering SLS 'base:pulledpork.pkg' failed: Jinja variable 'salt' is undefined
+/var/cache/salt/minion/files/base/snort/map.jinja(2):
+---
+{% import_yaml 'snort/defaults.yaml' as default_settings %}
+{% set settings = salt['pillar.get']('snort', default_settings.snort, merge=True) %}    <======================
+{% if settings.get("version") %}
+{% set ver = settings["version"].split(":",1) %}
+{% if ver | length == 1 %}{% set main_ver = ver[0] %}{% else %}{% set main_ver = ver[1] %}{% endif %}
+{% else %}
+{% set main_ver = "3" %}
+[...]
+---
+```
+
+**Expected behavior**
+
+State should work OK with Jinja2 >= 3.0 just as it does with Jinja2 - 2.11.x
+
+**Screenshots**
+
+NA
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+**Master**
+
+```
+Salt Version:
+          Salt: 3003
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.2
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 1.0.0
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.9.8
+        pygit2: Not Installed
+        Python: 3.6.8 (default, Nov 10 2020, 07:30:01)
+  python-gnupg: Not Installed
+        PyYAML: 5.3.1
+         PyZMQ: 19.0.2
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.2
+ 
+System Versions:
+          dist: scientific 7.7 Nitrogen
+        locale: UTF-8
+       machine: x86_64
+       release: 3.10.0-1160.15.2.el7.x86_64
+        system: Linux
+       version: Scientific Linux 7.7 Nitrogen
+```
+
+**Minion**
+
+```
+Salt Version:
+          Salt: 3003
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 3.0.1
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 1.0.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.10.1
+        pygit2: Not Installed
+        Python: 3.6.8 (default, Nov 10 2020, 07:30:01)
+  python-gnupg: Not Installed
+        PyYAML: 5.4.1
+         PyZMQ: 22.1.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+ 
+System Versions:
+          dist: scientific 7.8 Nitrogen
+        locale: UTF-8
+       machine: x86_64
+       release: 3.10.0-1160.31.1.el7.x86_64
+        system: Linux
+       version: Scientific Linux 7.8 Nitrogen
+```
+
+</details>
+
+
+**Additional context**
+
+NA

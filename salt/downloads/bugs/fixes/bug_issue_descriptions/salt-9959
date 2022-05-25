@@ -1,0 +1,85 @@
+On Debian 7, service.running does not correctly report an inability to start a service.
+
+Using the following sls:
+
+```
+python-apt:
+  pkg:
+    - latest
+
+wheezy-updates:
+  pkgrepo:
+    - managed
+    - humanname: wheezy-updates
+    - name: 'deb http://mirrors.kernel.org/debian wheezy-updates main contrib'
+    - dist: wheezy-updates
+    - file: /etc/apt/sources.list.d/wheezy-updates.list
+    - require:
+      - pkg: python-apt
+
+clamav-freshclam:
+  pkg:
+    - latest
+    - fromrepo: wheezy-updates
+  service:
+    - running
+    - enable: True
+
+clamav-daemon:
+  pkg:
+    - installed
+  service:
+    - running
+```
+
+Here is the minion output:
+
+```
+[ERROR   ] Command 'service clamav-daemon status' failed with return code: 3
+[ERROR   ] output: clamd is not running ... failed!
+[INFO    ] Executing command 'service clamav-daemon start' in directory '/root'
+[INFO    ] output: Clamav signatures not found in /var/lib/clamav ... failed!
+Please retrieve them using freshclam ... failed!
+Then run '/etc/init.d/clamav-daemon start' ... failed!
+[INFO    ] {'clamav-daemon': True}
+```
+
+Actual output on salt master:
+
+```
+----------
+          ID: clamav-daemon
+    Function: service.running
+      Result: True
+     Comment: Started Service clamav-daemon
+     Changes:
+              ----------
+              clamav-daemon:
+                  True
+```
+
+Expected output, somewhere on the comment's field:
+
+```
+[...]
+Clamav signatures not found in /var/lib/clamav ... failed!
+Please retrieve them using freshclam ... failed!
+Then run '/etc/init.d/clamav-daemon start' ... failed!
+[...]
+```
+
+```
+salt --versions-report
+           Salt: 2014.1.0-608-gc83f35f
+         Python: 2.7.3 (default, Jan  2 2013, 13:56:14)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 3.2.3
+```
+
+This has happened with other packages as well (elasticsearch) and it has always been a complicated problem to debug due to misleading reporting status. Originally mentioned on issue #5894.

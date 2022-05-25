@@ -1,0 +1,110 @@
+### Description of Issue
+
+I've set returner for elasticsearch in /etc/salt/master:
+
+```
+...
+master_job_cache: elasticsearch
+elasticsearch:
+  host: 'elasticsearch:9200'
+```
+
+I have salt.sls file like 
+
+```
+Setup systemd:
+  file.managed:
+    - name: /etc/systemd/system.conf
+    - template: jinja
+    - mode: 0644
+    - user: root
+    - source: salt://saltmaster/templates/systemd.conf.j2
+    - show_changes: False
+```
+
+It sends message to returner with field:
+
+```
+"file_|-Setup systemd_|-/etc/systemd/system.conf_|-managed":
+```
+
+Which is then refused by elasticsearch after I execute highstate `salt '*' state.apply' 
+
+```
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: [ERROR   ] Error in function _return:
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: Traceback (most recent call last):
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: File "/usr/lib/python2.7/site-packages/salt/master.py", line 1543, in run_func
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: ret = getattr(self, func)(load)
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: File "/usr/lib/python2.7/site-packages/salt/master.py", line 1356, in _return
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: self.opts, load, event=self.event, mminion=self.mminion)
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: File "/usr/lib/python2.7/site-packages/salt/utils/job.py", line 90, in store_job
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: mminion.returners[fstr](load)
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: File "/usr/lib/python2.7/site-packages/salt/returners/elasticsearch_return.py", line 112, in returner
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: ret = __salt__['elasticsearch.document_create'](index=index, doc_type=doc_type_version, body=json.dumps(data))
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: File "/usr/lib/python2.7/site-packages/salt/modules/elasticsearch.py", line 187, in document_create
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: result = es.index(index=index, doc_type=doc_type, body=body, id=id)  # TODO error handling
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: File "/usr/lib/python2.7/site-packages/elasticsearch/client/utils.py", line 69, in _wrapped
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: return func(*args, params=params, **kwargs)
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: File "/usr/lib/python2.7/site-packages/elasticsearch/client/__init__.py", line 279, in index
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: _make_path(index, doc_type, id), params=params, body=body)
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: File "/usr/lib/python2.7/site-packages/elasticsearch/transport.py", line 327, in perform_request
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: status, headers, data = connection.perform_request(method, url, params, body, ignore=ignore, timeout=timeout)
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: File "/usr/lib/python2.7/site-packages/elasticsearch/connection/http_urllib3.py", line 109, in perform_request
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: self._raise_error(response.status, raw_data)
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: File "/usr/lib/python2.7/site-packages/elasticsearch/connection/base.py", line 113, in _raise_error
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: raise HTTP_EXCEPTIONS.get(status_code, TransportError)(status_code, error_message, additional_info)
+Sep 14 23:17:16 ip-10-0-6-115.us-west-2.compute.internal salt-master[25533]: RequestError: TransportError(400, u'mapper_parsing_exception', u"Field name [file_|-Setup systemd_|-/etc/systemd/systemd.conf_|-managed] cannot contain '.'")
+```
+
+I am currently just replacing `'.'` with `'_'` at https://github.com/saltstack/salt/blob/develop/salt/returners/elasticsearch_return.py#L132 
+
+```
+    sk = ""
+    for k in ret['return'].keys():
+        sk = k.replace('.', '_')
+        ret['return'][stripped_key] = ret['return'].pop(k)
+```
+
+I will create PR for this later. Let me know if it is appropriate solution. 
+Note: I am not developer, just ops, so feel free to suggest different solution.
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: 3.2.2
+       dateutil: 2.5.3
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.21.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.21.4
+         Python: 2.7.5 (default, Aug 18 2016, 15:58:25)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.28.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```

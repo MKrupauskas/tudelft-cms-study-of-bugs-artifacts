@@ -1,0 +1,126 @@
+### Description of Issue/Question
+module_reload:true is not forcing util libraries to reload include libraries. 
+
+My test case is with `keystone.tenant_list` and `nova.image_list` however this should be true of any module that needs a util module, that includes a third party library.
+
+### Setup
+credentials for nova and keystone already setup. I am using a pillar file but what ever method works for you. 
+I'm testing this in both a rendering jinja file.managed template and a module.run both are erroring out. 
+
+the reported error is easier followed in the jinja error report. 
+```
+
+Unable to manage file: Jinja error: global name 'OpenStackComputeShell' is not defined                   
+              Traceback (most recent call last):           
+                File "/usr/lib/python2.7/site-packages/salt/utils/templates.py", line 413, in render_jinja_tmpl        
+                  output = template.render(**decoded_context)                                                          
+                File "/usr/lib/python2.7/site-packages/jinja2/environment.py", line 969, in render                     
+                  return self.environment.handle_exception(exc_info, True)                                             
+                File "/usr/lib/python2.7/site-packages/jinja2/environment.py", line 742, in handle_exception           
+                  reraise(exc_type, exc_value, tb)         
+                File "<template>", line 3, in top-level template code                                                  
+                File "/usr/lib/python2.7/site-packages/salt/modules/nova.py", line 550, in image_list                  
+                  conn = _auth(profile)                    
+                File "/usr/lib/python2.7/site-packages/salt/modules/nova.py", line 145, in _auth                       
+                  return suon.SaltNova(**kwargs)           
+                File "/usr/lib/python2.7/site-packages/salt/utils/openstack/nova.py", line 247, in __init__            
+                  **kwargs)                                
+                File "/usr/lib/python2.7/site-packages/salt/utils/openstack/nova.py", line 301, in _old_init           
+                  if hasattr(OpenStackComputeShell, '_discover_extensions'):                                           
+              NameError: global name 'OpenStackComputeShell' is not defined                                            
+                                                           
+              ; line 3                                     
+                                                           
+              ---                                          
+              {% set tenants = salt.keystone.tenant_list() %}                                                          
+              {{tenants}}                                  
+              {% set images = salt.nova.image_list() %}    <======================                                     
+              {{images}}                                   
+              {% set sizes = salt.nova.flavor_list() %}    
+              {{sizes}}                                    
+                                                           
+              Traceback (most recent call last):           
+              [...]                                        
+```
+
+as can be seen keystone ran fine. but nova, which uses salt.utils.openstack.nova did not reload properly so [OpenStackComputeShell](https://github.com/saltstack/salt/blob/develop/salt/utils/openstack/nova.py#L19) wasn't loaded. 
+
+
+### Steps to Reproduce Issue
+make sure python-keystoneclient and python-novaclient are not installed. 
+add credentials that work to salt. 
+then apply state that follows 
+
+openstack_client.sls
+```
+salt-cloud_install_cloud_deps:
+  pip.installed:
+    - pkgs:
+      - python-novaclient >= 2.6.1, <= 6.0.1
+      - python-keystoneclient
+    - reload_modules: true
+    
+test_module:
+  module.run:
+    - name: nova.image_list
+    
+salt-cloud_provider_config:
+  file.managed:
+    - name: /tmp/nova.file.out
+    - source: salt://test.jinja
+    - template: jinja
+```
+test.jinja
+```
+{% set tenants = salt.keystone.tenant_list() %}
+{{tenants}}
+{% set images = salt.nova.image_list() %}
+{{images}}
+{% set sizes = salt.nova.flavor_list() %}
+{{sizes}}
+```
+
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: 5.6.0
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.25.1
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: 3.4.3
+         pygit2: 0.25.1
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.11.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+```

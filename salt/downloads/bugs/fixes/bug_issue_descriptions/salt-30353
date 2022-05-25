@@ -1,0 +1,378 @@
+Hi,
+
+`salt['pillar.get']` returns mixed up values when concurrent orchestrate runners are started by the reactor.
+This is the same issue as in #23373 event though that was supposed to be fixed by the RequestContext implementation (PR #27843)
+
+SLS and logs below:
+
+the reactor sls is:
+
+``` sls
+{% set fun = data.get('fun', {}) %}
+{% set arg = data.get('arg', {}) %}
+{% set minions = data.get('minions', {}) %}
+
+
+{% if fun == "test.ping" %}
+{% for minion in minions %}
+orchestrate_handle_test_{{minion}}:
+  runner.state.orchestrate:
+    - mods: orchestration.test.test
+    - pillar: {target_server: {{minion}}}
+
+{% endfor %}
+{% endif %}
+```
+
+and the orchestrate sls:
+
+``` sls
+notify_test_{{target_server}}:
+  salt.function:
+    - name: cmd.run
+    - tgt: minion1
+    - arg:
+      - '/tmp/test.ksh  {{ target_server }}'
+      - '/tmp/'
+      - '/dev/null'
+      - 'myid'
+```
+
+When, running test.ping against multiple minions `salt '*' test.ping` , the reactor sls is correctly rendered but the following orchestrate runners get mixed/inconsistent pillar data, full debug logs pasted below:
+
+```
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'_stamp': '2016-01-12T11:00:22.995250', 'minions': ['minion1', 'minion2', 'minion3', 'minion4']}
+[DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20160112120022993175', 'tgt': '*', '_stamp': '2016-01-12T11:00:22.996043', 'user': 'root', 'arg': [], 'fun': 'test.ping', 'minions': ['minion1', 'minion2', 'minion3', 'minion4']}
+[DEBUG   ] Gathering reactors for tag 20160112120022993175
+[DEBUG   ] Gathering reactors for tag salt/job/20160112120022993175/new
+[DEBUG   ] Compiling reactions for tag salt/job/20160112120022993175/new
+[DEBUG   ] compile template: /srv/salt/base/reactor/jobs.sls
+[INFO    ] User root Published command test.ping with jid 20160112120022993175
+[DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20160112120022993175', 'tgt': '*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'test.ping'}
+[DEBUG   ] Jinja search path: '['/var/cache/salt/master/files/base']'
+[PROFILE ] Time (in seconds) to render '/srv/salt/base/reactor/jobs.sls' using 'jinja' renderer: 0.0269289016724
+[DEBUG   ] Rendered data from file: /srv/salt/base/reactor/jobs.sls:
+
+
+
+
+
+
+
+orchestrate_handle_test_minion1:
+  runner.state.orchestrate:
+    - mods: orchestration.test.test
+    - pillar: {target_server: minion1}
+
+
+orchestrate_handle_test_minion2:
+  runner.state.orchestrate:
+    - mods: orchestration.test.test
+    - pillar: {target_server: minion2}
+
+
+orchestrate_handle_test_minion3:
+  runner.state.orchestrate:
+    - mods: orchestration.test.test
+    - pillar: {target_server: minion3}
+
+
+orchestrate_handle_test_minion4:
+  runner.state.orchestrate:
+    - mods: orchestration.test.test
+    - pillar: {target_server: minion4}
+
+
+
+
+
+
+
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('orchestrate_handle_test_minion1', OrderedDict([('runner.state.orchestrate', [OrderedDict([('mods', 'orchestration.test.test')]), OrderedDict([('pillar', OrderedDict([('target_server', 'minion1')]))])])])), ('orchestrate_handle_test_minion2', OrderedDict([('runner.state.orchestrate', [OrderedDict([('mods', 'orchestration.test.test')]), OrderedDict([('pillar', OrderedDict([('target_server', 'minion2')]))])])])), ('orchestrate_handle_test_minion3', OrderedDict([('runner.state.orchestrate', [OrderedDict([('mods', 'orchestration.test.test')]), OrderedDict([('pillar', OrderedDict([('target_server', 'minion3')]))])])])), ('orchestrate_handle_test_minion4', OrderedDict([('runner.state.orchestrate', [OrderedDict([('mods', 'orchestration.test.test')]), OrderedDict([('pillar', OrderedDict([('target_server', 'minion4')]))])])]))])
+[PROFILE ] Time (in seconds) to render '/srv/salt/base/reactor/jobs.sls' using 'yaml' renderer: 0.0187299251556
+[DEBUG   ] ThreadPool executing func: <bound method RunnerClient.low of <salt.runner.RunnerClient object at 0x23d8f10>> with args:('state.orchestrate', {'mods': 'orchestration.test.test', 'name': u'orchestrate_handle_test_minion1', 'pillar': OrderedDict([('target_server', 'minion1')]), 'state': 'runner', '__id__': 'orchestrate_handle_test_minion1', '__user__': 'Reactor', '__sls__': '/srv/salt/base/reactor/jobs.sls', 'order': 1, 'user': 'Reactor'}) kwargs{}
+[DEBUG   ] ThreadPool executing func: <bound method RunnerClient.low of <salt.runner.RunnerClient object at 0x23d8f10>> with args:('state.orchestrate', {'mods': 'orchestration.test.test', 'name': u'orchestrate_handle_test_minion2', 'pillar': OrderedDict([('target_server', 'minion2')]), 'state': 'runner', '__id__': 'orchestrate_handle_test_minion2', '__user__': 'Reactor', '__sls__': '/srv/salt/base/reactor/jobs.sls', 'order': 1, 'user': 'Reactor'}) kwargs{}
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] ThreadPool executing func: <bound method RunnerClient.low of <salt.runner.RunnerClient object at 0x23d8f10>> with args:('state.orchestrate', {'mods': 'orchestration.test.test', 'name': u'orchestrate_handle_test_minion4', 'pillar': OrderedDict([('target_server', 'minion4')]), 'state': 'runner', '__id__': 'orchestrate_handle_test_minion4', '__user__': 'Reactor', '__sls__': '/srv/salt/base/reactor/jobs.sls', 'order': 1, 'user': 'Reactor'}) kwargs{}
+[DEBUG   ] ThreadPool executing func: <bound method RunnerClient.low of <salt.runner.RunnerClient object at 0x23d8f10>> with args:('state.orchestrate', {'mods': 'orchestration.test.test', 'name': u'orchestrate_handle_test_minion3', 'pillar': OrderedDict([('target_server', 'minion3')]), 'state': 'runner', '__id__': 'orchestrate_handle_test_minion3', '__user__': 'Reactor', '__sls__': '/srv/salt/base/reactor/jobs.sls', 'order': 1, 'user': 'Reactor'}) kwargs{}
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[INFO    ] Found minion id from generate_minion_id(): saltmaster
+[DEBUG   ] Reading configuration from /etc/salt/master
+[INFO    ] Found minion id from generate_minion_id(): saltmaster
+[DEBUG   ] Reading configuration from /etc/salt/master
+[INFO    ] Found minion id from generate_minion_id(): saltmaster
+[INFO    ] Found minion id from generate_minion_id(): saltmaster
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'fun': 'runner.state.orchestrate', 'jid': '20160112120024318919', 'user': 'Reactor', '_stamp': '2016-01-12T11:00:24.326944'}
+[DEBUG   ] LazyLoaded state.orchestrate
+[DEBUG   ] Error loading runners.nacl: libnacl import error, perhaps missing python libnacl package
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'fun': 'runner.state.orchestrate', 'jid': '20160112120024365367', 'user': 'Reactor', '_stamp': '2016-01-12T11:00:24.385043'}
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'fun': 'runner.state.orchestrate', 'jid': '20160112120024412357', 'user': 'Reactor', '_stamp': '2016-01-12T11:00:24.428243'}
+/usr/lib/python2.6/site-packages/salt/client/mixins.py:333: DeprecationWarning: kwargs must be passed inside the low under "kwargs"
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'fun': 'runner.state.orchestrate', 'jid': '20160112120024506091', 'user': 'Reactor', '_stamp': '2016-01-12T11:00:24.523897'}
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Guessing ID. The id can be explicitly set in /etc/salt/minion
+[INFO    ] Found minion id from generate_minion_id(): saltmaster
+[DEBUG   ] Reading configuration from /etc/salt/master
+[INFO    ] Found minion id from generate_minion_id(): saltmaster
+[DEBUG   ] Reading configuration from /etc/salt/master
+[INFO    ] Found minion id from generate_minion_id(): saltmaster
+[DEBUG   ] Reading configuration from /etc/salt/master
+[INFO    ] Found minion id from generate_minion_id(): saltmaster
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded state.sls
+[DEBUG   ] LazyLoaded saltutil.is_running
+[DEBUG   ] LazyLoaded state.sls
+[DEBUG   ] LazyLoaded saltutil.is_running
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded grains.get
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded state.sls
+[DEBUG   ] LazyLoaded saltutil.is_running
+[DEBUG   ] LazyLoaded roots.envs
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded roots.envs
+[DEBUG   ] LazyLoaded grains.get
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] Could not LazyLoad roots.init
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] LazyLoaded state.sls
+[DEBUG   ] LazyLoaded saltutil.is_running
+[DEBUG   ] Could not LazyLoad roots.init
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] LazyLoaded roots.envs
+[DEBUG   ] LazyLoaded grains.get
+[DEBUG   ] Could not LazyLoad roots.init
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] LazyLoaded roots.envs
+[DEBUG   ] Could not LazyLoad roots.init
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] In saltenv 'base', looking at rel_path 'orchestration/test/test.sls' to resolve 'salt://orchestration/test/test.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/master/files/base/orchestration/test/test.sls' to resolve 'salt://orchestration/test/test.sls'
+[DEBUG   ] LazyLoaded jinja.render
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://orchestration/test/test.sls'
+[DEBUG   ] compile template: /var/cache/salt/master/files/base/orchestration/test/test.sls
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] Jinja search path: '['/var/cache/salt/master/files/base']'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'orchestration/test/test.sls' to resolve 'salt://orchestration/test/test.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/master/files/base/orchestration/test/test.sls' to resolve 'salt://orchestration/test/test.sls'
+[DEBUG   ] LazyLoaded pillar.get
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/master/files/base/orchestration/test/test.sls' using 'jinja' renderer: 0.0154371261597
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://orchestration/test/test.sls'
+[DEBUG   ] Rendered data from file: /var/cache/salt/master/files/base/orchestration/test/test.sls:
+
+
+
+notify_test_minion1:
+  salt.function:
+    - name: cmd.run
+    - tgt: minion1
+    - arg:
+      - '/tmp/test.ksh minion1'
+      - '/tmp/'
+      - '/dev/null'
+      - 'myid'
+
+
+
+[DEBUG   ] compile template: /var/cache/salt/master/files/base/orchestration/test/test.sls
+[DEBUG   ] Jinja search path: '['/var/cache/salt/master/files/base']'
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('notify_test_minion1', OrderedDict([('salt.function', [OrderedDict([('name', 'cmd.run')]), OrderedDict([('tgt', 'minion1')]), OrderedDict([('arg', ['/tmp/test.ksh minion1', '/tmp/', '/dev/null', 'myid'])])])]))])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/master/files/base/orchestration/test/test.sls' using 'jinja' renderer: 0.0174221992493
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/master/files/base/orchestration/test/test.sls' using 'yaml' renderer: 0.0254518985748
+[DEBUG   ] Rendered data from file: /var/cache/salt/master/files/base/orchestration/test/test.sls:
+
+
+
+notify_test_minion1:
+  salt.function:
+    - name: cmd.run
+    - tgt: minion1
+    - arg:
+      - '/tmp/test.ksh minion1'
+      - '/tmp/'
+      - '/dev/null'
+      - 'myid'
+
+
+
+[DEBUG   ] LazyLoaded config.option
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('notify_test_minion1', OrderedDict([('salt.function', [OrderedDict([('name', 'cmd.run')]), OrderedDict([('tgt', 'minion1')]), OrderedDict([('arg', ['/tmp/test.ksh minion1', '/tmp/', '/dev/null', 'myid'])])])]))])
+[DEBUG   ] LazyLoaded salt.function
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/master/files/base/orchestration/test/test.sls' using 'yaml' renderer: 0.0123250484467
+[INFO    ] Running state [cmd.run] at time 12:00:26.056375
+[DEBUG   ] LazyLoaded salt.function
+[INFO    ] Executing state salt.function for cmd.run
+[INFO    ] Running state [cmd.run] at time 12:00:26.061644
+[INFO    ] Executing state salt.function for cmd.run
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] LazyLoaded saltutil.cmd
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/master', 'saltmaster_master', 'tcp://127.0.0.1:4506', 'clear')
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/master', 'saltmaster_master', 'tcp://127.0.0.1:4506', 'clear')
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'_stamp': '2016-01-12T11:00:26.319562', 'minions': ['minion1']}
+[DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20160112120026315063', 'tgt': 'minion1', '_stamp': '2016-01-12T11:00:26.323314', 'user': 'root', 'arg': ['/tmp/test.ksh minion1', '/tmp/', '/dev/null', 'myid'], 'fun': 'cmd.run', 'minions': ['minion1']}
+[DEBUG   ] Gathering reactors for tag 20160112120026315063
+[DEBUG   ] Gathering reactors for tag salt/job/20160112120026315063/new
+[DEBUG   ] Compiling reactions for tag salt/job/20160112120026315063/new
+[INFO    ] User root Published command cmd.run with jid 20160112120026315063
+[DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20160112120026315063', 'tgt': 'minion1', 'ret': '', 'user': 'root', 'arg': ['/tmp/test.ksh minion1', '/tmp/', '/dev/null', 'myid'], 'fun': 'cmd.run'}
+[DEBUG   ] compile template: /srv/salt/base/reactor/jobs.sls
+[DEBUG   ] LazyLoaded local_cache.prep_jid
+[DEBUG   ] Jinja search path: '['/var/cache/salt/master/files/base']'
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] Sending event - data = {'_stamp': '2016-01-12T11:00:26.342095', 'minions': ['minion1']}
+[DEBUG   ] LazyLoaded local_cache.get_load
+[DEBUG   ] Sending event - data = {'tgt_type': 'glob', 'jid': '20160112120026336813', 'tgt': 'minion1', '_stamp': '2016-01-12T11:00:26.346361', 'user': 'root', 'arg': ['/tmp/test.ksh minion1', '/tmp/', '/dev/null', 'myid'], 'fun': 'cmd.run', 'minions': ['minion1']}
+[DEBUG   ] get_iter_returns for jid 20160112120026315063 sent to set(['minion1']) will timeout at 12:00:31.345095
+[INFO    ] User root Published command cmd.run with jid 20160112120026336813
+[DEBUG   ] Published command details {'tgt_type': 'glob', 'jid': '20160112120026336813', 'tgt': 'minion1', 'ret': '', 'user': 'root', 'arg': ['/tmp/test.ksh minion1', '/tmp/', '/dev/null', 'myid'], 'fun': 'cmd.run'}
+[PROFILE ] Time (in seconds) to render '/srv/salt/base/reactor/jobs.sls' using 'jinja' renderer: 0.0436570644379
+[DEBUG   ] Rendered data from file: /srv/salt/base/reactor/jobs.sls:
+
+
+
+
+
+
+
+
+
+
+[DEBUG   ] LazyLoaded local_cache.get_load
+[DEBUG   ] Results of YAML rendering: 
+{}
+[PROFILE ] Time (in seconds) to render '/srv/salt/base/reactor/jobs.sls' using 'yaml' renderer: 0.00289511680603
+[DEBUG   ] get_iter_returns for jid 20160112120026336813 sent to set(['minion1']) will timeout at 12:00:31.380916
+[DEBUG   ] Gathering reactors for tag 20160112120026336813
+[DEBUG   ] Gathering reactors for tag salt/job/20160112120026336813/new
+[DEBUG   ] Compiling reactions for tag salt/job/20160112120026336813/new
+[DEBUG   ] compile template: /srv/salt/base/reactor/jobs.sls
+[DEBUG   ] Jinja search path: '['/var/cache/salt/master/files/base']'
+[PROFILE ] Time (in seconds) to render '/srv/salt/base/reactor/jobs.sls' using 'jinja' renderer: 0.0241320133209
+[DEBUG   ] Rendered data from file: /srv/salt/base/reactor/jobs.sls:
+
+
+
+
+
+
+
+
+
+
+[DEBUG   ] Results of YAML rendering: 
+{}
+[PROFILE ] Time (in seconds) to render '/srv/salt/base/reactor/jobs.sls' using 'yaml' renderer: 0.00102591514587
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] In saltenv 'base', looking at rel_path 'orchestration/test/test.sls' to resolve 'salt://orchestration/test/test.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/master/files/base/orchestration/test/test.sls' to resolve 'salt://orchestration/test/test.sls'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://orchestration/test/test.sls'
+[DEBUG   ] compile template: /var/cache/salt/master/files/base/orchestration/test/test.sls
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] Jinja search path: '['/var/cache/salt/master/files/base']'
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded pillar.get
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/master/files/base/orchestration/test/test.sls' using 'jinja' renderer: 0.00727510452271
+[DEBUG   ] In saltenv 'base', looking at rel_path 'orchestration/test/test.sls' to resolve 'salt://orchestration/test/test.sls'
+[DEBUG   ] Rendered data from file: /var/cache/salt/master/files/base/orchestration/test/test.sls:
+
+
+
+notify_test_minion3:
+  salt.function:
+    - name: cmd.run
+    - tgt: minion1
+    - arg:
+      - '/tmp/test.ksh minion3'
+      - '/tmp/'
+      - '/dev/null'
+      - 'myid'
+
+
+
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/master/files/base/orchestration/test/test.sls' to resolve 'salt://orchestration/test/test.sls'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://orchestration/test/test.sls'
+[DEBUG   ] compile template: /var/cache/salt/master/files/base/orchestration/test/test.sls
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('notify_test_minion3', OrderedDict([('salt.function', [OrderedDict([('name', 'cmd.run')]), OrderedDict([('tgt', 'minion1')]), OrderedDict([('arg', ['/tmp/test.ksh minion3', '/tmp/', '/dev/null', 'myid'])])])]))])
+[DEBUG   ] Jinja search path: '['/var/cache/salt/master/files/base']'
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/master/files/base/orchestration/test/test.sls' using 'yaml' renderer: 0.0101249217987
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/master/files/base/orchestration/test/test.sls' using 'jinja' renderer: 0.00700879096985
+[DEBUG   ] LazyLoaded config.option
+[DEBUG   ] Rendered data from file: /var/cache/salt/master/files/base/orchestration/test/test.sls:
+
+
+
+notify_test_minion3:
+  salt.function:
+    - name: cmd.run
+    - tgt: minion1
+    - arg:
+      - '/tmp/test.ksh minion3'
+      - '/tmp/'
+      - '/dev/null'
+      - 'myid'
+```

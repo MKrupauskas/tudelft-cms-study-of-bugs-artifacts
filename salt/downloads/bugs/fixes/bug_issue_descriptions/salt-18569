@@ -1,0 +1,23 @@
+salt-master running in docker processes pin all the cores on my machine for a few minutes on startup. Here's the versions of everything:
+
+```
+docker: Docker version 1.0.1, build 990021a
+centos: docker build centos:centos6
+docker host: Linux Mint 17 Qiana (basically ubuntu trusty)
+salt-master: using epel version salt-master 2014.7.0 (Helium)
+```
+
+The behaviour starts with several salt-master processes using 100% cpu. Even when salt-master's log level is set to debug I don't see any errors. salt-minion is even able to give salt-master a key to accept/reject. So salt-master appears to functioning, but slowly. According to strace python is closing tons of file descriptors that don't exist: https://gist.github.com/shanemhansen/cb03cc78ad3a65401d26
+
+I did more debugging before filing this report. With a little pdb and print line debugging I determined that salt-master was using the subprocess module to call `ip addr` and `ip show`. At this point I noticed that the subprocess module has a [close_fds argument](https://github.com/saltstack/salt/blob/754baafcf750df43bc667bd2af638fff23dd768e/salt/utils/network.py#L556) It turns out that if you set close_fds to False, the high cpu usage goes away.
+
+After much more debugging I realized that the issue is actually in subprocess.py under the posix version of _execute_child where os.dup2 is called [edit: this bug wasn't caused by dup2, see below]. Something about the docker environment confuses that syscall. At this point I created a minimal repro that you can run to see if python and docker are playing nice in your environment:
+
+```
+python -c "import subprocess;subprocess.Popen(['/bin/ls'], close_fds=True).wait()"
+```
+
+If this command takes close to 2 seconds, you've got a problem. It should run almost instantaneously. I ran this command on a few different environments to see if this is a centos problem. It turns out that this problem is triggered by python2 and docker (2.6 vs 2.7 doesn't seem to matter). You can easily verify by running the saltstack/arch-minimal docker build, installing python2 and python3, and running the above command. python3's subprocess module doesn't do the os.dup2 call, instead it delegates
+to some posix forkexec function.
+
+So this isn't a salt bug. It's probably a python 2 bug. But if salt wants to run well with docker I think it's going to have to come up with a workaround (such as passing close_fds=False), or even accepting a parameter to enable a docker workaround.

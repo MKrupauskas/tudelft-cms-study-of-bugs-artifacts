@@ -1,0 +1,103 @@
+**Description**
+Yesterday we have upgraded our infrastructure to 3001-1 and discovered strange random failures.
+Cronned salt-call for highstate hangs (until killed manually) and following error occurs:
+```2020-06-23 12:07:51,175 [salt.crypt       :1041][ERROR   ][13523] There was an error while verifying the masters public-key signature
+2020-06-23 12:07:51,176 [tornado.application:640 ][ERROR   ][13523] Exception in callback functools.partial(<function wrap.<locals>.null_wrapper at 0x7fd3b1b73ea0>, <salt.ext.tornado.concurren
+t.Future object at 0x7fd3b1b694a8>)
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/crypt.py", line 1022, in verify_signing_master
+    if self.verify_pubkey_sig(payload["pub_key"], payload["pub_sig"]):
+  File "/usr/lib/python3.6/site-packages/salt/crypt.py", line 994, in verify_pubkey_sig
+    res = verify_signature(path, message, binascii.a2b_base64(sig))
+  File "/usr/lib/python3.6/site-packages/salt/crypt.py", line 265, in verify_signature
+    return pubkey.verify(digest, signature)
+  File "/usr/lib64/python3.6/site-packages/M2Crypto/RSA.py", line 284, in verify
+    return m2.rsa_verify(self.rsa, data, signature, digest_type)
+M2Crypto.RSA.RSAError: bad signature
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/ext/tornado/ioloop.py", line 606, in _run_callback
+    ret = callback()
+  File "/usr/lib/python3.6/site-packages/salt/ext/tornado/stack_context.py", line 278, in null_wrapper
+    return fn(*args, **kwargs)
+  File "/usr/lib/python3.6/site-packages/salt/ext/tornado/ioloop.py", line 628, in _discard_future_result
+    future.result()
+  File "/usr/lib/python3.6/site-packages/salt/ext/tornado/concurrent.py", line 249, in result
+    raise_exc_info(self._exc_info)
+  File "<string>", line 4, in raise_exc_info
+  File "/usr/lib/python3.6/site-packages/salt/ext/tornado/gen.py", line 1064, in run
+    yielded = self.gen.throw(*exc_info)
+  File "/usr/lib/python3.6/site-packages/salt/crypt.py", line 644, in _authenticate
+    creds = yield self.sign_in(channel=channel)
+  File "/usr/lib/python3.6/site-packages/salt/ext/tornado/gen.py", line 1056, in run
+    value = future.result()
+  File "/usr/lib/python3.6/site-packages/salt/ext/tornado/concurrent.py", line 249, in result
+    raise_exc_info(self._exc_info)
+  File "<string>", line 4, in raise_exc_info
+  File "/usr/lib/python3.6/site-packages/salt/ext/tornado/gen.py", line 1070, in run
+    yielded = self.gen.send(value)
+  File "/usr/lib/python3.6/site-packages/salt/crypt.py", line 805, in sign_in
+    auth["aes"] = self.verify_master(payload, master_pub="token" in sign_in_payload)
+  File "/usr/lib/python3.6/site-packages/salt/crypt.py", line 1141, in verify_master
+    if self.verify_signing_master(payload):
+  File "/usr/lib/python3.6/site-packages/salt/crypt.py", line 1043, in verify_signing_master
+    raise Exception(sign_exc)
+Exception: bad signature
+```
+Setting master_use_pubkey_signature to false helps, but it is very hard to cleanup, because cmd.run from master reports nodes as failed and I can't kill hanging python3 (salt-call) processess - have to do it one by one via ssh.
+
+**Setup**
+I guess it doesn't matter - any state/highstate fails.
+
+**Steps to Reproduce the behavior**
+Enabling master_use_pubkey_signature and running multiple salt-call will cause error.
+
+**Expected behavior**
+Smooth finish.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+```
+Salt Version:
+           Salt: 3001
+
+Dependency Versions:
+           cffi: 1.12.2
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10.3
+        libgit2: 0.26.6
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 3.9.6
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 3.6.8 (default, Apr  2 2020, 13:34:55)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.0.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 5.4.34-1-pve
+         system: Linux
+        version: CentOS Linux 7 Core
+```
+</details>
+
+During upgrade salt removed old server keys and generated new one - I'm not sure why it happend. I remember, that about year ago we had similar behaviour (keys cleaning during saltstack upgrade), but I couldn't investigate the reasons.

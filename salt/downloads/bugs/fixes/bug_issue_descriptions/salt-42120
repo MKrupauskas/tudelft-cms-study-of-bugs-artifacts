@@ -1,0 +1,169 @@
+### Description of Issue/Question
+In followup with my conversation yesterday with @cachedout 
+
+Here is how I can trigger the odd issues with unicode strings.
+
+
+### Setup
+/salt/pillar/test.sls
+```
+######
+## test pillar
+## -----------------------------------
+######
+test:
+  my_list:
+    - hello
+    - world
+
+# vim: tabstop=2 expandtab shiftwidth=2 softtabstop=2
+```
+/salt/states/test.jinja
+```jinja
+######
+## Test jinja config
+## -----------------------------------
+######
+## macro to merge dicts
+{%- macro config_merge(a, b) %}
+  {%- for k,v in b.items() %}
+    {%- if v is not defined %}
+      {%- do a.pop(k) %}
+    {%- else %}
+      {%- if v is mapping %}
+        {%- if a[k] is not mapping %}
+          {%- do a.update({ k: { } }) %}
+        {%- endif %}
+        {%- do config_merge(a[k], v) %}
+      {%- else: %}
+        {%- do a.update({ k: v }) %}
+      {%- endif %}
+    {% endif %}
+  {%- endfor %}
+{%- endmacro %}
+
+## default dict
+{% set testcfg = 
+  {
+    'my_string': 'this is a string',
+    'my_bool': false,
+    'my_number': 123,
+    'my_list': [
+      'abc',
+      'def'
+    ],
+    'my_dict': {
+      'my_number': 456,
+      'my_string': 'also a string'
+    }
+  }
+%}
+
+## platform specific + pillar overwrite
+{% do config_merge(testcfg, salt['grains.filter_by']({
+    'Ubuntu': {
+      'my_string': 'this is a string but we are ubuntu',
+    },
+    'default': {}
+  },
+  grain="os", merge=salt.pillar.get('test', {})))
+%}
+
+# vim: tabstop=2 expandtab shiftwidth=2 softtabstop=2
+```
+/salt/states/test.sls
+```yaml
+######
+## Test state
+## -----------------------------------
+## state were we manage a small file
+######
+## imports
+{% from 'test.jinja' import testcfg with context %}
+
+## manage a file
+### works
+#/tmp/test.txt:
+#  file.managed:
+#    - name: /tmp/test.txt
+#    - source: salt://test.tpl
+#    - template: jinja
+#    - context:
+#        my_string: {{ testcfg['my_string'] }}
+#        my_list: {{ testcfg['my_list']|json_decode_list }}
+
+### broken
+/tmp/test.txt:
+  file.managed:
+    - name: /tmp/test.txt
+    - source: salt://test.tpl
+    - template: jinja
+    - context:
+        my_string: {{ testcfg['my_string'] }}
+        my_list: {{ testcfg['my_list'] }}
+
+# vim: tabstop=2 expandtab shiftwidth=2 softtabstop=2
+```
+
+/salt/states/test.tpl
+```jinja
+{%- if my_string -%}
+string -> {{ my_string }}
+{%- endif %}
+{%- for i in my_list %}
+list item -> {{ i }}
+{%- endfor -%}
+```
+
+
+### Steps to Reproduce Issue
+So nothing super fancy, we have a state that manages a file using a template.
+The template gets passed data via context that comes from a dict we build using jinja.
+
+The dict is based on a set of default values, with override based on grains and pillar data.
+
+Without the pillar data it looks fine so the issues may something to do with that.
+
+### Versions Report
+```yaml
+Salt Version:
+           Salt: 2017.7.0rc1
+ 
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: unknown
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: 2.0.0
+      gitpython: 2.1.1
+          ioflo: 1.6.7
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: 1.5.0
+       M2Crypto: 0.22
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Dec 31 2016, 10:50:46)
+   python-gnupg: 2.2.0
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: 0.6.6
+          smmap: 0.9.0
+        timelib: 0.2.4
+        Tornado: 4.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: i86pc
+        release: 5.11
+         system: SunOS
+        version: Not Installed
+```

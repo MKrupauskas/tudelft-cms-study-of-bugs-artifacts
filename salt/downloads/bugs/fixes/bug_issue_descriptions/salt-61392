@@ -1,0 +1,151 @@
+**Description**
+
+I use the [Salt Cloud Hetzner module](https://docs.saltproject.io/en/master/ref/clouds/all/salt.cloud.clouds.hetzner.html). I figured out how to use it via CLI and now I used it as a state with [`cloud.present`](https://docs.saltproject.io/en/latest/topics/cloud/salt.html#cloud-present). Creation of a new machine works, but when the machine is present already, it fails upon applying the state again:
+`salt.exceptions.SaltCloudSystemExit: The show_instance function must be called with -f or --function`
+
+**Setup**
+
+I installed `salt-minion`, `salt-master` and `salt-cloud` on a Hetzner Cloud Debian 11 machine, generated said ssh key, added it to the hetzner cloud, generated an API key there and added some configs to my machine:
+
+`/etc/salt/cloud.providers.d/hetzner.conf`:
+
+```yaml
+hetzner:
+  key: <my API key>
+  private_key: /root/.ssh/id_ed25519
+  ssh_keys:
+    - id_ed25519 # yes, that's the name in hcloud
+  driver: hetzner
+  minion:
+    <additional minion conf>
+```
+
+`/etc/salt/cloud.profiles.d/hetzner.conf`:
+
+```yaml
+cx21_hetzner:
+  provider: hetzner
+  image: debian-11
+  size: cx21
+```
+
+My `cloud-hetzner.sls`:
+
+```yaml
+my-instance-name:
+  cloud.present:
+    - name: <machine name>
+    - cloud_provider: hetzner
+    - ssh_keys:
+      - id_ed25519
+    - image: debian-11
+    - size: cx21
+ ```
+
+**Steps to Reproduce the behavior**
+
+1. Apply the previously mentioned state, successfully creating a new VM instance
+1. Apply the state again while the VM still exists :boom:
+
+```yaml
+      ID: my-instance-name
+Function: cloud.present
+    Name: <machine name>
+  Result: False
+  Comment: An exception occurred in this state: Traceback (most recent call last):
+            File "/usr/lib/python3/dist-packages/salt/state.py", line 2179, in call
+              ret = self.states[cdata["full"]](
+            File "/usr/lib/python3/dist-packages/salt/loader/lazy.py", line 149, in __call__
+              return self.loader.run(run_func, *args, **kwargs)
+            File "/usr/lib/python3/dist-packages/salt/loader/lazy.py", line 1201, in run
+              return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+            File "/usr/lib/python3/dist-packages/salt/loader/lazy.py", line 1216, in _run_as
+              return _func_or_method(*args, **kwargs)
+            File "/usr/lib/python3/dist-packages/salt/loader/lazy.py", line 1249, in wrapper
+              return f(*args, **kwargs)
+            File "/usr/lib/python3/dist-packages/salt/states/cloud.py", line 104, in present
+              if __salt__["cloud.has_instance"](name=name, provider=None):
+            File "/usr/lib/python3/dist-packages/salt/loader/lazy.py", line 149, in __call__
+              return self.loader.run(run_func, *args, **kwargs)
+            File "/usr/lib/python3/dist-packages/salt/loader/lazy.py", line 1201, in run
+              return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+            File "/usr/lib/python3/dist-packages/salt/loader/lazy.py", line 1216, in _run_as
+              return _func_or_method(*args, **kwargs)
+            File "/usr/lib/python3/dist-packages/salt/modules/cloud.py", line 148, in has_instance
+              data = get_instance(name, provider)
+            File "/usr/lib/python3/dist-packages/salt/modules/cloud.py", line 174, in get_instance
+              data = action(fun="show_instance", names=[name], provider=provider)
+            File "/usr/lib/python3/dist-packages/salt/modules/cloud.py", line 259, in action
+              info = client.action(fun, cloudmap, names, provider, instance, kwargs)
+            File "/usr/lib/python3/dist-packages/salt/cloud/__init__.py", line 486, in action
+              return mapper.do_action(names, kwargs)
+            File "/usr/lib/python3/dist-packages/salt/cloud/__init__.py", line 1481, in do_action
+              ret[alias][driver][vm_name] = self.clouds[fun](
+            File "/usr/lib/python3/dist-packages/salt/loader/lazy.py", line 149, in __call__
+              return self.loader.run(run_func, *args, **kwargs)
+            File "/usr/lib/python3/dist-packages/salt/loader/lazy.py", line 1201, in run
+              return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+            File "/usr/lib/python3/dist-packages/salt/loader/lazy.py", line 1216, in _run_as
+              return _func_or_method(*args, **kwargs)
+            File "/usr/lib/python3/dist-packages/salt/cloud/clouds/hetzner.py", line 224, in show_instance
+              raise SaltCloudSystemExit(
+          salt.exceptions.SaltCloudSystemExit: The show_instance function must be called with -f or --function
+```
+
+**Expected behavior**
+
+I'd expect nothing to happen, except of the VM's presence to be ensured.
+
+**Versions Report**
+
+<details><summary>salt --versions-report</summary>
+
+```yaml
+Salt Version:
+          Salt: 3004
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.8.1
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.3
+       libgit2: Not Installed
+      M2Crypto: 0.37.1
+          Mako: Not Installed
+       msgpack: 1.0.0
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.9.7
+        pygit2: Not Installed
+        Python: 3.9.2 (default, Feb 28 2021, 17:03:44)
+  python-gnupg: Not Installed
+        PyYAML: 5.3.1
+         PyZMQ: 20.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+ 
+System Versions:
+          dist: debian 11 bullseye
+        locale: utf-8
+       machine: x86_64
+       release: 5.10.0-9-amd64
+        system: Linux
+       version: Debian GNU/Linux 11 bullseye
+```
+
+</details>
+
+**Additional context**
+
+I'll ping out the original module's author, @fkantelberg. Thanks for the module, by the way!
+
+Other implementations seem to accept calling `show_instance` from an `action` under certain conditions, like [ec2](https://github.com/saltstack/salt/blob/master/salt/cloud/clouds/ec2.py#L3479). **Update:** I've just seen that `show_instance` is the [example action](https://docs.saltproject.io/en/master/topics/cloud/cloud.html#actions-and-functions).
+
+And just to mention, I think the `ssh_keys` in `/etc/salt/cloud.providers.d/hetzner.conf` were ignored, when I used it as a state, rather than with `salt-cloud`. I had to add them to the `cloud.present:` state, to prevent failure to authorise while connecting via SSH to the newly created machine.

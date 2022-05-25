@@ -1,0 +1,144 @@
+Salt 2014.7.0
+CentOS 6.2
+
+I have a set of pillar based scheduled jobs that has been applied to two minions.  Both minions show the jobs in a schedule.list and/or pillar.item schedule, but only one of the minions was actually running the jobs.
+
+I've recreated this situation in a test setup (Vagrant, single server hosting both master and minion).  When applying a pillar based schedule to the minion, sometimes it works, sometimes it doesn't.  If I tweak the pillar definition it still sometimes works and sometimes does not work.  I've not been able to discern a pattern to whether or not it gets applied.
+
+Example pillar (I added each job in turn and checked if they were running):
+
+```
+schedule:
+  newjob:
+    function: cmd.run
+    cron: '* * * * *'
+    jid_include: true
+    args:
+      - 'XXX=`date` && echo $XXX >> /first_file'
+  secondjob:
+    function: cmd.run
+    cron: '* * * * *'
+    jid_include: true
+    args:
+      - 'XXX=`date` && echo $XXX >> /second_file'
+  thirdjob:
+    function: cmd.run
+    cron: '* * * * *'
+    jid_include: true
+    args:
+      - 'XXX=`date` && echo $XXX >> /third_file'
+  added_this_one:
+    function: cmd.run
+    cron: '* * * * *'
+    jid_include: true
+    args:
+      - 'XXX=`date` && echo $XXX >> /added'
+```
+
+Running a schedule.list shows:
+
+```
+[root@saltmaster dev]# salt saltmaster schedule.list
+saltmaster:
+    schedule:
+      added_this_one:
+        args:
+        - XXX=`date` && echo $XXX >> /added
+        cron: '* * * * *'
+        function: cmd.run
+        jid_include: true
+        name: added_this_one
+      newjob:
+        args:
+        - XXX=`date` && echo $XXX >> /first_file
+        cron: '* * * * *'
+        function: cmd.run
+        jid_include: true
+        name: newjob
+      secondjob:
+        args:
+        - XXX=`date` && echo $XXX >> /second_file
+        cron: '* * * * *'
+        function: cmd.run
+        jid_include: true
+        name: secondjob
+      thirdjob:
+        args:
+        - XXX=`date` && echo $XXX >> /third_file
+        cron: '* * * * *'
+        function: cmd.run
+        jid_include: true
+        name: thirdjob
+```
+
+Logs from a fresh start of the minion (including a refresh_pillar):
+
+```
+2015-01-27 10:27:02,374 [salt             ][INFO    ] Setting up the Salt Minion "saltmaster"
+2015-01-27 10:27:02,390 [salt.utils.process][DEBUG   ] Created pidfile: /var/run/salt-minion.pid
+2015-01-27 10:27:02,392 [salt.config      ][DEBUG   ] Reading configuration from /etc/salt/minion
+2015-01-27 10:27:03,636 [salt.minion                              ][DEBUG   ] Attempting to authenticate with the Salt Master at 192.168.0.13
+2015-01-27 10:27:03,638 [salt.crypt                               ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-01-27 10:27:03,779 [salt.crypt                               ][DEBUG   ] Decrypting the current master AES key
+2015-01-27 10:27:03,780 [salt.crypt                               ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-01-27 10:27:03,856 [salt.minion                              ][INFO    ] Authentication with master at 192.168.0.13 successful!
+2015-01-27 10:27:03,932 [salt.crypt                               ][DEBUG   ] Decrypting the current master AES key
+2015-01-27 10:27:03,933 [salt.crypt                               ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-01-27 10:27:05,420 [salt.crypt                               ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-01-27 10:27:05,463 [salt.config                              ][DEBUG   ] Reading configuration from /etc/salt/minion
+2015-01-27 10:27:06,664 [salt.cloud                                 ][DEBUG   ] Mako not available
+2015-01-27 10:27:06,999 [salt.minion                                 ][INFO    ] Added mine.update to schedular
+2015-01-27 10:27:06,999 [salt.utils.schedule                         ][DEBUG   ] MONKEY PATCH: salt.utils.schedule.add_job with data: {'__mine_interval': {'function': 'mine.update', 'jid_include': True, 'minutes': 60, 'maxrunning': 2}}
+2015-01-27 10:27:06,1000 [salt.utils.schedule                         ][DEBUG   ] MONKEY PATCH: salt.utils.schedule.add_job with data: ; __mine_interval = {'function': 'mine.update', 'jid_include': True, 'minutes': 60, 'maxrunning': 2}
+2015-01-27 10:27:06,1000 [salt.utils.schedule                         ][INFO    ] Added new job __mine_interval to scheduler
+2015-01-27 10:27:06,1000 [salt.minion                                 ][DEBUG   ] I am saltmaster and I am not supposed to start any proxies. (Likely not a problem)
+2015-01-27 10:27:07,000 [salt.minion                                 ][INFO    ] Minion is starting as user 'root'
+2015-01-27 10:27:07,000 [salt.minion                                 ][DEBUG   ] Minion 'saltmaster' trying to tune in
+2015-01-27 10:27:07,001 [salt.minion                                 ][DEBUG   ] Minion PUB socket URI: ipc:///var/run/salt/minion/minion_event_36e6907efd_pub.ipc
+2015-01-27 10:27:07,001 [salt.minion                                 ][DEBUG   ] Minion PULL socket URI: ipc:///var/run/salt/minion/minion_event_36e6907efd_pull.ipc
+2015-01-27 10:27:07,001 [salt.minion                                 ][INFO    ] Starting pub socket on ipc:///var/run/salt/minion/minion_event_36e6907efd_pub.ipc
+2015-01-27 10:27:07,002 [salt.minion                                 ][INFO    ] Starting pull socket on ipc:///var/run/salt/minion/minion_event_36e6907efd_pull.ipc
+2015-01-27 10:27:07,002 [salt.minion                                 ][DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (1371)
+2015-01-27 10:27:07,002 [salt.minion                                 ][DEBUG   ] Setting zmq_reconnect_ivl to '1371ms'
+2015-01-27 10:27:07,003 [salt.minion                                 ][DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+2015-01-27 10:27:07,081 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-01-27 10:27:07,081 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-01-27 10:27:07,256 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-01-27 10:27:07,257 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-01-27 10:27:07,335 [salt.minion                                 ][INFO    ] Minion is ready to receive requests!
+2015-01-27 10:27:07,337 [salt.utils.schedule                         ][INFO    ] Running scheduled job: __mine_interval
+2015-01-27 10:27:07,337 [salt.utils.schedule                         ][DEBUG   ] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+2015-01-27 10:27:07,337 [salt.utils.schedule                         ][DEBUG   ] schedule: This job was scheduled with a max number of 2
+2015-01-27 10:27:07,342 [salt.utils.schedule                         ][DEBUG   ] MONKEY PATCH: salt.utils.schedule.handle_func with data: mine.update AND {'function': 'mine.update', 'jid_include': True, 'minutes': 60, 'maxrunning': 2, 'name': '__mine_interval'}
+2015-01-27 10:27:07,347 [salt.minion                                 ][DEBUG   ] Overriding loop_interval because of scheduled jobs.
+2015-01-27 10:27:07,348 [salt.utils.schedule                         ][DEBUG   ] schedule.handle_func: adding this job to the jobcache with data {'fun': 'mine.update', 'jid': '20150127102707343314', 'pid': 30955, 'id': 'saltmaster', 'schedule': '__mine_interval'}
+2015-01-27 10:27:07,427 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-01-27 10:27:07,428 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-01-27 10:27:07,505 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-01-27 10:27:07,647 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-01-27 10:27:07,648 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-01-27 10:28:36,802 [salt.minion                                 ][INFO    ] User root Executing command saltutil.refresh_pillar with jid 20150127102836797540
+2015-01-27 10:28:36,802 [salt.minion                                 ][DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20150127102836797540', 'tgt': 'saltmaster', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'saltutil.refresh_pillar'}
+2015-01-27 10:28:36,811 [salt.minion                                 ][INFO    ] Starting a new job with PID 31002
+2015-01-27 10:28:36,812 [salt.minion                                 ][DEBUG   ] Overriding loop_interval because of scheduled jobs.
+2015-01-27 10:28:36,813 [salt.utils.event                            ][DEBUG   ] SaltEvent PUB socket URI: ipc:///var/run/salt/minion/minion_event_36e6907efd_pub.ipc
+2015-01-27 10:28:36,813 [salt.utils.event                            ][DEBUG   ] SaltEvent PULL socket URI: ipc:///var/run/salt/minion/minion_event_36e6907efd_pull.ipc
+2015-01-27 10:28:36,815 [salt.utils.event                            ][DEBUG   ] Sending event - data = {'_stamp': '2015-01-27T10:28:36.814379'}
+2015-01-27 10:28:36,816 [salt.minion                                 ][DEBUG   ] Handling event 'pillar_refresh||||||\x81\xa6_stamp\xba2015-01-27T10:28:36.814379'
+2015-01-27 10:28:36,844 [salt.minion                                 ][INFO    ] Returning information for job: 20150127102836797540
+2015-01-27 10:28:36,916 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-01-27 10:28:36,916 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-01-27 10:28:36,943 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-01-27 10:28:36,943 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-01-27 10:28:38,421 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-01-27 10:28:38,467 [salt.config                                 ][DEBUG   ] Reading configuration from /etc/salt/minion
+2015-01-27 10:28:39,795 [salt.minion                                 ][DEBUG   ] Overriding loop_interval because of scheduled jobs.
+2015-01-27 10:28:51,244 [salt.minion                                 ][INFO    ] User root Executing command schedule.list with jid 20150127102851240526
+2015-01-27 10:28:51,244 [salt.minion                                 ][DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20150127102851240526', 'tgt': 'saltmaster', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'schedule.list'}
+2015-01-27 10:28:51,254 [salt.minion                                 ][INFO    ] Starting a new job with PID 31054
+2015-01-27 10:28:51,255 [salt.minion                                 ][DEBUG   ] Overriding loop_interval because of scheduled jobs.
+2015-01-27 10:28:51,256 [salt.loaded.int.module.schedule             ][DEBUG   ] MONKEY PATCH:  Starting salt.modules.schedule.list_
+2015-01-27 10:28:51,264 [salt.minion                                 ][INFO    ] Returning information for job: 20150127102851240526
+2015-01-27 10:28:51,361 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-01-27 10:28:51,362 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+```

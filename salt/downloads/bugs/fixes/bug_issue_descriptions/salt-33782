@@ -1,0 +1,216 @@
+I'm attempting to install Telegraf from here: https://github.com/influxdata/telegraf. I've built a simple state file that looks like this:
+
+```
+telgraf-pkg:
+  pkg.installed: 
+    - sources: 
+      - telegraf: https://dl.influxdata.com/telegraf/releases/telegraf-0.13.1.x86_64.rpm
+```
+
+Unfortunately, when the state runs, I get an error: `SSL routines:SSL3_READ_BYTES:sslv3 alert handshake failure` (full stack trace at the bottom)
+
+This is, I think, due to Python 2.6 not having TLS SNI support, as discussed here: https://github.com/kennethreitz/requests/issues/749
+
+There's a few things that I think are relevant:
+- This is an Amazon AMI image that I launched a couple of hours ago and installed using:
+
+```
+yum install -y https://repo.saltstack.com/yum/amazon/salt-amzn-repo-latest-1.ami.noarch.rpm
+
+yum install -y salt-minion
+```
+- I've been able to add pyopenssl, which provides support as per this [specific comment](https://github.com/kennethreitz/requests/issues/749#issuecomment-19187417) on the above issue.
+- pip2.6 reports pyopenssl is installed:
+
+```
+$ pip2.6 list installed
+
+DEPRECATION: Python 2.6 is no longer supported by the Python core team, please upgrade your Python. A future version of pip will drop support for Python 2.6
+argparse (1.4.0)
+Babel (0.9.4)
+backports.ssl-match-hostname (3.4.0.2)
+boto (2.39.0)
+cffi (1.6.0)
+chardet (2.2.1)
+cryptography (1.4)
+ecdsa (0.11)
+enum34 (1.1.6)
+futures (3.0.3)
+idna (2.1)
+ipaddress (1.0.16)
+Jinja2 (2.7.3)
+MarkupSafe (0.11)
+msgpack-python (0.4.6)
+ordereddict (1.2)
+paramiko (1.15.1)
+pip (8.1.2)
+pyasn1 (0.1.9)
+pycparser (2.14)
+pycrypto (2.6.1)
+pycurl (7.19.0)
+*pyOpenSSL (16.0.0)*
+PyYAML (3.11)
+pyzmq (14.5.0)
+requests (2.6.0)
+rsa (3.4.1)
+salt (2015.8.10)
+setuptools (12.2)
+simplejson (3.6.5)
+six (1.9.0)
+tornado (4.2.1)
+urllib3 (1.10.2)
+wheel (0.29.0)
+```
+
+I installed pyopenssl using the following state file:
+
+```
+python26-sni-dependencies:
+  pkg.installed:
+    - pkgs:
+      - python26-devel
+      - libffi-devel
+      - openssl-devel
+      - gcc
+
+python26-pip:
+  pkg.installed:
+    - require:
+      - pkg: python26-sni-dependencies
+
+pyopenssl:
+  pip.installed:
+    - require:
+      - pkg: python26-pip
+```
+
+I now think I've run myself into a bit of a rabbit hole and not quite sure what the right solution is. On one hand, I'm wondering if the fault lies within the installation of Salt on Amazon machines (should it use Python 2.6? Or 2.7?), on the other I'm wondering what steps I can take to install TLS SNI support. Or, it's just this issue: #16409 and nothing to do with requests at all?
+
+The simplest workaround I can think of is to just run: `cmd.run yum install <telegraf>`, but that slightly defeats the purpose of the pkg state.
+
+Any inspiration welcome, and I'd be more than happy to help develop a fix.
+### Versions Report
+
+This is my master's versions-report:
+
+```
+Salt Version:
+           Salt: 2016.3.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.20.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: 0.20.3
+         Python: 2.6.9 (unknown, Dec 17 2015, 01:08:55)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist:
+        machine: x86_64
+        release: 4.4.10-22.54.amzn1.x86_64
+         system: Linux
+        version: Not Installed
+```
+
+and the minions:
+
+```
+Salt Version:
+           Salt: 2016.3.0
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.9 (unknown, Dec 17 2015, 01:08:55)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist:
+        machine: x86_64
+        release: 4.4.8-20.46.amzn1.x86_64
+         system: Linux
+        version: Not Installed
+
+```
+
+And finally, the full stack trace of the error is:
+
+```
+----------
+          ID: telgraf-pkg
+    Function: pkg.installed
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.6/site-packages/salt/state.py", line 1703, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.6/site-packages/salt/loader.py", line 1649, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.6/site-packages/salt/states/pkg.py", line 1208, in installed
+                  **kwargs)
+                File "/usr/lib/python2.6/site-packages/salt/modules/yumpkg.py", line 1009, in install
+                  name, pkgs, sources, normalize=normalize, **kwargs
+                File "/usr/lib/python2.6/site-packages/salt/modules/pkg_resource.py", line 140, in parse_targets
+                  srcinfo.append(__salt__['cp.cache_file'](pkg_src, saltenv))
+                File "/usr/lib/python2.6/site-packages/salt/modules/cp.py", line 393, in cache_file
+                  result = _client().cache_file(path, saltenv)
+                File "/usr/lib/python2.6/site-packages/salt/fileclient.py", line 178, in cache_file
+                  return self.get_url(path, '', True, saltenv, cachedir=cachedir)
+                File "/usr/lib/python2.6/site-packages/salt/fileclient.py", line 706, in get_url
+                  **get_kwargs
+                File "/usr/lib/python2.6/site-packages/salt/utils/http.py", line 482, in query
+                  **req_kwargs
+                File "/usr/lib64/python2.6/site-packages/tornado/httpclient.py", line 102, in fetch
+                  self._async_client.fetch, request, **kwargs))
+                File "/usr/lib64/python2.6/site-packages/tornado/ioloop.py", line 444, in run_sync
+                  return future_cell[0].result()
+                File "/usr/lib64/python2.6/site-packages/tornado/concurrent.py", line 214, in result
+                  raise_exc_info(self._exc_info)
+                File "<string>", line 3, in raise_exc_info
+              SSLError: [Errno 1] _ssl.c:493: error:14094410:SSL routines:SSL3_READ_BYTES:sslv3 alert handshake failure
+     Started: 11:49:54.540076
+    Duration: 58.455 ms
+     Changes:
+```

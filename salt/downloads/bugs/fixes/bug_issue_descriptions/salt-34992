@@ -1,0 +1,34 @@
+### Description of Issue/Question
+
+I am using salt-api to send asynchronous commands to SaltStack and listen to the events with their results. After going over from a single master setup to 2x master + 2x syndic architecture I noticed that syndics blatantly strip some vital parts of events.
+
+See this return event for cmd.run execution on a minion connected directly to the top level master:
+
+{u'tag': u'salt/job/20160727122554918097/ret/srv5.my.domain.com', u'data': {u'fun_args': [u'rm /xxx'], u'jid': u'20160727122554918097', u'return': u"rm: cannot remove `/xxx': No such file or directory", **u'retcode': 1, u'success': True,** u'cmd': u'_return', u'_stamp': u'2016-07-27T10:25:54.971787', u'fun': u'cmd.run', u'master_id': u'srv5.my.domain.com', u'id': u'srv5.my.domain.com'}}
+
+ And this is what it looks like when it goes through a syndic:
+
+{u'tag': u'salt/job/20160727122920664709/ret/srv7.my.domain.com', u'data': {u'fun_args': None, u'jid': u'20160727122920664709', u'return': u"rm: cannot remove `/xxx': No such file or directory", u'_stamp': u'2016-07-27T10:29:21.204630', u'fun': u'cmd.run', u'master_id': u'srv5.my.domain.com', u'id': u'srv7.my.domain.com'}}
+
+As you can see 'retcode' and 'success' are gone. I analysed master.py and minion.py code and it seems that all they care in case of events passed from a syndic is 'return'. The method _syndic_return() in class AESFuncs in master.py leaves no doubts to that. Also the sending part of the code seems to lose that information and obviously doesn't send it. While debugging I saw that _process_event() in minion.py gets the proper contents of the event but by the time it reaches _return_pub() it is already gone.
+
+This is really problematic. If you use cmd.run to execute remote commands you will no longer be able to see their exit code when you use master-syndic architecture.
+### Setup
+
+Salt 2016.03.1. 4 servers - 2 masters (sharing the same key) and 2 syndics (also sharing the same key - different than the top level masters) connecting to both of them. A bunch of minions connecting to the syndics in failover mode.
+### Steps to Reproduce Issue
+
+Run
+
+salt directly.connected.minion.name cmd.run rm /nonexistent
+
+on any minion directly connected to the master. You will see the command output and some info that the result code was != 0 (by the way the exit code of that execution will most likely be 11, not the real code of the remote command...).
+
+Then from the top level master run 
+
+salt minion.connected.via.a.syndic cmd.run rm /nonexistent
+
+on any minion connected via a syndic. You will no longer see the info that the result code of the command was not 0.
+### Versions Report
+
+2016.03.1

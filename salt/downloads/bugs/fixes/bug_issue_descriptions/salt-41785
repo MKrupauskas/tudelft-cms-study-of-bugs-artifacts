@@ -1,0 +1,107 @@
+### Description of Issue/Question
+If I have a working master tops providing my top file data and don't have a top.sls file at `/srv/salt/top.sls`, then the minion gets DEBUG and ERROR entries in its log. This is likely because the master top system was originally designed to supplement, but not replace regular top files.
+
+### Setup
+I have a custom top file here:
+
+```
+cat /srv/extension_modules/tops/testtop.py
+import logging
+import sys
+
+__virtualname__ = 'testtop'
+
+log = logging.getLogger(__name__)
+
+def __virtual__():
+    return __virtualname__
+
+def top(**kwargs):
+    log.debug('Calling top in testtop')
+    return {'base': ['nonano']}
+```
+
+My master config:
+
+```
+extension_modules: /srv/extension_modules
+master_tops:
+  testtop: True
+file_roots:
+  base:
+    - /srv/salt/
+
+log_level_logfile: debug
+```
+
+### Steps to Reproduce Issue
+I run the following:
+
+```
+sudo salt \* state.show_top
+dasalt:
+    ----------
+    base:
+        - nonano
+```
+
+This is correct because that's all my test master top returns.
+But I get the following logs entries in the minion log:
+
+```
+2017-06-15 16:57:41,777 [salt.fileclient  ][DEBUG   ][12332] Could not find file 'salt://top.sls' in saltenv 'base'
+2017-06-15 16:57:41,777 [salt.state       ][DEBUG   ][12332] No contents loaded for env: base
+2017-06-15 16:57:41,777 [salt.state       ][ERROR   ][12332] No contents found in top file. Please verify that the 'file_roots' specified in 'etc/master' are accessible: {'base': []}
+2017-06-15 16:57:41,780 [salt.crypt       ][DEBUG   ][12332] Loaded minion key: /etc/salt/pki/minion/minion.pem
+```
+
+If I add a top file at `/srv/salt/top.sls` with any valid entry, then the above error disappears.
+
+I'm thinking that having top data come from the master tops should be enough and not require those log entries.
+
+### Versions Report
+```
+sudo salt \* test.versions_report
+dasalt:
+    Salt Version:
+               Salt: 2016.11.5
+     
+    Dependency Versions:
+               cffi: 1.9.1
+           cherrypy: 6.0.1
+           dateutil: 2.6.0
+          docker-py: Not Installed
+              gitdb: 0.5.4
+          gitpython: Not Installed
+              ioflo: Not Installed
+             Jinja2: 2.8.1
+            libgit2: Not Installed
+            libnacl: 1.4.4
+           M2Crypto: 0.21.1
+               Mako: 0.9.1
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.6
+       mysql-python: Not Installed
+          pycparser: 2.17
+           pycrypto: 2.6.1
+       pycryptodome: Not Installed
+             pygit2: Not Installed
+             Python: 2.7.6 (default, Oct 26 2016, 20:30:19)
+       python-gnupg: 0.3.7
+             PyYAML: 3.12
+              PyZMQ: 14.0.1
+               RAET: Not Installed
+              smmap: 0.8.2
+            timelib: Not Installed
+            Tornado: 4.3
+                ZMQ: 4.0.5
+     
+    System Versions:
+               dist: Ubuntu 14.04 trusty
+            machine: x86_64
+            release: 3.13.0-119-generic
+             system: Linux
+            version: Ubuntu 14.04 trusty
+```
+
+But I also got similar entries in `2016.3.6`

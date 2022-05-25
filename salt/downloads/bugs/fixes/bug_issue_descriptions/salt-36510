@@ -1,0 +1,206 @@
+After upgrading to salt 2016.3.3 (from 2014.7) I discovered issue with `file.recurse` state. If you specify `template: jinja` then every file will be checked on fileserver twice.
+### Setup
+
+Here is a minimal state config to reproduce:
+`file_recurse/init.sls`
+
+```
+/tmp/file_recurse:
+  file.recurse:
+    - source: salt://file_recurse/files
+    - template: jinja
+```
+
+`file_recurse/files/file.txt`
+
+```
+something
+```
+### Steps to Reproduce Issue
+
+Running `salt-call state.apply file_recurse -l debug` causes the following debug log:
+
+```
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/f_defaults.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/f_defaults.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: minion_id_here
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/_schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/_schedule.conf
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/f_defaults.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/f_defaults.conf
+[DEBUG   ] Please install 'virt-what' to improve results of the 'virtual' grain.
+[WARNING ] /usr/lib/python2.7/dist-packages/salt/grains/core.py:1493: DeprecationWarning: The "osmajorrelease" will be a type of an integer.
+
+[INFO    ] Got list of available master addresses: ['master_ip_here']
+[DEBUG   ] Connecting to master. Attempt 1 of 1
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'minion_id_here', 'tcp://master_ip_here:4506')
+[DEBUG   ] Generated random reconnect delay between '1000ms' and '11000ms' (2050)
+[DEBUG   ] Setting zmq_reconnect_ivl to '2050ms'
+[DEBUG   ] Setting zmq_reconnect_ivl_max to '11000ms'
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'minion_id_here', 'tcp://master_ip_here:4506', 'clear')
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'minion_id_here', 'tcp://master_ip_here:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'minion_id_here', 'tcp://master_ip_here:4506')
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] LazyLoaded state.apply
+[DEBUG   ] LazyLoaded saltutil.is_running
+[DEBUG   ] LazyLoaded grains.get
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'minion_id_here', 'tcp://master_ip_here:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'minion_id_here', 'tcp://master_ip_here:4506')
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'minion_id_here', 'tcp://master_ip_here:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'minion_id_here', 'tcp://master_ip_here:4506')
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] Could not find file from saltenv 'base', 'salt://file_recurse.sls'
+[DEBUG   ] In saltenv 'base', looking at rel_path 'file_recurse/init.sls' to resolve 'salt://file_recurse/init.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/file_recurse/init.sls' to resolve 'salt://file_recurse/init.sls'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://file_recurse/init.sls'
+[DEBUG   ] compile template: /var/cache/salt/minion/files/base/file_recurse/init.sls
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/file_recurse/init.sls' using 'jinja' renderer: 0.00419902801514
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/file_recurse/init.sls:
+/tmp/file_recurse:
+  file.recurse:
+    - source: salt://file_recurse/files
+    - template: jinja
+
+[DEBUG   ] LazyLoaded config.get
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('/tmp/file_recurse', OrderedDict([('file.recurse', [OrderedDict([('source', 'salt://file_recurse/files')]), OrderedDict([('template', 'jinja')])])]))])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/file_recurse/init.sls' using 'yaml' renderer: 0.00537991523743
+[DEBUG   ] LazyLoaded file.recurse
+[INFO    ] Running state [/tmp/file_recurse] at time 20:19:36.422975
+[INFO    ] Executing state file.recurse for /tmp/file_recurse
+[DEBUG   ] LazyLoaded file.source_list
+[DEBUG   ] LazyLoaded cp.list_master
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'minion_id_here', 'tcp://master_ip_here:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'minion_id_here', 'tcp://master_ip_here:4506')
+[DEBUG   ] In saltenv 'base', looking at rel_path 'file_recurse/files/file.txt' to resolve 'salt://file_recurse/files/file.txt'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/file_recurse/files/file.txt' to resolve 'salt://file_recurse/files/file.txt'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://file_recurse/files/file.txt'
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] In saltenv 'base', looking at rel_path 'file_recurse/files/file.txt' to resolve 'salt://file_recurse/files/file.txt'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/file_recurse/files/file.txt' to resolve 'salt://file_recurse/files/file.txt'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://file_recurse/files/file.txt'
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[INFO    ] The directory /tmp/file_recurse is in the correct state
+[INFO    ] Completed state [/tmp/file_recurse] at time 20:19:36.855458 duration_in_ms=432.483
+[DEBUG   ] File /var/cache/salt/minion/accumulator/139782703836368 does not exist, no need to cleanup.
+[DEBUG   ] LazyLoaded config.option
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/minion', 'minion_id_here', 'tcp://master_ip_here:4506', 'aes')
+[DEBUG   ] Initializing new AsyncAuth for ('/etc/salt/pki/minion', 'minion_id_here', 'tcp://master_ip_here:4506')
+[DEBUG   ] LazyLoaded highstate.output
+local:
+  Name: /tmp/file_recurse - Function: file.recurse - Result: Clean Started: - 20:19:36.422975 Duration: 432.483 ms
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time: 432.483 ms
+```
+
+Notice "Fetching file from saltenv" for `file.txt` apperared twice in log. If you don't specify `template: jinja` this line will appear only once as expected.
+### Versions Report
+
+On master:
+
+```
+salt --versions-report
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 1.0.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.5
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.5
+```
+
+On minion:
+
+```
+salt-call --versions-report
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 1.0.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.2
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.2
+```

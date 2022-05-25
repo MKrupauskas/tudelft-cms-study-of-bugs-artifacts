@@ -1,0 +1,180 @@
+**Description**
+Using salt-ssh 3002.1, if an sls file includes another sls file that has some jinja file imported, this imported file is not loaded properly.
+
+**Setup**
+
+roster: (NOTE: Same behavior with remote minion)
+```
+# cat /etc/salt/roster | grep -v '^#' 
+minion:
+  host: localhost
+  priv: /root/.ssh/id_rsa
+```
+
+```
+# cat /srv/salt/test/init.sls 
+include:
+  - .my_state
+```
+
+```
+# cat /srv/salt/test/my_state.sls 
+{%- from "test/map.jinja" import my_key with context %}
+
+My key {{ my_key }}:
+  test.succeed_without_changes
+```
+
+```
+# cat /srv/salt/test/map.jinja 
+{% set my_key = "abcd" %}
+```
+
+**Steps to Reproduce the behavior**
+(Include debug logs if possible and relevant)
+
+Calling the `test` sls directly will fail with `TemplateNotFound: test/map.jinja`. 
+
+<details><summary>Detailed output</summary>
+
+```
+# salt-ssh minion state.sls test
+Saving key "/etc/salt/pki/master/ssh/salt-ssh.rsa" failed: passphrase is too short (minimum five characters)
+[ERROR   ] Rendering exception occurred
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 498, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "/usr/lib/python3.6/site-packages/jinja2/_compat.py", line 37, in reraise
+    raise value.with_traceback(tb)
+  File "<template>", line 1, in top-level template code
+  File "/usr/lib/python3.6/site-packages/salt/utils/jinja.py", line 198, in get_source
+    raise TemplateNotFound(template)
+jinja2.exceptions.TemplateNotFound: test/map.jinja
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 260, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 543, in render_jinja_tmpl
+    "Jinja error: {}{}".format(exc, out), line, tmplstr, trace=tracestr
+salt.exceptions.SaltRenderError: Jinja error: test/map.jinja
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 498, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "/usr/lib/python3.6/site-packages/jinja2/_compat.py", line 37, in reraise
+    raise value.with_traceback(tb)
+  File "<template>", line 1, in top-level template code
+  File "/usr/lib/python3.6/site-packages/salt/utils/jinja.py", line 198, in get_source
+    raise TemplateNotFound(template)
+jinja2.exceptions.TemplateNotFound: test/map.jinja
+
+; line 1
+
+---
+{%- from "test/map.jinja" import my_key with context %}    <======================
+
+My key {{ my_key }}:
+  test.succeed_without_changes
+
+Traceback (most recent call last):
+[...]
+---
+[CRITICAL] Rendering SLS 'base:test.my_state' failed: Jinja error: test/map.jinja
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 498, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "/usr/lib/python3.6/site-packages/jinja2/_compat.py", line 37, in reraise
+    raise value.with_traceback(tb)
+  File "<template>", line 1, in top-level template code
+  File "/usr/lib/python3.6/site-packages/salt/utils/jinja.py", line 198, in get_source
+    raise TemplateNotFound(template)
+jinja2.exceptions.TemplateNotFound: test/map.jinja
+
+; line 1
+
+---
+{%- from "test/map.jinja" import my_key with context %}    <======================
+
+My key {{ my_key }}:
+  test.succeed_without_changes
+
+Traceback (most recent call last):
+[...]
+---
+minion:
+    - Rendering SLS 'base:test.my_state' failed: Jinja error: test/map.jinja
+      Traceback (most recent call last):
+        File "/usr/lib/python3.6/site-packages/salt/utils/templates.py", line 498, in render_jinja_tmpl
+          output = template.render(**decoded_context)
+        File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 989, in render
+          return self.environment.handle_exception(exc_info, True)
+        File "/usr/lib/python3.6/site-packages/jinja2/environment.py", line 754, in handle_exception
+          reraise(exc_type, exc_value, tb)
+        File "/usr/lib/python3.6/site-packages/jinja2/_compat.py", line 37, in reraise
+          raise value.with_traceback(tb)
+        File "<template>", line 1, in top-level template code
+        File "/usr/lib/python3.6/site-packages/salt/utils/jinja.py", line 198, in get_source
+          raise TemplateNotFound(template)
+      jinja2.exceptions.TemplateNotFound: test/map.jinja
+      
+      ; line 1
+      
+      ---
+      {%- from "test/map.jinja" import my_key with context %}    <======================
+      
+      My key {{ my_key }}:
+        test.succeed_without_changes
+      
+      Traceback (most recent call last):
+      [...]
+      ---
+```
+</details>
+
+**Expected behavior**
+`jinja` imported file properly loaded
+NOTE: It's a regression since this works properly in 3001.3 (and 3000.5)
+
+**Versions Report**
+
+```
+# salt-ssh --version
+salt-ssh 3002.1
+```
+
+**Additional context**
+
+Several things I already tested/checked:
+- thin_dir content when failing (no `map.jinja` here)
+```
+# tree /var/tmp/.root_a5484f_salt/running_data/var/cache/salt/minion/files/
+/var/tmp/.root_a5484f_salt/running_data/var/cache/salt/minion/files/
+`-- base
+    `-- test
+        |-- init.sls
+        `-- my_state.sls
+
+2 directories, 2 files
+```
+- Calling `test.my_state` directly works well (and you have the `map.jinja` file in the thin_dir at the end so the next call to `test` directly work properly (removing the thin_dir (or just the `map.jinja` file make the call fail again))
+```
+# salt-ssh minion state.sls test.my_state # <--- SUCCESS
+# salt-ssh minion state.sls test # <--- SUCCESS
+# rm -rf /var/tmp/.*_salt/running_data/var/cache/salt/minion/files/base/test/map.jinja
+# salt-ssh minion state.sls test # <--- FAIL (with error described in this ticket)
+```
+
+I did not have time to check changes part of 3002 so I cannot give more informations

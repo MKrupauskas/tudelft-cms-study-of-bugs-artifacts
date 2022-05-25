@@ -1,0 +1,241 @@
+I'm having a problem where the salt-virt runner runs into a timeout and is no longer able to find Hypervisors or init or purge VMs on them once they have ~30+ VMs running on them. I tried to set a higher timeout but it seems to be ignored.
+
+I'm running 2014.1.5+ds-5trusty on Ubuntu trusty on a one node test setup.
+
+```
+root@kvm1 /srv/salt-images # salt-run virt.purge ub1404testvm1
+Failed to find vm ub1404testvm1 to purge
+root@kvm1 /srv/salt-images # virsh list | grep ub1404testvm1
+ 31    ub1404testvm1                  running
+```
+
+With debugging:
+
+```
+root@kvm1 /srv/salt-images # salt-run -t 60 -l debug virt.hyper_info
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/reactor.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/reactor.conf
+[DEBUG   ] Configuration file path: /etc/salt/master
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/reactor.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/reactor.conf
+[DEBUG   ] Missing configuration file: /root/.saltrc
+[DEBUG   ] LocalClientEvent PUB socket URI: ipc:///var/run/salt/master/master_event_pub.ipc
+[DEBUG   ] LocalClientEvent PULL socket URI: ipc:///var/run/salt/master/master_event_pull.ipc
+[DEBUG   ] get_iter_returns for jid 20140624214106129023 sent to set(['ub1404testvm2', 'ub1404testvm3', 'kvm1.hv.de1', 'ub1404testvm4', 'ub1404testvm1']) will timeout at 21:41:11
+[DEBUG   ] Checking whether jid 20140624214106129023 is still running
+[DEBUG   ] get_returns for jid 20140624214112147902 sent to set(['ub1404testvm2', 'ub1404testvm3', 'kvm1.hv.de1', 'ub1404testvm4', 'ub1404testvm1']) will timeout at 21:41:14
+[INFO    ] jid 20140624214112147902 minions set(['ub1404testvm2', 'ub1404testvm3', 'ub1404testvm1', 'ub1404testvm4']) did not return in time
+[DEBUG   ] jid 20140624214106129023 still running on ['kvm1.hv.de1'] will now timeout at 21:41:20
+[DEBUG   ] Checking whether jid 20140624214106129023 is still running
+[DEBUG   ] get_returns for jid 20140624214121261982 sent to set(['ub1404testvm2', 'ub1404testvm3', 'kvm1.hv.de1', 'ub1404testvm4', 'ub1404testvm1']) will timeout at 21:41:23
+[INFO    ] jid 20140624214121261982 minions set(['ub1404testvm2', 'ub1404testvm3', 'ub1404testvm1', 'ub1404testvm4']) did not return in time
+[DEBUG   ] jid 20140624214106129023 not running on any minions last time
+[INFO    ] jid 20140624214106129023 minions set(['ub1404testvm2', 'ub1404testvm3', 'kvm1.hv.de1', 'ub1404testvm4', 'ub1404testvm1']) did not return in time
+[DEBUG   ] Loaded no_out as virtual quiet
+[DEBUG   ] Loaded json_out as virtual json
+[DEBUG   ] Loaded yaml_out as virtual yaml
+[DEBUG   ] Loaded pprint_out as virtual pprint
+```
+
+And in parallel the minion logs:
+
+```
+[DEBUG   ] grains target: virtual:physical
+[DEBUG   ] Attempting to match 'physical' in 'virtual' using delimiter ':'
+[INFO    ] User root Executing command saltutil.find_job with jid 20140624214112147902
+[DEBUG   ] Command details {'tgt_type': 'grain', 'jid': '20140624214112147902', 'tgt': 'virtual:physical', 'ret': '', 'user': 'root', 'arg': ['20140624214106129023'], 'fun': 'saltutil.find_job'}
+[INFO    ] Returning information for job: 20140624214112147902
+[INFO    ] Returning information for job: 20140624214106129023
+[DEBUG   ] grains target: virtual:physical
+[DEBUG   ] Attempting to match 'physical' in 'virtual' using delimiter ':'
+[INFO    ] User root Executing command saltutil.find_job with jid 20140624214121261982
+[DEBUG   ] Command details {'tgt_type': 'grain', 'jid': '20140624214121261982', 'tgt': 'virtual:physical', 'ret': '', 'user': 'root', 'arg': ['20140624214106129023'], 'fun': 'saltutil.find_job'}
+[INFO    ] Returning information for job: 20140624214121261982
+```
+
+When I run `salt kvm1.hv.de1 virt.full_info` manually it returns the proper results.
+
+I also ran into more problems with salt-virt where when creating many VMs in a loop at some point it would stop finding the Hypervisor (linked to above's problem I guess) and end up with like 10 salt-minions running in parallel on the Hypervisor. Resulting in a ton of `2014-06-24 21:13:53,802 [salt.master      ][ERROR   ] An extra return was detected from minion kvm1.hv.de1, please verify the minion, this could be a replay attack` entries in the master log.
+
+Edit:
+I just tried the for loop and forcing the use of the local Hypervisor by passing it as an argument, but again, salt-virt fails after about 30 or so VMs are being created. The Hypervisor was empty when I started the task and no second task was creating VMs in parallel or anything like that.
+
+```
+root@kvm1 ~ # for i in {1..50}; do salt-run virt.init fc20testvm$i 1 1024 salt://vmimages/Fedora20.qcow2 kvm1.hv.de1; done
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm1 on hypervisor kvm1.hv.de1
+VM fc20testvm1 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm2 on hypervisor kvm1.hv.de1
+VM fc20testvm2 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm3 on hypervisor kvm1.hv.de1
+VM fc20testvm3 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm4 on hypervisor kvm1.hv.de1
+VM fc20testvm4 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm5 on hypervisor kvm1.hv.de1
+VM fc20testvm5 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm6 on hypervisor kvm1.hv.de1
+VM fc20testvm6 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm7 on hypervisor kvm1.hv.de1
+VM fc20testvm7 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm8 on hypervisor kvm1.hv.de1
+VM fc20testvm8 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm9 on hypervisor kvm1.hv.de1
+VM fc20testvm9 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm10 on hypervisor kvm1.hv.de1
+VM fc20testvm10 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm11 on hypervisor kvm1.hv.de1
+VM fc20testvm11 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm12 on hypervisor kvm1.hv.de1
+VM fc20testvm12 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm13 on hypervisor kvm1.hv.de1
+VM fc20testvm13 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm14 on hypervisor kvm1.hv.de1
+VM fc20testvm14 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm15 on hypervisor kvm1.hv.de1
+VM fc20testvm15 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm16 on hypervisor kvm1.hv.de1
+VM fc20testvm16 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm17 on hypervisor kvm1.hv.de1
+VM fc20testvm17 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm18 on hypervisor kvm1.hv.de1
+VM fc20testvm18 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm19 on hypervisor kvm1.hv.de1
+VM fc20testvm19 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm20 on hypervisor kvm1.hv.de1
+VM fc20testvm20 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm21 on hypervisor kvm1.hv.de1
+VM fc20testvm21 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm22 on hypervisor kvm1.hv.de1
+VM fc20testvm22 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm23 on hypervisor kvm1.hv.de1
+VM fc20testvm23 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm24 on hypervisor kvm1.hv.de1
+VM fc20testvm24 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm25 on hypervisor kvm1.hv.de1
+VM fc20testvm25 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm26 on hypervisor kvm1.hv.de1
+VM fc20testvm26 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm27 on hypervisor kvm1.hv.de1
+VM fc20testvm27 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Hypervisor kvm1.hv.de1 was not found
+Searching for Hypervisors
+Hypervisor kvm1.hv.de1 was not found
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm30 on hypervisor kvm1.hv.de1
+VM fc20testvm30 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Hypervisor kvm1.hv.de1 was not found
+Searching for Hypervisors
+Hypervisor kvm1.hv.de1 was not found
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm33 on hypervisor kvm1.hv.de1
+VM fc20testvm33 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Hypervisor kvm1.hv.de1 was not found
+Searching for Hypervisors
+Hypervisor kvm1.hv.de1 was not found
+Searching for Hypervisors
+Hypervisor kvm1.hv.de1 was not found
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm37 on hypervisor kvm1.hv.de1
+VM fc20testvm37 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Hypervisor kvm1.hv.de1 was not found
+Searching for Hypervisors
+Hypervisor kvm1.hv.de1 was not found
+Searching for Hypervisors
+Hypervisor kvm1.hv.de1 was not found
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm41 on hypervisor kvm1.hv.de1
+VM fc20testvm41 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Hypervisor kvm1.hv.de1 was not found
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm43 on hypervisor kvm1.hv.de1
+VM fc20testvm43 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Hypervisor kvm1.hv.de1 was not found
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm45 on hypervisor kvm1.hv.de1
+VM fc20testvm45 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Hypervisor kvm1.hv.de1 was not found
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm47 on hypervisor kvm1.hv.de1
+VM fc20testvm47 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm48 on hypervisor kvm1.hv.de1
+VM fc20testvm48 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm49 on hypervisor kvm1.hv.de1
+VM fc20testvm49 initialized on hypervisor kvm1.hv.de1
+Searching for Hypervisors
+Minion will be preseeded
+Creating VM fc20testvm50 on hypervisor kvm1.hv.de1
+VM fc20testvm50 initialized on hypervisor kvm1.hv.de1
+```

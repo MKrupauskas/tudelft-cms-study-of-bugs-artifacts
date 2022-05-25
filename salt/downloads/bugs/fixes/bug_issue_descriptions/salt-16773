@@ -1,0 +1,38 @@
+I'm using `salt-ssh` to provision a RHEL 6.6 machine with my high state and receiving tracebacks when performing operations that require HTTPS, such as package installation from a source or files being managed with a HTTPS source. 
+
+One traceback for package install looked like this:
+
+```
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/tmp/.root_826f28__salt/salt/state.py", line 1533, in call
+                  **cdata['kwargs'])
+                File "/tmp/.root_826f28__salt/salt/states/pkg.py", line 831, in installed
+                  **kwargs)
+                File "/tmp/.root_826f28__salt/salt/modules/yumpkg.py", line 832, in install
+                  name, pkgs, sources, normalize=normalize, **kwargs
+                File "/tmp/.root_826f28__salt/salt/modules/pkg_resource.py", line 121, in parse_targets
+                  __salt__['cp.cache_file'](pkg_src, saltenv),
+                File "/tmp/.root_826f28__salt/salt/modules/cp.py", line 328, in cache_file
+                  result = __context__['cp.fileclient'].cache_file(path, saltenv)
+                File "/tmp/.root_826f28__salt/salt/fileclient.py", line 148, in cache_file
+                  return self.get_url(path, '', True, saltenv)
+                File "/tmp/.root_826f28__salt/salt/fileclient.py", line 590, in get_url
+                  response = requests.get(fixed_url, stream=True)
+                File "/tmp/.root_826f28__salt/requests/api.py", line 55, in get
+                  return request('get', url, **kwargs)
+                File "/tmp/.root_826f28__salt/requests/api.py", line 44, in request
+                  return session.request(method=method, url=url, **kwargs)
+                File "/tmp/.root_826f28__salt/requests/sessions.py", line 455, in request
+                  resp = self.send(prep, **send_kwargs)
+                File "/tmp/.root_826f28__salt/requests/sessions.py", line 558, in send
+                  r = adapter.send(request, **kwargs)
+                File "/tmp/.root_826f28__salt/requests/adapters.py", line 385, in send
+                  raise SSLError(e)
+              SSLError: [Errno 185090050] _ssl.c:330: error:0B084002:x509 certificate routines:X509_load_cert_crl_file:system lib
+```
+
+The error is the same as kennethreitz/requests#557 but the cause is the missing/incorrect path to the root CA file.  The cause is that the `requests/certs.py` file delivered to the target machine (RHEL 6.6) references `/etc/ssl/certs/ca-certificates.crt` as the preferred cert bundle.  This path doesn't exist, and should in fact be `/etc/ssl/certs/ca-bundle.crt` (confirmed for CentOS 6.5 and RHEL 6.6).   Manually correcting this Python file on the target fixes the problem.
+
+I initially thought this issue was requests' fault, but their stock code in `certs.py` differs from what's delivered in `/tmp/.root_...__salt/requests/cert.py` on my machine, which indicates Salt is changing this path?  I'm clearly not `grep`ping for the right strings as I can't seem to find where this happens in Salt.
+
+This wasn't an issue recently, so perhaps this is a regression on the `2014.7` branch (I've been keeping up with changes for `salt-ssh`).

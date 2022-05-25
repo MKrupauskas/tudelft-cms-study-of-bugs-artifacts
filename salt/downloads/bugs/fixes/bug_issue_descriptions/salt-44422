@@ -1,0 +1,90 @@
+### Description of Issue/Question
+When playing around with Salt, I spotted a problem when having non-ascii chars in my sls files. These are needed when, e.g. the users want to deploy files with funny filenames (`áóéú.txt`).
+
+### Setup
+1 salt master, 1 salt minion, with a key accepted on that master.
+
+### Steps to Reproduce Issue
+On master:
+1, Create a state file `myfile.sls` under some file root, e.g. /srv/salt with the following contents:
+```
+mystatename:
+  file.managed:
+  -  name: /tmp/áóéúäöü
+  -  source: salt://myfile.txt
+```
+
+2, Create the `myfile.txt` in that directory as well.
+
+3, Apply state:
+`salt minion state.apply myfile`
+
+4, Get this error:
+```
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.7/site-packages/salt/minion.py", line 1455, in _thread_return
+        return_data = executor.execute()
+      File "/usr/lib/python2.7/site-packages/salt/executors/direct_call.py", line 28, in execute
+        return self.func(*self.args, **self.kwargs)
+      File "/usr/lib/python2.7/site-packages/salt/modules/state.py", line 550, in apply_
+        return sls(mods, **kwargs)
+      File "/usr/lib/python2.7/site-packages/salt/modules/state.py", line 1053, in sls
+        ret = st_.state.call_high(high_, orchestration_jid)
+      File "/usr/lib/python2.7/site-packages/salt/state.py", line 2268, in call_high
+        chunks = self.compile_high_data(high, orchestration_jid)
+      File "/usr/lib/python2.7/site-packages/salt/state.py", line 1324, in compile_high_data
+        chunks = self.order_chunks(chunks)
+      File "/usr/lib/python2.7/site-packages/salt/state.py", line 1261, in order_chunks
+        chunks.sort(key=lambda chunk: (chunk['order'], '{0[state]}{0[name]}{0[fun]}'.format(chunk)))
+      File "/usr/lib/python2.7/site-packages/salt/state.py", line 1261, in <lambda>
+        chunks.sort(key=lambda chunk: (chunk['order'], '{0[state]}{0[name]}{0[fun]}'.format(chunk)))
+    UnicodeEncodeError: 'ascii' codec can't encode characters in position 5-11: ordinal not in range(128)
+```
+
+I searched for solutions/workarounds and somewhere in the deepness of the salt github issues, I found the 'yaml_utf8' switch. Sadly, switching this naively to True doesn't help.
+
+Also, workaround with escaping the characters with UTF sequences mentioned in https://github.com/saltstack/salt/blob/develop/doc/topics/troubleshooting/yaml_idiosyncrasies.rst#yaml-supports-only-plain-ascii doesn't seem to work either.
+
+### Versions Report
+```
+Salt Version:                                                                                                                                                                                ·····················
+           Salt: 2017.7.2                                                                                                                                                                    ·····················
+                                                                                                                                                                                             ·····················
+Dependency Versions:                                                                                                                                                                         ·····················
+           cffi: Not Installed                                                                                                                                                               ·····················
+       cherrypy: Not Installed                                                                                                                                                               ·····················
+       dateutil: 2.6.1                                                                                                                                                                       ·····················
+      docker-py: Not Installed                                                                                                                                                               ·····················
+          gitdb: Not Installed                                                                                                                                                               ·····················
+      gitpython: Not Installed                                                                                                                                                               ·····················
+          ioflo: Not Installed                                                                                                                                                               ·····················
+         Jinja2: 2.6                                                                                                                                                                         ·····················
+        libgit2: Not Installed                                                                                                                                                               ·····················
+        libnacl: Not Installed                                                                                                                                                               ·····················
+       M2Crypto: Not Installed                                                                                                                                                               ·····················
+           Mako: Not Installed                                                                                                                                                               ·····················
+   msgpack-pure: Not Installed                                                                                                                                                               ·····················
+ msgpack-python: 0.4.6                                                                                                                                                                42     ·····················
+   mysql-python: Not Installed                                                                                                                                                               ·····················
+      pycparser: Not Installed                                                                                                                                                               ·····················
+       pycrypto: 2.6.1                                                                                                 7                                                                     ·····················
+   pycryptodome: Not Installed                                                                                                                                                               ·····················
+         pygit2: Not Installed                                                                                                                                                               ·····················
+         Python: 2.7.13 (default, Jan 11 2017, 10:56:06) [GCC]                                                                                                                               ·····················
+   python-gnupg: Not Installed                                                                                                                                                               ·····················
+         PyYAML: 3.09                                                                                                                                                                        ·····················
+          PyZMQ: 16.0.3                                                                                                                                                                      ·····················
+           RAET: Not Installed                                                                                                                                                               ·····················
+          smmap: Not Installed                                                                                                                                                               ·····················
+        timelib: 0.2.4                                                                                                                                                                       ·····················
+        Tornado: 4.2.1                                                                                                                                                                       ·····················
+            ZMQ: 4.0.4                                                                                                                                                                       ·····················
+                                                                                                                                                                                             ·····················
+System Versions:                                                                                                                                                                             ·····················
+           dist: SuSE 12 x86_64                                                                                                                                                              ·····················
+         locale: ANSI_X3.4-1968                                                                                                                                                              ·····················
+        machine: x86_64                                                                                                                                                                      ·····················
+        release: 4.13.5-1-default                                                                                                                                                            ·····················
+         system: Linux                                                                                                                                                                       ·····················
+        version: SUSE Linux Enterprise Server  12 x86_64
+```

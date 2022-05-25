@@ -1,0 +1,95 @@
+**Description**
+When `sseapi` ext_pillar gets loaded, it calls `salt.utils.verify.verify_env` to verify the contents of cachedir. This function does essentially single job - verifies the cachedir is owned by the user the process is running under.
+
+However there is race condition which is especially visible when GitFS is used. When GitFS is configured, the Maintenance process periodically fetches the configured Git repositories and it uses the Salt Master cache directory to store any temporary files it generates (such as directory `/var/cache/salt/master/file_lists/gitfs/.myproject-mybranch.w`). However these directories are short-lived, causing an FileNotFoundError.
+
+When `verify_env` gets called during master startup this doesn't usually pose an issue, because the Maintenance process start after that, however when used elsewhere (such as `sseapi` ext_pillar in this case), it causes race condition:
+1. All relevant files and directories are fetched (https://github.com/saltstack/salt/blob/v3004/salt/utils/verify.py#L285, https://github.com/saltstack/salt/blob/v3004/salt/utils/verify.py#L289) and processed in loop
+2. Files are checked, those starting with `.` are skipped (https://github.com/saltstack/salt/blob/v3004/salt/utils/verify.py#L291) and in case any OSError is raised while processing those, it's silently ignored (https://github.com/saltstack/salt/blob/v3004/salt/utils/verify.py#L296)
+3. Directories are checked (https://github.com/saltstack/salt/blob/v3004/salt/utils/verify.py#L312), however this lacks any check for dot-directories and has no try/except block for OSError
+
+Because the Maintenance process runs in parallel to any other Salt process, when Maintenance process creates GitFS .directory before step 1., but is able to delete before step 3., if raises FileNotFoundError, resulting in the ext_pillar not being loaded
+
+```
+2021-10-13 09:06:29,094 [salt.pillar      :1153][ERROR   ][12333] Exception caught loading ext_pillar 'sseapi':
+  File "/usr/lib/python3.6/site-packages/salt/pillar/__init__.py", line 1145, in ext_pillar
+    ext = self._external_pillar_data(pillar, val, key)
+  File "/usr/lib/python3.6/site-packages/salt/pillar/__init__.py", line 1065, in _external_pillar_data
+    ext = self.ext_pillars[key](self.minion_id, pillar, **val)
+...
+  File "/usr/lib/python3.6/site-packages/salt/utils/verify.py", line 302, in verify_env
+    fmode = os.stat(path)
+
+2021-10-13 09:06:29,094 [salt.pillar      :1208][CRITICAL][12333] Pillar render error: Failed to load ext_pillar sseapi: [Errno 2] No such file or directory: '/var/cache/salt/master/file_lists/gitfs/.myproject-mybranch.w'
+```
+
+(I can provide the full stack trace on demand, I just didn't know whether I should put the sseapi internals here)
+
+**Setup**
+Please be as specific as possible and give set-up details.
+
+- [ ] on-prem machine
+- [x] VM (Virtualbox, KVM, etc. please specify)
+- [ ] VM running on a cloud service, please be explicit and add details
+- [ ] container (Kubernetes, Docker, containerd, etc. please specify)
+- [ ] or a combination, please be explicit
+- [ ] jails if it is FreeBSD
+
+  
+**Steps to Reproduce the behavior**
+Install Salt Master, configure it for SSE, configure GitFS and try to trigger this race condition.
+
+**Expected behavior**
+Pillar loads, no exception is visible in logs.
+
+**Screenshots**
+n/a
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+[root@salt-master ~]# salt-master --versions-report
+Salt Version:
+          Salt: 3002.7
+ 
+Dependency Versions:
+          cffi: 1.9.1
+      cherrypy: 5.6.0
+      dateutil: 2.4.2
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.1
+       libgit2: 0.26.6
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.14
+      pycrypto: Not Installed
+  pycryptodome: 3.9.8
+        pygit2: 0.26.4
+        Python: 3.6.8 (default, Aug 13 2020, 07:46:32)
+  python-gnupg: Not Installed
+        PyYAML: 3.13
+         PyZMQ: 17.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.1.4
+ 
+System Versions:
+          dist: rhel 7.9 Maipo
+        locale: ANSI_X3.4-1968
+       machine: x86_64
+       release: 3.10.0-1160.45.1.el7.x86_64
+        system: Linux
+       version: Red Hat Enterprise Linux Server 7.9 Maipo
+```
+</details>
+
+**Additional context**
+Add any other context about the problem here.

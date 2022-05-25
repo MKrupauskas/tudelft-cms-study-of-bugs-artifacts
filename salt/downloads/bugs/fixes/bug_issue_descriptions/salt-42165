@@ -1,0 +1,169 @@
+### Description of Issue/Question
+
+`top_file_merging_strategy` seems to not work at all.
+
+With provided setup, I switch from `merge` to `same` without any changes. I was expecting `merge` would force to keep `base` > `sys` order when executing states.
+
+Moreover, with the provided setup, if you replace all "`sys`" by `prod`, order become the good one.
+
+So, it's seems this could be one or two differents bugs:
+
+1. `top_file_merging_strategy` doesn not change anything.
+2. the environment name is the one thing that determines execution order.
+
+
+### Setup
+
+_This is the minimal setup I found to reproduce the bug_
+
+
+`/etc/salt/master`:
+
+```
+file_roots:
+  base:
+    - /srv/saltstates/salt/base
+  prod:
+    - /srv/saltstates/salt/prod
+  sys:
+    - /srv/saltstates/salt/sys
+
+top_file_merging_strategy: merge
+env_order:
+    - base
+    - sys
+```
+
+-----
+
+`/srv/saltstates/salt/sys/top.sls`:
+
+```
+sys:
+  'sys.*':
+    - install
+```
+
+
+`/srv/saltstates/salt/sys/install.sls`:
+
+```
+include:
+  - should_be_second
+```
+
+
+`/srv/saltstates/salt/sys/should_be_second.sls`:
+
+```
+/tmp/SYS-should_be_second:
+    file.managed:
+        - contents:
+            - 'foo'
+```
+
+------
+
+`/srv/saltstates/salt/base/top.sls`:
+
+```
+base:
+  '*':
+    - install
+```
+
+`/srv/saltstates/salt/base/install.sls`:
+
+```
+include:
+  - should_be_first
+```
+
+`/srv/saltstates/salt/base/should_be_first.sls`:
+```
+/tmp/BASE-should_be_first:
+    file.managed:
+        - contents:
+            - 'foo'
+```
+
+### Steps to Reproduce Issue
+
+`salt sys.locsbc1 state.highstate`
+
+```
+sys.locsbc1:
+----------
+          ID: /tmp/SYS-should_be_second
+    Function: file.managed
+      Result: True
+     Comment: File /tmp/SYS-should_be_second is in the correct state
+     Started: 15:47:07.480829
+    Duration: 13.062 ms
+     Changes:   
+----------
+          ID: /tmp/BASE-should_be_first
+    Function: file.managed
+      Result: True
+     Comment: File /tmp/BASE-should_be_first is in the correct state
+     Started: 15:47:07.494050
+    Duration: 0.872 ms
+     Changes:   
+
+Summary for sys.locsbc1
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total states run:     2
+Total run time:  13.934 ms
+```
+
+I was expecting to see `BASE-should_be_first` executed before `SYS-should_be_second`.
+
+Again, using `prod` instead of `sys` within the setup (files, state names, minionid, etc ..) it execute states in the right order (but I'm not sure this is not a coincidence).
+
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.11.5
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 13.1.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: debian 7.11 
+        machine: x86_64
+        release: 3.2.0-4-amd64
+         system: Linux
+        version: debian 7.11 
+```

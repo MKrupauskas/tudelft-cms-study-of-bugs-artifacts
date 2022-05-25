@@ -1,0 +1,85 @@
+Hi,
+
+``` yaml
+           Salt: 2015.2.0rc2-272-g34526d5
+         Python: 2.7.5 (default, Jun 17 2014, 18:11:42)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.4
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 4.0.4
+           Mako: Not Installed
+```
+
+Salt's roster file doesn't seem to support using integers as host keys. For example, if I have the following roster:
+
+``` yaml
+12345:
+  host: 172.16.32.57
+  port: 22
+  user: root
+  passwd: password
+12346:
+  host: 172.16.32.59
+  port: 22
+  user: root
+  passwd: password
+```
+
+Using salt-ssh like so:
+
+`/usr/bin/salt-ssh --out yaml --no-color --roster-file roster.tmp -E '(12346|12345)' state.sls basic_cluster.0_both pillar={...}`
+
+Results in this error (repeated for each host):
+
+``` python
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+TypeError: expected string or buffer
+Traceback (most recent call last):
+  File "/usr/bin/salt-ssh", line 10, in <module>
+    salt_ssh()
+  File "/usr/lib/python2.7/site-packages/salt/scripts.py", line 273, in salt_ssh
+    client.run()
+  File "/usr/lib/python2.7/site-packages/salt/cli/ssh.py", line 17, in run
+    ssh = salt.client.ssh.SSH(self.config)
+  File "/usr/lib/python2.7/site-packages/salt/client/ssh/__init__.py", line 173, in __init__
+    self.tgt_type)
+  File "/usr/lib/python2.7/site-packages/salt/roster/__init__.py", line 79, in targets
+    targets.update(self.rosters[f_str](tgt, tgt_type))
+  File "/usr/lib/python2.7/site-packages/salt/roster/flat.py", line 31, in targets
+    return rmatcher.targets()
+  File "/usr/lib/python2.7/site-packages/salt/roster/flat.py", line 49, in targets
+    return getattr(self, 'ret_{0}_minions'.format(self.tgt_type))()
+  File "/usr/lib/python2.7/site-packages/salt/roster/flat.py", line 72, in ret_pcre_minions
+    if re.match(self.tgt, minion):
+  File "/usr/lib64/python2.7/re.py", line 137, in match
+    return _compile(pattern, flags).match(string)
+TypeError: expected string or buffer
+```
+
+Changing the host key into a string by quoting it changes the error, though this one very obtuse:
+
+``` yaml
+"12345":
+  host: 172.16.32.57
+  [...snip...]
+"12346":
+  host: 172.16.32.59
+  [...snip...]
+```
+
+``` python
+...snip
+  stderr: "Traceback (most recent call last):\n  File \"<string>\", line 137, in <module>\n
+    \ File \"<string>\", line 42\n    OPTIONS.config = '{id: '12345', root_dir: /var/lib/acmecorp/salt/running_data,
+    sock_dir: /}'\n                                ^\nSyntaxError: invalid syntax\n"
+  stdout: "root@172.16.32.57's password: \n"
+```
+
+Prefixing the host key with the string 'ID' (e.g. 'ID12345') causes it to work fine, so I think it's just integers in any form that it really doesn't like!

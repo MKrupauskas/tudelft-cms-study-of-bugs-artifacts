@@ -1,0 +1,88 @@
+Salt Command:
+
+```
+sudo salt-call --local -l all  state.apply elite.pkg.docker.mysql
+```
+
+YAML: 
+
+``` yaml
+mysql-image:
+  docker.pulled:
+    - name: mysql
+    - tag: latest
+    - force: true
+
+mysql-container:
+  docker.installed:
+    - image: mysql
+    - tag: latest
+    - watch:
+      - docker: mysql-image
+
+mysql:
+  docker.running:
+    - container: mysql-container
+    - image: mysql
+    - watch:
+      - docker: mysql-container
+    - volumes:
+      - /root/.mysql: /var/lib/mysql
+    - environment:
+      - MYSQL_DATABASE: 'teamcity'
+      - MYSQL_USER: 'teamcity'
+      - MYSQL_PASSWORD: 'teamcity'
+      - MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+```
+
+Results of YAML rendering: 
+
+```
+OrderedDict([('mysql-image', OrderedDict([('docker.pulled', [OrderedDict([('name', 'mysql')]), OrderedDict([('tag', 'latest')]), OrderedDict([('force', True)])])])), ('mysql-container', OrderedDict([('docker.installed', [OrderedDict([('image', 'mysql')]), OrderedDict([('tag', 'latest')]), OrderedDict([('watch', [OrderedDict([('docker', 'mysql-image')])])])])])), ('mysql', OrderedDict([('docker.running', [OrderedDict([('container', 'mysql-container')]), OrderedDict([('image', 'mysql')]), OrderedDict([('watch', [OrderedDict([('docker', 'mysql-container')])])]), OrderedDict([('volumes', [OrderedDict([('/root/.mysql', '/var/lib/mysql')])])]), OrderedDict([('environment', [OrderedDict([('MYSQL_DATABASE', 'teamcity')]), OrderedDict([('MYSQL_USER', 'teamcity')]), OrderedDict([('MYSQL_PASSWORD', 'teamcity')]), OrderedDict([('MYSQL_ALLOW_EMPTY_PASSWORD', 'yes')])])])])]))])
+```
+
+Docker Container Status
+
+```
+[vagrant@localhost ~]$ sudo docker ps -l
+CONTAINER ID        IMAGE               COMMAND                CREATED             STATUS                     PORTS               NAMES
+9e85e394cd15        mysql:5             "/entrypoint.sh mysq   About an hour ago   Exited (1) 6 minutes ago                       mysql-container     
+```
+
+Docker Container Logs
+
+```
+[vagrant@localhost ~]$ sudo docker logs 9e85e394cd15
+error: database is uninitialized and MYSQL_ROOT_PASSWORD not set
+  Did you forget to add -e MYSQL_ROOT_PASSWORD=... ?
+```
+## EXPECTED RESULT
+
+Docker Run Command:
+
+```
+[vagrant@localhost ~]$ sudo docker run -e MYSQL_DATABASE=teamcity -e MYSQL_USER=teamcity -e MYSQL_PASSWORD=teamcity -e MYSQL_ALLOW_EMPTY_PASSWORD=yes -d mysql:latest
+```
+
+Docker Container Status
+
+```
+[vagrant@localhost ~]$ sudo docker ps -l
+CONTAINER ID        IMAGE               COMMAND                CREATED             STATUS              PORTS               NAMES
+fa20dc768f0d        mysql:5             "/entrypoint.sh mysq   10 seconds ago      Up 10 seconds       3306/tcp            elegant_bardeen     
+```
+
+Docker Container Logs
+
+```
+[vagrant@localhost ~]$ sudo docker logs fa20dc768f0d
+Running mysql_install_db ...
+2015-04-28 08:34:05 0 [Note] /usr/sbin/mysqld (mysqld 5.6.24) starting as process 18 ...
+...
+2015-04-28 08:34:11 1 [Note] mysqld: ready for connections.
+Version: '5.6.24'  socket: '/var/run/mysqld/mysqld.sock'  port: 3306  MySQL Community Server (GPL)
+```
+## ENVIRONMENT
+1. `salt-call 2015.2.0rc2 (Lithium)`
+2. `Docker version 1.5.0, build a8a31ef/1.5.0`
+3. `docker-py 1.1.0`

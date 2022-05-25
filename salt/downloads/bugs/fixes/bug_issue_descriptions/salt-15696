@@ -1,0 +1,117 @@
+Hello,
+
+we use a state such as the following to ensure that a service is stopped if there are changes to a NFS mount that is used by it:
+
+```
+lighttpd-package:
+  pkg.installed:
+    - name: lighttpd
+
+lighttpd-service:
+  service.running:
+    - name: lighttpd
+    - enable: True
+
+nfs-common-package:
+  pkg.installed:
+    - name: nfs-common
+
+nfs-common-service:
+  service.running:
+    - name: nfs-common
+    - enable: True
+    - require:
+      - pkg: nfs-common-package
+
+foo-lighttppd-stop:
+  service.dead:
+    - name: lighttpd
+    - prereq:
+      - mount: foo-mount
+
+foo-mount:
+  mount.mounted:
+    - name: /srv/foo
+    - device: 10.10.10.42:/
+    - fstype: nfs4
+    - opts:
+      - proto=tcp
+      - port=2049
+    - require:
+      - pkg: nfs-common-package
+      - service: nfs-common-service
+    - require_in:
+      - service: lighttpd
+```
+
+If one tries to test this state with `state.highstate test=True` it runs into a similar exception as in #8212, namely:
+
+```
+# salt '*' state.highstate test=True
+testbox:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 797, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/python2.7/dist-packages/salt/modules/state.py", line 275, in highstate
+        force=kwargs.get('force', False)
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2542, in call_highstate
+        return self.state.call_high(high)
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1715, in call_high
+        ret = self.call_chunks(chunks)
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1437, in call_chunks
+        running = self.call_chunk(low, running, chunks)
+
+      ...
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1562, in call_chunk
+        status = self.check_requisite(low, running, chunks, True)
+      File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1489, in check_requisite
+        if (fnmatch.fnmatch(chunk['name'], req_val) or
+      File "/usr/lib/python2.7/fnmatch.py", line 40, in fnmatch
+        import os
+    RuntimeError: maximum recursion depth exceeded while calling a Python object
+```
+
+The underlying problem here seems to be that it involves a transitive requisite on a service that is not yet available. Removing `foo-mount` and `foo-lighttpd-stop` results in:
+
+```
+# salt '*' state.highstate test=True
+testbox:
+----------
+          ID: lighttpd-package
+    Function: pkg.installed
+        Name: lighttpd
+      Result: None
+     Comment: The following packages are set to be installed/updated: lighttpd.
+     Changes:   
+----------
+          ID: lighttpd-service
+    Function: service.running
+        Name: lighttpd
+      Result: False
+     Comment: The named service lighttpd is not available
+     Changes:   
+----------
+          ID: nfs-common-package
+    Function: pkg.installed
+        Name: nfs-common
+      Result: None
+     Comment: The following packages are set to be installed/updated: nfs-common.
+     Changes:   
+----------
+          ID: nfs-common-service
+    Function: service.running
+        Name: nfs-common
+      Result: False
+     Comment: The named service nfs-common is not available
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    2
+Not Run:   2
+------------
+Total:     4
+```
+
+It would be great if this could be short-circuited to "Fail" as exceptions like that scare my colleagues who would be perfectly happy to accept `Sorry, can't tell you` as an answer.

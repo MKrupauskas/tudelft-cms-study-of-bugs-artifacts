@@ -1,0 +1,182 @@
+**Description**
+When the ansible.playbooks state module is used, the --check flag is enforced and cannot be disabled. If the ansible module executed does not support checks, the task will be skipped.
+
+**Setup**
+I don't have a great example... I'm testing with Ansible's GCE modules/cloud modules for orchestration purposes...
+
+_Salt state example_
+```
+{% set name = 'test-instance %}
+{% set domain = 'example.lcl' %}
+{% set service_account_file = '/path/to/serviceaccount/keyfile.json' %}
+{% set project = 'my-gce-project %}
+{% set zone = 'us-west1-a' %}
+{% set machine_type = 'n1-standard-1' %}
+{% set image = 'projects/suse-byos-cloud/global/images/sles-15-sp1-byos-v20200610' %}
+{%
+    set network_interfaces = [
+                               { 'network': { 'selfLink': "projects/my-gce-project/global/networks/default" },
+                                 'subnetwork': { 'selfLink': "projects/my-gce-project/regions/us-west1/subnetworks/default" } },
+                             ]
+%}
+
+{% set ansible_kwargs = {'extra_vars':
+                            { 'name': name,
+                              'domain': domain,
+                              'service_account_file': service_account_file,
+                              'project': project,
+                              'zone': zone,
+                              'machine_type': machine_type,
+                              'image': image,
+                              'network_interfaces': network_interfaces
+
+                            }
+       }
+%}
+
+orch_instance_gcp_deployed:
+    ansible.playbooks:
+        - name: /srv/salt/orch/instance/gcp/playbooks/playbook-deployed.yml
+        - ansible_kwargs: {{ ansible_kwargs | tojson }}
+```
+_ansible playbook example:_
+```
+- name: Create GCP Instance
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+  - name: Create a GCP Instance
+    gcp_compute_instance:
+        name: "{{ name }}"
+        hostname: "{{ name }}.{{ domain }}"
+        machine_type: "{{ machine_type }}"
+        disks:
+            - auto_delete: True
+              boot: yes
+              initialize_params:
+                  source_image: "{{ image }}"
+                  disk_size_gb: 40
+        network_interfaces: "{{ network_interfaces }}"
+        zone: "{{ zone }}"
+        project: "{{ project }}"
+        auth_kind: serviceaccount
+        service_account_file: "{{ service_account_file }}"
+        state: present
+```
+**Steps to Reproduce the behavior**
+This should be reproducable with a different example. I'm not familiar enough with ansible to know what modules don't support --check. I assume most of their cloud orchestration stuff wouldn't support --check.
+
+If you choose to use the above example, you'll need to create a gcp service account in a gcp project and acquire a service account key. https://cloud.google.com/iam/docs/creating-managing-service-account-keys
+
+**Expected behavior**
+Salt should report it as failed.
+
+**Screenshots**
+_If run with salt:_
+```
+ansible_|-orch_instance_gcp_deployed_|-/srv/salt/orch/instance/gcp/playbooks/playbook-deployed.yml_|-playbooks:
+    ----------
+    __id__:
+        orch_instance_gcp_deployed
+    __run_num__:
+        0
+    __sls__:
+        orch.instance.gcp.deployed
+    changes:
+        ----------
+    comment:
+        No changes to be made from playbook /srv/salt/orch/instance/gcp/playbooks/playbook-deployed.yml
+    duration:
+        3995.633
+    name:
+        /srv/salt/orch/instance/gcp/playbooks/playbook-deployed.yml
+    result:
+        True
+    start_time:
+        09:31:06.519698
+```
+_if run with ansible (with --check and --diff flags):_
+```
+Using /etc/ansible/ansible.cfg as config file
+[WARNING]: provided hosts list is empty, only localhost is available. Note that the implicit localhost does not match 'all'
+[WARNING]: Found variable using reserved name: name
+ ____________________________
+< PLAY [Create GCP Instance] >
+ ----------------------------
+        \   ^__^
+         \  (oo)\_______
+            (__)\       )\/\
+                ||----w |
+                ||     ||
+
+ ______________________________
+< TASK [Create a GCP Instance] >
+ ------------------------------
+        \   ^__^
+         \  (oo)\_______
+            (__)\       )\/\
+                ||----w |
+                ||     ||
+
+skipping: [localhost] => {"changed": false, "msg": "remote module (gcp_compute_instance) does not support check mode"}
+ ____________
+< PLAY RECAP >
+ ------------
+        \   ^__^
+         \  (oo)\_______
+            (__)\       )\/\
+                ||----w |
+                ||     ||
+
+localhost                  : ok=0    changed=0    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0
+```
+**Expected behavior**
+Salt should either allow one to override the check flag in the ansible.playbooks state module or perhaps disable --check entirely (not sure if --check is required....)
+
+**Versions Report**
+I'm running 2019.2 but I've tested with the latest ansible execution and state modules in my environment and am having the same problems. The goal is to use this as a part of an orchestration so I'm executing the state via salt-run salt.cmd state.apply orch.instance.gcp.deployed.
+<details><summary>
+Salt Version:
+           Salt: 2019.2.0
+
+Dependency Versions:
+           cffi: 1.11.2
+       cherrypy: unknown
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+        libnacl: 1.6.1
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.10 (default, Dec 19 2019, 15:48:40) [GCC]
+   python-gnupg: Not Installed
+         PyYAML: 5.1.2
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.3
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 4.12.14-197.45-default
+         system: Linux
+        version: Not Installed</summary>
+</details>
+
+

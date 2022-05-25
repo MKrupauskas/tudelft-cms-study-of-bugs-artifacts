@@ -1,0 +1,136 @@
+### Description of Issue
+All entries of argument dictionaries are double-encoded as Unicode, which prevents the Salt code from processing arguments.
+
+For example, the dict entry `signing_policy` becomes `u'signing_policy'` and is serialized as `u"u'signing_policy'"`. When Salt code is looking for the key `signing_policy` in the dict it will be unable to find it for the key is now called `u'signing_policy'`.
+
+### Setup
+
+1) Setup signing policies in the Salt minion as per the documentation
+2) Setup remote peer call for the x509.sign_remote_certificate in the Salt Master as per the documentation
+3) Create a state as below that manages an intermediate CA:
+
+```yaml
+/srv/pki/intermediateca.pem:
+  x509.certificate_managed:
+    - ca_server: my-salt-pki-server
+    - public_key: /srv/pki/intermediateca.key
+    - days_remaining: 30
+    - backup: True
+    - CN: Winterhold Labs Intermediate CA
+    - signing_policy: intermediate
+```
+
+### Steps to Reproduce Issue
+
+1) Run the Salt minion in debug mode
+
+2) Use the YAML above to trigger a new certificate to be remotely signed by the root authority
+
+3) Call the SLS for trigger the remote call for the certificate to be issued
+
+4) Verify in the Salt Minion debug logs that all arguments are double-encoded for Unicode:
+
+```
+[DEBUG   ] LazyLoaded glob_match.match
+[INFO    ] User root Executing command x509.sign_remote_certificate with jid 20190529111642690240
+[DEBUG   ] Command details {u'tgt_type': u'glob', u'jid': u'20190529111642690240', u'tgt': u'salt.winterhold.org', u'ret': u'', u'user': u'root', u'arg': [{u"u'CN'": u"u'Winterhold Labs Intermediate CA'", u"u'signing_policy'": u"u'intermediate'", u"u'public_key'": u"u'-----BEGIN PUBLIC KEY-----MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA4vN/68aAR5uEGd7ybjeLnpUTQB+DfYdbZMvlGeS0Pdb5YykuKMivjKmjQmy1+lFLiMP1S9hB1WT2P4K0rLKa7nr062wTVD0+2gY+DnvpY7yGKsyeIHT3UDIMvTTzC2uQOZ3AAZQM7i/a0M1qcj7NYkvwWaglzpQTUQZD1k4OuLGEc8AcJkiAzhDwNt7fnZ2NCYoKXmPkE477vE3yuLBc+6pSdv+mB9FIgDMUE1SVB+4f7yA8SPMcOsF/MSRDvfdmPS6AKc1sQCOlf/3HqD0CFnewPkh0KusN0ugBGcLdYY2GQAmsv5KnhU31e4yvUb+d56lT6BwCmlb+xZCPRAEhrAfVNcsJkR/bs/sWDcb11Okzb3BvLIO2SnqxwHR8E0I5N5zu0FNNpnhNfPBLGskyxffMgxWr+IM1ozfS8y8QW+ed34EBwmyWaEITDtcELt/NTy65SFmnHMIlekrkcqF7CGA7m6PoOpyygRlToHEEEFlwSAn8vCxrs/XEUVs4diUaPYZa9rVCmaFTBTj8oHigERp+U/amgBqFa8cdWxH/osxR3V+wMleGne3uIKXQ5/TwVry8/hu4X0IYG0pzkDxzsVgZGEDM+9A0ZZ7t1CCdKTkRJrM+BzVARFzCHuMaGv7eOl+jEHyxVEWuhI/9PcZ/App9vYfbbLAWCOWlLDbXbc0CAwEAAQ==-----END PUBLIC KEY-----'", u'testrun': True, u"u'public_key_passphrase'": u'None'}], u'fun': u'x509.sign_remote_certificate', u'id': u'salt.winterhold.org'}
+[INFO    ] Starting a new job 20190529111642690240 with PID 14796
+[DEBUG   ] Could not LazyLoad {0}.allow_missing_func: '{0}.allow_missing_func' is not available.
+[DEBUG   ] LazyLoaded x509.sign_remote_certificate
+[DEBUG   ] Minion return retry timer set to 6 seconds (randomized)
+[INFO    ] Returning information for job: 20190529111642690240
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for (u'/etc/salt/pki/minion', u'salt.winterhold.org', u'tcp://46.101.82.136:4506', u'aes')
+[DEBUG   ] Initializing new AsyncAuth for (u'/etc/salt/pki/minion', u'salt.winterhold.org', u'tcp://46.101.82.136:4506')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://46.101.82.136:4506
+[DEBUG   ] Trying to connect to: tcp://46.101.82.136:4506
+[DEBUG   ] Closing AsyncZeroMQReqChannel instance
+[DEBUG   ] minion return: {u'fun_args': [{u"u'CN'": u"u'Winterhold Labs Intermediate CA'", u"u'signing_policy'": u"u'intermediate'", u"u'public_key'": u"u'-----BEGIN PUBLIC KEY-----MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA4vN/68aAR5uEGd7ybjeLnpUTQB+DfYdbZMvlGeS0Pdb5YykuKMivjKmjQmy1+lFLiMP1S9hB1WT2P4K0rLKa7nr062wTVD0+2gY+DnvpY7yGKsyeIHT3UDIMvTTzC2uQOZ3AAZQM7i/a0M1qcj7NYkvwWaglzpQTUQZD1k4OuLGEc8AcJkiAzhDwNt7fnZ2NCYoKXmPkE477vE3yuLBc+6pSdv+mB9FIgDMUE1SVB+4f7yA8SPMcOsF/MSRDvfdmPS6AKc1sQCOlf/3HqD0CFnewPkh0KusN0ugBGcLdYY2GQAmsv5KnhU31e4yvUb+d56lT6BwCmlb+xZCPRAEhrAfVNcsJkR/bs/sWDcb11Okzb3BvLIO2SnqxwHR8E0I5N5zu0FNNpnhNfPBLGskyxffMgxWr+IM1ozfS8y8QW+ed34EBwmyWaEITDtcELt/NTy65SFmnHMIlekrkcqF7CGA7m6PoOpyygRlToHEEEFlwSAn8vCxrs/XEUVs4diUaPYZa9rVCmaFTBTj8oHigERp+U/amgBqFa8cdWxH/osxR3V+wMleGne3uIKXQ5/TwVry8/hu4X0IYG0pzkDxzsVgZGEDM+9A0ZZ7t1CCdKTkRJrM+BzVARFzCHuMaGv7eOl+jEHyxVEWuhI/9PcZ/App9vYfbbLAWCOWlLDbXbc0CAwEAAQ==-----END PUBLIC KEY-----'", u'testrun': True, u"u'public_key_passphrase'": u'None'}], u'jid': u'20190529111642690240', u'return': u'signing_policy must be specified', u'retcode': 0, u'success': True, u'fun': u'x509.sign_remote_certificate'}
+[INFO    ] User root Executing command x509.sign_remote_certificate with jid 20190529111643100347
+[DEBUG   ] Command details {u'tgt_type': u'glob', u'jid': u'20190529111643100347', u'tgt': u'salt.winterhold.org', u'ret': u'', u'user': u'root', u'arg': [{u"u'public_key_passphrase'": u'None', u"u'public_key'": u"u'-----BEGIN PUBLIC KEY-----MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA4vN/68aAR5uEGd7ybjeLnpUTQB+DfYdbZMvlGeS0Pdb5YykuKMivjKmjQmy1+lFLiMP1S9hB1WT2P4K0rLKa7nr062wTVD0+2gY+DnvpY7yGKsyeIHT3UDIMvTTzC2uQOZ3AAZQM7i/a0M1qcj7NYkvwWaglzpQTUQZD1k4OuLGEc8AcJkiAzhDwNt7fnZ2NCYoKXmPkE477vE3yuLBc+6pSdv+mB9FIgDMUE1SVB+4f7yA8SPMcOsF/MSRDvfdmPS6AKc1sQCOlf/3HqD0CFnewPkh0KusN0ugBGcLdYY2GQAmsv5KnhU31e4yvUb+d56lT6BwCmlb+xZCPRAEhrAfVNcsJkR/bs/sWDcb11Okzb3BvLIO2SnqxwHR8E0I5N5zu0FNNpnhNfPBLGskyxffMgxWr+IM1ozfS8y8QW+ed34EBwmyWaEITDtcELt/NTy65SFmnHMIlekrkcqF7CGA7m6PoOpyygRlToHEEEFlwSAn8vCxrs/XEUVs4diUaPYZa9rVCmaFTBTj8oHigERp+U/amgBqFa8cdWxH/osxR3V+wMleGne3uIKXQ5/TwVry8/hu4X0IYG0pzkDxzsVgZGEDM+9A0ZZ7t1CCdKTkRJrM+BzVARFzCHuMaGv7eOl+jEHyxVEWuhI/9PcZ/App9vYfbbLAWCOWlLDbXbc0CAwEAAQ==-----END PUBLIC KEY-----'", u"u'signing_policy'": u"u'intermediate'", u"u'CN'": u"u'Winterhold Labs Intermediate CA'"}], u'fun': u'x509.sign_remote_certificate', u'id': u'salt.winterhold.org'}
+[INFO    ] Starting a new job 20190529111643100347 with PID 14805
+[DEBUG   ] Could not LazyLoad {0}.allow_missing_func: '{0}.allow_missing_func' is not available.
+[DEBUG   ] LazyLoaded x509.sign_remote_certificate
+[DEBUG   ] Minion return retry timer set to 5 seconds (randomized)
+[INFO    ] Returning information for job: 20190529111643100347
+[DEBUG   ] Initializing new AsyncZeroMQReqChannel for (u'/etc/salt/pki/minion', u'salt.winterhold.org', u'tcp://46.101.82.136:4506', u'aes')
+[DEBUG   ] Initializing new AsyncAuth for (u'/etc/salt/pki/minion', u'salt.winterhold.org', u'tcp://46.101.82.136:4506')
+[DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://46.101.82.136:4506
+[DEBUG   ] Trying to connect to: tcp://46.101.82.136:4506
+[DEBUG   ] Closing AsyncZeroMQReqChannel instance
+[DEBUG   ] minion return: {u'fun_args': [{u"u'public_key_passphrase'": u'None', u"u'public_key'": u"u'-----BEGIN PUBLIC KEY-----MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA4vN/68aAR5uEGd7ybjeLnpUTQB+DfYdbZMvlGeS0Pdb5YykuKMivjKmjQmy1+lFLiMP1S9hB1WT2P4K0rLKa7nr062wTVD0+2gY+DnvpY7yGKsyeIHT3UDIMvTTzC2uQOZ3AAZQM7i/a0M1qcj7NYkvwWaglzpQTUQZD1k4OuLGEc8AcJkiAzhDwNt7fnZ2NCYoKXmPkE477vE3yuLBc+6pSdv+mB9FIgDMUE1SVB+4f7yA8SPMcOsF/MSRDvfdmPS6AKc1sQCOlf/3HqD0CFnewPkh0KusN0ugBGcLdYY2GQAmsv5KnhU31e4yvUb+d56lT6BwCmlb+xZCPRAEhrAfVNcsJkR/bs/sWDcb11Okzb3BvLIO2SnqxwHR8E0I5N5zu0FNNpnhNfPBLGskyxffMgxWr+IM1ozfS8y8QW+ed34EBwmyWaEITDtcELt/NTy65SFmnHMIlekrkcqF7CGA7m6PoOpyygRlToHEEEFlwSAn8vCxrs/XEUVs4diUaPYZa9rVCmaFTBTj8oHigERp+U/amgBqFa8cdWxH/osxR3V+wMleGne3uIKXQ5/TwVry8/hu4X0IYG0pzkDxzsVgZGEDM+9A0ZZ7t1CCdKTkRJrM+BzVARFzCHuMaGv7eOl+jEHyxVEWuhI/9PcZ/App9vYfbbLAWCOWlLDbXbc0CAwEAAQ==-----END PUBLIC KEY-----'", u"u'signing_policy'": u"u'intermediate'", u"u'CN'": u"u'Winterhold Labs Intermediate CA'"}], u'jid': u'20190529111643100347', u'return': u'signing_policy must be specified', u'retcode': 0, u'success': True, u'fun': u'x509.sign_remote_certificate'}
+
+```
+
+5) Obtain the following error in the callee side:
+
+```
+----------
+          ID: /srv/pki/intermediateca.pem
+    Function: x509.certificate_managed
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1933, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1939, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/x509.py", line 576, in certificate_managed
+                  'New': __salt__['x509.read_certificate'](certificate=certificate)}
+                File "/usr/lib/python2.7/dist-packages/salt/modules/x509.py", line 557, in read_certificate
+                  cert = _get_certificate_obj(certificate)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/x509.py", line 371, in _get_certificate_obj
+                  text = get_pem_entry(text, pem_type='CERTIFICATE')
+                File "/usr/lib/python2.7/dist-packages/salt/modules/x509.py", line 493, in get_pem_entry
+                  raise salt.exceptions.SaltInvocationError(errmsg)
+              SaltInvocationError: PEM does not contain a single entry of type CERTIFICATE:
+              signing_policy must be specified
+     Changes:   
+----------
+
+The x509 code is unable to the fine entry called `signing_policy` in the argdic because it was actually received as `u'signing_policy'`. Changing the code to fetch this string instead obtains a value named `u'intermediate` (instead of just `intermediate`).
+
+```
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.5.0
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: 2.0.0
+      gitpython: 2.1.1
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: 0.24.5
+        libnacl: Not Installed
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: 1.3.7
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.24.2
+         Python: 2.7.13 (default, Sep 26 2018, 18:42:22)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.1
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.9 
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.0-8-amd64
+         system: Linux
+        version: debian 9.9 
+```

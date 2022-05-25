@@ -1,0 +1,92 @@
+Since upgrading from 2018.3.3 to 3001.1, I can no longer pass in the saltenv as a kwarg in a schedule.present state.
+
+**init.sls in scripts directory**
+
+```
+run_script:
+  cmd.script:
+    - source: salt://scripts/files/echo.sh
+    - cwd: /root
+    - shell: '/bin/bash'
+```
+
+**Schedule.sls**
+
+```
+test_job:
+  schedule.present:
+    - function: state.sls
+    - job_args:
+      - scripts
+    - job_kwargs:
+      - saltenv: nonprod
+```
+**/etc/salt/master**
+```
+file_roots:
+  nonprod:
+    - /srv/nonprod
+  prod:
+    - /srv/prod
+```
+
+**Steps to Reproduce the behavior**
+Schedule the job:
+`salt '*' state.apply scripts.schedule saltenv=nonprod `
+Run the job:
+`salt '*' schedule.run_job test_job`
+
+**Minion log:**
+```
+2020-08-18 21:52:42,341 [salt.utils.schedule:853 ][ERROR   ][1626] Unhandled exception running state.sls
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/schedule.py", line 776, in handle_func
+    kwargs["__pub_{0}".format(key)] = copy.deepcopy(val)
+TypeError: list indices must be integers or slices, not str
+```
+Removing kwargs and creating base path under file_roots fixes my issue.  It would be nice to be able to differentiate by saltenv.  This was not an issue until after the upgrade.
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+Salt Version:
+           Salt: 3001.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.4.7
+         pygit2: Not Installed
+         Python: 3.6.9 (default, Jul 17 2020, 12:50:27)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 17.1.2
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist: ubuntu 18.04 Bionic Beaver
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-112-generic
+         system: Linux
+        version: Ubuntu 18.04 Bionic Beaver
+```
+</details>
+

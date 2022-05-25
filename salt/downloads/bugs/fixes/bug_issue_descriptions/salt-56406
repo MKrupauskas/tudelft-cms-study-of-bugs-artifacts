@@ -1,0 +1,85 @@
+### Steps to Reproduce Issue
+On a Windows Server 2012R2 system, install salt and run the command below. Note that this issue only reproduces when `LockoutThreshold` is non-zero, seemingly due to some internal Windows API constraints.
+
+```
+C:\salt\salt-call.bat --local lgpo.set "{'LockoutThreshold': 3, 'LockoutDuration': 0, 'LockoutWindow': 60}" -l debug
+# <...elided...>
+[DEBUG   ] LGPO: Loading policy resources
+[DEBUG   ] LazyLoaded file.file_exists
+[DEBUG   ] validating 3 for policy {u'Policy': u'Account lockout threshold', u'NetUserModal': {u'Option': u'lockout_threshold', u'Modal': 3}, u'lgpo_section': [u'Computer Configuration', u'Windows Settings', u'Security Settings', u'Account Policies', u'Account Lockout Policy'], u'Settings': {u'Function': u'_in_range_inclusive', u'Args': {u'max': 1000, u'min': 0}}}
+[DEBUG   ] LockoutThreshold is a NetUserModal policy
+[DEBUG   ] validating 0 for policy {u'Policy': u'Account lockout duration', u'NetUserModal': {u'Option': u'lockout_duration', u'Modal': 3}, u'lgpo_section': [u'Computer Configuration', u'Windows Settings', u'Security Settings', u'Account Policies', u'Account Lockout Policy'], u'Transform': {u'Put': u'_minutes_to_seconds', u'Get': u'_seconds_to_minutes'}, u'Settings': {u'Function': u'_in_range_inclusive', u'Args': {u'max': 6000000, u'min': 0}}}
+[DEBUG   ] LockoutDuration is a NetUserModal policy
+[DEBUG   ] validating 3600 for policy {u'Policy': u'Reset account lockout counter after', u'NetUserModal': {u'Option': u'lockout_observation_window', u'Modal': 3}, u'lgpo_section': [u'Computer Configuration', u'Windows Settings', u'Security Settings', u'Account Policies', u'Account Lockout Policy'], u'Transform': {u'Put': u'_minutes_to_seconds', u'Get': u'_seconds_to_minutes'}, u'Settings': {u'Function': u'_in_range_inclusive', u'Args': {u'max': 6000000, u'min': 0}}}
+[DEBUG   ] LockoutWindow is a NetUserModal policy
+[DEBUG   ] {3: {u'lockout_observation_window': 3600, u'lockout_duration': 0, u'lockout_threshold': 3}}
+[DEBUG   ] NEW MODAL SET = {'lockout_observation_window': 3600, 'lockout_duration': 0, 'lockout_threshold': 3}
+[ERROR   ] An unhandled exception occurred while attempting to set policy via NetUserModalSet
+Traceback (most recent call last):
+  File "C:\salt\bin\lib\site-packages\salt\modules\win_lgpo.py", line 8183, in set_
+    _ret = win32net.NetUserModalsSet(None, _modal_set, _newModalSetData)
+error: (87, 'NetUserModalsSet', 'The parameter is incorrect.')
+Traceback (most recent call last):
+  File "C:\salt\bin\lib\site-packages\salt\cli\caller.py", line 212, in call
+    ret['return'] = func(*args, **kwargs)
+  File "C:\salt\bin\lib\site-packages\salt\modules\win_lgpo.py", line 8188, in set_
+    raise CommandExecutionError(msg)
+CommandExecutionError: An unhandled exception occurred while attempting to set policy via NetUserModalSet
+Error running 'lgpo.set': An unhandled exception occurred while attempting to set policy via NetUserModalSet
+```
+
+### Explanation
+
+This errors because `LockoutDuration` does not actually use `0` as the zero value, but the lgpo module does not know that (yet). See the line in the output:
+
+```
+[DEBUG   ] NEW MODAL SET = {'lockout_observation_window': 3600, 'lockout_duration': 0, 'lockout_threshold': 3}
+```
+
+Similar to the transform for `MaxPasswordAge`, the zero value for `LockoutDuration` needs to be `0xffffffff`. Then it magically works.
+
+### Versions Report
+
+```
+PS C:\Users\Administrator> C:\salt\salt-call.bat --versions-report
+Salt Version:
+           Salt: 2018.3.4
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 10.2.1
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.3
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: 1.6.1
+       M2Crypto: Not Installed
+           Mako: 1.0.6
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.14 (v2.7.14:84471935ed, Sep 16 2017, 20:25:58) [MSC v.1500 64 bit (AMD64)]
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.3
+           RAET: Not Installed
+          smmap: 2.0.5
+        timelib: 0.2.4
+        Tornado: 4.5.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+         locale: cp1252
+        machine: AMD64
+        release: 2012ServerR2
+         system: Windows
+        version: 2012ServerR2 6.3.9600  Multiprocessor Free
+```

@@ -1,0 +1,206 @@
+As mentioned in https://github.com/saltstack/salt/issues/18630#issuecomment-68408491 `mount.mounted` will backtrace in case the device/resource is busy.
+Using Salt 2014.7.0 on Ubuntu Server 14.04.1 amd64 and `salt/states/mount.py` from `2014.7` as of ec90619.
+
+Used state:
+
+``` YAML
+{{ share }}-storage-mount:
+    mount.mounted:
+        - name: {{ pillar['storage']['mountroot'] }}/{{ share }}
+        - device: {{ host }}:/{{ share }}
+        - fstype: nfs
+        - mkmnt: True
+        - opts:
+            - defaults
+            - bg
+            - soft
+            - intr
+            - timeo=5
+            - retrans=5
+            - actimeo=10
+            - retry=5
+        - require:
+            - pkg: nfs-common
+```
+
+The already active mount:
+
+``` bash
+$ mount | ack-grep -i library
+134.2.xx.xx:/library on /media/remotefs/library type nfs (rw,bg,soft,intr,timeo=5,retrans=5,actimeo=10,retry=5)
+```
+
+I'm not sure right now how to properly handle this/detect a busy device/resource before attempting to remount it. Does Python have a builtin equivalent to what `lsof` is doing?
+
+Full output incl. backtrace below:
+
+```
+$ sudo salt-call -l debug state.sls_id library-storage-mount storage.mounts
+[sudo] password for test: 
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://storage/mounts.sls'
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/storage/mounts.sls:
+nfs-common:
+    pkg.installed
+
+
+library-storage-mount:
+    mount.mounted:
+        - name: /media/remotefs/library
+        - device: 134.2.x.x:/library
+        - fstype: nfs
+        - mkmnt: True
+        - opts:
+            - defaults
+            - bg
+            - soft
+            - intr
+            - timeo=5
+            - retrans=5
+            - actimeo=10
+            - retry=5
+        - require:
+            - pkg: nfs-common
+
+
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([('nfs-common', 'pkg.installed'), ('library-storage-mount', OrderedDict([('mount.mounted', [OrderedDict([('name', '/media/remotefs/library')]), OrderedDict([('device', '134.2.x.x:/library')]), OrderedDict([('fstype', 'nfs')]), OrderedDict([('mkmnt', True)]), OrderedDict([('opts', ['defaults', 'bg', 'soft', 'intr', 'timeo=5', 'retrans=5', 'actimeo=10', 'retry=5'])]), OrderedDict([('require', [OrderedDict([('pkg', 'nfs-common')])])])])]))])
+[INFO    ] Running state [nfs-common] at time 23:52:44.614048
+[INFO    ] Executing state pkg.installed for nfs-common
+[INFO    ] Executing command "dpkg-query --showformat='${Status} ${Package} ${Version} ${Architecture}\n' -W" in directory '/home/test'
+[INFO    ] Package nfs-common is already installed.
+[INFO    ] Completed state [nfs-common] at time 23:52:45.318480
+[INFO    ] Running state [/media/remotefs/library] at time 23:52:45.318741
+[INFO    ] Executing state mount.mounted for /media/remotefs/library
+[INFO    ] Executing command 'mount -l' in directory '/home/test'
+[DEBUG   ] stdout: /dev/sdd1 on / type ext4 (rw,errors=remount-ro)
+proc on /proc type proc (rw,noexec,nosuid,nodev)
+sysfs on /sys type sysfs (rw,noexec,nosuid,nodev)
+none on /sys/fs/cgroup type tmpfs (rw)
+none on /sys/fs/fuse/connections type fusectl (rw)
+none on /sys/kernel/debug type debugfs (rw)
+none on /sys/kernel/security type securityfs (rw)
+udev on /dev type devtmpfs (rw,mode=0755)
+devpts on /dev/pts type devpts (rw,noexec,nosuid,gid=5,mode=0620)
+tmpfs on /run type tmpfs (rw,noexec,nosuid,size=10%,mode=0755)
+none on /run/lock type tmpfs (rw,noexec,nosuid,nodev,size=5242880)
+none on /run/shm type tmpfs (rw,nosuid,nodev)
+none on /run/user type tmpfs (rw,noexec,nosuid,nodev,size=104857600,mode=0755)
+none on /sys/fs/pstore type pstore (rw)
+cgroup on /sys/fs/cgroup/cpuset type cgroup (rw,relatime,cpuset)
+cgroup on /sys/fs/cgroup/cpu type cgroup (rw,relatime,cpu)
+cgroup on /sys/fs/cgroup/cpuacct type cgroup (rw,relatime,cpuacct)
+cgroup on /sys/fs/cgroup/memory type cgroup (rw,relatime,memory)
+cgroup on /sys/fs/cgroup/devices type cgroup (rw,relatime,devices)
+cgroup on /sys/fs/cgroup/freezer type cgroup (rw,relatime,freezer)
+cgroup on /sys/fs/cgroup/blkio type cgroup (rw,relatime,blkio)
+cgroup on /sys/fs/cgroup/perf_event type cgroup (rw,relatime,perf_event)
+cgroup on /sys/fs/cgroup/hugetlb type cgroup (rw,relatime,hugetlb)
+/dev/md0 on /media/tdrive type ext3 (rw) [tdrive]
+rpc_pipefs on /run/rpc_pipefs type rpc_pipefs (rw)
+systemd on /sys/fs/cgroup/systemd type cgroup (rw,noexec,nosuid,nodev,none,name=systemd)
+134.2.x.x:/library on /media/remotefs/library type nfs (rw,bg,soft,intr,timeo=5,retrans=5,actimeo=10,retry=5)
+tmpfs on /var/tmp/dockerfiles type tmpfs (rw)
+[INFO    ] Executing command 'blkid' in directory '/home/test'
+[DEBUG   ] stdout: /dev/loop0: UUID="6852d0a8-4326-409a-89b4-bf158735bcad" TYPE="ext4" 
+/dev/sda2: UUID="e86725c5-c577-9fb2-e6d1-14d8c17bc148" TYPE="linux_raid_member" 
+/dev/md0: LABEL="tdrive" UUID="fdc458d3-aaf8-4fba-b843-53abdb1bb4c9" TYPE="ext3" 
+/dev/sdb2: UUID="e86725c5-c577-9fb2-e6d1-14d8c17bc148" TYPE="linux_raid_member" 
+/dev/sdc1: UUID="46e1b7a1-9df3-428e-8f1d-1163f9f4e797" SEC_TYPE="ext2" TYPE="ext3" 
+/dev/sdc5: TYPE="swap" 
+/dev/sdd1: UUID="93221c5c-fc2b-4e2b-ba02-234ad51e6c14" TYPE="ext4" 
+/dev/sdd2: UUID="ac03303d-4883-4e25-a1d3-16e5a34c4fdf" TYPE="swap" 
+/dev/mapper/docker-8:49-93329651-pool: UUID="6852d0a8-4326-409a-89b4-bf158735bcad" TYPE="ext4" 
+/dev/mapper/docker-8:49-93329651-97f793dc77b6ba7291545d46cdaf9aac7c8fb202354bfe84d2baeaf594986e4c: UUID="6852d0a8-4326-409a-89b4-bf158735bcad" TYPE="ext4"
+[INFO    ] Executing command 'mount -l' in directory '/home/test'
+[DEBUG   ] stdout: /dev/sdd1 on / type ext4 (rw,errors=remount-ro)
+proc on /proc type proc (rw,noexec,nosuid,nodev)
+sysfs on /sys type sysfs (rw,noexec,nosuid,nodev)
+none on /sys/fs/cgroup type tmpfs (rw)
+none on /sys/fs/fuse/connections type fusectl (rw)
+none on /sys/kernel/debug type debugfs (rw)
+none on /sys/kernel/security type securityfs (rw)
+udev on /dev type devtmpfs (rw,mode=0755)
+devpts on /dev/pts type devpts (rw,noexec,nosuid,gid=5,mode=0620)
+tmpfs on /run type tmpfs (rw,noexec,nosuid,size=10%,mode=0755)
+none on /run/lock type tmpfs (rw,noexec,nosuid,nodev,size=5242880)
+none on /run/shm type tmpfs (rw,nosuid,nodev)
+none on /run/user type tmpfs (rw,noexec,nosuid,nodev,size=104857600,mode=0755)
+none on /sys/fs/pstore type pstore (rw)
+cgroup on /sys/fs/cgroup/cpuset type cgroup (rw,relatime,cpuset)
+cgroup on /sys/fs/cgroup/cpu type cgroup (rw,relatime,cpu)
+cgroup on /sys/fs/cgroup/cpuacct type cgroup (rw,relatime,cpuacct)
+cgroup on /sys/fs/cgroup/memory type cgroup (rw,relatime,memory)
+cgroup on /sys/fs/cgroup/devices type cgroup (rw,relatime,devices)
+cgroup on /sys/fs/cgroup/freezer type cgroup (rw,relatime,freezer)
+cgroup on /sys/fs/cgroup/blkio type cgroup (rw,relatime,blkio)
+cgroup on /sys/fs/cgroup/perf_event type cgroup (rw,relatime,perf_event)
+cgroup on /sys/fs/cgroup/hugetlb type cgroup (rw,relatime,hugetlb)
+/dev/md0 on /media/tdrive type ext3 (rw) [tdrive]
+rpc_pipefs on /run/rpc_pipefs type rpc_pipefs (rw)
+systemd on /sys/fs/cgroup/systemd type cgroup (rw,noexec,nosuid,nodev,none,name=systemd)
+134.2.x.x:/library on /media/remotefs/library type nfs (rw,bg,soft,intr,timeo=5,retrans=5,actimeo=10,retry=5)
+tmpfs on /var/tmp/dockerfiles type tmpfs (rw)
+[INFO    ] Executing command 'umount /media/remotefs/library' in directory '/home/test'
+[ERROR   ] Command 'umount /media/remotefs/library' failed with return code: 16
+[ERROR   ] stderr: umount.nfs: /media/remotefs/library: device is busy
+umount.nfs: /media/remotefs/library: device is busy
+[ERROR   ] retcode: 16
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1533, in call
+    **cdata['kwargs'])
+  File "/var/cache/salt/minion/extmods/states/mount.py", line 187, in mounted
+    raise SaltInvocationError('Unable to unmount {0}: {1}.'.format(real_name, unmount_result))
+SaltInvocationError: Unable to unmount /media/remotefs/library: umount.nfs: /media/remotefs/library: device is busy
+umount.nfs: /media/remotefs/library: device is busy.
+
+[INFO    ] Completed state [/media/remotefs/library] at time 23:52:45.608086
+[DEBUG   ] LazyLoaded .returner
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+local:
+----------
+          ID: nfs-common
+    Function: pkg.installed
+      Result: True
+     Comment: Package nfs-common is already installed.
+     Started: 23:52:44.614048
+    Duration: 704.432 ms
+     Changes:   
+----------
+          ID: library-storage-mount
+    Function: mount.mounted
+        Name: /media/remotefs/library
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1533, in call                                                                   
+                  **cdata['kwargs'])                                                                                                                        
+                File "/var/cache/salt/minion/extmods/states/mount.py", line 187, in mounted                                                                 
+                  raise SaltInvocationError('Unable to unmount {0}: {1}.'.format(real_name, unmount_result))                                                
+              SaltInvocationError: Unable to unmount /media/remotefs/library: umount.nfs: /media/remotefs/library: device is busy                           
+              umount.nfs: /media/remotefs/library: device is busy.                                                                                          
+     Started: 23:52:45.318741
+    Duration: 289.345 ms
+     Changes:   
+
+Summary                                                                                                                                                     
+------------                                                                                                                                                
+Succeeded: 1
+Failed:    1
+------------
+Total states run:     2
+```

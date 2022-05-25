@@ -1,0 +1,97 @@
+Hi,
+
+I use pkg.installed to manage packages and hold their version. The installed version is determined from a pillar. I use the following states to accomplish that:
+```
+{% if salt['pillar.get']('elkstack:ls-version') != salt['pkg.version']('logstash') and salt['pkg.version']('logstash') != '' %}
+logstash-unhold:
+  pkg.installed:
+    - name: logstash
+    - hold: False
+    - require:
+      - pkgrepo: elkstack-repos
+{% endif %}
+
+logstash-install:
+  pkg.installed:
+    - name: logstash
+    - version: {{salt['pillar.get']('elkstack:ls-version')}}
+    - listen_in: 
+      - service: logstash-service
+    - require:
+      - pkgrepo: elkstack-repos
+{% if salt['pillar.get']('elkstack:ls-version') != salt['pkg.version']('logstash') and salt['pkg.version']('logstash') != '' %}
+      - pkg: logstash-unhold
+{% endif %}
+
+logstash-hold:
+  apt:
+    - name: logstash
+    - held
+    - onchanges:
+      - pkg: logstash-install
+```
+First state checks if installed version differs from the pillar and if so unholds the package. Second state installs the package and the third state holds the package again.
+
+When I try to do a dry run with `salt '*' state.apply test=true`I get the following error:
+```
+          ID: logstash-unhold
+    Function: pkg.installed
+        Name: logstash
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1746, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1704, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/pkg.py", line 1326, in installed
+                  if hold_ret[x]['changes']]
+              TypeError: string indices must be integers, not str
+     Started: 16:39:23.464969
+    Duration: 27.297 ms
+     Changes:
+```
+Tho it seems that without `test=true` everything works but its a bit a pain when the dry run for a sw update does fail this hard so all other depending state fail as well...
+
+### Versions Report
+Saltmaster and minion are on the same version on the same machine
+```
+Salt Version:
+           Salt: 2016.11.5
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+      docker-py: Not Installed
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Oct 26 2016, 20:30:19)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 4.4.0-79-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```

@@ -1,0 +1,112 @@
+**Description**
+After updating our minions from 2019.x to 3002.2 they stopped running the via pillar scheduled highstate. I found out that this was caused by usage of grains[] within the pillar top.sls file.
+
+Systems with an older OS which run an older salt-minion version (3000.5 on RHEL6 and 2016.11.3 on RHEL5) still work fine.
+
+**Setup**
+Part of our pillar top.sls file:
+```
+base:
+  '*':
+    - highstate
+    - firewall.{{ grains['host'] }}
+```
+
+**Steps to Reproduce the behavior**
+Restart the salt-minion process
+```
+# salt-call schedule.list
+local:
+    ----------
+    schedule:
+        ----------
+
+
+# salt-call pillar.items
+local:
+    ----------
+    firewall:
+        ----------
+        log:
+            True
+        services:
+            - ssh
+    schedule:
+        ----------
+        highstate:
+            ----------
+            enabled:
+                True
+            function:
+                state.highstate
+            minutes:
+                60
+            name:
+                highstate
+
+# salt-call saltutil.refresh_pillar
+local:
+    True
+
+# salt-call schedule.list
+local:
+    schedule:
+      highstate:
+        enabled: true
+        function: state.highstate
+        minutes: 60
+        name: highstate
+```
+However after restarting the salt-minion process (or the entire minion system for that matter) schedule.list is empty again.
+
+**Expected behavior**
+It should run like before
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+          Salt: 3002.2
+
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.8.1
+       libgit2: Not Installed
+      M2Crypto: 0.33.0
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: Not Installed
+        pygit2: Not Installed
+        Python: 3.6.8 (default, Aug 13 2020, 07:46:32)
+  python-gnupg: Not Installed
+        PyYAML: 3.11
+         PyZMQ: 17.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.1.4
+
+System Versions:
+          dist: rhel 7.9 Maipo
+        locale: ISO-8859-1
+       machine: x86_64
+       release: 3.10.0-1160.6.1.el7.x86_64
+        system: Linux
+       version: Red Hat Enterprise Linux Server 7.9 Maipo
+```
+</details>
+
+**Additional context**
+I was able to get things working again by changing `grains['host']` to `salt['grains.get']('host')`
+It seems to me that the other format should work as well though, especially since it works fine on older minions, or after a pillar_refresh was run

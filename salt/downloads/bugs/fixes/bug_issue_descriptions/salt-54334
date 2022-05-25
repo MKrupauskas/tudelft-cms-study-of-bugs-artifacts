@@ -1,0 +1,84 @@
+### Description of Issue
+The win_lgpo module sets the registry value of ScRemoveOption corresponding to the local GPO "Interactive logon: Smart card removal behavior" as a REG_DWORD rather than a REG_SZ.
+
+Please see the [relevant source](https://github.com/saltstack/salt/blob/8043256/salt/modules/win_lgpo.py#L1875-L1899).
+
+I wasn't able to find Microsoft documentation that specified the type of the registry entry, but [see STIG documentation](https://www.stigviewer.com/stig/windows_server_2016/2017-11-20/finding/V-73807). I have verified that setting the value as a REG_SZ rather than REG_DWORD reflects the correct setting under the local GPO.
+
+### Setup
+
+My SLS file contains something like this:
+
+```yaml
+local_gpos_set_up:
+  lgpo.set:
+    - cumulative_rights_assignments: False
+    - computer_policy:
+        # [...]
+        'Interactive logon: Smart card removal behavior': Lock Workstation 
+```
+
+### Steps to Reproduce Issue
+1. Run Salt to apply the local GPO setting.
+
+```powershell
+c:\salt\salt-call.bat --local state.highstate saltenv=dev -l info
+```
+
+2. Using gpedit.msc, verify that the GPO for Local Computer Policy &rarr; Computer Configuration &rarr; Windows Settings &rarr; Security Settings &rarr; Local Policies &rarr; Security Options &rarr; Interactive logon: Smart card removal behavior is set to Not Defined.
+
+3. From the command line, interrogating the registry entry shows that it is of type REG_DWORD rather than the correct REG_SZ:
+
+```powershell
+PS C:\Users\Administrator> reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v ScRemoveOption
+
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
+    ScRemoveOption    REG_DWORD    0x1
+```
+4. (Manually or via Salt) Set the above registry value ScRemoveOption as a REG_SZ type string `1`.
+
+5. Close and reopen gpedit.msc. Examine the value of the "Interactive logon: Smart card removal behavior" local GPO. Verify that this is now set to "Lock Workstation" rather than "Not Defined".
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2019.2.0
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: 17.4.1
+       dateutil: 2.7.5
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.10
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: 1.6.1
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.15 (v2.7.15:ca079a3ea3, Apr 30 2018, 16:30:26) [MSC v.1500 64 bit (AMD64)]
+   python-gnupg: 0.4.3
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: 2.0.5
+        timelib: 0.2.4
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+
+System Versions:
+           dist:
+         locale: cp1252
+        machine: AMD64
+        release: 2016Server
+         system: Windows
+        version: 2016Server 10.0.14393  Multiprocessor Free
+```

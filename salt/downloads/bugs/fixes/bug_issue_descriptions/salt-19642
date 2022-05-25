@@ -1,0 +1,124 @@
+Im running several masters with a couple thousand minions each in Multimaster-PKI-Failover and ran into a strange situation where one of the masters can not publish jobs to a single minion while the other masters can. I have found several issues regarding aes-key rotation, zeromq keepalive etc. but nothing i can relate to my issue.
+
+The Systems:
+Masters: Master1, ..., Master6, all are in the same network
+Minions: minion01, in a different network than masters
+Transport: ZeroMQ
+
+Currently minion01/11.11.11.11 is connected to Master1/10.10.10.10. It runs several scheduled jobs, fires events on the master, etc. So as long as it goes from minion01 towards Master1 on port 4506 everything is working fine.
+
+But no matter what job i try to publish for that single minion01 on Master1, not a single packet is recevied by minion01 when running a test.ping:
+
+``` bash
+$ salt minion01.* test.ping
+minion01.server.domain.com:
+    Minion did not return. [No response]
+```
+
+While the test.ping is running, tcpdump shows absolutely nothing going out from Master1 to minion01:
+
+``` bash
+$ tcpdump -i eth0 -nvvv dst host 11.11.11.11 and port 4505
+tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
+^C
+0 packets captured
+0 packet received by filter
+0 packets dropped by kernel
+```
+
+If nothing is going out, there is of course nothing coming in on the minions end:
+
+``` bash
+$ tcpdump -i eth0 -nv src host 10.10.10.10 and port 4505
+tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 65535 bytes
+^C
+0 packets captured
+0 packets received by filter
+0 packets dropped by kernel
+```
+
+According to netstat on Master1, minion01 is currently connected:
+
+``` bash
+$ netstat -atulpn | grep 11.11.11.11
+tcp        0      0 10.10.10.10:4505          11.11.11.11:56870    ESTABLISHED 12181/python
+```
+
+Same on the minion
+
+``` bash
+# netstat -atullpn | grep 4505
+tcp        0      0 11.11.11.11:52691    10.10.10.10:4505         ESTABLISHED 24783/python
+```
+
+If i run a second minion-process in parallel on minion01 like this
+
+``` bash
+minion01:~# salt-minion -l debug
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/schedule.wp.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/schedule.wp.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: minion01.server.domain.com
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[INFO    ] Setting up the Salt Minion "minion01.server.domain.com"
+[DEBUG   ] Created pidfile: /var/run/salt-minion.pid
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Including configuration from '/etc/salt/minion.d/schedule.conf'
+[DEBUG   ] Reading configuration from /etc/salt/minion.d/schedule.conf
+[INFO    ] Got list of available master addresses: ['10.10.10.10']
+[DEBUG   ] Attempting to authenticate with the Salt Master at 10.10.10.10.
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[INFO    ] Authentication with master at 10.10.10.10 successful!
+[DEBUG   ] Decrypting the current master AES key
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+[DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+...
+```
+
+I can test.ping minion01 just fine. 
+
+``` bash
+master1:~# salt minion01* test.ping
+minion01.server.domain.com:
+    True
+```
+
+To me it looks like that the zeromq-pull-sock on the minion might be stuck on the minions end. The only solution so far is to fully restart the minion and re-authenticate.
+
+Any ideas on how to debug this further?
+
+``` bash
+Master1:~# salt --versions-report
+           Salt: 2014.7.0rc4-2440-gb4f80fd
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 13.1.0
+           RAET: Not Installed
+            ZMQ: 3.2.3
+           Mako: Not Installed
+
+minion01:~# salt-call --versions-report
+           Salt: 2014.7.0rc4-2440-gb4f80fd
+         Python: 2.6.6 (r266:84292, Aug 12 2014, 07:57:00)
+         Jinja2: 2.5.5
+       M2Crypto: 0.20.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.1.0
+        libnacl: Not Installed
+         PyYAML: 3.09
+          ioflo: Not Installed
+          PyZMQ: 13.1.0
+           RAET: Not Installed
+            ZMQ: 3.2.3
+           Mako: Not Installed
+```

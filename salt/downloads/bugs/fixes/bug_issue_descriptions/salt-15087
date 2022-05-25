@@ -1,0 +1,79 @@
+It doesn't appear that network.system correctly detects changes to a system's hostname, which breaks requisites. To wit:
+
+``` yaml
+# hostname.sls
+config_hostname:
+  network.system:
+    - hostname: shortname.domain.tld
+
+/var/tmp/canaryfile:
+  file.managed:
+    - contents: "I am a bird"
+    - prereq:
+      - network: config_hostname
+```
+
+Results in the following output:
+
+``` bash
+vagrant@minion:~$ hostname
+minion
+vagrant@minion:~$ cat /var/tmp/canaryfile
+cat: /var/tmp/canaryfile: No such file or directory
+vagrant@minion:~$ sudo salt-call state.sls hostname
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'hostname.sls'
+[INFO    ] Running state [config_hostname] at time 20:28:38.449663
+[INFO    ] Using existing setting -- Setting: networking Value: no
+[INFO    ] Running state [config_hostname] at time 20:28:38.452401
+[INFO    ] Executing state network.system for config_hostname
+[INFO    ] Using existing setting -- Setting: networking Value: no
+[INFO    ] Executing command 'runlevel /run/utmp' in directory '/home/vagrant'
+[INFO    ] output: N 2
+[INFO    ] Global network settings are up to date.
+[INFO    ] Completed state [config_hostname] at time 20:28:38.469354
+local:
+----------
+          ID: /var/tmp/canaryfile
+    Function: file.managed
+      Result: True
+     Comment: No changes detected
+     Changes:
+----------
+          ID: config_hostname
+    Function: network.system
+      Result: True
+     Comment: Global network settings are up to date.
+     Changes:
+
+Summary
+------------
+Succeeded: 2
+Failed:    0
+------------
+Total:     2
+vagrant@minion:~$ cat /var/tmp/canaryfile
+cat: /var/tmp/canaryfile: No such file or directory
+vagrant@minion:~$ cat /etc/hostname
+shortname
+vagrant@minion:~$
+```
+
+The following things occur:
+- The network.system state returns no changes (prereq)
+- The canary file is skipped
+- The hostname is updated in /etc/hostname
+
+Observed in:
+
+``` bash
+vagrant@minion:~$ salt-minion --version ; lsb_release -a ; uname -a
+salt-minion 2014.1.10 (Hydrogen)
+No LSB modules are available.
+Distributor ID: Ubuntu
+Description:    Ubuntu 12.04.4 LTS
+Release:    12.04
+Codename:   precise
+Linux minion 3.8.0-44-generic #66~precise1-Ubuntu SMP Tue Jul 15 04:01:04 UTC 2014 x86_64 x86_64 x86_64 GNU/Linux
+vagrant@minion:~$
+```

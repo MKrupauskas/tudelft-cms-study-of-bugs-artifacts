@@ -1,0 +1,25 @@
+We have some issue with salt-cloud when we create a bunch of VM (~40 VM):
+
+we have the following error : 
+
+```
+# salt-cloud -p profile_eu_west_1a vm01.eu-west.example.com
+[INFO    ] salt-cloud starting
+[INFO    ] Creating Cloud VM vm01.eu-west.example.com in eu-west-1
+[INFO    ] Attempting to look up root device name for image id ami-f0b11187 on VM vm01.eu-west.example.com
+[INFO    ] Found root device name: /dev/sda1
+[ERROR   ] EC2 Response Status Code and Error: [400 Bad Request] {'Errors': {'Error': {'Message': "The instance ID 'i-c8XXXXXd' does not exist", 'Code': 'InvalidInstanceID.No
+tFound'}}, 'RequestID': '7fc4XXXX-XXXX-XXXX-XXXX-XXXXXXXXdd12'}
+[WARNING ] There was an error in the query. 5 attempts remaining: {'Errors': {'Error': {'Message': "The instance ID 'i-c8XXXXXd' does not exist", 'Code': 'InvalidInstanceID.N
+otFound'}}, 'RequestID': '7fc4XXXX-XXXX-XXXX-XXXX-XXXXXXXXdd12'}
+```
+
+The instance is actually created with the correct instance ID. I assume the error is due to: 
+- salt-cloud create EC2 VM
+- salt-cloud check _just_ after with DescribeInstance, and Amazon didn't "finished" its creation
+
+We are [here in code](https://github.com/saltstack/salt/blob/4085cfa7757ba9c7755c9f2a944ea0308c4ef50f/salt/cloud/clouds/ec2.py#L1674). So salt-cloud seems to expect this... but their is only 5 attempt without any delay. So in our try, we got 5 "InvalidInstanceID.NotFound" very quickly and salt-cloud failed.
+
+I would suggest to add a time.sleep(1) before doing a new attempt. I've added such delay and VM creation successded.
+
+For information if you want to reproduce, it seem that the error is more likely when you have "lots" of running VM (~40). The first time we run the salt-cloud --map --parallel over 40 VM, only 3 failed... but then, even few hours later (so no API call throttling) even creating one VM fail (reproduced 4 times). So amazon seems to be slower to show up newly created instance when you have a "lots" of already running VM.

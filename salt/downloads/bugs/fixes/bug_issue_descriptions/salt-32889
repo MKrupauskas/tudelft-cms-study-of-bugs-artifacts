@@ -1,0 +1,82 @@
+### Description of Issue/Question
+
+file.recurse will not push symlinks that are dangling on the master, even if keep_symlinks is set.
+
+Note that salt issues some warnings:
+
+```
+[INFO    ] Failed to get mtime on /srv/saltstack/states/installserver/tftp/pxelinux.0, dangling symlink ?
+[INFO    ] Failed to get mtime on /srv/saltstack/states/installserver/tftp/menu.c32, dangling symlink ?
+[INFO    ] Failed to get mtime on /srv/saltstack/states/installserver/tftp/pxechain.com, dangling symlink ?
+```
+
+So the underlying problem is probably that salt ignores files when it cannot get mtime. IMO that is a bug and salt should fall back to something reasonable like copying the file anyway or comparing the link target instead of mtime.
+### Setup
+
+```
+(salt)erlacher@saltmaster:/srv/saltstack$ ls -al states/installserver/tftp/
+total 16
+drwxrwxr-x 4 erlacher tumuser 4096 Apr 27 13:47 .
+drwxrwxr-x 5 erlacher tumuser 4096 Apr 27 14:09 ..
+lrwxrwxrwx 1 erlacher tumuser   26 Apr 27 13:46 menu.c32 -> /usr/lib/syslinux/menu.c32
+drwxrwxr-x 2 erlacher tumuser 4096 Apr 27 08:50 preseeds
+lrwxrwxrwx 1 erlacher tumuser   30 Apr 27 13:47 pxechain.com -> /usr/lib/syslinux/pxechain.com
+lrwxrwxrwx 1 erlacher tumuser   28 Apr 27 13:45 pxelinux.0 -> /usr/lib/syslinux/pxelinux.0
+drwxrwxr-x 2 erlacher tumuser 4096 Apr 27 13:42 pxelinux.cfg
+(salt)erlacher@vmrbg51:/srv/saltstack$ cat states/installserver/init.sls 
+...
+'/srv/tftp':
+  file.recurse:
+    - source: salt://installserver/tftp
+    - user: root
+    - dir_mode: 700
+    - file_mode: 700
+    - keep_symlinks: true
+    - force_symlinks: true
+...
+```
+### Steps to Reproduce Issue
+
+Just push a state that uses file.recurse with dangline symlinks.
+### Versions Report
+
+```
+(salt)erlacher@vmrbg51:/srv/saltstack$ salt-ssh --versions-report
+Salt Version:
+           Salt: 2016.3.0-455-ga146dd2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.2
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-85-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```

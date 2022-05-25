@@ -1,0 +1,596 @@
+I am currently building a couchbase cluster on EC2 (in private segment of a VPC) using a salt-state.  I'm basically creating an auto-scale group and then bringing more nodes online to auto-scale my cluster.
+
+The first node that comes up register's with salt-master, and since it can't find any other couchbase nodes, initializes it's own cluster, and adds a memcached bucket.
+
+The issue is when a second node comes up, I try to auto-discover the first using the `publish.publish` module.  The first run - via `salt-call state.highstate` doesn't find that first node, but subsequent runs of `salt-call state.highstate` or `salt-call state.sls couchbase.server` find the first node.  
+
+An obvious hack would be to just run `state.highstate` twice when a node comes up.  But, I think this is a bug in `publish.publish` and I'm not sure why running the same command twice will allow me to discover that first node.
+
+I've made my couchbase state public, but you'll need the following to replicate:
+- Ubuntu 12.04 on EC2 (us-east-1 ami: ami-a73264ce)
+- The 2 instances should be tagged with:
+  - ec2_environment: prod
+  - ec2_roles: couchbase
+  - ec2_apps: sample_app
+- I'm using a VPC with public/private subnets, and my instances are launching in the private subnets in different AZs (node1: us-east-1a, node2: us-east-1d).
+
+Here's my repo:  
+https://github.com/allanparsons/salt-couchbase
+
+And, here's the line that is having issues fetching all the couchbase node hostnames and eth0 ip on the first run.
+https://github.com/allanparsons/salt-couchbase/blob/master/states/couchbase/server.sls#L22
+
+(note, I thought running publish.publish twice on L21 and L22 might resolve the issue, but it doesn't).
+
+Sync Grains / Modules / Etc:
+
+```
+root@prod-couchbase-a526288f:~# salt-call saltutil.sync_all
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://top.sls'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/modules'
+[INFO    ] Syncing modules for environment 'base'
+[INFO    ] Loading cache from salt://_modules, for base)
+[INFO    ] Caching directory '_modules/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/states'
+[INFO    ] Syncing states for environment 'base'
+[INFO    ] Loading cache from salt://_states, for base)
+[INFO    ] Caching directory '_states/' for environment 'base'
+[INFO    ] Syncing grains for environment 'base'
+[INFO    ] Loading cache from salt://_grains, for base)
+[INFO    ] Caching directory '_grains/' for environment 'base'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://_grains/__init__.py'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://_grains/deployment.py'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://_grains/ec2_info.py'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://_grains/ec2_tag_roles.py'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://_grains/ec2_tags.py'
+[INFO    ] Copying '/var/cache/salt/minion/files/base/_grains/__init__.py' to '/var/cache/salt/minion/extmods/grains/__init__.py'
+[INFO    ] Copying '/var/cache/salt/minion/files/base/_grains/deployment.py' to '/var/cache/salt/minion/extmods/grains/deployment.py'
+[INFO    ] Copying '/var/cache/salt/minion/files/base/_grains/ec2_info.py' to '/var/cache/salt/minion/extmods/grains/ec2_info.py'
+[INFO    ] Copying '/var/cache/salt/minion/files/base/_grains/ec2_tag_roles.py' to '/var/cache/salt/minion/extmods/grains/ec2_tag_roles.py'
+[INFO    ] Copying '/var/cache/salt/minion/files/base/_grains/ec2_tags.py' to '/var/cache/salt/minion/extmods/grains/ec2_tags.py'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/renderers'
+[INFO    ] Syncing renderers for environment 'base'
+[INFO    ] Loading cache from salt://_renderers, for base)
+[INFO    ] Caching directory '_renderers/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/returners'
+[INFO    ] Syncing returners for environment 'base'
+[INFO    ] Loading cache from salt://_returners, for base)
+[INFO    ] Caching directory '_returners/' for environment 'base'
+[INFO    ] Creating module dir '/var/cache/salt/minion/extmods/outputters'
+[INFO    ] Syncing outputters for environment 'base'
+[INFO    ] Loading cache from salt://_outputters, for base)
+[INFO    ] Caching directory '_outputters/' for environment 'base'
+local:
+    ----------
+    grains:
+    modules:
+    outputters:
+    renderers:
+    returners:
+    states:
+
+```
+
+Also, here's the output of a first run (slimmed down):
+
+```
+----------
+          ID: /etc/apt/sources.list.d/couchbase.list
+    Function: file.managed
+      Result: True
+     Comment: File /etc/apt/sources.list.d/couchbase.list updated
+     Changes:   
+              ----------
+              diff:
+                  New file
+              mode:
+                  0644
+----------
+          ID: /etc/apt/sources.list.d/couchbase.list
+    Function: cmd.wait
+        Name: wget -qO- http://packages.couchbase.com/ubuntu/couchbase.key | sudo apt-key add -
+      Result: True
+     Comment: Command "wget -qO- http://packages.couchbase.com/ubuntu/couchbase.key | sudo apt-key add -" run
+     Changes:   
+              ----------
+              pid:
+                  23840
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  OK
+----------
+          ID: couchbase-pkg
+    Function: pkg.installed
+      Result: True
+     Comment: 3 targeted packages were installed/updated.
+     Changes:   
+              ----------
+              libcouchbase-dev:
+                  ----------
+                  new:
+                      2.3.2
+                  old:
+
+              libcouchbase2-core:
+                  ----------
+                  new:
+                      2.3.2
+                  old:
+
+              libcouchbase2-libevent:
+                  ----------
+                  new:
+                      2.3.2
+                  old:
+
+----------
+          ID: test-127.0.0.1
+    Function: cmd.run
+        Name: echo cluster member 127.0.0.1
+      Result: True
+     Comment: Command "echo cluster member 127.0.0.1" run
+     Changes:   
+              ----------
+              pid:
+                  26027
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  cluster member 127.0.0.1
+----------
+          ID: couchbase-src-salt
+    Function: file.directory
+        Name: /src-salt/couchbase
+      Result: True
+     Comment: Directory /src-salt/couchbase updated
+     Changes:   
+              ----------
+              /src-salt/couchbase:
+                  New Dir
+----------
+          ID: couchbase-requirements
+    Function: pkg.latest
+        Name: wget
+      Result: True
+     Comment: The following packages were successfully installed/upgraded: wget.
+     Changes:   
+              ----------
+              wget:
+                  ----------
+                  new:
+                      1.13.4-2ubuntu1.1
+                  old:
+                      1.13.4-2ubuntu1
+----------
+          ID: couchbase-requirements
+    Function: pkg.latest
+        Name: curl
+      Result: True
+     Comment: The following packages were successfully installed/upgraded: curl.
+     Changes:   
+              ----------
+              curl:
+                  ----------
+                  new:
+                      7.22.0-3ubuntu4.8
+                  old:
+                      7.22.0-3ubuntu4.3
+----------
+          ID: couchbase-get
+    Function: cmd.run
+        Name: curl -o /src-salt/couchbase/couchbase-server-enterprise_2.5.1_x86_64.deb http://packages.couchbase.com/releases/2.5.1/couchbase-server-enterprise_2.5.1_x86_64.deb
+      Result: True
+     Comment: Command "curl -o /src-salt/couchbase/couchbase-server-enterprise_2.5.1_x86_64.deb http://packages.couchbase.com/releases/2.5.1/couchbase-server-enterprise_2.5.1_x86_64.deb" run
+     Changes:   
+              ----------
+              pid:
+                  26605
+              retcode:
+                  0
+              stderr:
+                    % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                                   Dload  Upload   Total   Spent    Left  Speed
+100  134M  100  134M    0     0  3124k      0  0:00:44  0:00:44 --:--:-- 2774k
+              stdout:
+
+----------
+          ID: couchbase-install
+    Function: cmd.wait
+        Name: dpkg -i /src-salt/couchbase/couchbase-server-enterprise_2.5.1_x86_64.deb
+      Result: True
+     Comment: Command "dpkg -i /src-salt/couchbase/couchbase-server-enterprise_2.5.1_x86_64.deb" run
+     Changes:   
+              ----------
+              pid:
+                  26628
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  Selecting previously unselected package couchbase-server.
+                  (Reading database ... 60243 files and directories currently installed.)
+                  Unpacking couchbase-server (from .../couchbase-server-enterprise_2.5.1_x86_64.deb) ...
+                  libssl1* is installed. Continue installing
+                  Minimum RAM required  : 4 GB
+                  System RAM configured : 3840456 kB
+
+                  Minimum number of processors required : 4 cores
+                  Number of processors on the system    : 1 cores
+                  Setting up couchbase-server (2.5.1) ...
+                   * Started couchbase-server
+
+                  You have successfully installed Couchbase Server.
+                  Please browse to http://prod-couchbase-90cec0ba.fullscreenaws.net:8091/ to configure your server.
+                  Please refer to http://couchbase.com for additional resources.
+
+                  Please note that you have to update your firewall configuration to
+                  allow connections to the following ports: 11211, 11210, 11209, 4369,
+                  8091, 8092, 18091, 18092, 11214, 11215 and from 21100 to 21299.
+
+                  By using this software you agree to the End User License Agreement.
+                  See /opt/couchbase/LICENSE.txt.
+
+                  Processing triggers for ureadahead ...
+----------
+          ID: couchbase-server
+    Function: service.running
+      Result: True
+     Comment: The service couchbase-server is already running
+     Changes:   
+----------
+          ID: test
+    Function: cmd.run
+        Name: echo "127.0.0.1" >> /tmp/mem
+      Result: True
+     Comment: Command "echo "127.0.0.1" >> /tmp/mem" run
+     Changes:   
+              ----------
+              pid:
+                  26774
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+
+----------
+          ID: couchbase-cluster-init
+    Function: cmd.run
+        Name: sleep 10s; /opt/couchbase/bin/couchbase-cli cluster-init -c 127.0.0.1:8091 --cluster-init-port=8091 --cluster-init-username=Administrator --cluster-init-password=password --cluster-init-ramsize=3000 -u Administrator -p password
+      Result: True
+     Comment: Command "sleep 10s; /opt/couchbase/bin/couchbase-cli cluster-init -c 127.0.0.1:8091 --cluster-init-port=8091 --cluster-init-username=Administrator --cluster-init-password=password --cluster-init-ramsize=3000 -u Administrator -p password" run
+     Changes:   
+              ----------
+              pid:
+                  26812
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  SUCCESS: init 127.0.0.1
+----------
+          ID: couchbase-cluster-add
+    Function: cmd.run
+        Name: sleep 10s; /opt/couchbase/bin/couchbase-cli server-add -c 127.0.0.1:8091 -u Administrator -p password --server-add=10.X.12.183:8091 --server-add-username=Administrator --server-add-password=password
+      Result: True
+     Comment: unless execution succeeded
+     Changes:   
+----------
+          ID: couchbase-cluster-bucket
+    Function: cmd.run
+        Name: sleep 10s; /opt/couchbase/bin/couchbase-cli bucket-create -c 127.0.0.1:8091 --bucket=default --bucket-type=memcached --bucket-ramsize=3000 --bucket-replica=0 -u Administrator -p password
+      Result: True
+     Comment: unless execution succeeded
+     Changes:   
+----------
+          ID: couchbase-cluster-rebalance
+    Function: cmd.wait
+        Name: sleep 10s; /opt/couchbase/bin/couchbase-cli rebalance -c 127.0.0.1:8091  -u Administrator -p password
+      Result: True
+     Comment: 
+     Changes:   
+
+Summary
+--------------
+Succeeded: 164
+Failed:      0
+--------------
+Total:     164
+```
+
+And the output of a second run:
+
+```
+root@prod-couchbase-90cec0ba:~# salt-call state.sls couchbase.server
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://couchbase/server.sls'
+[INFO    ] Publishing 'network.ip_addrs' to tcp://10.X.1.219:4506
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://couchbase/common.sls'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://build_tools/init.sls'
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://build-essential/init.sls'
+[INFO    ] Running state [build-essential] at time 19:38:18.387754
+[INFO    ] Executing state pkg.latest for build-essential
+[INFO    ] Executing command "dpkg-query --showformat='${Status} ${Package} ${Version} ${Architecture}\n' -W" in directory '/root'
+[INFO    ] Executing command 'grep-available -F Provides -s Package,Provides -e "^.+$"' in directory '/root'
+[INFO    ] Executing command 'apt-get -q update' in directory '/root'
+[INFO    ] Executing command ['apt-cache', '-q', 'policy', 'build-essential'] in directory '/root'
+[INFO    ] Executing command "dpkg --compare-versions '11.5ubuntu2.1' lt '11.5ubuntu2.1'" in directory '/root'
+[INFO    ] Executing command "dpkg --compare-versions '11.5ubuntu2.1' eq '11.5ubuntu2.1'" in directory '/root'
+[INFO    ] Package build-essential is already up-to-date.
+[INFO    ] Completed state [build-essential] at time 19:38:27.258345
+[INFO    ] Running state [build_tools] at time 19:38:27.259097
+[INFO    ] Executing state pkg.installed for build_tools
+[INFO    ] All specified packages are already installed.
+[INFO    ] Completed state [build_tools] at time 19:38:27.275045
+[INFO    ] Running state [couchbase-dependencies] at time 19:38:27.275321
+[INFO    ] Executing state pkg.installed for couchbase-dependencies
+[INFO    ] All specified packages are already installed.
+[INFO    ] Completed state [couchbase-dependencies] at time 19:38:27.277744
+[INFO    ] Running state [/etc/apt/sources.list.d/couchbase.list] at time 19:38:27.288279
+[INFO    ] Executing state file.managed for /etc/apt/sources.list.d/couchbase.list
+[INFO    ] File /etc/apt/sources.list.d/couchbase.list is in the correct state
+[INFO    ] Completed state [/etc/apt/sources.list.d/couchbase.list] at time 19:38:27.728150
+[INFO    ] Running state [wget -qO- http://packages.couchbase.com/ubuntu/couchbase.key | sudo apt-key add -] at time 19:38:27.728692
+[INFO    ] Executing state cmd.wait for wget -qO- http://packages.couchbase.com/ubuntu/couchbase.key | sudo apt-key add -
+[INFO    ] No changes made for wget -qO- http://packages.couchbase.com/ubuntu/couchbase.key | sudo apt-key add -
+[INFO    ] Completed state [wget -qO- http://packages.couchbase.com/ubuntu/couchbase.key | sudo apt-key add -] at time 19:38:27.730853
+[INFO    ] Running state [couchbase-pkg] at time 19:38:27.731312
+[INFO    ] Executing state pkg.installed for couchbase-pkg
+[INFO    ] All specified packages are already installed.
+[INFO    ] Completed state [couchbase-pkg] at time 19:38:27.733401
+[INFO    ] Running state [echo cluster member 10.X.11.73] at time 19:38:27.733653
+[INFO    ] Executing state cmd.run for echo cluster member 10.X.11.73
+[INFO    ] Executing command 'echo cluster member 10.X.11.73' in directory '/root'
+[INFO    ] stdout: cluster member 10.X.11.73
+[INFO    ] {'pid': 1642, 'retcode': 0, 'stderr': '', 'stdout': 'cluster member 10.X.11.73'}
+[INFO    ] Completed state [echo cluster member 10.X.11.73] at time 19:38:27.772297
+[INFO    ] Running state [/src-salt/couchbase] at time 19:38:27.773005
+[INFO    ] Executing state file.directory for /src-salt/couchbase
+[INFO    ] Directory /src-salt/couchbase is in the correct state
+[INFO    ] Completed state [/src-salt/couchbase] at time 19:38:27.785056
+[INFO    ] Running state [wget] at time 19:38:27.786341
+[INFO    ] Executing state pkg.latest for wget
+[INFO    ] Executing command ['apt-cache', '-q', 'policy', 'wget'] in directory '/root'
+[INFO    ] Executing command "dpkg --compare-versions '1.13.4-2ubuntu1.1' lt '1.13.4-2ubuntu1.1'" in directory '/root'
+[INFO    ] Executing command "dpkg --compare-versions '1.13.4-2ubuntu1.1' eq '1.13.4-2ubuntu1.1'" in directory '/root'
+[INFO    ] Package wget is already up-to-date.
+[INFO    ] Completed state [wget] at time 19:38:27.937656
+[INFO    ] Running state [curl] at time 19:38:27.938382
+[INFO    ] Executing state pkg.latest for curl
+[INFO    ] Executing command ['apt-cache', '-q', 'policy', 'curl'] in directory '/root'
+[INFO    ] Executing command "dpkg --compare-versions '7.22.0-3ubuntu4.8' lt '7.22.0-3ubuntu4.8'" in directory '/root'
+[INFO    ] Executing command "dpkg --compare-versions '7.22.0-3ubuntu4.8' eq '7.22.0-3ubuntu4.8'" in directory '/root'
+[INFO    ] Package curl is already up-to-date.
+[INFO    ] Completed state [curl] at time 19:38:28.085488
+[INFO    ] Running state [curl -o /src-salt/couchbase/couchbase-server-enterprise_2.5.1_x86_64.deb http://packages.couchbase.com/releases/2.5.1/couchbase-server-enterprise_2.5.1_x86_64.deb] at time 19:38:28.094705
+[INFO    ] Executing state cmd.run for curl -o /src-salt/couchbase/couchbase-server-enterprise_2.5.1_x86_64.deb http://packages.couchbase.com/releases/2.5.1/couchbase-server-enterprise_2.5.1_x86_64.deb
+[INFO    ] Executing command 'test -f /src-salt/couchbase/couchbase-server-enterprise_2.5.1_x86_64.deb' in directory '/root'
+[INFO    ] output: 
+[INFO    ] unless execution succeeded
+[INFO    ] Completed state [curl -o /src-salt/couchbase/couchbase-server-enterprise_2.5.1_x86_64.deb http://packages.couchbase.com/releases/2.5.1/couchbase-server-enterprise_2.5.1_x86_64.deb] at time 19:38:28.130925
+[INFO    ] Running state [dpkg -i /src-salt/couchbase/couchbase-server-enterprise_2.5.1_x86_64.deb] at time 19:38:28.132601
+[INFO    ] Executing state cmd.wait for dpkg -i /src-salt/couchbase/couchbase-server-enterprise_2.5.1_x86_64.deb
+[INFO    ] No changes made for dpkg -i /src-salt/couchbase/couchbase-server-enterprise_2.5.1_x86_64.deb
+[INFO    ] Completed state [dpkg -i /src-salt/couchbase/couchbase-server-enterprise_2.5.1_x86_64.deb] at time 19:38:28.145256
+[INFO    ] Running state [couchbase-server] at time 19:38:28.145844
+[INFO    ] Executing state service.running for couchbase-server
+[INFO    ] Executing command 'runlevel /run/utmp' in directory '/root'
+[INFO    ] output: N 2
+[INFO    ] Executing command 'service couchbase-server status' in directory '/root'
+[INFO    ] output:  * couchbase-server is running
+[INFO    ] The service couchbase-server is already running
+[INFO    ] Completed state [couchbase-server] at time 19:38:28.267123
+[INFO    ] Running state [echo "10.X.11.73" >> /tmp/mem] at time 19:38:28.267978
+[INFO    ] Executing state cmd.run for echo "10.X.11.73" >> /tmp/mem
+[INFO    ] Executing command 'echo "10.X.11.73" >> /tmp/mem' in directory '/root'
+[INFO    ] {'pid': 1662, 'retcode': 0, 'stderr': '', 'stdout': ''}
+[INFO    ] Completed state [echo "10.X.11.73" >> /tmp/mem] at time 19:38:28.312907
+[INFO    ] Running state [sleep 10s; /opt/couchbase/bin/couchbase-cli cluster-init -c 10.X.12.183:8091 --cluster-init-port=8091 --cluster-init-username=Administrator --cluster-init-password=password --cluster-init-ramsize=3000 -u Administrator -p password] at time 19:38:28.314359
+[INFO    ] Executing state cmd.run for sleep 10s; /opt/couchbase/bin/couchbase-cli cluster-init -c 10.X.12.183:8091 --cluster-init-port=8091 --cluster-init-username=Administrator --cluster-init-password=password --cluster-init-ramsize=3000 -u Administrator -p password
+[INFO    ] Executing command 'sleep 10 && /opt/couchbase/bin/couchbase-cli server-list -c 10.X.11.73:8091 -u Administrator -p password | grep "healthy active" | grep \'10.X.11.73\'' in directory '/root'
+[INFO    ] output: ns_1@127.0.0.1 10.X.11.73:8091 healthy active
+[INFO    ] unless execution succeeded
+[INFO    ] Completed state [sleep 10s; /opt/couchbase/bin/couchbase-cli cluster-init -c 10.X.12.183:8091 --cluster-init-port=8091 --cluster-init-username=Administrator --cluster-init-password=password --cluster-init-ramsize=3000 -u Administrator -p password] at time 19:38:38.484803
+[INFO    ] Running state [sleep 10s; /opt/couchbase/bin/couchbase-cli server-add -c 10.X.11.73:8091 -u Administrator -p password --server-add=10.X.12.183:8091 --server-add-username=Administrator --server-add-password=password] at time 19:38:38.498075
+[INFO    ] Executing state cmd.run for sleep 10s; /opt/couchbase/bin/couchbase-cli server-add -c 10.X.11.73:8091 -u Administrator -p password --server-add=10.X.12.183:8091 --server-add-username=Administrator --server-add-password=password
+[INFO    ] Executing command "sleep 10 && /opt/couchbase/bin/couchbase-cli server-list -c 10.X.11.73:8091  -u Administrator -p password | grep '10.X.12.183'" in directory '/root'
+[ERROR   ] Command "sleep 10 && /opt/couchbase/bin/couchbase-cli server-list -c 10.X.11.73:8091  -u Administrator -p password | grep '10.X.12.183'" failed with return code: 1
+[ERROR   ] output: 
+[INFO    ] Executing command 'sleep 10s; /opt/couchbase/bin/couchbase-cli server-add -c 10.X.11.73:8091 -u Administrator -p password --server-add=10.X.12.183:8091 --server-add-username=Administrator --server-add-password=password' in directory '/root'
+[INFO    ] stdout: SUCCESS: server-add 10.X.12.183:8091
+[INFO    ] {'pid': 1674, 'retcode': 0, 'stderr': '', 'stdout': 'SUCCESS: server-add 10.X.12.183:8091'}
+[INFO    ] Completed state [sleep 10s; /opt/couchbase/bin/couchbase-cli server-add -c 10.X.11.73:8091 -u Administrator -p password --server-add=10.X.12.183:8091 --server-add-username=Administrator --server-add-password=password] at time 19:38:59.582006
+[INFO    ] Running state [sleep 10s; /opt/couchbase/bin/couchbase-cli bucket-create -c 127.0.0.1:8091 --bucket=default --bucket-type=memcached --bucket-ramsize=3000 --bucket-replica=0 -u Administrator -p password] at time 19:38:59.583088
+[INFO    ] Executing state cmd.run for sleep 10s; /opt/couchbase/bin/couchbase-cli bucket-create -c 127.0.0.1:8091 --bucket=default --bucket-type=memcached --bucket-ramsize=3000 --bucket-replica=0 -u Administrator -p password
+[INFO    ] Executing command 'sleep 10 && /opt/couchbase/bin/couchbase-cli bucket-list -c 10.X.11.73:8091 -u Administrator -p password | grep bucketType' in directory '/root'
+[INFO    ] output:  bucketType: memcached
+[INFO    ] unless execution succeeded
+[INFO    ] Completed state [sleep 10s; /opt/couchbase/bin/couchbase-cli bucket-create -c 127.0.0.1:8091 --bucket=default --bucket-type=memcached --bucket-ramsize=3000 --bucket-replica=0 -u Administrator -p password] at time 19:39:09.792613
+[INFO    ] Running state [sleep 10s; /opt/couchbase/bin/couchbase-cli rebalance -c 10.X.11.73:8091  -u Administrator -p password] at time 19:39:09.794701
+[INFO    ] Executing state cmd.wait for sleep 10s; /opt/couchbase/bin/couchbase-cli rebalance -c 10.X.11.73:8091  -u Administrator -p password
+[INFO    ] No changes made for sleep 10s; /opt/couchbase/bin/couchbase-cli rebalance -c 10.X.11.73:8091  -u Administrator -p password
+[INFO    ] Completed state [sleep 10s; /opt/couchbase/bin/couchbase-cli rebalance -c 10.X.11.73:8091  -u Administrator -p password] at time 19:39:09.810460
+[INFO    ] Running state [sleep 10s; /opt/couchbase/bin/couchbase-cli rebalance -c 10.X.11.73:8091  -u Administrator -p password] at time 19:39:09.810720
+[INFO    ] Executing state cmd.mod_watch for sleep 10s; /opt/couchbase/bin/couchbase-cli rebalance -c 10.X.11.73:8091  -u Administrator -p password
+[INFO    ] Executing command '/opt/couchbase/bin/couchbase-cli rebalance-status -c 10.X.11.73:8091 -u Administrator -p password | grep None' in directory '/root'
+[INFO    ] output: (u'none', None)
+[INFO    ] Executing command 'sleep 10s; /opt/couchbase/bin/couchbase-cli rebalance -c 10.X.11.73:8091  -u Administrator -p password' in directory '/root'
+[INFO    ] stdout: INFO: rebalancing . 
+SUCCESS: rebalanced cluster
+[INFO    ] {'pid': 1715, 'retcode': 0, 'stderr': '', 'stdout': 'INFO: rebalancing . \nSUCCESS: rebalanced cluster'}
+[INFO    ] Completed state [sleep 10s; /opt/couchbase/bin/couchbase-cli rebalance -c 10.X.11.73:8091  -u Administrator -p password] at time 19:39:20.665285
+local:
+----------
+          ID: build-essential
+    Function: pkg.latest
+      Result: True
+     Comment: Package build-essential is already up-to-date.
+     Changes:   
+----------
+          ID: build_tools
+    Function: pkg.installed
+      Result: True
+     Comment: All specified packages are already installed.
+     Changes:   
+----------
+          ID: couchbase-dependencies
+    Function: pkg.installed
+      Result: True
+     Comment: All specified packages are already installed.
+     Changes:   
+----------
+          ID: /etc/apt/sources.list.d/couchbase.list
+    Function: file.managed
+      Result: True
+     Comment: File /etc/apt/sources.list.d/couchbase.list is in the correct state
+     Changes:   
+----------
+          ID: /etc/apt/sources.list.d/couchbase.list
+    Function: cmd.wait
+        Name: wget -qO- http://packages.couchbase.com/ubuntu/couchbase.key | sudo apt-key add -
+      Result: True
+     Comment: 
+     Changes:   
+----------
+          ID: couchbase-pkg
+    Function: pkg.installed
+      Result: True
+     Comment: All specified packages are already installed.
+     Changes:   
+----------
+          ID: test-10.X.11.73
+    Function: cmd.run
+        Name: echo cluster member 10.X.11.73
+      Result: True
+     Comment: Command "echo cluster member 10.X.11.73" run
+     Changes:   
+              ----------
+              pid:
+                  1642
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  cluster member 10.X.11.73
+----------
+          ID: couchbase-src-salt
+    Function: file.directory
+        Name: /src-salt/couchbase
+      Result: True
+     Comment: Directory /src-salt/couchbase is in the correct state
+     Changes:   
+----------
+          ID: couchbase-requirements
+    Function: pkg.latest
+        Name: wget
+      Result: True
+     Comment: Package wget is already up-to-date.
+     Changes:   
+----------
+          ID: couchbase-requirements
+    Function: pkg.latest
+        Name: curl
+      Result: True
+     Comment: Package curl is already up-to-date.
+     Changes:   
+----------
+          ID: couchbase-get
+    Function: cmd.run
+        Name: curl -o /src-salt/couchbase/couchbase-server-enterprise_2.5.1_x86_64.deb http://packages.couchbase.com/releases/2.5.1/couchbase-server-enterprise_2.5.1_x86_64.deb
+      Result: True
+     Comment: unless execution succeeded
+     Changes:   
+----------
+          ID: couchbase-install
+    Function: cmd.wait
+        Name: dpkg -i /src-salt/couchbase/couchbase-server-enterprise_2.5.1_x86_64.deb
+      Result: True
+     Comment: 
+     Changes:   
+----------
+          ID: couchbase-server
+    Function: service.running
+      Result: True
+     Comment: The service couchbase-server is already running
+     Changes:   
+----------
+          ID: test
+    Function: cmd.run
+        Name: echo "10.X.11.73" >> /tmp/mem
+      Result: True
+     Comment: Command "echo "10.X.11.73" >> /tmp/mem" run
+     Changes:   
+              ----------
+              pid:
+                  1662
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+
+----------
+          ID: couchbase-cluster-init
+    Function: cmd.run
+        Name: sleep 10s; /opt/couchbase/bin/couchbase-cli cluster-init -c 10.X.12.183:8091 --cluster-init-port=8091 --cluster-init-username=Administrator --cluster-init-password=password --cluster-init-ramsize=3000 -u Administrator -p password
+      Result: True
+     Comment: unless execution succeeded
+     Changes:   
+----------
+          ID: couchbase-cluster-add
+    Function: cmd.run
+        Name: sleep 10s; /opt/couchbase/bin/couchbase-cli server-add -c 10.X.11.73:8091 -u Administrator -p password --server-add=10.X.12.183:8091 --server-add-username=Administrator --server-add-password=password
+      Result: True
+     Comment: Command "sleep 10s; /opt/couchbase/bin/couchbase-cli server-add -c 10.X.11.73:8091 -u Administrator -p password --server-add=10.X.12.183:8091 --server-add-username=Administrator --server-add-password=password" run
+     Changes:   
+              ----------
+              pid:
+                  1674
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  SUCCESS: server-add 10.X.12.183:8091
+----------
+          ID: couchbase-cluster-bucket
+    Function: cmd.run
+        Name: sleep 10s; /opt/couchbase/bin/couchbase-cli bucket-create -c 127.0.0.1:8091 --bucket=default --bucket-type=memcached --bucket-ramsize=3000 --bucket-replica=0 -u Administrator -p password
+      Result: True
+     Comment: unless execution succeeded
+     Changes:   
+----------
+          ID: couchbase-cluster-rebalance
+    Function: cmd.wait
+        Name: sleep 10s; /opt/couchbase/bin/couchbase-cli rebalance -c 10.X.11.73:8091  -u Administrator -p password
+      Result: True
+     Comment: Command "sleep 10s; /opt/couchbase/bin/couchbase-cli rebalance -c 10.X.11.73:8091  -u Administrator -p password" run
+     Changes:   
+              ----------
+              pid:
+                  1715
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  INFO: rebalancing . 
+                  SUCCESS: rebalanced cluster
+
+Summary
+-------------
+Succeeded: 18
+Failed:     0
+-------------
+Total:     18
+
+```

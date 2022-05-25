@@ -1,0 +1,63 @@
+I've been having a look at how the file.\* functions work under Windows, and I've found that file.replace, with args to replace 'charlie' to 'charlie2', turns -
+
+_File 1_
+
+``` text
+alpha<CR><LF>
+bravo<CR><LF>
+charlie<CR><LF>
+delta<CR><LF>
+echo
+```
+
+... into
+
+_File 2_
+
+``` text
+alpha<CR>
+<CR><LF>
+bravo<CR>
+<CR><LF>
+charlie2<CR>
+<CR><LF>
+delta<CR>
+<CR><LF>
+echo
+```
+
+I've narrowed this down to what seems like a Python bug with the fileinput module, but I'm nowhere near certain. Below is the script I'm using to reproduce this behaviour, derived from the code used by Salt's file.replace with unimportant bits stripped out.
+
+``` py
+from __future__ import print_function
+
+import fileinput
+import re
+import sys
+
+
+def test_fileinput(path, pattern, repl):
+    fi_file = fileinput.input(path,
+                    inplace=True,
+                    backup='.bak',
+                    bufsize=1,
+                    mode='rb')
+    count = 0
+    cpattern = re.compile(pattern)  # no flags
+
+    for line in fi_file:
+        result, nrepl = re.subn(cpattern, repl, line, count)
+
+        print(result, end='', file=sys.stdout)
+        print(repr(result), file=sys.stderr)
+
+    fi_file.close()
+
+
+if __name__ == '__main__':
+    test_fileinput(sys.argv[1], sys.argv[2], sys.argv[3])
+```
+
+Running _file 1_ through this script, with the args 'charlie' to 'charlie2', results in _file 2_. If the `mode` argument to `fileinput.input` in the script above is `r` instead of `rb` then it works as expected.
+
+I think it is due to the file being opened in text mode for writing, while being open in binary mode for reading. Looking at the code for the fileinput module (Python built-in) it seems like when `inplace=True`, the output file is always opened in text mode. _Is this a Python bug?_

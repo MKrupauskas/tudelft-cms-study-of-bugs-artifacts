@@ -1,0 +1,82 @@
+Please refer to [this comment](https://github.com/saltstack/salt/issues/55262#issuecomment-617190270) for the actual root issue.
+
+### Original bug report
+Debian Buster has switched to `iptables-nft` as default. However if anything on the system adds iptables rules (in my case it's the Concourse build server, but simply installing docker.io on Debian Buster will probably suffice to see the problem in action), iptables-nft will output the following message:
+
+```
+$ iptables -L -v -n
+[...]
+Chain DOCKER-USER (1 references)
+target     prot opt source               destination
+RETURN     all  --  anywhere             anywhere
+# Warning: iptables-legacy tables present, use iptables-legacy to see them
+```
+
+This leads to the following exception:
+
+```
+          ID: opensmtpd-relay-out465-send
+    Function: iptables.append
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/salt/state.py", line 1933, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 1951, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/states/iptables.py", line 442, in append
+                  _rules = __salt__['iptables.get_rules'](family=family)
+                File "/usr/lib/python3/dist-packages/salt/modules/iptables.py line 578, in get_rules
+                  return _parse_conf(in_mem=True, family=family)
+                File "/usr/lib/python3/dist-packages/salt/modules/iptables.py", line 1048, in _parse_conf
+                  ret[table][chain[0]]['rules'].append(ret_args)
+              KeyError: 'OUTP# Warning: iptables-legacy tables present, use iptables-legacy-save to see them'
+```
+
+### Steps to Reproduce Issue
+1. Use any distro that has switched to iptables-nft
+2. Add an iptables rule using the `iptables-legacy` command
+3. (updated 2020-04-21) Flush and rerun iptables states often enough until stderr output ends up in one of the parameters parsed by the iptables state and observe the state fail.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2019.2.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.11
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.7.3 (default, Apr  3 2019, 05:39:12)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: 2.0.5
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+
+System Versions:
+           dist: debian 10.1
+         locale: UTF-8
+        machine: x86_64
+        release: 4.19.0-6-amd64
+         system: Linux
+        version: debian 10.1
+```

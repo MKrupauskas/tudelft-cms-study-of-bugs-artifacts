@@ -1,0 +1,194 @@
+### Description of Issue/Question
+I get an `AuthenticationError` when using the `local` type of reactor. Below is a simple setup I use. I have more complex `runner` reactions and they work just fine.
+
+### Setup
+In the `salt-master` configuration I have these lines:
+```yaml
+  reactor:
+  - 'nginx/cert/update':
+    - $ROOT/reactors/nginx/cert-update.sls
+```
+The `reactors/nginx/cert-update.sls` file looks like this:
+```yaml
+  {% set d = data %}
+  {% if data.get('data') %}
+  {% set d = data['data'] %}
+  {% endif %}
+
+  nginx update cert:
+    local.state.apply:
+      - tgt: '{{ d.tgt }}'
+      - args:
+          - mods: {{ d.sls_name }}
+```
+
+### Steps to Reproduce Issue
+I just send the event manually:
+```bash
+  salt -c _all '<machine>' event.send nginx/cert/update data='{tgt: <tgt-machine>, sls_name: <some-sls-name>}'
+```
+
+Here is what I get at the `salt-master` debug:
+```
+  [DEBUG   ] Gathering reactors for tag nginx/cert/update
+  [DEBUG   ] Compiling reactions for tag nginx/cert/update
+  [DEBUG   ] compile template: /root/ODOO/SALT/reactors/nginx/cert-update.sls
+  [DEBUG   ] Jinja search path: ['/root/ODOO/SALT/infect/var/cache/salt/master/files/base']
+  [DEBUG   ] LazyLoaded roots.envs
+  [DEBUG   ] Could not LazyLoad roots.init: 'roots.init' is not available.
+  [PROFILE ] Time (in seconds) to render '/root/ODOO/SALT/reactors/nginx/cert-update.sls' using 'jinja' renderer: 0.09591412544250488
+  [DEBUG   ] Rendered data from file: /root/ODOO/SALT/reactors/nginx/cert-update.sls:
+
+
+
+
+
+  nginx update cert:
+    local.state.apply:
+      - tgt: 'mb-transip-odoo-1'
+      - args:
+          - mods: odoos.odoo-10-hollandbio
+
+  [DEBUG   ] Results of YAML rendering:
+  OrderedDict([('nginx update cert', OrderedDict([('local.state.apply', [OrderedDict([('tgt', 'mb-transip-odoo-1')]), OrderedDict([('args', [OrderedDict([('mods', 'odoos.odoo-10-hollandbio')])])])])]))])
+  [PROFILE ] Time (in seconds) to render '/root/ODOO/SALT/reactors/nginx/cert-update.sls' using 'yaml' renderer: 0.005499124526977539
+  [DEBUG   ] Reactor is populating local client cache
+  [DEBUG   ] Reading configuration from /root/ODOO/SALT/infect/_all/master
+  [DEBUG   ] Using cached minion ID from ./etc/salt/minion_id: pyproject.ninja
+  [DEBUG   ] Reading configuration from /root/.saltrc
+  [DEBUG   ] MasterEvent PUB socket URI: 4512
+  [DEBUG   ] MasterEvent PULL socket URI: 4513
+  [DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/master', 'pyproject.ninja_master', 'tcp://127.0.0.1:4506', 'clear')
+  [DEBUG   ] Connecting the Minion to the Master URI (for the return server): tcp://127.0.0.1:4506
+  [DEBUG   ] Trying to connect to: tcp://127.0.0.1:4506
+  [WARNING ] Authentication failure of type "user" occurred.
+  [WARNING ] Authentication failure of type "user" occurred.
+  [ERROR   ] Reactor 'nginx update cert' failed to execute local 'state.apply'
+  Traceback (most recent call last):
+    File "/usr/local/lib/python3.6/dist-packages/salt/client/__init__.py", line 346, in run_job
+      **kwargs)
+    File "/usr/local/lib/python3.6/dist-packages/salt/client/__init__.py", line 1868, in pub
+      raise AuthenticationError(err_msg)
+  salt.exceptions.AuthenticationError: Authentication error occurred.
+
+  During handling of the above exception, another exception occurred:
+
+  Traceback (most recent call last):
+    File "/usr/local/lib/python3.6/dist-packages/salt/utils/reactor.py", line 415, in run
+      l_fun(*args, **kwargs)
+    File "/usr/local/lib/python3.6/dist-packages/salt/utils/reactor.py", line 442, in local
+      self.client_cache['local'].cmd_async(tgt, fun, **kwargs)
+    File "/usr/local/lib/python3.6/dist-packages/salt/client/__init__.py", line 472, in cmd_async
+      **kwargs)
+    File "/usr/local/lib/python3.6/dist-packages/salt/client/__init__.py", line 353, in run_job
+      raise AuthenticationError(err)
+  salt.exceptions.AuthenticationError: Authentication error occurred.
+```
+
+Relevant events that are printed:
+```
+salt/job/20181107080301723743/new       {
+  "_stamp": "2018-11-07T08:03:01.725539",
+  "arg": [
+    "nginx/cert/update",
+    {"__kwarg__": true, "data":
+      {"sls_name": "odoos.odoo-10-hollandbio", "tgt": "mb-transip-odoo-1"}
+    }
+  ], "fun": "event.send",
+  "jid": "20181107080301723743",
+  "minions": ["mb-transip-odoo-1"],
+  "missing": [],
+  "tgt": "mb-transip-odoo-1",
+  "tgt_type": "glob",
+  "user": "root"
+}
+nginx/cert/update       {                                                                                                                                                                                 [1101/1859]
+    "_stamp": "2018-11-07T08:03:01.797898",
+    "cmd": "_minion_event",
+    "data": {
+        "__pub_arg": [
+            "nginx/cert/update",
+            {
+                "data": {
+                    "sls_name": "odoos.odoo-10-hollandbio",
+                    "tgt": "mb-transip-odoo-1"
+                }
+            }
+        ],
+        "__pub_fun": "event.send",
+        "__pub_jid": "20181107080301723743",
+        "__pub_ret": "",
+        "__pub_tgt": "mb-transip-odoo-1",
+        "__pub_tgt_type": "glob",
+        "__pub_user": "root",
+        "sls_name": "odoos.odoo-10-hollandbio",
+        "tgt": "mb-transip-odoo-1"
+    },
+    "id": "mb-transip-odoo-1",
+    "pretag": null,
+    "tag": "nginx/cert/update"
+}
+salt/job/20181107080301723743/ret/mb-transip-odoo-1     {
+    "_stamp": "2018-11-07T08:03:01.798493",
+    "cmd": "_return",
+    "fun": "event.send",
+    "fun_args": [
+        "nginx/cert/update",
+        {
+            "data": {
+                "sls_name": "odoos.odoo-10-hollandbio",
+                "tgt": "mb-transip-odoo-1"
+            }
+        }
+    ],
+    "id": "mb-transip-odoo-1",
+    "jid": "20181107080301723743",
+    "retcode": 0,
+    "return": true,
+    "success": true
+}
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.3
+ 
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: 2.7.5
+      docker-py: 3.5.1
+          gitdb: 2.0.3
+      gitpython: 2.1.9
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.5 (default, Apr  1 2018, 05:46:30)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.2
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.93-mainline-rev1
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```

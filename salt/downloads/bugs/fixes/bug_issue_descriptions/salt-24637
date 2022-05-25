@@ -1,0 +1,333 @@
+# Description:
+
+If the minion starts up on a Windows machine that has a clock that is considerably incorrect, then the minion will connect to the master multiple times without closing any previous connections.  So, in the span of an hour my master can have 20-40 open connections to the same minion.  If I shut down the minion, the connections stay active on the master - possibly indefinitely (I've had them last overnight)!  I actually have to bounce the master service to terminate the connections.
+## Notes:
+1. Minion never produced a log file even though `log_level_logfile` was set to 'debug' in the conf file.
+2. I did capture Minion output after starting it in the foreground in debug (and in an administrative command prompt) - see **Traces** section below.
+3. After the Minion ran to the end of the debug trace, I could only terminate it by closing the Windows command prompt - a CTRL-C would not stop it.
+# Versions:
+## Master on Ubuntu 14.04:
+
+```
+root@ops-deploy:~# salt --versions-report
+                  Salt: 2014.7.5
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2014.7.5+ds-1ubuntu1
+```
+## Minion on Windows 7 (fully patched):
+
+```
+c:\salt>salt-call --versions
+           Salt: 2014.7.5
+         Python: 2.7.8 (default, Jun 30 2014, 16:08:48) [MSC v.1500 64 bit (AMD64)]
+         Jinja2: 2.7.3
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.5
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+```
+# To reproduce:
+1. Install Master on Ubuntu 14.04 and configure Master to auto-accept all connections.
+2. Boot Win7 machine into BIOS and change the clock to a very inaccurate time (i.e. years?).
+3. Allow Win7 to boot, then install Minion.
+4. Start Minion in foreground with debug.  You will observe trace 1, below.
+5. Observing the log on the Master machine will show you trace 2, below.
+6. Running `netstat -naput` on the Master machine will show you trace 3, below.
+# Traces:
+## Minion Debug:
+
+```
+c:\salt>salt-minion-debug.bat
+The salt-minion service is not started.
+
+More help is available by typing NET HELPMSG 3521.
+
+[DEBUG   ] Reading configuration from c:\salt\conf\minion
+[DEBUG   ] Using cached minion ID from c:\salt\conf\minion_id: TARGET
+[DEBUG   ] Configuration file path: c:\salt\conf\minion
+[INFO    ] Setting up the Salt Minion "TARGET"
+Traceback (most recent call last):
+  File "c:\salt\bin\lib\logging\__init__.py", line 859, in emit
+    msg = self.format(record)
+  File "c:\salt\bin\lib\site-packages\salt\log\mixins.py", line 82, in format
+    formatted_record = super(ExcInfoOnLogLevelFormatMixIn, self).format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 732, in format
+    return fmt.format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 473, in format
+    record.asctime = self.formatTime(record, self.datefmt)
+  File "c:\salt\bin\lib\logging\__init__.py", line 429, in formatTime
+    ct = self.converter(record.created)
+ValueError: (22, 'Invalid argument')
+Logged from file __init__.py, line 222
+[DEBUG   ] Created pidfile: c:\salt\var\run\salt-minion.pid
+Traceback (most recent call last):
+  File "c:\salt\bin\lib\logging\__init__.py", line 859, in emit
+    msg = self.format(record)
+  File "c:\salt\bin\lib\site-packages\salt\log\mixins.py", line 82, in format
+    formatted_record = super(ExcInfoOnLogLevelFormatMixIn, self).format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 732, in format
+    return fmt.format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 473, in format
+    record.asctime = self.formatTime(record, self.datefmt)
+  File "c:\salt\bin\lib\logging\__init__.py", line 429, in formatTime
+    ct = self.converter(record.created)
+ValueError: (22, 'Invalid argument')
+Logged from file process.py, line 47
+[DEBUG   ] Reading configuration from c:\salt\conf\minion
+Traceback (most recent call last):
+  File "c:\salt\bin\lib\logging\__init__.py", line 859, in emit
+    msg = self.format(record)
+  File "c:\salt\bin\lib\site-packages\salt\log\mixins.py", line 82, in format
+    formatted_record = super(ExcInfoOnLogLevelFormatMixIn, self).format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 732, in format
+    return fmt.format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 473, in format
+    record.asctime = self.formatTime(record, self.datefmt)
+  File "c:\salt\bin\lib\logging\__init__.py", line 429, in formatTime
+    ct = self.converter(record.created)
+ValueError: (22, 'Invalid argument')
+Logged from file config.py, line 701
+[DEBUG   ] Attempting to authenticate with the Salt Master at 10.16.19.234
+Traceback (most recent call last):
+  File "c:\salt\bin\lib\logging\__init__.py", line 859, in emit
+    msg = self.format(record)
+  File "c:\salt\bin\lib\site-packages\salt\log\mixins.py", line 82, in format
+    formatted_record = super(ExcInfoOnLogLevelFormatMixIn, self).format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 732, in format
+    return fmt.format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 473, in format
+    record.asctime = self.formatTime(record, self.datefmt)
+  File "c:\salt\bin\lib\logging\__init__.py", line 429, in formatTime
+    ct = self.converter(record.created)
+ValueError: (22, 'Invalid argument')
+Logged from file minion.py, line 1367
+[DEBUG   ] Loaded minion key: c:\salt\conf\pki\minion\minion.pem
+Traceback (most recent call last):
+  File "c:\salt\bin\lib\logging\__init__.py", line 859, in emit
+    msg = self.format(record)
+  File "c:\salt\bin\lib\site-packages\salt\log\mixins.py", line 82, in format
+    formatted_record = super(ExcInfoOnLogLevelFormatMixIn, self).format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 732, in format
+    return fmt.format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 473, in format
+    record.asctime = self.formatTime(record, self.datefmt)
+  File "c:\salt\bin\lib\logging\__init__.py", line 429, in formatTime
+    ct = self.converter(record.created)
+ValueError: (22, 'Invalid argument')
+Logged from file crypt.py, line 329
+[DEBUG   ] Decrypting the current master AES key
+Traceback (most recent call last):
+  File "c:\salt\bin\lib\logging\__init__.py", line 859, in emit
+    msg = self.format(record)
+  File "c:\salt\bin\lib\site-packages\salt\log\mixins.py", line 82, in format
+    formatted_record = super(ExcInfoOnLogLevelFormatMixIn, self).format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 732, in format
+    return fmt.format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 473, in format
+    record.asctime = self.formatTime(record, self.datefmt)
+  File "c:\salt\bin\lib\logging\__init__.py", line 429, in formatTime
+    ct = self.converter(record.created)
+ValueError: (22, 'Invalid argument')
+Logged from file crypt.py, line 404
+[DEBUG   ] Loaded minion key: c:\salt\conf\pki\minion\minion.pem
+Traceback (most recent call last):
+  File "c:\salt\bin\lib\logging\__init__.py", line 859, in emit
+    msg = self.format(record)
+  File "c:\salt\bin\lib\site-packages\salt\log\mixins.py", line 82, in format
+    formatted_record = super(ExcInfoOnLogLevelFormatMixIn, self).format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 732, in format
+    return fmt.format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 473, in format
+    record.asctime = self.formatTime(record, self.datefmt)
+  File "c:\salt\bin\lib\logging\__init__.py", line 429, in formatTime
+    ct = self.converter(record.created)
+ValueError: (22, 'Invalid argument')
+Logged from file crypt.py, line 329
+[INFO    ] Authentication with master at 10.16.19.234 successful!
+Traceback (most recent call last):
+  File "c:\salt\bin\lib\logging\__init__.py", line 859, in emit
+    msg = self.format(record)
+  File "c:\salt\bin\lib\site-packages\salt\log\mixins.py", line 82, in format
+    formatted_record = super(ExcInfoOnLogLevelFormatMixIn, self).format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 732, in format
+    return fmt.format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 473, in format
+    record.asctime = self.formatTime(record, self.datefmt)
+  File "c:\salt\bin\lib\logging\__init__.py", line 429, in formatTime
+    ct = self.converter(record.created)
+ValueError: (22, 'Invalid argument')
+Logged from file minion.py, line 1384
+[DEBUG   ] Decrypting the current master AES key
+Traceback (most recent call last):
+  File "c:\salt\bin\lib\logging\__init__.py", line 859, in emit
+    msg = self.format(record)
+  File "c:\salt\bin\lib\site-packages\salt\log\mixins.py", line 82, in format
+    formatted_record = super(ExcInfoOnLogLevelFormatMixIn, self).format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 732, in format
+    return fmt.format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 473, in format
+    record.asctime = self.formatTime(record, self.datefmt)
+  File "c:\salt\bin\lib\logging\__init__.py", line 429, in formatTime
+    ct = self.converter(record.created)
+ValueError: (22, 'Invalid argument')
+Logged from file crypt.py, line 404
+[DEBUG   ] Loaded minion key: c:\salt\conf\pki\minion\minion.pem
+Traceback (most recent call last):
+  File "c:\salt\bin\lib\logging\__init__.py", line 859, in emit
+    msg = self.format(record)
+  File "c:\salt\bin\lib\site-packages\salt\log\mixins.py", line 82, in format
+    formatted_record = super(ExcInfoOnLogLevelFormatMixIn, self).format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 732, in format
+    return fmt.format(record)
+  File "c:\salt\bin\lib\logging\__init__.py", line 473, in format
+    record.asctime = self.formatTime(record, self.datefmt)
+  File "c:\salt\bin\lib\logging\__init__.py", line 429, in formatTime
+    ct = self.converter(record.created)
+ValueError: (22, 'Invalid argument')
+Logged from file crypt.py, line 329
+```
+## Master log:
+
+```
+2015-06-12 12:36:09,645 [salt.master      ][INFO    ] Clear payload received with command _auth
+2015-06-12 12:36:09,646 [salt.master      ][INFO    ] Authentication request from TARGET
+2015-06-12 12:36:09,646 [salt.master      ][INFO    ] Authentication accepted from TARGET
+2015-06-12 12:36:09,778 [salt.master      ][INFO    ] Clear payload received with command _auth
+2015-06-12 12:36:09,778 [salt.master      ][INFO    ] Authentication request from TARGET
+2015-06-12 12:36:09,778 [salt.master      ][INFO    ] Authentication accepted from TARGET
+2015-06-12 12:36:09,887 [salt.master      ][INFO    ] AES payload received with command _pillar
+2015-06-12 12:36:09,915 [salt.loaded.int.module.cmdmod][INFO    ] Executing command 'python /tmp/tmpm0UPOG' in directory '/root'
+```
+## `netstat -naput` on Master:
+
+Master is at 10.16.19.234
+Minion is at 10.16.19.71
+Workstation I am SSH'ed in from is at 10.16.25.10
+
+```
+root@salt-master:~# netstat -naput
+Active Internet connections (servers and established)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name
+tcp        0      0 0.0.0.0:53              0.0.0.0:*               LISTEN      1034/dnsmasq    
+tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      1012/sshd       
+tcp        0      0 0.0.0.0:4505            0.0.0.0:*               LISTEN      7035/python     
+tcp        0      0 0.0.0.0:4506            0.0.0.0:*               LISTEN      7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49815       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49810       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49777       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.234:50631      ESTABLISHED 7119/python     
+tcp        0     36 10.16.19.234:22         10.16.25.10:37322       ESTABLISHED 2040/sshd: whois [p
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49768       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4505       10.16.19.234:56575      ESTABLISHED 7035/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49719       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49813       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49806       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49765       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49712       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49718       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49811       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49816       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49711       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49743       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49794       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:50631      10.16.19.234:4506       ESTABLISHED 978/python      
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49715       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49766       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49775       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49767       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49817       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49859       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49788       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49717       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:56575      10.16.19.234:4505       ESTABLISHED 978/python      
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49745       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49780       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49785       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49772       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49807       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49797       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49720       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49723       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49778       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49793       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49708       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49783       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49713       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49787       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49764       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49870       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49782       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49762       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49809       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49774       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49716       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49707       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49801       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49771       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49805       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49714       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49779       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49792       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49742       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49744       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49872       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49795       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49796       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49791       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49798       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49800       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49721       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49763       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49871       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49804       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49776       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49802       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49808       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49814       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49799       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:22         10.16.24.243:55560      ESTABLISHED 6934/sshd: whois [p
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49706       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49789       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49741       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49786       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49784       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49724       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49812       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49710       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49709       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49770       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49769       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49773       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49803       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49722       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49790       ESTABLISHED 7119/python     
+tcp        0      0 10.16.19.234:4506       10.16.19.71:49781       ESTABLISHED 7119/python     
+tcp6       0      0 :::53                   :::*                    LISTEN      1034/dnsmasq    
+tcp6       0      0 :::22                   :::*                    LISTEN      1012/sshd       
+tcp6       0      0 :::80                   :::*                    LISTEN      976/aptly       
+udp        0      0 0.0.0.0:53              0.0.0.0:*                           1034/dnsmasq    
+udp        0      0 0.0.0.0:67              0.0.0.0:*                           1034/dnsmasq    
+udp        0      0 0.0.0.0:69              0.0.0.0:*                           1034/dnsmasq    
+udp6       0      0 :::53                   :::*                                1034/dnsmasq    
+udp6       0      0 :::69                   :::*                                1034/dnsmasq    
+root@salt-master:~#
+```

@@ -1,0 +1,138 @@
+in states/modules.py in run method:
+
+``` python
+    try:
+        if aspec.keywords:
+            mret = __salt__[name](*args, **nkwargs)
+        else:
+            mret = __salt__[name](*args)
+    except Exception:
+        ret['comment'] = 'Module function {0} threw an exception'.format(name)
+        ret['result'] = False
+        return ret
+    else:
+        if mret:
+            ret['changes']['ret'] = mret
+
+    if 'returner' in kwargs:
+        ret_ret = {
+                'id': __opts__['id'],
+                'ret': mret,
+                'fun': name,
+                'jid': '{0:%Y%m%d%H%M%S%f}'.format(datetime.datetime.now())}
+        returners = salt.loader.returners(__opts__, __salt__)
+        if kwargs['returner'] in returners:
+            returners[kwargs['returner']](ret_ret)
+    ret['comment'] = 'Module function {0} executed'.format(name)
+    ret['result'] = True
+    if ret['changes'].get('retcode', 0) != 0:
+        ret['result'] = False
+    return ret
+```
+
+at:
+
+``` python
+190             ret['changes']['ret'] = mret
+```
+
+I believe 'ret' should be replaced by 'retcode' (or retcode to ret) to match:
+
+``` python
+203     if ret['changes'].get('retcode', 0) != 0:
+```
+
+example of the problem:
+
+if you have  test.sls:
+
+``` yaml
+preparation:
+    module.run:
+        - name: state.sls
+        - mods: testfalse
+
+should_not_run:
+    pkg.installed:
+    - name: mercurial
+    - require:
+        - module.run: preparation
+```
+
+and testfalse.sls:
+
+``` yaml
+doesnotexist:
+  pkg.installed
+```
+
+run:
+
+```
+salt-call --local state.sls test
+```
+
+you get: 
+
+```
+local:
+----------
+    State: - module
+    Name:      state.sls
+    Function:  run
+        Result:    True
+        Comment:   Module function state.sls executed
+        Changes:   ret: { pkg_|-doesnotexist_|-doesnotexist_|-installed : {'comment': 'The following packages failed to install/update: doesnotexist.', '__run_num__': 0, 'changes': {}, 'name': 'doesnotexist', 'result': False}
+}
+
+----------
+    State: - pkg
+    Name:      mercurial
+    Function:  installed
+        Result:    True
+        Comment:   Package mercurial is already installed
+        Changes:   
+```
+
+with the patch, you get: 
+
+```
+local:
+----------
+    State: - module
+    Name:      state.sls
+    Function:  run
+        Result:    False
+        Comment:   Module function state.sls executed
+        Changes:   retcode: { pkg_|-doesnotexist_|-doesnotexist_|-installed : {'comment': 'The following packages failed to install/update: doesnotexist.', '__run_num__': 0, 'changes': {}, 'name': 'doesnotexist', 'result': False}
+}
+
+----------
+    State: - pkg
+    Name:      mercurial
+    Function:  installed
+        Result:    False
+        Comment:   One or more requisite failed
+        Changes:   
+```
+
+The second is what I would expect.
+
+There may also be an issue with the behavior in exceptions:
+
+``` python
+    except Exception:
+        ret['comment'] = 'Module function {0} threw an exception'.format(name)
+        ret['result'] = False
+```
+
+is not useful as it is always followed by:
+
+``` python
+    ret['comment'] = 'Module function {0} executed'.format(name)
+    ret['result'] = True
+```
+
+```
+    return ret
+```

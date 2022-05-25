@@ -1,0 +1,70 @@
+**Description**
+It seems that `mtime_map` sometimes contains invalid UTF-8 data that causes `salt.utils.files.fopen` to fail.
+
+```
+File "/usr/lib/python3/dist-packages/salt/client/__init__.py", line 2122, in cmd
+    return self.sminion.functions[fun](*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 1235, in __call__
+    return self.loader.run(run_func, *args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 2268, in run
+    return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 2283, in _run_as
+    return _func_or_method(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/modules/state.py", line 360, in orchestrate
+    pillarenv=pillarenv,
+  File "/usr/lib/python3/dist-packages/salt/runners/state.py", line 125, in orchestrate
+    orchestration_jid=orchestration_jid,
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 1235, in __call__
+    return self.loader.run(run_func, *args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 2268, in run
+    return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 2283, in _run_as
+    return _func_or_method(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/modules/state.py", line 1343, in sls
+    initial_pillar=_get_initial_pillar(opts),
+  File "/usr/lib/python3/dist-packages/salt/state.py", line 4634, in __init__
+    self.client = salt.fileclient.get_file_client(self.opts)
+  File "/usr/lib/python3/dist-packages/salt/fileclient.py", line 55, in get_file_client
+    )(opts)
+  File "/usr/lib/python3/dist-packages/salt/fileclient.py", line 1422, in __init__
+    self.channel = salt.fileserver.FSChan(opts)
+  File "/usr/lib/python3/dist-packages/salt/fileserver/__init__.py", line 871, in __init__
+    self.fs.update()
+  File "/usr/lib/python3/dist-packages/salt/fileserver/__init__.py", line 486, in update
+    self.servers[fstr](**kwargs)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 1235, in __call__
+    return self.loader.run(run_func, *args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 2268, in run
+    return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 2283, in _run_as
+    return _func_or_method(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/fileserver/roots.py", line 161, in update
+    for line in fp_:
+  File "/usr/lib/python3.7/codecs.py", line 322, in decode
+    (result, consumed) = self._buffer_decode(data, self.errors, final)
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe2 in position 1: invalid continuation byte
+```
+
+I think this is a regression of https://github.com/saltstack/salt/commit/5ea3fb2cf241bbc18656fc65752f0a92e950266d#diff-1f96c1bf1efb4edbad6f6ea24768d127521489e238b3e5ff466a1c56323257d6.
+
+I suggest to enhance the try/catch block by adding `UnicodeDecodeError` at https://github.com/saltstack/salt/blob/master/salt/fileserver/roots.py#L159-L176. This makes sense after forcing `UTF-8` with the mentioned PR/commit above.
+
+```
+try:
+    with salt.utils.files.fopen(mtime_map_path, encoding="utf-8") as fp_:
+        for line in fp_:
+            ...
+    except (OSError, UnicodeDecodeError):
+        pass
+```
+
+**Expected behavior**
+If the `/var/cache/salt/minion/roots/mtime_map` is malformed related to UTF-8, i expect that decoding errors are catched and handled properly.
+
+**Versions Report**
+Salt 3003.1
+
+**Additional context**
+This error was reported by multiple users of the software which is using Salt.
+- https://forum.openmediavault.org/index.php?thread/39602-error-applying-config-changes-salt-unicodedecodeerror/
+- https://forum.openmediavault.org/index.php?thread/32724-cannot-install-openmediavault-5-error-setting-up-salt-environment/

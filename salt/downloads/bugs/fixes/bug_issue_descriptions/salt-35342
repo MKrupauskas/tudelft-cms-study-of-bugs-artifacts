@@ -1,0 +1,68 @@
+If you remove or rename items in the repo-ng folder on the master, these are not removed from the minion cache when you run win_pkg.refresh_db. Particularly in the case of renaming, it's very likely to generate a name collision for the package which may result in incorrect installation states being returned (the pkg name map can still reference old sls files).
+
+As an example, I'll rename my 7zip directory. It's already cached under it's old name:
+
+<pre>salt salt-test cmd.run 'dir /b c:\salt\var\cache\salt\minion\files\base\win\repo-ng\*zip' 
+salt-test:
+    7zip</pre>
+
+I rename it:
+
+<pre>mv /srv/salt/win/repo-ng/7zip /srv/salt/win/repo-ng/seven_zip</pre>
+
+Then run win_pkg.refresh_db, checking that it only lists the renamed directory:
+
+<pre>salt salt-test pkg.refresh_db | grep zip
+    - c:\salt\var\cache\salt\minion\files\base\win\repo-ng\seven_zip\7zip.sls</pre>
+
+But on the minion, I've now got two folders in the cache:
+
+<pre>salt salt-test cmd.run 'dir /b c:\salt\var\cache\salt\minion\files\base\win\repo-ng\*zip' 
+salt-test:
+    7zip
+    seven_zip</pre>
+
+And worse still the sls file is still there, and this can be matched when generating the name map:
+
+<pre>salt salt-test cmd.run 'type c:\salt\var\cache\salt\minion\files\base\win\repo-ng\7zip\7zip.sls' 
+salt-test:
+    {% if grains['cpuarch'] == 'AMD64' %}
+      {% set name_arch = ' (x64 edition)' %}
+      {% set installer_arch = '-x64' %}
+    {% else %}
+      {% set name_arch = '' %}
+      {% set installer_arch = '' %}
+    {% endif %}
+    
+    7zip:
+      '15.14.00.0':
+        full_name: '7-Zip 15.14{{ name_arch }}'
+        installer: 'salt://win/repo-ng/7zip/7z1514{{ installer_arch }}.msi'
+        install_flags: '/qn /norestart'
+        uninstaller: '{23170F69-40C1-2702-1514-000001000000}'
+        uninstall_flags: '/qn /norestart'
+        refresh: True
+        msiexec: True
+        use_scheduler: False
+        locale: en_US
+        reboot: False
+        cache_dir: False
+      '9.20.00.0':
+        full_name: '7-Zip 9.20{{ name_arch }}'
+        installer: 'salt://win/repo-ng/7zip/7z920{{ installer_arch }}.msi'
+        install_flags: '/qn /norestart'
+        uninstaller: '{23170F69-40C1-2702-0920-000001000000}'
+        uninstall_flags: '/qn /norestart'
+        refresh: True
+        msiexec: True 
+        use_scheduler: False
+        locale: en_US
+        reboot: False
+        cache_dir: False</pre>
+
+
+I can't think of any situation where you would want to maintain items in the repo-ng cache when they don't exist on the master, and trying to clear the cache with saltutil is going to clear the entire cache so I imagine this shouldn't be used during a state run.
+
+So that the master side can be edited, surely pkg.refresh_db needs to be removing anything that doesn't exist any longer?
+
+Tested on 2016.3.2

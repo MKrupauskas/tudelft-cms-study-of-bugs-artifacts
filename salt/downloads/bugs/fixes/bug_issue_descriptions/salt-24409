@@ -1,0 +1,83 @@
+Salt is running on Ubuntu 14.04 with the latest version from the PPA:
+
+```
+# salt --versions-report
+                  Salt: 2015.5.0
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2015.5.0+ds-1trusty1
+```
+
+I'm getting intermittent errors with `git` state related to using tags and the most recent ones is this:
+
+```
+[INFO    ] Running state [git@bitbucket.org:mijem/web-client.git] at time 16:51:20.123462
+[INFO    ] Executing state git.latest for git@bitbucket.org:mijem/web-client.git
+[INFO    ] Executing command 'git rev-parse HEAD' as user 'mijem-web' in directory '/home/mijem-web/mijem-web'
+[INFO    ] Executing command 'git rev-parse --abbrev-ref HEAD' as user 'mijem-web' in directory '/home/mijem-web/mijem-web'
+[INFO    ] Executing command 'git remote show -n origin' as user 'mijem-web' in directory '/home/mijem-web/mijem-web'
+[INFO    ] Executing command 'git rev-parse v0.1.0^{commit}' as user 'mijem-web' in directory '/home/mijem-web/mijem-web'
+[ERROR   ] Command 'git rev-parse v0.1.0^{commit}' failed with return code: 128
+[ERROR   ] output: fatal: ambiguous argument 'v0.1.0^{commit}': unknown revision or path not in the working tree.
+Use '--' to separate paths from revisions, like this:
+'git <command> [<revision>...] -- [<file>...]'
+v0.1.0^{commit}
+[INFO    ] Executing command 'git fetch ' as user 'mijem-web' in directory '/home/mijem-web/mijem-web'
+[INFO    ] Executing command 'git checkout  -f v0.1.0 ' as user 'mijem-web' in directory '/home/mijem-web/mijem-web'
+[INFO    ] Executing command 'git config branch.v0.1.0.remote' as user 'mijem-web' in directory '/home/mijem-web/mijem-web'
+[ERROR   ] Command 'git config branch.v0.1.0.remote' failed with return code: 1
+[ERROR   ] retcode: 1
+[INFO    ] Executing command 'git branch v0.1.0 --set-upstream origin/v0.1.0' in directory '/home/mijem-web/mijem-web'
+[ERROR   ] Command 'git branch v0.1.0 --set-upstream origin/v0.1.0' failed with return code: 1
+[ERROR   ] stderr: The --set-upstream flag is deprecated and will be removed. Consider using --track or --set-upstream-to
+error: the requested upstream branch 'origin/v0.1.0' does not exist
+hint:
+hint: If you are planning on basing your work on an upstream
+hint: branch that already exists at the remote, you may need to
+hint: run "git fetch" to retrieve it.
+hint:
+hint: If you are planning to push out a new local branch that
+hint: will track its remote counterpart, you may want to use
+hint: "git push -u" to set the upstream config as you push.
+[ERROR   ] retcode: 1
+[ERROR   ] Unexpected exception in git state
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/states/git.py", line 312, in latest
+    user=user)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/git.py", line 791, in branch
+    _git_run(cmd, cwd=cwd, user=user)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/git.py", line 82, in _git_run
+    result['stderr']))
+CommandExecutionError: Command 'git branch v0.1.0 --set-upstream origin/v0.1.0' failed. Stderr: 'The --set-upstream flag is deprecated and will be removed. Consider using --track or --set-upstream-to\nerror: the requested upstream branch \'origin/v0.1.0\' does not exist\nhint: \nhint: If you are planning on basing your work on an upstream\nhint: branch that already exists at the remote, you may need to\nhint: run "git fetch" to retrieve it.\nhint: \nhint: If you are planning to push out a new local branch that\nhint: will track its remote counterpart, you may want to use\nhint: "git push -u" to set the upstream config as you push.'
+[ERROR   ] Command 'git branch v0.1.0 --set-upstream origin/v0.1.0' failed. Stderr: 'The --set-upstream flag is deprecated and will be removed. Consider using --track or --set-upstream-to\nerror: the requested upstream branch \'origin/v0.1.0\' does not exist\nhint: \nhint: If you are planning on basing your work on an upstream\nhint: branch that already exists at the remote, you may need to\nhint: run "git fetch" to retrieve it.\nhint: \nhint: If you are planning to push out a new local branch that\nhint: will track its remote counterpart, you may want to use\nhint: "git push -u" to set the upstream config as you push.'
+
+```
+
+Where `v0.1.0` is a tag in the remote git repository (not a branch). The state definition is as follows:
+
+```
+{{ sls_base_name }}-deploy:
+  git.latest:
+    - name: {{ adminserver.app_git_url }}
+    - rev: {{ adminserver.app_version }}
+    - target: {{ adminserver.user_home }}/{{ adminserver.app_dir_basename }}
+    - identity: {{ adminserver.user_home }}/.ssh/{{ adminserver.ssh_key_name }}.pem
+    - user: {{ adminserver.user_name }}
+    - force_checkout: True
+    - require:
+      - pkg: {{ sls_base_name }}-install-pkgs
+      - file: {{ sls_base_name }}-ssh-key
+```
+
+Also this may or may not be important. The original version of this checkout was `master` and then it was replaced with a specific tag, so `git.latest` is executed in the directory with pre-existing checkout.

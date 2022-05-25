@@ -1,0 +1,68 @@
+Not sure if the problem is with SaltStack, but I was able to fix it from there, so this seemed like a good place to file a bug. I have django-pipeline installed in a Python 3 virtualenv on Ubuntu 13.04, and I'm trying to run the djangomod.collectstatic module (from a salt master running on Python 2.7). I have a salt state like this:
+
+``` yaml
+django.collectstatic:
+  module.run:
+    - settings_module: SETTINGS
+    - bin_env: VIRTUALENV
+```
+
+which seems like it should work, and does get part of the way through processing files. However, it errors out on some of my files with the following error message:
+
+``` python
+Traceback (most recent call last):
+  File "VIRTUALENV/bin/django-admin.py", line 5, in <module>
+    management.execute_from_command_line()
+  File "VIRTUALENV/lib/python3.3/site-packages/django/core/management/__init__.py", line 399, in execute_from_command_line
+    utility.execute()
+  File "VIRTUALENV/lib/python3.3/site-packages/django/core/management/__init__.py", line 392, in execute
+    self.fetch_command(subcommand).run_from_argv(self.argv)
+  File "VIRTUALENV/lib/python3.3/site-packages/django/core/management/base.py", line 242, in run_from_argv
+    self.execute(*args, **options.__dict__)
+  File "VIRTUALENV/lib/python3.3/site-packages/django/core/management/base.py", line 285, in execute
+    output = self.handle(*args, **options)
+  File "VIRTUALENV/lib/python3.3/site-packages/django/core/management/base.py", line 415, in handle
+    return self.handle_noargs(**options)
+  File "VIRTUALENV/lib/python3.3/site-packages/django/contrib/staticfiles/management/commands/collectstatic.py", line 167, in handle_noargs
+    collected = self.collect()
+  File "VIRTUALENV/lib/python3.3/site-packages/django/contrib/staticfiles/management/commands/collectstatic.py", line 118, in collect
+    for original_path, processed_path, processed in processor:
+  File "VIRTUALENV/lib/python3.3/site-packages/pipeline/storage.py", line 39, in post_process
+    packager.pack_javascripts(package)
+  File "VIRTUALENV/lib/python3.3/site-packages/pipeline/packager.py", line 110, in pack_javascripts
+    return self.pack(package, self.compressor.compress_js, js_compressed, templates=package.templates, **kwargs)
+  File "VIRTUALENV/lib/python3.3/site-packages/pipeline/packager.py", line 105, in pack
+    self.save_file(output_filename, content)
+  File "VIRTUALENV/lib/python3.3/site-packages/pipeline/packager.py", line 116, in save_file
+    return self.storage.save(path, ContentFile(smart_str(content)))
+  File "VIRTUALENV/lib/python3.3/site-packages/django/core/files/storage.py", line 49, in save
+    name = self._save(name, content)
+  File "VIRTUALENV/lib/python3.3/site-packages/django/core/files/storage.py", line 207, in _save
+    _file.write(chunk)
+UnicodeEncodeError: 'ascii' codec can't encode character '\u2013' in position 23945: ordinal not in range(128)
+```
+
+It appears that SaltStack sets the environment variable `LC_ALL=C`, which breaks writing unicode to a file (the unicode was contained in some Javascript files that django-pipeline was processing). When I ran the command manually, it worked just fine, and that seems to be because the default environment when logging in via SSH has `LANG=en_US.UTF-8`, with `LC_ALL` unset.
+
+Unfortunately, it seems that using `module.run` does not allow for setting environment variables, so this salt state didn't work:
+
+``` yaml
+django.collectstatic:
+  module.run:
+    - env:
+      - LC_ALL: en_US.UTF-8
+    - settings_module: SETTINGS
+    - bin_env: VIRTUALENV
+```
+
+The way that I fixed this is with the following salt state:
+
+``` yaml
+collectstatic:
+  cmd.run:
+    - env:
+      - LC_ALL: en_US.UTF-8
+    - name: source VIRTUALENV/bin/activate && cd VIRTUALENV/PROJECT && python manage.py collectstatic --noinput
+```
+
+Would it make sense to SaltStack to either set `LC_ALL=en_US.UTF-8`, or not set it all, since there is already `LANG=en_US.UTF-8` set?

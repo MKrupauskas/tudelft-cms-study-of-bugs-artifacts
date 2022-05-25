@@ -1,0 +1,122 @@
+### Description of Issue/Question
+I am looking to extend the boto_elbv2 state using some already existing functions in the boto_elbv2 module.   While doing so I am getting errors in the module that do not get passed to the state results well.  I see the same problems with other states so it appears that this might be a common issue.
+
+What is the correct way to write a module so that it will return the appropriate data when called directly or when called from a state?  Lots of modules that are using things like  `return (False, 'some error message')`  and the corresponding state does not pass through the error message to the state results.  I would like to write a well formatted state and update the corresponding module so that a state call returns a reasonable error message.
+
+Is there any documentation on writing modules ( I could only find documentation on writing a state)?  Is there a well written state/module pair you can recommend that I can use a reference?
+
+### Setup
+Here is an example that seems pretty typical:
+
+```
+cron_delete_uploads:
+    cron.present:
+      - identifier: cron_delete_uploads
+      - name:  find /tmp/uploads -type f -mmin +10
+      - user: twells
+      - minute: '*/5'
+```
+
+Trying to do a cron.present state when cron is not installed
+
+```
+          ID: cron_delete_uploads
+    Function: cron.present
+        Name: find /tmp/uploads -type f -mmin +10 -delete
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/Users/twells/external_repos/salt/salt/state.py", line 1845, in call
+                  **cdata['kwargs'])
+                File "/Users/twells/external_repos/salt/salt/loader.py", line 1801, in wrapper
+                  return f(*args, **kwargs)
+                File "/Users/twells/external_repos/salt/salt/states/cron.py", line 332, in present
+                  data = __salt__['cron.set_job'](user=user,
+                File "/Users/twells/external_repos/salt/salt/loader.py", line 1120, in __getitem__
+                  func = super(LazyLoader, self).__getitem__(item)
+                File "/Users/twells/external_repos/salt/salt/utils/lazy.py", line 101, in __getitem__
+                  raise KeyError(key)
+              KeyError: 'cron.set_job'
+     Started: 10:33:46.281907
+    Duration: 15625.758 ms
+     Changes:
+```
+
+I would expect to see `Cannot load cron module: crontab command not found` per the response in the cron.py module
+
+```
+def __virtual__():
+    if salt.utils.which('crontab'):
+        return (False, 'Cannot load cron module: crontab command not found')
+```
+
+### Steps to Reproduce Issue
+
+Logs for above 
+```
+2017-08-10 11:17:47,731 [salt.utils.lazy                                                   ][DEBUG   ][21219] Could not LazyLoad cron.set_job: 'cron' __virtual__ returned False: Cannot load cron module: crontab command not found
+2017-08-10 11:17:47,732 [salt.state                                                        ][ERROR   ][21219] An exception occurred in this state: Traceback (most recent call last):
+  File "/Users/twells/external_repos/salt/salt/state.py", line 1845, in call
+    **cdata['kwargs'])
+  File "/Users/twells/external_repos/salt/salt/loader.py", line 1801, in wrapper
+    return f(*args, **kwargs)
+  File "/Users/twells/external_repos/salt/salt/states/cron.py", line 332, in present
+    data = __salt__['cron.set_job'](user=user,
+  File "/Users/twells/external_repos/salt/salt/loader.py", line 1120, in __getitem__
+    func = super(LazyLoader, self).__getitem__(item)
+  File "/Users/twells/external_repos/salt/salt/utils/lazy.py", line 101, in __getitem__
+    raise KeyError(key)
+KeyError: 'cron.set_job'
+
+2017-08-10 11:17:47,732 [salt.state                                                        ][INFO    ][21219] Completed state [find /tmp -type f -mmin +10] at time 11:17:47.732635 duration_in_ms=14968.335
+2017-08-10 11:17:47,733 [salt.state                                                        ][DEBUG   ][21219] File /Users/twells/python/salt/var/cache/salt/minion/accumulator/4414202512 does not exist, no need to cleanup.
+2017-08-10 11:17:47,738 [salt.minion                                                       ][DEBUG   ][21219] Minion return retry timer set to 6 seconds (randomized)
+2017-08-10 11:17:47,739 [salt.minion                                                       ][INFO    ][21219] Returning information for job: 20170810111731932378
+2017-08-10 11:17:47,739 [salt.transport.zeromq                                             ][DEBUG   ][21219] Initializing new AsyncZeroMQReqChannel for ('/Users/twells/python/salt/etc/salt/pki/minion', 'Todd_Mac', 'tcp://127.0.0.1:4506', 'aes')
+2017-08-10 11:17:47,740 [salt.crypt                                                        ][DEBUG   ][21219] Initializing new AsyncAuth for ('/Users/twells/python/salt/etc/salt/pki/minion', 'Todd_Mac', 'tcp://127.0.0.1:4506')
+2017-08-10 11:17:47,752 [salt.minion                                                       ][DEBUG   ][21219] minion return: {'fun_args': ['test'], 'jid': '20170810111731932378', 'return': {'cron_|-cron_delete_uploads_|-find /tmp -type f -mmin +10_|-present': {'comment': 'An exception occurred in this state: Traceback (most recent call last):\n  File "/Users/twells/external_repos/salt/salt/state.py", line 1845, in call\n    **cdata[\'kwargs\'])\n  File "/Users/twells/external_repos/salt/salt/loader.py", line 1801, in wrapper\n    return f(*args, **kwargs)\n  File "/Users/twells/external_repos/salt/salt/states/cron.py", line 332, in present\n    data = __salt__[\'cron.set_job\'](user=user,\n  File "/Users/twells/external_repos/salt/salt/loader.py", line 1120, in __getitem__\n    func = super(LazyLoader, self).__getitem__(item)\n  File "/Users/twells/external_repos/salt/salt/utils/lazy.py", line 101, in __getitem__\n    raise KeyError(key)\nKeyError: \'cron.set_job\'\n', 'name': 'find /tmp -type f -mmin +10', 'start_time': '11:17:32.764300', 'result': False, 'duration': 14968.335, '__run_num__': 0, '__sls__': u'test', 'changes': {}, '__id__': 'cron_delete_uploads'}}, 'retcode': 2, 'success': True, 'fun': 'state.apply'}
+```
+
+
+### Versions Report
+
+```
+           Salt: 2017.7.0-415-gc000a2e
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.10 (default, Oct 23 2015, 19:19:21)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+         locale: UTF-8
+        machine: x86_64
+        release: 15.6.0
+         system: Darwin
+        version: 10.11.6 x86_64
+```

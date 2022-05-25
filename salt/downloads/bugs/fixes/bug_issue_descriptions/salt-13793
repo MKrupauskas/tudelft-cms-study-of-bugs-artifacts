@@ -1,0 +1,49 @@
+I have problems running the following state against AWS RDS 
+
+```
+postgresql-user-aaa:
+  postgres_user.present:
+    - name: aaa
+    - createdb: true
+    - createroles: true
+    - createuser: true
+    - superuser: false # true fails on AWS RDS with ` must be superuser to create superusers`
+    - replication: true
+    - password: {{ salt['pillar.get']('postgresql:secure:credentials:users:aaa') }}
+    - login: true
+```
+
+**Debug output**
+
+```
+[ERROR   ] Command '/usr/bin/psql --no-align --no-readline --username t00r --host prod-test1.xxxx --port 5432 --dbname postgres -v d
+atestyle=ISO,MDY -c \'COPY (SELECT pg_roles.rolname as "name",pg_roles.rolsuper as "superuser", pg_roles.rolinherit as "inherits privileges", pg_roles.rolcreaterole as
+"can create roles", pg_roles.rolcreatedb as "can create databases", pg_roles.rolcatupdate as "can update system catalogs", pg_roles.rolcanlogin as "can login", pg_roles
+.rolreplication as "replication", pg_roles.rolconnlimit as "connections", pg_roles.rolvaliduntil::timestamp(0) as "expiry time", pg_roles.rolconfig  as "defaults variab
+les", COALESCE(pg_shadow.passwd, pg_authid.rolpassword) as "password" FROM pg_roles LEFT JOIN pg_authid ON pg_roles.oid = pg_authid.oid LEFT JOIN pg_shadow ON pg_roles.
+oid = pg_shadow.usesysid) TO STDOUT WITH CSV HEADER\'' failed with return code: 1
+[ERROR   ] stderr: ERROR:  permission denied for relation pg_authid
+```
+
+---
+
+Accrording to AWS forum thread - https://forums.aws.amazon.com/thread.jspa?threadID=151248 - this is intended behavior, since AWS does not want to allow access to system user passwords etc ..
+
+---
+
+This effectively breaks @saltstack from being used in combination  with AWS RDS for PostgreSQL, which makes me sad panda :crying_cat_face: 
+
+I have done some digging into code and it seems the `postgres` module is to blame, which always! asks for rolepasswords even if no one is asking for them (See https://github.com/saltstack/salt/blob/develop/salt/modules/postgres.py#L498-L501).
+## 
+
+To summarize:
+1. AWS RDS Postgresql and saltstack combination is broken, which I consider to be bug actually.
+2. Would it be possible to extend [postgres_user.present](http://docs.saltstack.com/en/latest/ref/states/all/salt.states.postgres_user.html#salt.states.postgres_user.present) and [postgres_group.present](http://docs.saltstack.com/en/latest/ref/states/all/salt.states.postgres_group.html#salt.states.postgres_group.present) by means of adding additional flag to check for passwords changes? I would consider that a separate feature request / fix to this bug.
+   e.g. 
+
+```
+postgresql-user-aaa:
+  postgres_user.present:
+    - name: aaa
+    - skip_password_check: True # new attribute
+```

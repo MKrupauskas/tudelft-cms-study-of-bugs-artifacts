@@ -1,0 +1,94 @@
+Commit b8384608160a88b91cecc8d8bf90e0a09719875f seems to have broken `file.manage` where an HTTP 200 responses does not contain `Content-Type`. Some web servers omit this header and expect the client to assume `text/plain`. This can occur on Apache 2.4
+
+    $ curl -s -D - 'http://www1/pub/9.6/qm_pgext.control' | grep Content
+    Content-Length: 148
+
+    $ curl -s -D - 'http://www1/pub/9.6/qm_pgext--1.0.sql' | grep Content
+    Content-Length: 578
+    Content-Type: application/sql
+
+    $ curl -s -D - 'http://www1/pub/9.6/qmdb_pgext.so' | grep Content
+    Content-Length: 10120
+    Content-Type: application/octet-stream
+
+
+### Setup
+
+    /usr/pgsql-9.6/share/extension/qm_pgext.control:
+      file.managed:
+        - source: http://www1/pub/9.6/qm_pgext.control
+        - source_hash: http://www1/pub/9.6/CHECKSUMS
+
+### Steps to Reproduce Issue
+
+Manage a file that does not have a MIME type recognized by the web server. The result is an empty file on disk, which is caught by a checksum mismatch
+
+             ID: /usr/pgsql-9.6/share/extension/qm_pgext.control
+       Function: file.managed
+         Result: False
+        Comment: Specified sha1 checksum for /usr/pgsql-9.6/share/extension/qm_pgext.control (c6c6ba57e4368ee9080c3e99d737410b673a7826) does not match actual checksum (da39a3ee5e6b4b0d3255bfef95601890afd80709)
+        Started: 13:03:35.534416
+       Duration: 36.198 ms
+        Changes:   
+                 ----------
+                 diff:
+                     New file
+
+If `skip_verify=True` is set the result is even worse--empty file is written!
+
+### Additional Debugging
+
+If I instrument `/usr/lib/python2.7/site-packages/salt/fileclient.py` we can see that `write_body[0]` is incorrectly set to `None`.
+
+    681:    log.debug('{} {} {}'.format(no_cache, write_body[0], url))
+
+    $ sudo -E salt-call state.highstate saltenv=radman -l debug 2>&1 | grep www1
+    [DEBUG   ] False True http://www1/pub/9.6/CHECKSUMS.txt
+    [DEBUG   ] False True http://www1/pub/9.6/qm_pgext--1.0.sql
+    [DEBUG   ] False None http://www1/pub/9.6/qm_pgext.control
+    [DEBUG   ] False True http://www1/pub/9.6/qm_pgext.so
+
+### Versions Report
+
+    $ salt --versions-report
+    Salt Version:
+               Salt: 2017.7.2
+     
+    Dependency Versions:
+               cffi: Not Installed
+           cherrypy: unknown
+           dateutil: Not Installed
+          docker-py: Not Installed
+              gitdb: Not Installed
+          gitpython: Not Installed
+              ioflo: Not Installed
+             Jinja2: 2.7.2
+            libgit2: Not Installed
+            libnacl: Not Installed
+           M2Crypto: Not Installed
+               Mako: 0.8.1
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.6
+       mysql-python: Not Installed
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+       pycryptodome: Not Installed
+             pygit2: Not Installed
+             Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+       python-gnupg: Not Installed
+             PyYAML: 3.11
+              PyZMQ: 15.3.0
+               RAET: Not Installed
+              smmap: Not Installed
+            timelib: Not Installed
+            Tornado: 4.2.1
+                ZMQ: 4.1.4
+     
+    System Versions:
+               dist: centos 7.3.1611 Core
+             locale: UTF-8
+            machine: x86_64
+            release: 3.10.0-514.16.1.el7.x86_64
+             system: Linux
+            version: CentOS Linux 7.3.1611 Core
+

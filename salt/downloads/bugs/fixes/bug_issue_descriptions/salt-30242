@@ -1,0 +1,23 @@
+Salt Cloud _assumes_ that on a AWS account defined (by the key / id credentials associated with a IAM user) on ec2 provider file there is only 1 VPC and so that create various issues.
+
+**Use case:**  
+     One AWS account has multiple VPCs, each VPC being treated as an independent/ isolated tenant with its own Salt Cloud but sharing/ same map files (the provider file is using the same credentials due to same account)
+
+_**Issues**_
+- If Salt Cloud 1 on VPC 1 created a VM instance called _dani-web_ using a map file, on VPC 2 Salt Cloud 2 will fail to create the same VM as above due to [1]
+- If on VPC 1 the VM is renamed to _dani-webb_ from AWS Console, then you create the VM named _dani-web_ on VPC 2 using Salt Cloud and then you are trying to destroy the VM (renamed) on VPC 1 from Salt Cloud cli using `-m /path/to/map file -d`, Salt Cloud will destroy the VM from VPC 2 because
+  - the VM name _dani-webb_ is still present on Salt Cloud cache on VPC 1
+  - there is no isolation on Salt Cloud to which VPC to target
+
+**Note**
+
+ 1) On a AWS VPC you can create multiple VM instances with same name since the name is provided by the tag. The unique instance within VPC is provided by the instance id and not the instance tag (Salt Cloud design is a bit wrong here but little can be done unless the map files are redesigned)
+
+**Workaround**
+
+One option is to associate a IAM policy to the IAM user whos key is defined in the Salt Cloud provider file => haven't tested yet
+
+**Solution**
+Add a vpcID param in the provider file and inject that into the local cache as well as filter the DescribeInstance API call made to AWS
+
+[1] https://github.com/saltstack/salt/blob/c19782a184b7b86b7d074e61e4b3a6769b1a1246/salt/cloud/__init__.py#L1910

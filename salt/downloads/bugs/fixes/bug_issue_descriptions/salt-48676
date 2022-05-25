@@ -1,0 +1,108 @@
+### Description of Issue
+
+**Summary:** `salt-ssh` can target the wrong minion when two minions (each using a different SSH port) in a roster file share the same IP address _and_ the reverse-DNS configured for that IP address resolves to one of the minion’s ids (hostnames). This is a major problem, as it is impossible to target certain minions in this scenario.
+
+**More detail:** Having determined the IP address of a minion whose id/hostname has been specified on the command line, `salt-ssh` (as of Salt 2018.3.2) appears to perform a reverse-DNS lookup on that IP address, and then uses the result of that lookup to determine the minion to target, even if the originally specified minion id is itself directly present in the roster file. If the reverse-DNS lookup results in a different hostname to that given on the `salt-ssh` command-line, _and_ that different hostname is _also_ present in the roster file, `salt-ssh` proceeds to target the minion with the different hostname given by the reverse-DNS lookup, rather than the one originally specified on the command-line. Thus, the wrong minion is targeted.
+
+See the _Steps to Reproduce Issue_, below, for further clarity.
+
+### Setup
+
+`salt-ssh` 2018.3.2 running on Fedora 28. The problem also manifests with the same version of Salt under macOS High Sierra. The targeted minions are running FreeBSD 11.2.
+
+I did not encounter this problem when using Salt 2017.x in the same scenario, so the issue is perhaps new.
+
+### Steps to Reproduce Issue
+
+1. Consider two minions with hostnames resolving to the same IP address. Each minion has its own SSH port. These minions have DNS hostnames `a.example.com` (SSH port 9000) and `b.example.com` (SSH port 9001).
+
+    (A typical scenario for this would be different containers/jails/VMs running on a single physical host. We encountered this problem with `a.example.com` being the DNS hostname of a physical FreeBSD host, and `b.example.com` being the DNS hostname of a jail on that host.)
+
+2. There is a flat roster file describing these two hosts, along the following lines:
+
+    ```
+    a.example.com:
+      host: a.example.com
+      user: somebody
+      port: 9000
+      sudo: True
+      priv: ~/.ssh/somekey
+      timeout: 15
+      minion_opts:
+        pillarenv: base
+
+    b.example.com:
+      host: a.example.com
+      user: somebody
+      port: 9001
+      sudo: True
+      priv: ~/.ssh/somekey
+      timeout: 15
+      minion_opts:
+        pillarenv: base
+    ```
+
+3. Notice that both `a.example.com` and `b.example.com` reference the same host, `a.example.com`, but with different SSH ports.
+
+4. There is a reverse-DNS entry for the IP address of `a.example.com` pointing to `a.example.com` (i.e. itself).
+
+5. Attempting to target `b.example.com` results in `salt-ssh` actually targeting `a.example.com`:
+
+    ```
+    salt-ssh 'b.example.com' test.ping
+    a.example.com:
+        True
+    ```
+
+   Thus, the wrong minion has been targeted; the correct IP address has been used, but the wrong SSH port.
+
+6. Note that the problem still occurs if the `host` line in the roster entry for `b.example.com` is changed to `host: b.example.com`.
+
+### Workaround
+
+Causing the reverse-DNS for the host’s IP address to resolve to a hostname not in the roster avoids the problem, but is far from ideal.
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2018.3.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.7
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.15 (default, May 16 2018, 17:50:09)
+   python-gnupg: Not Installed
+         PyYAML: 4.1
+          PyZMQ: 17.1.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 5.1
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist: fedora 28 Twenty Eight
+         locale: UTF-8
+        machine: x86_64
+        release: 4.17.6-200.fc28.x86_64
+         system: Linux
+        version: Fedora 28 Twenty Eight
+```

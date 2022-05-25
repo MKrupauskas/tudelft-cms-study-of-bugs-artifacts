@@ -1,0 +1,111 @@
+I noticed a strange behavior when calling state.highstate (and potentically any other) function on Windows minion. It seems that Windows minion does not control how many instances of state.highstate function is running on minion. Let's describe my testing environment  and procedure how to reproduce it (tested on SaltStack 2014.1.13 and also  on the latest 2014.7.1):
+- I have a minion accepted by a master, the master has  just default base environment configured with this top.sls file:
+
+```
+base:
+  '*':
+    - run_me
+```
+- the state file run_me.sls contains:
+
+```
+{% if grains['kernel'] == 'Windows' %}
+run_me_start:
+  cmd.run:
+    - name: echo start >> c:\run_me.txt
+
+run_me_sleep:
+  cmd.run:
+    - name: timeout 90
+
+run_me_end:
+  cmd.run:
+    - name: echo end >> c:\run_me.txt & echo[ >> c:\run_me.txt
+{% else %}
+run_me_start:
+  cmd.run:
+    - name: echo start >> /run_me.txt
+
+run_me_sleep:
+  cmd.run:
+    - name: sleep 90
+
+run_me_end:
+  cmd.run:
+   - name: echo end >> /run_me.txt
+{% endif %}
+```
+- basically, the states are pretty stupid and  their only purpose is to check if they overlap when they are tried to be executed twice. There is a pause of 90s in their execution but they will be called in shorter time.
+- then, I have configured salt scheduler which calls state.highstate every 30s so it will be  called multiple times before the previous one ends (30s schedule < 90s pause). The configuration is distributed from pillars and it works perfectly (maxrunning option is set to 1 by default):
+
+```
+schedule:
+  highstate:
+    function: state.highstate
+    seconds: 30
+```
+- when I start a minion service (default configuration from installation) on Linux (CentOS 6.5 x86_64) I can see in /run_me.txt file this sequence of execution (without overlaps):
+
+```
+start
+end
+start
+end
+```
+- while on Windows (Windows server 2012 R2), I can see overlaps which make me pretty nervous:
+
+```
+start
+start
+end
+start
+end
+```
+- ok, when I change the schedule configuration to something like this:
+
+```
+schedule:
+  highstate:
+    function: cmd.run
+    seconds: 30
+    args:
+      - 'salt-call state.highstate'
+```
+- it behaves on Linux the same way like in previous example:
+
+```
+start
+end
+start
+end
+```
+- on Windows, it is better now:
+
+```
+start
+end
+start
+end
+```
+- ok, so what happens when I log in to the minion, there is 'paused' highstate running (it takes 90s to execute) and I try to execute salt-call state.highstate manually?
+  - on Linux where I do most of my work it ends with error as expected as I can't call it twice:
+
+```
+local:
+    Data failed to compile:
+----------
+    The function "state.highstate" is running as PID XXXX and was started atDATE with jid JID
+```
+- on Windows, it executes without any problems!!! So when I check the run_me.txt file I can  see again overlapping highstates:
+
+```
+start
+start
+end
+end
+```
+- I also tried to disable salt scheduler and to configure startup_states: highstate on the minion
+- then, on Linux it fine well and again, only one instance of state.highstate is allowed
+- but on Windows, I'm allowed to call state.highstate as many times as I wish :-(
+
+Can anybody explain we what am I doing wrong? Of course, I should ensure that when state.highstate is scheduled like above that nobody will call it manually. But you still need to remember how to schedule it. And why it works on Linux as expected but not on Windows? 

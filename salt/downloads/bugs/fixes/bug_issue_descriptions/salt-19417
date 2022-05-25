@@ -1,0 +1,81 @@
+I have ~25 Windows 7 Enterprise x86_64 (en_US) clients running Salt 2014.7.0 amd64 (detailed version reports below).
+
+When running this command, the error messages listed below show up in a non-deterministic behaviour:
+
+``` bash
+salt-run fileserver.update && salt -C 'G@os:Windows' saltutil.sync_all
+```
+
+**Error message 1**
+
+```
+MN1221-C0014:
+    ERROR: Path 'top.sls' is not absolute
+```
+
+**Error message 2**
+
+```
+MN1221-C0025:
+    The minion function caused an exception: Traceback (most recent call last):
+      File "salt/minion.py", line 1019, in _thread_return
+      File "salt/modules/saltutil.py", line 384, in sync_all
+      File "salt/modules/saltutil.py", line 250, in sync_modules
+      File "salt/modules/saltutil.py", line 77, in _sync
+      File "salt/modules/saltutil.py", line 58, in _get_top_file_envs
+      File "salt/state.py", line 2924, in __init__
+      File "salt/state.py", line 564, in __init__
+      File "salt/state.py", line 688, in load_modules
+      File "salt/loader.py", line 143, in minion_mods
+      File "salt/utils/decorators/__init__.py", line 77, in enforce_dependencies
+    RuntimeError: Set changed size during iteration
+```
+
+Sometimes they don't show up at all, sometimes the first message, sometimes the second one.
+It looks like there's a race-condition between the actions of `fileserver.update` on the master and `saltutil.sync_all` on the minion.
+
+I was never able to reproduce this on any Linux minion.
+
+I was never able to reproduce this by just running `saltutil.sync_all` on a Minion - this only happens when `fileserver.update` was run on the master immediately before by chaining it conditionally in front of `saltutil.sync_all` with `&&`.
+
+It doesn't require any changes/commits on the fileserver to be made which are pulled in via `fileserver.update` - simply calling it without any changes is enough.
+
+Versions report minion:
+
+```
+MN1221-C0013:
+               Salt: 2014.7.0
+             Python: 2.7.5 (default, May 15 2013, 22:44:16) [MSC v.1500 64 bit (AMD64)]
+             Jinja2: 2.7.1
+           M2Crypto: 0.21.1
+     msgpack-python: 0.4.2
+       msgpack-pure: Not Installed
+           pycrypto: 2.6
+            libnacl: Not Installed
+             PyYAML: 3.11
+              ioflo: Not Installed
+              PyZMQ: 14.1.1
+               RAET: Not Installed
+                ZMQ: 4.0.4
+               Mako: Not Installed
+```
+
+Versions report master:
+
+```
+MN1221-S0001:
+               Salt: 2014.7.0
+             Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+             Jinja2: 2.7.2
+           M2Crypto: 0.21.1
+     msgpack-python: 0.3.0
+       msgpack-pure: Not Installed
+           pycrypto: 2.6.1
+            libnacl: Not Installed
+             PyYAML: 3.10
+              ioflo: Not Installed
+              PyZMQ: 14.0.1
+               RAET: Not Installed
+                ZMQ: 4.0.4
+               Mako: 0.9.1
+```

@@ -1,0 +1,96 @@
+### Description of Issue/Question
+
+As specified in the title, a redis returner (and all the returners respecting the same pattern I would say) doest not retrieve the right connection options although they are available in `__opts__`.
+### Setup
+
+A very basic proxy as described in #32022 is needed to be able to reproduce. In the master config file the following line was added:
+`redis.host: localhost`
+
+Then I created custom returner that connects to the local redis server and sets two keys: `__opts__` and `_options` when the function returner() is called. I took the code from here: https://github.com/saltstack/salt/blob/develop/salt/returners/redis_return.py#L82
+
+```
+import redis
+import json
+
+import salt.returners
+
+__virtualname__ = 'traceroute'
+
+def returner(ret):
+
+    serv = redis.Redis(host='localhost',
+                       port=6379,
+                       db='0')
+
+    serv.set('__opts__', str(__opts__))
+
+    attrs = {'host': 'host',
+             'port': 'port',
+             'db': 'db'}
+
+    _options = salt.returners.get_returner_options(__virtualname__,
+                                                   ret,
+                                                   attrs,
+                                                   __salt__=__salt__,
+                                                   __opts__=__opts__)
+
+    serv.set('_options', str(_options))
+```
+### Steps to Reproduce Issue
+
+Calling a simple command
+
+`salt edge01.sjc01 test.true --return traceroute`
+
+Will set the two keys in redis (some sensitive data from `__opts__` has been replaced by ****):
+
+```
+127.0.0.1:6379> get _options
+"{}"
+127.0.0.1:6379> get __opts__
+"{'ioflo_realtime': True, 'master_alive_interval': 0, 'recon_default': 1000, 'whitelist_modules': [], 'tcp_keepalive_intvl': -1, 'utils_dirs': ['/var/cache/salt/minion/extmods/utils'], 'add_proxymodule_to_opts': True, 'state_top_saltenv': None, 'states_dirs': [], 'pillarenv': None, 'state_output_diff': False, 'pillar': {'mine_functions': {'net.mac': [], 'net.interfaces': [], 'bgp.neighbors': [], 'net.lldp': [], 'net.connected': [], 'net.ipaddrs': [], 'net.arp': []}, 'mine_interval': 1, 'proxy': {'passwd': '****', 'proxytype': 'napalm', 'host': 'edge01.sjc01', 'driver': 'junos', 'username': '****'}, 'probes_defaults': {'probe_count': 15, 'probe_type': 'icmp-ping', 'test_interval': 3}, 'ntp': {'peers': ['198.41.241.4', '198.41.225.4', '103.21.247.2'], 'synchronized': True, 'stratum': 4}}, 'fileserver_backend': ['roots'], 'outputter_dirs': [], 'sls_list': [], 'module_dirs': [], 'git_pillar_ssl_verify': False, 'environment': None, 'state_auto_order': True, 'acceptance_wait_time': 10, '__role': 'minion', 'disable_modules': [], 'backup_mode': '', 'cluster_masters': [], 'recon_randomize': True, 'file_ignore_glob': None, 'random_reauth_delay': 10, 'auto_accept': True, 'daemon': False, 'open_mode': False, 'winrepo_ssl_verify': False, 'logstash_zmq_handler': {'version': 1, 'address': '****'}, 'gitfs_insecure_auth': False, 'state_verbose': True, 'verify_master_pubkey_sign': False, 'password': None, 'cluster_mode': False, 'startup_states': '', 'auth_timeout': 60, 'always_verify_signature': False, 'tcp_pull_port': ****, 'gitfs_pubkey': '', 'fileserver_ignoresymlinks': False, 'retry_dns': 30, 'return_retry_timer': 5, 'pillar_roots': {'base': ['/srv/pillar', '/srv/spm/pillar']}, 'multiprocessing': False, 'file_roots': {'base': ['/srv/salt', '/srv/spm/salt']}, 'tcp_keepalive_cnt': -1, 'root_dir': '/', 'log_granular_levels': {}, 'git_pillar_insecure_auth': False, 'returner_dirs': [], 'gitfs_privkey': '', 'pillar_cache_backend': 'disk', 'grains_dirs': [], 'config_dir': '/etc/salt', 'state_top': 'top.sls', 'transport': 'zeromq', 'git_pillar_password': '', 'gitfs_base': 'master', 'render_dirs': [], 'pillar_cache_ttl': 3600, 'gitfs_user': '', 'fileserver_limit_traversal': False, 'ioflo_console_logdir': '', 'conf_file': '/etc/salt/proxy', 'master_ip': '127.0.0.1', 'salt_event_pub_hwm': 2000, 'top_file': '', 'zmq_monitor': False, 'file_recv_max_size': 100, 'pidfile': '/var/run/salt-minion.pid', 'range_server': 'range:80', 'raet_mutable': False, 'log_datefmt_logfile': '%Y-%m-%d %H:%M:%S', 'file_ignore_regex': None, 'winrepo_cachefile': 'winrepo.p', 'schedule': {'__mine_interval': {'function': 'mine.update', 'name': '__mine_interval', 'enabled': True, 'return_job': False, 'jid_include': True, 'maxrunning': 2, 'minutes': 1}}, 'raet_main': False, 'thorium_roots': {'base': ['/srv/thorium']}, 'cachedir': '/var/cache/salt/proxy', 'proxy': {'passwd': '****', 'proxytype': 'napalm', 'host': 'edge01.sjc01', 'driver': 'junos', 'username': '****'}, 'winrepo_passphrase': '', 'interface': '0.0.0.0', 'update_restart_services': [], 'recon_max': 10000, 'master_uri_format': 'default', 'default_include': 'minion.d/*.conf', 'http_request_timeout': 3600.0, 'rejected_retry': False, 'state_events': False, 'gitfs_ssl_verify': False, 'http_max_body': 107374182400, 'proxyid': 'edge01.sjc01', 'winrepo_dir': '/srv/salt/win/repo', 'raet_road_bufcnt': 2, 'winrepo_pubkey': '', 'mine_enabled': True, 'ipc_mode': 'ipc', 'keysize': 2048, 'extension_modules': '/var/cache/salt/minion/extmods', 'master_sign_key_name': 'master_sign', 'git_pillar_branch': 'master', 'cython_enable': False, 'raet_port': 4510, 'beacons': {}, 'git_pillar_env': '', 'ext_job_cache': '', 'hash_type': 'md5', 'winrepo_source_dir': 'salt://win/repo-ng/', 'state_output': 'full', 'modules_max_memory': -1, 'renderer': 'yaml_jinja', 'master_shuffle': False, 'gitfs_env_whitelist': [], 'auth_tries': 7, 'winrepo_insecure_auth': False, 'mine_interval': 1, 'git_pillar_privkey': '', '__cli': 'salt-proxy', 'winrepo_dir_ng': '/srv/salt/win/repo-ng', 'pillar_cache': False, 'winrepo_user': '', 'grains_cache': False, 'file_recv': False, 'ipv6': False, 'verify_env': True, 'sudo_user': '', 'autosign_timeout': 120, 'username': None, 'master_finger': '', 'syndic_finger': '', 'failhard': False, 'tcp_keepalive_idle': 300, 'thorium_interval': 0.5, 'autoload_dynamic_modules': True, 'gitfs_passphrase': '', 'log_fmt_logfile': '%(asctime)s,%(msecs)03.0f [%(name)-17s][%(levelname)-8s][%(process)d] %(message)s', 'mine_return_job': False, 'master_port': '4506', 'enable_zip_modules': False, 'ioflo_period': 0.1, 'gitfs_password': '', 'ping_interval': 0, 'grains': {'kernel': 'proxy', 'vendor': 'Unknown', 'nodename': '****', 'zmqversion': '4.1.2', 'saltversion': '2016.3.0-139-g2d732c9', 'pythonpath': ['/usr/local/salt/virtualenv/lib/python2.7/site-packages/git/ext/gitdb', '/usr/local/salt/virtualenv/bin', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/netmiko-0.3.0-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/bnclient-0.3-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/pycsco-0.3.4-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/pyfg-0.47-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/junos_eznc-1.3.1-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/ncclient-0.4.7-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/pyeapi-0.4.0-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/scp-0.10.2-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/paramiko-1.16.0-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/gtextfsm-0.2.1-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/xmltodict-0.9.2-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/netaddr-0.7.18-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/ecdsa-0.13-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/pexpect-4.0.1-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/ptyprocess-0.5-py2.7.egg', '/state/home/jfleury/salt', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/napalm-0.60.0-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/pyPluribus-0.3.0-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/napalm_base-0.10.2-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/napalm_junos-0.1.0-py2.7.egg', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/napalm_iosxr-0.1.0-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/pyIOSXR-0.12-py2.7.egg', '/usr/local/lib/python2.7/dist-packages', '/usr/local/salt/virtualenv/lib/python2.7', '/usr/local/salt/virtualenv/lib/python2.7/plat-x86_64-linux-gnu', '/usr/local/salt/virtualenv/lib/python2.7/lib-tk', '/usr/local/salt/virtualenv/lib/python2.7/lib-old', '/usr/local/salt/virtualenv/lib/python2.7/lib-dynload', '/usr/lib/python2.7', '/usr/lib/python2.7/plat-x86_64-linux-gnu', '/usr/lib/python2.7/lib-tk', '/usr/local/salt/virtualenv/lib/python2.7/site-packages', '/usr/local/lib/python2.7/dist-packages/netmiko-0.3.0-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/bnclient-0.3-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/pycsco-0.3.4-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/pyfg-0.47-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/junos_eznc-1.3.1-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/ncclient-0.4.7-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/pyeapi-0.4.0-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/scp-0.10.2-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/paramiko-1.16.0-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/gtextfsm-0.2.1-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/xmltodict-0.9.2-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/netaddr-0.7.18-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/ecdsa-0.13-py2.7.egg', '/usr/lib/python2.7/dist-packages', '/usr/local/lib/python2.7/dist-packages/pyPluribus-0.0.4-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/napalm_junos-0.1.0-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/napalm_base-0.10.2-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/napalm-0.60.0-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/netmiko-0.3.0-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/bnclient-0.3-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/pyfg-0.47-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/ncclient-0.4.7-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/pyeapi-0.4.0-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/scp-0.10.2-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/paramiko-1.16.0-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/gtextfsm-0.2.1-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/xmltodict-0.9.2-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/ecdsa-0.13-py2.7.egg', '/usr/local/lib/python2.7/dist-packages/pyPluribus-0.0.4-py2.7.egg', '/usr/local/lib/python2.7/site-packages', '/usr/lib/pymodules/python2.7', '/usr/local/salt/virtualenv/lib/python2.7/site-packages/gitdb/ext/smmap'], 'saltversioninfo': [2016, 3, 0, 0], 'saltpath': '/state/home/jfleury/salt/salt', 'pythonversion': [2, 7, 9, 'final', 0], 'os_family': 'proxy', 'virtual': 'physical', 'gpus': [], 'path': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'id': 'edge01.sjc01', 'osrelease': 'proxy', 'ps': 'ps -efH', 'locale_info': {}, 'num_gpus': 0, 'kernelrelease': 'proxy', 'hwaddr_interfaces': {'docker0': '02:42:7b:eb:68:3b', 'bond0': '2c:60:0c:bc:27:55', 'bond1': 'ba:17:99:19:50:32', 'lo': '00:00:00:00:00:00', 'bond0.100': '2c:60:0c:bc:27:55', 'bond0.10': '2c:60:0c:bc:27:55', 'eth3': '2c:60:0c:bc:27:55', 'eth2': '2c:60:0c:bc:27:55', 'eth1': '2c:60:0c:bc:ab:c6', 'eth0': '2c:60:0c:bc:ab:c5'}, 'pythonexecutable': '/usr/local/salt/virtualenv/bin/python2', 'uptime': 'Unknown', 'osarch': 'x86_64', 'cpuarch': 'x86_64', 'osrelease_info': ('proxy',), 'master': 'localhost', 'dns': {'nameservers': ['****'], 'domain': '', 'ip4_nameservers': ['****'], 'search': ['****'], 'ip6_nameservers': []}, 'ip': 'Unknown', 'serial_number': 'Unknown', 'model': 'Unknown', 'machine_id': '327881646f66435f8402208ed69def74', 'os': 'junos', 'mem_total': 0}, 'top_file_merging_strategy': 'merge', 'raet_lane_bufcnt': 100, 'git_pillar_root': '', 'winrepo_remotes_ng': ['https://github.com/saltstack/salt-winrepo-ng.git'], 'raet_alt_port': 4511, 'restart_on_error': False, 'state_aggregate': False, 'update_url': False, 'grains_refresh_every': 0, 'master_type': 'str', 'env_order': [], 'default_top': 'base', 'winrepo_branch': 'master', 'providers': {}, 'winrepo_remotes': ['https://github.com/saltstack/salt-winrepo.git'], 'grains_deep_merge': False, 'cmd_safe': True, 'file_buffer_size': 262144, 'log_fmt_console': '[%(levelname)-8s] %(message)s', 'random_master': False, 'log_datefmt': '%H:%M:%S', 'grains_cache_expiration': 300, 'max_event_size': 1048576, 'id': 'edge01.sjc01', 'caller_floscript': '/state/home/jfleury/salt/salt/config/daemons/flo/caller.flo', 'loop_interval': 1, 'log_level': 'debug', 'gitfs_env_blacklist': [], 'event_match_type': 'startswith', 'git_pillar_user': '', 'auth_safemode': False, 'clean_dynamic_modules': True, 'disable_returners': [], 'cache_sreqs': True, 'minion_id_caching': True, 'gitfs_root': '', 'test': False, 'git_pillar_pubkey': '', 'tcp_keepalive': True, 'raet_clear_remotes': True, 'raet_clear_remote_masters': True, 'file_client': 'remote', 'user': 'root', 'use_master_when_local': False, 'redis.host': 'localhost', 'git_pillar_base': 'master', 'cache_jobs': False, 'permissive_pki_access': False, 'gitfs_mountpoint': '', 'winrepo_privkey': '', 'log_file': '/var/log/salt/proxy', 'return_retry_timer_max': 10, 'zmq_filtering': False, 'event_publisher_pub_hwm': 1000, 'winrepo_password': '', 'pki_dir': '/etc/salt/pki/proxy', 'minion_floscript': '/state/home/jfleury/salt/salt/config/daemons/flo/minion.flo', 'ioflo_verbose': 0, 'sock_dir': '/var/run/salt/minion', 'tcp_pub_port': 4510, 'acceptance_wait_time_max': 0, 'master': 'localhost', 'fileserver_followsymlinks': True, 'git_pillar_passphrase': '', 'gitfs_remotes': [], 'master_uri': 'tcp://127.0.0.1:****'}"
+```
+
+As you can notice, the key 'redis.host' is present in the `__opts__` dictionary, having the value 'localhost' as specified in the master config.
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.0-139-g2d732c9
+
+Dependency Versions:
+         Jinja2: 2.8
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.1.2
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: 0.3.8
+          smmap: 0.9.0
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.2
+        machine: x86_64
+         system: debian 8.2
+```
+### Possible solution?
+
+I do not have much experience with returners, but I noticed that [cassandra_return](https://github.com/saltstack/salt/blob/develop/salt/returners/cassandra_return.py) collects connection details directly from `__opts__`. Would be possible to do the same here? Or at least when is_proxy(), otherwise leave the current behaviour unchanged. If you do agree with that, I can come quickly with a PR.

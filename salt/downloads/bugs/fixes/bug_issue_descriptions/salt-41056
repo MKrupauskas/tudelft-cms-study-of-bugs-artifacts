@@ -1,0 +1,91 @@
+### Description of Issue/Question
+2016.11
+The docs for `user.present` state that `createhome` is unsupported on Windows and Mac. This makes sense on Windows because Windows will create the home directory automatically and add the appropriate permissions. I'm not sure what Mac OS does.
+When you apply a `user.present` state and define a home directory using `home`, the `_changes` function in the user state module detects that the home directory is not present and adds a `homeDoesNotExist` key to the changes dictionary. The `user.present` function checks for that key and then attempts to create the directory anyway using `file.mkdir`. Which is failing in Windows because it is passing parameters expected for the Linux version of `file.mkdir` (UID, GID).
+
+```
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "C:\salt\bin\lib\site-packages\salt\state.py", line 1822, in call
+    **cdata['kwargs'])
+  File "C:\salt\bin\lib\site-packages\salt\loader.py", line 1727, in wrapper
+    return f(*args, **kwargs)
+  File "C:\salt\bin\lib\site-packages\salt\states\user.py", line 527, in present
+    __salt__['file.makedirs'](val, pre['uid'], pre['gid'], 0o755)
+  File "C:\salt\bin\lib\site-packages\salt\modules\win_file.py", line 1388, in makedirs
+    mkdir(directory_to_create, owner, grant_perms, deny_perms, inheritance)
+  File "C:\salt\bin\lib\site-packages\salt\modules\win_file.py", line 1283, in mkdir
+    set_perms(path, grant_perms, deny_perms, inheritance)
+  File "C:\salt\bin\lib\site-packages\salt\modules\win_file.py", line 1890, in set_perms
+    for user in deny_perms:
+TypeError: 'int' object is not iterable
+```
+This can be fixed by adding a check in the `_changes` function (line 122):
+```
+-    if createhome:
++    if createhome and __grains__['kernel'] not in ('Darwin', 'Windows'):
+```
+But then this calls into question some of the logic in the `user.present` function (Lines 503 to 517). This could probably be simplified now.
+
+### Setup
+State File:
+```
+testuser01:
+ user.present:
+   - name: 'testuser01'
+   - fullname: 'François-Xavier Choinière'
+   - win_description: 'User account for testing.'
+   - password: 'PassWord1!'
+   - win_profile: C:\Users\Test
+   - home: C:\Users\Test\Home
+   - expire: 2/11/2018
+   - win_homedrive: 'U:'
+   - groups:
+     - Administrators
+     - Backup Operators
+```
+
+### Steps to Reproduce Issue
+Apply the above state to a windows box... twice. The second time it will throw the error.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.5.0-49-g4a45dbd
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: unknown
+       dateutil: 2.6.0
+      docker-py: Not Installed
+          gitdb: 2.0.0
+      gitpython: 2.1.3
+          ioflo: 1.6.7
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: 1.5.0
+       M2Crypto: Not Installed
+           Mako: 1.0.6
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.3 (v3.5.3:1880cb95a742, Jan 16 2017, 16:02:32) [MSC v.1900 64 bit (AMD64)]
+   python-gnupg: 0.4.0
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.1
+        timelib: 0.2.4
+        Tornado: 4.5.1
+            ZMQ: 4.1.6
+
+System Versions:
+           dist:
+        machine: AMD64
+        release: 2016Server
+         system: Windows
+        version: 2016Server 10.0.14393 SP0 Multiprocessor Free
+```

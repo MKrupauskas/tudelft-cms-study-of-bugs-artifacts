@@ -1,0 +1,172 @@
+salt-minion is not generating right stdout when functions declared in /etc/profile.d/*.sh have "-" in their names. Environment variables are not accessible. salt-minion must be started from upstart (service salt-minion start), when it's running in foreground or from init.d everything is working as expected.
+
+```
+root@l-jakubek-mw1:/etc/profile.d# cat x.sh 
+#!/bin/bash
+dupa-dupa() {
+        w
+}
+
+root@saltmaster:/srv/salt# salt 'l-jakubek-mw1' state.sls mw.app.test test=false
+l-jakubek-mw1:
+----------
+          ID: echo $HOME
+    Function: cmd.run
+      Result: True
+     Comment: Command "echo $HOME" run
+     Started: 
+    Duration: 
+     Changes:   
+              ----------
+              pid:
+                  4880
+              retcode:
+                  0
+              stderr:
+              stdout:
+
+Summary for l-jakubek-mw1
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   0.000 ms
+ERROR: Minions returned with non-zero exit code
+```
+
+Same command executed but there is no "-" in funcation name:
+
+```
+root@l-jakubek-mw1:/etc/profile.d# cat x.sh 
+#!/bin/bash
+dupa() {
+        w
+}
+root@saltmaster:/srv/salt# salt 'l-jakubek-mw1' state.sls mw.app.test test=false
+l-jakubek-mw1:
+----------
+          ID: echo $HOME
+    Function: cmd.run
+      Result: True
+     Comment: Command "echo $HOME" run
+     Started: 
+    Duration: 
+     Changes:   
+              ----------
+              pid:
+                  4933
+              retcode:
+                  0
+              stderr:
+              stdout:
+                  /home/jakubek
+
+Summary for l-jakubek-mw1
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   0.000 ms
+ERROR: Minions returned with non-zero exit code
+```
+
+State file for tests:
+
+```
+echo $HOME:
+  cmd.run:
+    - user: jakubek
+    - cwd: /tmp
+    - env:
+      - RAILS_ENV: "production"
+```
+
+VERSIONS:
+
+```
+root@saltmaster:/srv/salt# salt --versions-report
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: debian 8.2 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: debian 8.2
+
+root@l-jakubek-mw1:~# salt-minion --versions-report
+           Salt: 0.17.5
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.3.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+            ZMQ: 4.0.4
+
+root@saltmaster:/srv/salt# lsb_release -a
+No LSB modules are available.
+Distributor ID: Debian
+Description:    Debian GNU/Linux 8.2 (jessie)
+Release:        8.2
+Codename:       jessie
+
+root@l-jakubek-mw1:~# lsb_release -a
+No LSB modules are available.
+Distributor ID: Ubuntu
+Description:    Ubuntu 14.04.3 LTS
+Release:        14.04
+Codename:       trusty
+```
+
+EDIT:
+
+strace salt-minion:
+
+```
+6354  faccessat(AT_FDCWD, "/etc/profile.d/x.sh", R_OK) = 0
+6354  open("/etc/profile.d/x.sh", O_RDONLY) = 12
+6354  read(12, "#!/bin/bash\n\ndupa-dupa() {\n\tw\n}\n", 8192) = 32
+6354  write(2, "-su: 3: /etc/profile.d/x.sh: ", 29) = 29
+6354  write(2, "Syntax error: Bad function name", 31) = 31
+6354  write(2, "\n", 1)                 = 1
+6354  close(12)                         = 0
+6354  close(11)                         = 0
+6354  exit_group(2)                     = ?
+```
+
+I found that it could be related with this: http://unix.stackexchange.com/questions/168221/are-there-problems-with-hyphens-in-functions-aliases-and-executables
+
+workaround (disable dash as default shell):
+root@l-jakubek-mw1:/etc/profile.d# sudo dpkg-reconfigure dash

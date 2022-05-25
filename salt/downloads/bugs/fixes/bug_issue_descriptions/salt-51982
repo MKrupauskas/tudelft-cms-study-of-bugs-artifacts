@@ -1,0 +1,96 @@
+### Description of Issue/Question
+Hi :D, On salt 2019.2 PY3, when running a command salt to a minion from a master, we got the following error messages in the logs:
+```
+root@salt-syndic-zks6:~# salt 'ca-776*' test.ping
+ca-776j.xxxxxxx:
+    Minion did not return. [No response]
+ERROR: Minions returned with non-zero exit code
+```
+
+```
+[DEBUG   ] Publish daemon getting data from puller ipc:///var/run/salt/master/publish_pull.ipc
+[DEBUG   ] Publish daemon received payload. size=551
+Process salt.transport.zeromq.<class 'method'>._publish_daemon:
+Traceback (most recent call last):
+  File "/usr/lib/python3.6/multiprocessing/process.py", line 258, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.6/multiprocessing/process.py", line 93, in run
+    self._target(*self._args, **self._kwargs)
+  File "/usr/lib/python3/dist-packages/salt/transport/zeromq.py", line 909, in _publish_daemon
+    htopic = salt.utils.stringutils.to_bytes(hashlib.sha1(topic).hexdigest())
+TypeError: Unicode-objects must be encoded before hashing
+```
+From this commit, we generate a bytes message:
+https://github.com/saltstack/salt/commit/b72faef15cc55f9e61dfbf7cea0988b05f4b9bed
+
+It seems that in python3, the topic (aka minion_id) need to be encoded before being sent to hashlib and then converted to bytes, like in this example:
+```
+>>> import salt.utils.stringutils
+>>> topic = "test"
+>>> import hashlib
+>>> salt.utils.stringutils.to_bytes(hashlib.sha1(topic).hexdigest())
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+TypeError: Unicode-objects must be encoded before hashing
+# If we add the encode:
+>>> salt.utils.stringutils.to_bytes(hashlib.sha1(topic.encode('utf-8')).hexdigest())
+b'a94a8fe5ccb19ba61c4c0873d391e987982fbbd3'
+```
+But the output is not a str anymore but in a bytes format.. which mean that the "minion" will not recognize himself when received the message due to the following changes:
+https://github.com/saltstack/salt/pull/48905/commits/96e9ccb888b8add20575cee3e1434518e01689ae
+
+Based on my tests, If I add messages[0].decode('utf-8') in the following condition, it will solve the issue but maybe broke with python 2?
+https://github.com/saltstack/salt/pull/48905/commits/96e9ccb888b8add20575cee3e1434518e01689ae#diff-7e93fb0d8129a1b378ae1a10559936cbR466
+
+Overall, it seems that we need to:
+- encode the topic before using the hashlib
+- decode the topic (message[0]) to make it match with the local self.hexid and avoid to compare bytes with a str.
+
+### Steps to Reproduce Issue
+-  A master running python3 and salt 2019.2
+- Try to send a command from it to a minion like "salt '*' test.ping".
+
+### Versions Report
+ ```
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.26.0
+        libnacl: Not Installed
+       M2Crypto: 0.32.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.2
+         Python: 3.6.7 (default, Oct 22 2018, 11:32:17)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 18.0.1
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-1027-gcp
+         system: Linux
+        version: Ubuntu 18.04 bionic
+
+```

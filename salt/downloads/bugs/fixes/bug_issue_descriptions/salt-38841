@@ -1,0 +1,176 @@
+On CentOS 7, salt version 2016.11.1,  when using pkg.group_installed with a group that has packages marked with "-" (meaning don't install them), state.pkg.group_installed result is False even though the group's packages are installed successfully.
+
+Here is my sls definition:
+
+```
+X Window system:
+  pkg.group_installed:
+    - include:
+      - tigervnc-server-module
+      - tigervnc-server-minimal
+      - lightdm
+    - require:
+      - epel-repo-file
+
+Xfce:
+  pkg.group_installed:
+    - require:
+      - X Window system
+```
+
+Here is some info from the minion regarding yum's understanding of the group I want to install:
+
+```
+[test-user@localhost ~]$ sudo yum grouplist Xfce
+[sudo] password for test-user:
+Loaded plugins: fastestmirror, langpacks
+Loading mirror speeds from cached hostfile
+ * epel: mirror.nexcess.net
+Installed Groups:
+   Xfce
+Done
+[test-user@localhost ~]$ sudo yum groupinfo Xfce
+Loaded plugins: fastestmirror, langpacks
+Loading mirror speeds from cached hostfile
+ * epel: mirror.steadfast.net
+
+Group: Xfce
+ Group-Id: xfce-desktop
+ Description: A lightweight desktop environment that works well on low end machines.
+ Mandatory Packages:
+    Thunar
+   -xfce-utils
+    xfce4-panel
+    xfce4-session
+    xfce4-settings
+    xfconf
+    xfdesktop
+    xfwm4
+ Default Packages:
+   -NetworkManager-gnome
+    gdm
+   -leafpad
+    openssh-askpass
+    orage
+    polkit-gnome
+    thunar-archive-plugin
+    thunar-volman
+    tumbler
+    xfce4-appfinder
+   -xfce4-icon-theme
+   -xfce4-mixer
+    xfce4-power-manager
+    xfce4-session-engines
+    xfce4-terminal
+   -xfwm4-theme-nodoka
+ Optional Packages:
+   xfwm4-themes
+ Conditional Packages:
+    pinentry-gtk
+[test-user@localhost ~]$
+```
+
+Here is the output from the salt-master when I try to run the state:
+
+```
+----------
+          ID: Xfce
+    Function: pkg.group_installed
+      Result: False
+     Comment: Failed to install the following packages: xfce-utils, NetworkManager-gnome, leafpad, xfce4-icon-theme, xfce4-mixer, xfwm4-theme-nodoka
+     Started: 11:29:04.787475
+    Duration: 2994.059 ms
+     Changes:
+----------
+```
+
+notice, the packages mentioned as failing to install are the same packages marked "don't install" by yum.
+
+### Versions Report
+
+#### Master
+```
+Salt Version:
+           Salt: 2016.11.1
+
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Sep 15 2016, 22:37:39)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 3.10.0-327.18.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```
+
+#### Minion
+```
+Salt Version:
+           Salt: 2016.11.1
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.3.1611 Core
+        machine: x86_64
+        release: 3.10.0-514.6.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```
+
+
+## Notes
+
+I can work around this for now by manually specifying the packages from the group that need to be installed (not using group_installed). I also tried manually specifying the "disabled" packages using the  skip argument, but this doesn't work for disabled packages under the mandatory section.

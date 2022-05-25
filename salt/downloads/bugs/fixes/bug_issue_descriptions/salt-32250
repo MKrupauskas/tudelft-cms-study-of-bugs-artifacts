@@ -1,0 +1,78 @@
+I'm unable to use the 'user' configuration directive to run salt-minion as an unprivileged user. This is with salt-2015.8.8.2 and CentOS 7.2. A root-owned process is started by systemd. That process appears to attempt to start a child running as the unprivileged user but that process never remains running. Nothing is logged from the 'failing' child processes. File permissions are correct. I can su as the user (or set the user via systemd) and successfully run salt-minion that way. 
+
+Here's the end of an strace on the 'root' process (pid 24963):
+
+```
+25643 futex(0x7ffcf4805700, FUTEX_WAIT_PRIVATE, 1, NULL <unfinished ...>
+25644 setgroups(2, [37205, 585])        = 0
+25644 futex(0x7f2b0fe02d1c, FUTEX_WAKE_PRIVATE, 1) = 0
+25644 futex(0x7ffcf4805700, FUTEX_WAKE_PRIVATE, 1) = 1
+25643 <... futex resumed> )             = 0
+25644 rt_sigreturn( <unfinished ...>
+25643 setgroups(2, [37205, 585] <unfinished ...>
+25644 <... rt_sigreturn resumed> )      = -1 EINTR (Interrupted system call)
+25643 <... setgroups resumed> )         = 0
+25644 futex(0x159dab0, FUTEX_WAIT_PRIVATE, 0, NULL <unfinished ...>
+25643 tgkill(25643, 25644, SIGRT_1 <unfinished ...>
+25644 <... futex resumed> )             = ? ERESTARTSYS (To be restarted if SA_RESTART is set)
+25643 <... tgkill resumed> )            = 0
+25644 --- SIGRT_1 {si_signo=SIGRT_1, si_code=SI_TKILL, si_pid=25643, si_uid=0} ---
+25643 futex(0x7ffcf4805760, FUTEX_WAIT_PRIVATE, 1, NULL <unfinished ...>
+25644 setgid(37205)                     = 0
+25644 futex(0x7f2b0fe02d1c, FUTEX_WAKE_PRIVATE, 1) = 0
+25644 futex(0x7ffcf4805760, FUTEX_WAKE_PRIVATE, 1) = 1
+25643 <... futex resumed> )             = 0
+25644 rt_sigreturn( <unfinished ...>
+25643 setgid(37205 <unfinished ...>
+25644 <... rt_sigreturn resumed> )      = 202
+25643 <... setgid resumed> )            = 0
+25644 futex(0x159dab0, FUTEX_WAIT_PRIVATE, 0, NULL <unfinished ...>
+25643 tgkill(25643, 25644, SIGRT_1 <unfinished ...>
+25644 <... futex resumed> )             = ? ERESTARTSYS (To be restarted if SA_RESTART is set)
+25643 <... tgkill resumed> )            = 0
+25644 --- SIGRT_1 {si_signo=SIGRT_1, si_code=SI_TKILL, si_pid=25643, si_uid=0} ---
+25643 futex(0x7ffcf4805760, FUTEX_WAIT_PRIVATE, 1, NULL <unfinished ...>
+25644 setuid(12888)                     = 0
+25644 futex(0x7f2b0fe02d1c, FUTEX_WAKE_PRIVATE, 1) = 0
+25644 futex(0x7ffcf4805760, FUTEX_WAKE_PRIVATE, 1) = 1
+25643 <... futex resumed> )             = 0
+25644 rt_sigreturn( <unfinished ...>
+25643 setuid(12888 <unfinished ...>
+25644 <... rt_sigreturn resumed> )      = 202
+25643 <... setuid resumed> )            = 0
+25644 futex(0x159dab0, FUTEX_WAIT_PRIVATE, 0, NULL <unfinished ...>
+25643 futex(0x159dab0, FUTEX_WAKE_PRIVATE, 1 <unfinished ...>
+25644 <... futex resumed> )             = -1 EAGAIN (Resource temporarily unavailable)
+25643 <... futex resumed> )             = 0
+25644 kill(24963, SIG_0 <unfinished ...>
+25643 futex(0x159dab0, FUTEX_WAIT_PRIVATE, 0, NULL <unfinished ...>
+25644 <... kill resumed> )              = -1 EPERM (Operation not permitted)
+25644 exit_group(999)                   = ?
+25644 +++ exited with 231 +++
+25643 +++ exited with 231 +++
+24963 <... wait4 resumed> [{WIFEXITED(s) && WEXITSTATUS(s) == 231}], 0, NULL) = 25643
+24963 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=25643, si_status=231, si_utime=18, si_stime=14} ---
+24963 poll([{fd=6, events=POLLIN|POLLPRI}], 1, 0) = 0 (Timeout)
+24963 munmap(0x7f2b21235000, 32)        = 0
+24963 close(4)                          = 0
+24963 munmap(0x7f2b21237000, 32)        = 0
+24963 close(3)                          = 0
+24963 munmap(0x7f2b21236000, 32)        = 0
+24963 select(0, NULL, NULL, NULL, {60, 0} <detached ...>
+```
+
+minion config:
+
+```
+master: saltmaster1
+master_port: 4506
+user: salt-minion
+pidfile: /tmp/salt-minion.pid
+pki_dir: /etc/salt/pki/minion
+log_file: /var/log/salt/minion
+log_level: all
+log_level_logfile: all
+hash_type: sha256
+```
+
+The root process remains running and periodically tries to start new children which continue to fail. 

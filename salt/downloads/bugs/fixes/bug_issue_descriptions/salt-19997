@@ -1,0 +1,71 @@
+When trying to use a hgfs fileserver backend, I encounter problems. Running fileserver.update results in the following:
+## Problem:
+
+```
+salt$ sudo salt-run fileserver.update
+[ERROR ] An un-handled exception was caught by salt's global exception handler:
+CommandError: (1, '', '')
+Traceback (most recent call last):
+File "/usr/local/bin/salt-run", line 9, in <module>
+load_entry_point('salt==2014.1.11', 'console_scripts', 'salt-run')()
+File "/usr/local/lib/python2.7/dist-packages/salt/scripts.py", line 95, in salt_run
+client.run()
+File "/usr/local/lib/python2.7/dist-packages/salt/cli/__init__.py", line 362, in run
+runner.run()
+File "/usr/local/lib/python2.7/dist-packages/salt/runner.py", line 218, in run
+self.opts['fun'], self.opts['arg'], self.opts)
+File "/usr/local/lib/python2.7/dist-packages/salt/runner.py", line 125, in cmd
+return self.functions[fun](*args, **kwargs)
+File "/usr/local/lib/python2.7/dist-packages/salt/runners/fileserver.py", line 21, in update
+fileserver.update()
+File "/usr/local/lib/python2.7/dist-packages/salt/fileserver/__init__.py", line 233, in update
+self.servers[fstr]()
+File "/usr/local/lib/python2.7/dist-packages/salt/fileserver/hgfs.py", line 261, in update
+repos = init()
+File "/usr/local/lib/python2.7/dist-packages/salt/fileserver/hgfs.py", line 219, in init
+refs = repo.config(names='paths')
+File "/usr/local/lib/python2.7/dist-packages/hglib/client.py", line 583, in config
+out = self.rawcommand(args)
+File "/usr/local/lib/python2.7/dist-packages/hglib/client.py", line 183, in rawcommand
+raise error.CommandError(args, ret, out, err)
+CommandError: (1, '', '')
+Traceback (most recent call last):
+File "/usr/local/bin/salt-run", line 9, in <module>
+load_entry_point('salt==2014.1.11', 'console_scripts', 'salt-run')()
+File "/usr/local/lib/python2.7/dist-packages/salt/scripts.py", line 95, in salt_run
+client.run()
+File "/usr/local/lib/python2.7/dist-packages/salt/cli/__init__.py", line 362, in run
+runner.run()
+File "/usr/local/lib/python2.7/dist-packages/salt/runner.py", line 218, in run
+self.opts['fun'], self.opts['arg'], self.opts)
+File "/usr/local/lib/python2.7/dist-packages/salt/runner.py", line 125, in cmd
+return self.functions[fun](*args, **kwargs)
+File "/usr/local/lib/python2.7/dist-packages/salt/runners/fileserver.py", line 21, in update
+fileserver.update()
+File "/usr/local/lib/python2.7/dist-packages/salt/fileserver/__init__.py", line 233, in update
+self.servers[fstr]()
+File "/usr/local/lib/python2.7/dist-packages/salt/fileserver/hgfs.py", line 261, in update
+repos = init()
+File "/usr/local/lib/python2.7/dist-packages/salt/fileserver/hgfs.py", line 219, in init
+refs = repo.config(names='paths')
+File "/usr/local/lib/python2.7/dist-packages/hglib/client.py", line 583, in config
+out = self.rawcommand(args)
+File "/usr/local/lib/python2.7/dist-packages/hglib/client.py", line 183, in rawcommand
+raise error.CommandError(args, ret, out, err)
+hglib.error.CommandError: (1, '', '') 
+```
+
+I've diagnosed the problem as due to hgfs.py initializing a cache of the remote repo at `/var/cache/salt/master/hgfs/<some hash of the repo>/`. Then, the config step checks for the default path of the cache repo using `refs = repo.config(names='paths')`, which translates to `hg showconfig paths`.
+
+However, because this is a freshly inited repo, it does not have any paths configured. This means that `hg showconfig paths` has a return code of 1.
+
+The command is issued by hglib.client.rawcommand, which takes a flag `eh` if errors are supposed to be handled gracefully. This flag isn't set in this case, so an Exception is raised which is not handled.
+## Workaround:
+
+I've a workaround in place for this, by manually populating the file .hg/hgrc of the cached repo, subsequent calls to fileserver.update will work correctly.
+## Version details:
+
+OS: Ubuntu 14.04
+Salt: 2014.7.1 (also present in 2014.1.11)
+python-hglib: 1.5
+Mercurial: 3.2.2

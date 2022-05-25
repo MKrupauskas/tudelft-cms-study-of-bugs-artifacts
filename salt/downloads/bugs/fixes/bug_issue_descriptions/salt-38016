@@ -1,0 +1,94 @@
+Passed shell command to `salt-ssh -r` seems to interfere with the SSH connection.
+
+## Setup
+salt-ssh
+```
+$$HOST$$:
+    host: $$HOST$$
+    user: CONFIG
+    sudo: True
+```
+
+## Steps to Reproduce Issue
+I am comparing salt-ssh behaviour/output (actual) with manual ssh behaviour/output (expected).
+
+### ssh
+**CORRECT**:
+```
+$ ssh -l CONFIG $$HOST$$ "sudo gpg --homedir /root/.gnupg --list-keys"
+$
+```
+**CORRECT**:
+```
+$ ssh -l CONFIG $$HOST$$ "gpg --homedir /root/.gnupg --list-keys"
+gpg: fatal: can't create directory `/root/.gnupg': Permission denied
+secmem usage: 0/0 bytes in 0/0 blocks of pool 0/65536
+$
+```
+### salt-ssh
+**CORRECT**:
+```
+$ salt-ssh '$$HOST$$' -r "sudo gpg --homedir /root/.gnupg --list-keys"
+$$HOST$$:
+    ----------
+    retcode:
+        0
+    stderr:
+    stdout:
+$
+```
+**_INCORRECT_**:
+```
+$ salt-ssh '$$HOST$$' -r "gpg --homedir /root/.gnupg --list-keys"
+Permission denied for host $$HOST$$, do you want to deploy the salt-ssh key? (password required):
+[Y/n]
+^C
+```
+
+To ensure a missing key or other ssh-salt-related config is not the issue but only happens with above gpg-call:
+```
+$ salt-ssh '$$HOST$$' -r "id ; sudo id ; ARBITRARY_NONEXISTING_COMMAND ; sudo ARBITRARY_NONEXISTING_COMMAND ; gpg --version ; sudo gpg --version"
+$$HOST$$:
+    ----------
+    retcode:
+        0
+    stderr:
+        sh: 1: ARBITRARY_NONEXISTING_COMMAND: not found
+        sudo: ARBITRARY_NONEXISTING_COMMAND: command not found
+    stdout:
+        uid=501(CONFIG) gid=501(CONFIG) groups=501(CONFIG),27(sudo)
+        uid=0(root) gid=0(root) groups=0(root)
+        gpg (GnuPG) 1.4.18
+        Copyright (C) 2014 Free Software Foundation, Inc.
+        License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+        This is free software: you are free to change and redistribute it.
+        There is NO WARRANTY, to the extent permitted by law.
+        
+        Home: ~/.gnupg
+        Supported algorithms:
+        Pubkey: RSA, RSA-E, RSA-S, ELG-E, DSA
+        Cipher: IDEA, 3DES, CAST5, BLOWFISH, AES, AES192, AES256, TWOFISH,
+                CAMELLIA128, CAMELLIA192, CAMELLIA256
+        Hash: MD5, SHA1, RIPEMD160, SHA256, SHA384, SHA512, SHA224
+        Compression: Uncompressed, ZIP, ZLIB, BZIP2
+        gpg (GnuPG) 1.4.18
+        Copyright (C) 2014 Free Software Foundation, Inc.
+        License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+        This is free software: you are free to change and redistribute it.
+        There is NO WARRANTY, to the extent permitted by law.
+        
+        Home: ~/.gnupg
+        Supported algorithms:
+        Pubkey: RSA, RSA-E, RSA-S, ELG-E, DSA
+        Cipher: IDEA, 3DES, CAST5, BLOWFISH, AES, AES192, AES256, TWOFISH,
+                CAMELLIA128, CAMELLIA192, CAMELLIA256
+        Hash: MD5, SHA1, RIPEMD160, SHA256, SHA384, SHA512, SHA224
+        Compression: Uncompressed, ZIP, ZLIB, BZIP2
+$
+```
+
+## Versions Report
+```
+$ salt-ssh --version
+salt-ssh 2016.3.3 (Boron)
+```

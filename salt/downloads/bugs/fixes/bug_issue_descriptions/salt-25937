@@ -1,0 +1,214 @@
+Using batch mode for an operation starts with the correct number of minions per batch but quickly degrades to running one at a time.
+In other words `-b N` quickly becomes `-b 1` in the middle of a salt run.
+This seems related to (but different than) https://github.com/saltstack/salt/issues/24875, as we were seeing this behavior leading up to the the crash in that bug.
+
+Also the output is frequently messed up and incomplete.
+
+---
+
+```
+$ salt --versions-report
+                  Salt: 2015.5.3
+                Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+                Jinja2: 2.6
+              M2Crypto: 0.21.1
+        msgpack-python: 0.1.10
+          msgpack-pure: Not Installed
+              pycrypto: 2.6
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 13.1.0
+                  RAET: Not Installed
+                   ZMQ: 3.2.3
+                  Mako: 0.7.0
+               Tornado: 4.0.2
+ Debian source package: 2015.5.3+ds-1~bpo70+2
+```
+
+```
+$ salt ids* test.version
+ids999:
+    2015.5.3
+ids5:
+    2015.5.3
+ids6:
+    2015.5.3
+ids4:
+    2015.5.3
+ids3:
+    2015.5.3
+ids2:
+    2015.5.3
+ids1:
+    2015.5.3
+```
+
+```
+$ salt ids* -b 2 test.ping
+
+Executing run on ['ids999', 'ids3'] <====================== two
+
+ids3:
+    True
+retcode:
+    0
+ids999:
+    True
+retcode:
+    0
+
+Executing run on ['ids2', 'ids5'] <====================== two
+
+ids2:
+    True
+retcode:
+    0
+
+Executing run on ['ids4'] <====================== one!
+
+ids5:
+    True
+retcode:
+    0
+
+Executing run on ['ids6'] <====================== one!
+
+ids4:
+    True
+retcode:
+    0
+
+Executing run on ['ids1'] <====================== one!
+
+ids6:
+    True
+retcode:
+    0
+ids1:
+    True
+retcode:
+    0
+```
+
+Strangely this seems to not always happen, it never fails this test case:
+
+```
+$ salt ids* -b 2 cmd.run 'sleep 5s'
+
+Executing run on ['ids1', 'ids3']
+
+ids3:
+retcode:
+    0
+ids1:
+retcode:
+    0
+
+Executing run on ['ids2', 'ids5']
+
+ids5:
+retcode:
+    0
+ids2:
+retcode:
+    0
+
+Executing run on ['ids4', 'ids6']
+
+ids6:
+retcode:
+    0
+ids4:
+retcode:
+    0
+
+Executing run on ['ids999']
+
+ids999:
+retcode:
+    0
+
+```
+
+But highstate runs are very strange:
+
+```
+$ salt ids* -b 2 state.highstate
+
+Executing run on ['ids1', 'ids3']
+
+ids3:
+  Name: /etc/nginx/conf - Function: file.recurse - Result: Changed
+  Name: nginx - Function: service.running - Result: Changed
+  Name: /usr/local/v/deployer - Function: file.recurse - Result: Changed
+  Name: v-deployer - Function: service.running - Result: Changed
+  Name: /etc/elasticsearch/elasticsearch.yml - Function: file.managed - Result: Changed
+  Name: elasticsearch - Function: service.running - Result: Changed
+  Name: /etc/sensu/plugins/mysql-metrics - Function: file.managed - Result: Changed
+
+Summary
+--------------
+Succeeded: 661 (changed=7)
+Failed:      0
+--------------
+Total states run:     661
+
+Executing run on ['ids2']
+
+              ----------
+              ids1:
+                  ----------
+
+Executing run on ['ids5']
+
+              ----------
+              ids2:
+                  ----------
+
+Executing run on ['ids4']
+
+ids5:
+  Name: /etc/nginx/conf - Function: file.recurse - Result: Changed
+  Name: nginx - Function: service.running - Result: Changed
+  Name: /usr/local/v/deployer - Function: file.recurse - Result: Changed
+  Name: v-deployer - Function: service.running - Result: Changed
+  Name: /etc/elasticsearch/elasticsearch.yml - Function: file.managed - Result: Changed
+  Name: elasticsearch - Function: service.running - Result: Changed
+  Name: /etc/sensu/plugins/mysql-metrics - Function: file.managed - Result: Changed
+
+Summary
+--------------
+Succeeded: 661 (changed=7)
+Failed:      0
+--------------
+Total states run:     661
+
+Executing run on ['ids6']
+
+              ----------
+              ids4:
+                  ----------
+
+Executing run on ['ids999']
+
+              ----------
+              ids6:
+                  ----------
+ids999:
+  Name: /etc/nginx/conf - Function: file.recurse - Result: Changed
+  Name: nginx - Function: service.running - Result: Changed
+  Name: /usr/local/v/deployer - Function: file.recurse - Result: Changed
+  Name: v-deployer - Function: service.running - Result: Changed
+  Name: /etc/elasticsearch/elasticsearch.yml - Function: file.managed - Result: Changed
+  Name: elasticsearch - Function: service.running - Result: Changed
+  Name: /etc/sensu/plugins/mysql-metrics - Function: file.managed - Result: Changed
+
+Summary
+--------------
+Succeeded: 661 (changed=7)
+Failed:      0
+--------------
+Total states run:     661
+
+```

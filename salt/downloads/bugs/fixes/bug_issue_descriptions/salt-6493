@@ -1,0 +1,117 @@
+Trying to call function taking **kwargs via a state using module.run
+doesn't seem to work. I tried different approach, but none seemed to get
+anything in it.
+
+---
+##### _modules/argtest.py
+
+<pre>
+"""
+Just a test module for salt module.run tests
+"""
+
+def __virtual__():
+  return "argtest"
+
+def func1(foo):
+  print "--- func1"
+  print "foo: ", foo
+
+def func2(foo, *bar):
+  print "--- func2"
+  print "foo: ", foo
+  print "bar: ", bar
+
+def func3(foo, **baz):
+  print "--- func3"
+  print "foo: ", foo
+  print "baz: ", baz
+
+def func4(foo, *bar, **baz):
+  print "--- func4"
+  print "foo: ", foo
+  print "bar: ", bar
+  print "baz: ", baz
+</pre>
+
+---
+##### Using salt-call in command line:
+
+<pre>
+# salt-call argtest.func1 blah
+--- func1
+foo:  blah
+
+# salt-call argtest.func2 blah something else question=life answer=42
+--- func2
+foo:  blah
+bar:  ('something', 'else', 'question=life', 'answer=42')
+
+# salt-call argtest.func3 blah question=life answer=42 
+--- func3
+foo:  blah
+baz:  {'answer': 42, 'question': 'life'}
+
+# salt-call argtest.func4 blah something else question=life answer=42
+foo:  blah
+bar:  ('something', 'else')
+baz:  {'answer': 42, 'question': 'life'}
+</pre>
+
+---
+##### Using states (calling state.highstate)
+
+sls file
+
+<pre>
+test1:
+  module.run:
+  - name: argtest.func1
+  - foo: blah
+  - bar:
+    - something
+    - else
+  - baz:
+      question: life
+      answer: 42
+  - unknown: universe
+</pre>
+
+
+Note: the same, replacing test1 and func1 with 2, 3 and 4.
+
+<pre>
+--- func1
+foo:  blah
+--- func2
+foo:  blah
+bar:  ('something', 'else')
+--- func3
+foo:  blah
+baz:  {}
+--- func4
+foo:  blah
+bar:  ()
+baz:  {}
+</pre>
+
+---
+##### Expected (result after patch)
+
+<pre>
+--- func1
+foo:  blah
+--- func2
+foo:  blah
+bar:  ('something', 'else')
+--- func3
+foo:  blah
+baz:  {'answer': 42, 'question': 'life'}
+--- func4
+foo:  blah
+bar:  ('something', 'else')
+baz:  {'answer': 42, 'question': 'life'}
+</pre>
+
+
+Note: incoming pull request with patch. Issue will be updated shortly.

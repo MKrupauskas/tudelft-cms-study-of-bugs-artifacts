@@ -1,0 +1,111 @@
+**Description**
+Following a recent update to salt-ssh, new macros fail to import. 
+
+**Setup**
+Running Ubuntu 16.04 on my local system, no salt-master just using salt-ssh.
+
+``` bash
+$ sudo apt-get install salt-ssh
+$ cat salt/top.sls
+base:
+  '*':
+    - testfile
+$ cat salt/testfile.sls 
+{% from 'lib.sls' import testmacro %}
+{% set testmacro = testmacro %}
+{{ testmacro("wibble") }}
+
+echo foo:
+  cmd.run
+
+$ cat salt/lib.sls
+# Defines common macros.
+{% macro testmacro(foobar) %}
+echo {{foobar}}:
+  cmd.run
+{% endmacro %}
+```
+
+**Steps to Reproduce the behavior**
+``` bash 
+$ salt-ssh 'example' state.apply 
+[ERROR   ] Rendering exception occurred
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/templates.py", line 498, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python3/dist-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python3/dist-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "/usr/lib/python3/dist-packages/jinja2/_compat.py", line 37, in reraise
+    raise value.with_traceback(tb)
+  File "<template>", line 5, in top-level template code
+jinja2.exceptions.UndefinedError: the template 'lib.sls' (imported on line 1) does not export the requested name 'testmacro'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/templates.py", line 260, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/usr/lib/python3/dist-packages/salt/utils/templates.py", line 505, in render_jinja_tmpl
+    raise SaltRenderError("Jinja variable {}{}".format(exc, out), buf=tmplstr)
+salt.exceptions.SaltRenderError: Jinja variable the template 'lib.sls' (imported on line 1) does not export the requested name 'testmacro'
+[CRITICAL] Rendering SLS 'base:testfile' failed: Jinja variable the template 'lib.sls' (imported on line 1) does not export the requested name 'testmacro'
+example:
+    - Rendering SLS 'base:testfile' failed: Jinja variable the template 'lib.sls' (imported on line 1) does not export the requested name 'testmacro'
+```
+
+**Expected behavior**
+The expected behaviour is that it runs the command `echo wibble` and then `echo foo`. 
+This is how it works in version 3001 - as well as in 3002 until a recent update. 
+
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+Salt Version:
+           Salt: 3002.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: 3.4.7
+         pygit2: Not Installed
+         Python: 3.5.2 (default, Oct  7 2020, 17:19:02)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 17.1.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: ubuntu 16.04 Xenial Xerus
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-193-generic
+         system: Linux
+        version: Ubuntu 16.04 Xenial Xerus
+```
+</details>
+
+**Additional context**
+
+I've just noticed that if the macro had been created and run in a previous version then it still works. 
+I've tried clearing my `cachedir` but that didn't help.

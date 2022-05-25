@@ -1,0 +1,14 @@
+2014-10-22 13:17:42,217 [salt.loaded.int.returner.local_cache       ][WARNING ] Could not write job cache file for minions: ['xxx', 'xxx', 'xxx', 'xxx', 'xxx', 'xxx', 'xxx']
+2014-10-22 13:17:42,217 [salt.loaded.int.returner.local_cache       ][WARNING ] Could not write job invocation cache file: [Errno 2] No such file or directory: '/var/cache/salt/master/jobs/ec/06e91ef91c801f4f58703a52093454/.load.p'
+
+I'm running rc5, but noticed this behavior on rc4 also.  On the Google group some mentioned it was present in rc2.  I have a couple minions connected to a syndic, which then connects up to the true master.  When running commands from the syndics everything works properly, but when it's passing through a command from the root master, these errors occur on the syndic.
+
+It appears save_load is getting called in master.py to write .load.p, but prep_jid hadn't been called yet, so the directory simply doesn't exist.  We are using the local job cache, and I've tracked that down to here, so this is being run and causing the initial error:
+
+https://github.com/saltstack/salt/blob/v2014.7.0rc5/salt/master.py#L2277
+
+If you do an os.makedirs(jid_dir) here, it resolves the issue:
+
+https://github.com/saltstack/salt/blob/v2014.7.0rc5/salt/returners/local_cache.py#L180
+
+This is obviously not the proper fix, it's just a quick hack to confirm the behavior.  Is prep_jid supposed to be called somewhere sooner in master.py when using the local job cache?

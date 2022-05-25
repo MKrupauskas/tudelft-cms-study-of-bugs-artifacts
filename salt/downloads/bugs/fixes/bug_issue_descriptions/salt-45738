@@ -1,0 +1,274 @@
+### Description of Issue/Question
+
+When a scheduled job is executed on minions caching jobs locally, the previous scheduled job cache is overwritten. It seems like schedules jobs are cached under the same jid every-time overwriting previous cached entries. Instead of a timestamp type jid, the jid is set as "req". Is this a bug or intended by design? Is there a setting I might be missing to be able to save my cache data and keep it unique? Where does "req" come from?
+
+### Setup
+This was replicated in a small lab environment with a master and several minions. The master is on CentOS 7 and minions are on CentOS 6/7 and Oracle Linux 6/7. Each minion has the cache_jobs setting enabled (cache_jobs: True)
+The same behaviour is seen on larger environments with thousands of minions. 
+
+### Steps to Reproduce Issue
+
+1. Setup the cache jobs to enabled on the minions - cache_jobs: True
+
+2. Add scheduled jobs 
+
+**Job 1**
+```
+
+scheduleCoreDNSHourly:
+  schedule.present:
+    - function: state.sls
+    - jid_include: true
+    - minutes: 60
+    - splay: 1800
+    - enabled: True
+    - job_args:
+      - dns
+    - job_kwargs:
+        test: False
+
+```
+**Job 2**
+```
+scheduleCoreMailDaily:
+  schedule.present:
+    - function: state.sls
+    - jid_include: true
+    - hours: 24
+    - splay: 1800
+    - enabled: True
+    - job_args:
+      - mail
+    - job_kwargs:
+        test: False
+```
+
+3. Simulate schedule jobs run with schedule.run_job
+
+**Job 1**
+```
+[root@saltmaster ~]# salt -G kernel:Linux schedule.run_job scheduleCoreDNSHourly
+saltmaster:
+    ----------
+    comment:
+        Scheduling Job scheduleCoreDNSHourly on minion.
+    result:
+        True
+centos6:
+    ----------
+    comment:
+        Scheduling Job scheduleCoreDNSHourly on minion.
+    result:
+        True
+centos7:
+    ----------
+    comment:
+        Scheduling Job scheduleCoreDNSHourly on minion.
+    result:
+        True
+```
+**Job 2**
+```
+[root@saltmaster ~]# salt -G kernel:Linux schedule.run_job scheduleCoreMailDaily
+saltmaster:
+    ----------
+    comment:
+        Scheduling Job scheduleCoreMailDaily on minion.
+    result:
+        True
+centos6:
+    ----------
+    comment:
+        Scheduling Job scheduleCoreMailDaily on minion.
+    result:
+        True
+centos7:
+    ----------
+    comment:
+        Scheduling Job scheduleCoreMailDaily on minion.
+    result:
+        True
+```
+
+4. Find and check in between and after scheduled runs the cached jobs with saltutil.find_cached_job , you can also check the file system at /var/cache/salt/minion/minion_jobs/ req
+
+**Job 1**
+```
+[root@centos7 ~]# salt-call saltutil.find_cached_job req
+local:
+    ----------
+    _stamp:
+        2018-01-28T15:54:45.794950
+    cmd:
+        _return
+    fun:
+        state.sls
+    fun_args:
+        - dns
+        |_
+          ----------
+          test:
+              False
+    id:
+        centos7
+    jid:
+        req
+    pid:
+        3219
+    retcode:
+        0  
+...
+           ----------
+            result:
+                True
+            start_time:
+                08:54:45.757966
+    schedule:
+        scheduleCoreDNSHourly
+    success:
+        True
+[root@centos7 ~]# 
+
+```
+**Job 2**
+```
+[root@centos7 ~]# salt-call saltutil.find_cached_job req
+local:
+    ----------
+    _stamp:
+        2018-01-28T15:54:45.794950
+    cmd:
+        _return
+    fun:
+        state.sls
+    fun_args:
+        - mail
+        |_
+          ----------
+          test:
+              False
+    id:
+        centos7
+    jid:
+        req
+    pid:
+        3219
+    retcode:
+        0
+    return:
+        ----------
+
+...
+
+            result:
+                True
+            start_time:
+                08:54:45.757966
+    schedule:
+        scheduleCoreMailDaily
+    success:
+        True
+[root@centos7 ~]# 
+```
+
+
+### Versions Report
+
+**Master versions report**
+
+```
+[root@saltmaster ~]# salt --versions-report
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.24.6
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.24.2
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.5.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+ 
+[root@saltmaster ~]# 
+```
+
+**Minion Versions Report**
+
+
+```
+[root@centos7 ~]# salt-call --versions-report
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.4.1708 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-693.5.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.4.1708 Core
+ 
+[root@centos7 ~]# 
+
+
+```

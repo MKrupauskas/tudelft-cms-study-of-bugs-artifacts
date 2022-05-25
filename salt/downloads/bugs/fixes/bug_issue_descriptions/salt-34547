@@ -1,0 +1,186 @@
+I'm deploying from a RedHat Enterprise 7 template where salt-minion 2016.3.1 is already installed (from official repositories) with a basic configuration. For different reasons I can't use the bootstrap script.
+
+I use a custom script to finish the deployment, but I get a traceback and the minion key is rejected from the Master. Salt-minion refuses to start as a result. I'm getting the same error using bootstrap-salt.
+
+```
+Accepted Keys:
+stestswa32dev.intranet.example.org
+Denied Keys:
+stestswa32dev.intranet.example.org
+```
+
+salt-minion -l debug:
+
+```
+[CRITICAL] The Salt Master has rejected this minion's public key!
+To repair this issue, delete the public key for this minion on the Salt Master and restart this minion.
+Or restart the Salt Master in open mode to clean out the keys. The Salt Minion will now exit.
+```
+
+In the template, Salt-minion is set not to start at boot (or I get noname as minion_id). The custom script `/etc/salt/cloud.deploy.d/vmware-finishing.sh` is supposed to enable salt-minion and start it.
+
+```
+#!/bin/bash
+
+/usr/sbin/chkconfig salt-minion on
+/usr/sbin/service salt-minion start
+
+exit 0
+```
+
+This is the profile:
+
+```
+rhel7-DEV-small:
+  provider: vmware
+  clonefrom: TMPL-RHEL7
+  datastore: LDLI01SASHA
+  num_cpu: 2
+  memory: 4GB
+  folder: SALTCLOUD
+  datacenter: LEO2
+  cluster: Mixed
+  host: sesx63.intranet.example.org
+  ssh_username: root
+  password: xxx
+  devices:
+    network:
+      Network adapter 1:
+        name: VLAN401
+        adapter_type: vmxnet3
+        ip: 172.24.1.82
+        subnet_mask: 255.255.255.0
+        gateway: 172.24.1.1
+        switch_type: standard
+  domain: intranet.example.org
+  dns_servers:
+    - 193.x.x.x
+    - 193.x.x.x
+  deploy: True
+  script: /etc/salt/cloud.deploy.d/vmware-finishing.sh
+```
+
+This is the stacktrace:
+
+```
+[ERROR   ] There was a profile error: ''
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/cloud/cli.py", line 284, in run
+    self.config.get('names')
+  File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 1446, in run_profile
+    ret[name] = self.create(vm_)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 1281, in create
+    output = self.clouds[func](vm_)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/vmware.py", line 2442, in create
+    data = show_instance(vm_name, call='action')
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/vmware.py", line 1576, in show_instance
+    vm_list = salt.utils.vmware.get_mors_with_properties(_get_si(), vim.VirtualMachine, vm_properties)
+  File "/usr/lib/python2.7/site-packages/salt/utils/vmware.py", line 445, in get_mors_with_properties
+    content = get_content(service_instance, object_type, property_list=property_list, container_ref=container_ref)
+  File "/usr/lib/python2.7/site-packages/salt/utils/vmware.py", line 351, in get_content
+    container_ref = service_instance.content.rootFolder
+  File "/usr/lib/python2.7/site-packages/pyVmomi/VmomiSupport.py", line 574, in __call__
+    return self.f(*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/pyVmomi/VmomiSupport.py", line 394, in _InvokeAccessor
+    return self._stub.InvokeAccessor(self, info)
+  File "/usr/lib/python2.7/site-packages/pyVmomi/StubAdapterAccessorImpl.py", line 42, in InvokeAccessor
+    options=self._pcType.RetrieveOptions(maxObjects=1))
+  File "/usr/lib/python2.7/site-packages/pyVmomi/VmomiSupport.py", line 580, in <lambda>
+    self.f(*(self.args + (obj,) + args), **kwargs)
+  File "/usr/lib/python2.7/site-packages/pyVmomi/VmomiSupport.py", line 386, in _InvokeMethod
+    return self._stub.InvokeMethod(self, info, args)
+  File "/usr/lib/python2.7/site-packages/pyVmomi/SoapAdapter.py", line 1327, in InvokeMethod
+    resp = conn.getresponse()
+  File "/usr/lib64/python2.7/httplib.py", line 1051, in getresponse
+    response.begin()
+  File "/usr/lib64/python2.7/httplib.py", line 415, in begin
+    version, status, reason = self._read_status()
+  File "/usr/lib64/python2.7/httplib.py", line 379, in _read_status
+    raise BadStatusLine(line)
+BadStatusLine: ''
+```
+
+Master:
+
+```
+Salt Version:
+            Salt: 2016.3.1
+
+Dependency Versions:
+ Apache Libcloud: 0.20.1
+            cffi: Not Installed
+        cherrypy: 3.2.2
+        dateutil: 1.5
+           gitdb: Not Installed
+       gitpython: Not Installed
+           ioflo: Not Installed
+          Jinja2: 2.7.2
+         libgit2: Not Installed
+         libnacl: Not Installed
+        M2Crypto: 0.21.1
+            Mako: Not Installed
+    msgpack-pure: Not Installed
+  msgpack-python: 0.4.7
+    mysql-python: Not Installed
+       pycparser: Not Installed
+        pycrypto: 2.6.1
+          pygit2: Not Installed
+          Python: 2.7.5 (default, Oct 11 2015, 17:47:16)
+    python-gnupg: Not Installed
+          PyYAML: 3.10
+           PyZMQ: 14.7.0
+            RAET: Not Installed
+           smmap: Not Installed
+         timelib: Not Installed
+         Tornado: 4.2.1
+             ZMQ: 4.0.5
+
+System Versions:
+            dist: redhat 7.2 Maipo
+         machine: x86_64
+         release: 3.10.0-327.el7.x86_64
+          system: Linux
+```
+
+Minion:
+
+```
+[root@stestswa32dev ~]# salt-minion --versions
+Salt Version:
+           Salt: 2016.3.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Oct 11 2015, 17:47:16)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: redhat 7.2 Maipo
+        machine: x86_64
+        release: 3.10.0-327.el7.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 7.2 Maipo
+```

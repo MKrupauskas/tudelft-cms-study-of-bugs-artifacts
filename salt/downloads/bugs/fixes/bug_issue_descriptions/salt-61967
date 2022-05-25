@@ -1,0 +1,159 @@
+**Description**
+
+Initially discussed this in the [Slack `#develop` channel](https://saltstackcommunity.slack.com/archives/C8832QN4U/p1650315109364589) -- CC: @nicholasmhughes.
+
+Running the formulas' group weekly testing with the latest `master` branch images, I encountered failures across all instances in the `prometheus-formula`:
+
+* https://gitlab.com/myii/prometheus-formula/-/pipelines/519012370
+
+My initial findings highlighted an issue with the `archive.extracted` state:
+
+```sls
+          ID: prometheus-archive-install-prometheus
+    Function: archive.extracted
+        Name: /opt/prometheus/prometheus-v2.22.1
+      Result: False
+     Comment: All files in archive are already present
+              
+              While trying to enforce user/group ownership, the following paths were missing:
+              
+              - /opt/prometheus/prometheus-v2.22.1/console/
+```
+
+I looked back over the changes introduced over the last week and established that the regression was introduced in 3bab5bdd3f2cb1767bd8264374d665baed5f5049 (#61896), in the `archive.list` execution module function.
+
+Reverting that commit got the state working; in fact, the whole Test Kitchen suite was passing again.
+
+---
+
+Using interactive debugging with `pudb`, I was able to trace through what was going on.
+
+Before the recent commit:
+
+https://github.com/saltstack/salt/blob/e8efcedcfdcc851b348df7bcdfa1834ee243fc83/salt/modules/archive.py#L428
+
+These are the values that would be involved:
+
+```py
+>>> ret["dirs"]
+['console_libraries/', 'consoles/']
+
+>>> [x for x in ret["dirs"] if x.count("/") == 1]  # i.e. `ret["top_level_dirs"]`
+['console_libraries/', 'consoles/']
+```
+
+After the recent commit:
+
+https://github.com/saltstack/salt/blob/08cf17cd807661b9872d27abde604b07631048c8/salt/modules/archive.py#L428-L436
+
+Tracing through the values assigned:
+
+```py
+>>> top_level_dirs
+['console_libraries/', 'consoles/']
+
+>>> common_prefix
+'console'
+
+>>> common_prefix
+'console/'
+
+>>> top_level_dirs
+['console_libraries/', 'consoles/', 'console/']
+```
+
+Essentially, `common_prefix` is wrongly evaluated right at the beginning of this block, leading to the erroneous value `'console/'` being added to `top_level_dirs`.
+
+So we need to ensure that `common_prefix` matching only occurs if a directory name is identified, not just a partial match.
+
+---
+
+**Setup**
+* The Test Kitchen setup in the current release of the `prometheus-formula`, i.e.:
+  - https://github.com/saltstack-formulas/prometheus-formula/releases/tag/v5.6.4
+
+- [ ] on-prem machine
+- [ ] VM (Virtualbox, KVM, etc. please specify)
+- [ ] VM running on a cloud service, please be explicit and add details
+- [X] container (Kubernetes, Docker, containerd, etc. please specify)
+    - https://hub.docker.com/r/saltimages/salt-master-py3/tags
+- [ ] or a combination, please be explicit
+- [ ] jails if it is FreeBSD
+  
+---
+
+**Steps to Reproduce the behavior**
+* Clone the formula using the tag above.
+* Run Kitchen for any of the `master` instances (the `default` suite), e.g.:
+  - `bin/kitchen test default-debian-10-master-py3`
+  - Important: As mentioned below, I've already tested and pushed a fix to these `master` images in Docker Hub, so these will now pass.
+
+---
+
+**Expected behavior**
+The CI testing should pass, as it has been doing every week until last week:
+
+* https://gitlab.com/myii/prometheus-formula/-/pipelines/513882486
+
+---
+
+**Versions Report**
+Affects all current `master` branch installations.
+
+---
+
+**Additional context**
+Referring to the test added in #61896:
+
+https://github.com/saltstack/salt/blob/08cf17cd807661b9872d27abde604b07631048c8/tests/pytests/functional/modules/test_archive.py#L308-L333
+
+I've written a failing test based on the situation in the `prometheus-formula`:
+
+```py
+@pytest.mark.skip_on_windows
+@pytest.mark.skip_if_binaries_missing("tar")
+def test_tar_list_with_similar_top_level_dirs(archive, tmp_path):
+    rel_paths = (
+        "archive_top/second_level/file.txt",
+        "archives/second_level/file.txt",
+    )
+
+    for rel_path in rel_paths:
+        srcfile = tmp_path / str(pathlib.Path(rel_path))
+        srcfile.parent.mkdir(parents=True, exist_ok=True)
+        srcfile.write_text("hey there")
+
+    archive.tar(
+        "-cvzf",
+        str(tmp_path / "tld_test.tar.gz"),
+        sources=["archive_top", "archives"],
+        cwd=str(tmp_path),
+    )
+
+    expected = {
+        "dirs": [
+            "archive_top/",
+            "archive_top/second_level/",
+            "archives/",
+            "archives/second_level/",
+        ],
+        "files": [
+            "archive_top/second_level/file.txt",
+            "archives/second_level/file.txt",
+        ],
+        "links": [],
+        "top_level_dirs": ["archive_top/", "archives/"],
+        "top_level_files": [],
+        "top_level_links": [],
+    }
+    ret = archive.list(
+        str(tmp_path / "tld_test.tar.gz"), archive_format="tar", verbose=True
+    )
+    assert ret == expected
+```
+
+Using the above, I've prepared a single-line fix that I've already pushed to the `master` images in Docker Hub, resulting in the `prometheus-formula` CI passing again:
+
+* https://gitlab.com/myii/prometheus-formula/-/pipelines/519496855
+
+I'll submit that in a PR shortly.

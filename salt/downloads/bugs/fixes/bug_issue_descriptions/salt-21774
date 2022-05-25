@@ -1,0 +1,94 @@
+Hi,
+
+I'm using `2015.2.0rc1-1063-gac4264d` and I'm having trouble using the `file.managed` state with `check_cmd`. As I understand it from the docs, `check_cmd` for `file.managed` will execute the specified command with the file as an argument to see if it can get a non-zero return status before replacing the file in question - great! However I'm being told there is a permissions issue and I can't for the life of me track down why.
+
+The salt minion is running as root on CentOS7 and selinux is disabled.
+
+```
+[root@slave ~]# grep user /etc/salt/minion
+# The user to run salt.
+#user: root
+[root@slave ~]# ps -ef | grep [s]alt-minion
+root      3556     1  0 17:37 ?        00:00:01 /usr/bin/python /usr/bin/salt-minion
+[root@slave ~]# sestatus
+SELinux status:                 disabled
+[root@slave ~]# getenforce
+Disabled
+```
+
+I've got this state:
+
+```
+/etc/haproxy/haproxy.cfg:
+  file.managed:
+    - source: salt://l7_loadbalancer/files/haproxy.cfg.j2
+    - user: root
+    - group: root
+    - mode: 644 
+    - template: jinja
+    - backup: minion
+    - check_cmd: /usr/sbin/haproxy -c -f
+    - require: 
+      - pkg: haproxy
+    - context:
+      l7config: {{ pillar['l7config'] }}
+```
+
+Running this state gives the following error:
+
+```
+          ID: /etc/haproxy/haproxy.cfg
+    Function: file.managed
+      Result: False
+     Comment: Failed to commit change, permission error
+     Started: 17:29:20.385135
+    Duration: 186.915 ms
+     Changes:   
+              ----------
+              diff:
+                  Replace text file with binary file
+```
+
+I don't know why it's saying replace text with binary file as both the temporary file and the haproxy.cfg file it wants to replace are text:
+
+```
+[root@slave ~]# file /tmp/tmp5OY1Y8 
+/tmp/tmp5OY1Y8: ASCII text, with very long lines
+[root@slave ~]# file /etc/haproxy/haproxy.cfg 
+/etc/haproxy/haproxy.cfg: ASCII text, with very long lines
+```
+
+Relevant debug logs from the minion:
+
+```
+2015-03-18 17:38:26,516 [salt.state       ][INFO    ] Running state [/etc/haproxy/haproxy.cfg] at time 17:38:26.515771
+2015-03-18 17:38:26,516 [salt.state       ][INFO    ] Executing state file.managed for /etc/haproxy/haproxy.cfg
+2015-03-18 17:38:26,521 [salt.fileclient  ][INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://l7_loadbalancer/files/haproxy.cfg.j2'
+2015-03-18 17:38:26,522 [salt.utils.jinja ][DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+2015-03-18 17:38:26,607 [salt.loaded.int.states.file][DEBUG   ] running our check_cmd
+2015-03-18 17:38:26,607 [salt.loaded.int.module.cmdmod][INFO    ] Executing command '/usr/sbin/haproxy -c -f /tmp/tmp5OY1Y8' in directory '/root'
+2015-03-18 17:38:26,629 [salt.loaded.int.module.cmdmod][DEBUG   ] output: Configuration file is valid
+2015-03-18 17:38:26,631 [salt.state       ][ERROR   ] File changed:
+Replace text file with binary file
+2015-03-18 17:38:26,631 [salt.state       ][INFO    ] Completed state [/etc/haproxy/haproxy.cfg] at time 17:38:26.631079
+```
+
+You can see that the message "Configuration file is valid" appears which means the `check_cmd` will have received a zero exit status.
+
+Permissions on that temp file and the haproxy.cfg file both look to be correct - certainly no reason it shouldn't be able to overwrite it:
+
+```
+[root@slave ~]# ll /tmp/tmp5OY1Y8 
+-rw-r--r-- 1 root root 3654 Mar 18 17:38 /tmp/tmp5OY1Y8
+[root@slave ~]# lsattr /tmp/tmp5OY1Y8 
+---------------- /tmp/tmp5OY1Y8
+
+[root@slave ~]# ll /etc/haproxy/haproxy.cfg 
+-rw-r--r-- 1 root root 3653 Mar 18 17:32 /etc/haproxy/haproxy.cfg
+[root@slave ~]# lsattr /etc/haproxy/haproxy.cfg 
+---------------- /etc/haproxy/haproxy.cfg
+```
+
+So I'm at a complete loss! I can't find anything on _the Google_ about this error, but I'm still 50/50 as to whether this is a bug or going to turn into a support request...!
+
+Thanks

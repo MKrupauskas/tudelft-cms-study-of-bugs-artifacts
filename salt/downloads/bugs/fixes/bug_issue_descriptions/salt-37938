@@ -1,0 +1,127 @@
+### Description of Issue/Question
+Memory leak, most notable in Reactor and EventPublisher. The Reactor process has over 1G reserved memory. The leak seems to occur during orchestration following minion creation using salt-cloud.
+Total used memory after a day of uptime has gone from 2G to 10G.
+
+Possibly due to queuing the states in the orchestration. There are between 70 to 100 minions in the setup (we do auto scaling).
+
+```
+# ps -xauwww | egrep "2286|1882" | grep -v egrep
+root      1882  0.1  2.0 547848 343016 ?       S    Nov28   1:28 /usr/bin/python /usr/bin/salt-master EventPublisher
+root      2286  6.9  6.6 2011440 1098436 ?     Rl   Nov28  87:39 /usr/bin/python /usr/bin/salt-master Reactor
+```
+
+### Setup
+A reactor which fires on salt/cloud/*/created event:
+```
+#  cat minion-created.sls 
+startup-orchestration:
+  runner.state.orchestrate:
+    - mods: orchestration.minion-created
+    - pillar:
+        id: {{ data['name'] }}
+```
+
+The orchestration SLS:
+```
+# cat minion-created.sls 
+{% set host = salt.pillar.get('id') %}
+
+notify-slack:
+  salt.function:
+    - name: notify.slack
+    - tgt: 'xxxxx'
+    - arg:
+      - "[salt-cloud] DigitalOcean droplet created: {{ host }}"
+
+update-hosts:
+  salt.state:
+    - tgt: '*'
+    - sls: hosts
+    - queue: True
+
+update-iptables:
+  salt.state:
+    - tgt: '*'
+    - sls: iptables
+    - queue: True
+
+update-dns-server:
+  salt.function:
+    - name: cmd.run
+    - tgt: 'xxxxx'
+    - arg:
+      - /srv/scripts/add_dns_record.sh {{ host }}
+
+run-highstate:
+  salt.state:
+    - tgt: {{ host }}
+    - highstate: True
+
+{% if salt['match.pcre']("xxxxx", host) %}
+update-haproxy:
+  salt.state:
+    - tgt: 'xxxxx*'
+    - sls: haproxy
+    - queue: True
+{% endif %}
+
+{% if salt['match.pcre']("xxxxx", host) %}
+update-usersync-haproxy:
+  salt.state:
+    - tgt: 'xxxxx*'
+    - sls: haproxy
+    - queue: True
+{% endif %}
+
+{% if salt['match.pcre']("xxxxx", host) %}
+update-usersync-apache2-ssl:
+  salt.state:
+    - tgt: 'xxxxx*'
+    - sls: apache2-ssl 
+    - queue: True
+{% endif %}
+
+```
+### Steps to Reproduce Issue
+Create a few minions using salt-cloud with the above setup.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.3.4
+ 
+Dependency Versions:
+           cffi: 0.8.6
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-68-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```

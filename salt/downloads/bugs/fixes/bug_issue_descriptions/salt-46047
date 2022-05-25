@@ -1,0 +1,163 @@
+### Jinja search path is modified after using slsutil.renderer
+
+### Setup
+
+Hey guys,
+
+I'm using the `slsutil.renderer` module with the following code to load all SLS files in a directory (`/srv/pillar/common/users/general/init.sls`):
+
+```py
+#!py
+import os
+
+def run():
+  '''
+  Load users data from all .sls files in the directory
+  '''
+
+  dir_path = os.path.dirname(os.path.realpath(__file__))
+  sls_files = [os.path.splitext(os.path.basename(f))[0] for f in os.listdir(dir_path) if os.path.isfile(os.path.join(dir_path, f)) and f.endswith(".sls") and f != "init.sls"]
+
+  data = {}
+  data['users'] = {}
+
+  for user in sls_files:
+    user_data = __salt__.slsutil.renderer(dir_path + '/' + user + '.sls')
+    data['users'].update(user_data['users'])
+
+  return data
+```
+
+This works just fine but it's modifying the "Jinja search path" afterwards and other states fails.
+
+I'm running this in masterless setup with the following config:
+
+```yaml
+pillar_roots:
+  base:
+    - /srv/formulas/nagios-formula
+    - /srv/formulas/sudoers-formula
+    - /srv/pillar
+```
+
+This is the output of a working state before the above Python code:
+
+```
+[DEBUG   ] compile template: /srv/pillar/common/users/absent.sls
+[DEBUG   ] Jinja search path: ['/srv/formulas/nagios-formula', '/srv/formulas/sudoers-formula', '/srv/pillar']
+[PROFILE ] Time (in seconds) to render '/srv/pillar/common/users/absent.sls' using 'jinja' renderer: 0.00312304496765
+[DEBUG   ] Rendered data from file: /srv/pillar/common/users/absent.sls:
+
+users:
+  INVALIDUSER1:
+    absent: True
+    purge: True
+    force: True
+
+  INVALIDUSER2:
+    absent: True
+    purge: True
+    force: True
+
+  INVALIDUSER3:
+    absent: True
+    purge: True
+    force: True
+
+  INVALIDUSER4:
+    absent: True
+    purge: True
+    force: True
+
+  INVALIDUSER5:
+    absent: True
+    purge: True
+    force: True
+
+[DEBUG   ] Results of YAML rendering:
+OrderedDict([('users', OrderedDict([('INVALIDUSER1', OrderedDict([('absent', True), ('purge', True), ('force', True)])), ('INVALIDUSER2', OrderedDict([('absent', True), ('purge', True), ('force', True)])), ('INVALIDUSER3', OrderedDict([('absent', True), ('purge', True), ('force', True)])), ('INVALIDUSER4', OrderedDict([('absent', True), ('purge', True), ('force', True)])), ('INVALIDUSER5', OrderedDict([('absent', True), ('purge', True), ('force', True)]))]))])
+[PROFILE ] Time (in seconds) to render '/srv/pillar/common/users/absent.sls' using 'yaml' renderer: 0.00332403182983
+```
+
+This is the output of the Python code:
+
+```
+[DEBUG   ] compile template: /srv/pillar/common/users/general/init.sls
+[DEBUG   ] LazyLoaded py.render
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] compile template: /srv/pillar/common/users/general/kitchen-packer.sls
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] LazyLoaded roots.envs
+[DEBUG   ] Could not LazyLoad roots.init: 'roots.init' is not available.
+[DEBUG   ] Updating roots fileserver cache
+[DEBUG   ] In saltenv 'base', looking at rel_path 'common/map.jinja' to resolve 'salt://common/map.jinja'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/common/map.jinja' to resolve 'salt://common/map.jinja'
+[DEBUG   ] Fetching file from saltenv 'base', ** attempting ** 'salt://common/map.jinja'
+[DEBUG   ] No dest file found
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'common/map.jinja'
+```
+
+Then we have the following Pillar:
+
+```sls
+{% from "nagios/map.jinja" import nrpe with context %}
+
+{% set services_to_check = [ 'sshd', 'salt-minion', 'syslogd', 'mysql', 'java', 'nginx', 'splunkd' ] %}
+{% set ports_to_check = [ '22', '3306', '80', '443', '8080', '8089' ] %}
+{% set ADD_PATHS="PATH=/opt/perl/bin:/opt/perl/perls/perl-5.20.3/bin:/sbin:/bin:/usr/sbin:/usr/bin:/usr/games:/usr/local/sbin:/usr/local/bin" %}
+
+nagios:
+  nrpe:
+    nrpe_commands:
+      jira_s3_backup_check: command[jira_s3_backup_check]={{ nrpe.plugin_dir }}/jira_s3_backup_check.py
+      check_jira_backup: command[jira_check_backup]={{ nrpe.plugin_dir }}/check_jira_backup
+      check_important_services: command[check_important_services]={{ ADD_PATHS }} {{ nrpe.plugin_dir }}/check_system_pp "{% for d in services_to_check %}{{ d }} {% endfor %}" "" "{% for d in ports_to_check %}{{ d }} {% endfor %}"
+```
+
+That generates the following output:
+
+```
+[DEBUG   ] compile template: /srv/pillar/jira/nrpe.sls
+[DEBUG   ] Jinja search path: ['/var/cache/salt/minion/files/base']
+[DEBUG   ] Jinja Error
+[DEBUG   ] Exception: nagios/map.jinja
+[DEBUG   ] Out:
+[DEBUG   ] Line: 1
+[DEBUG   ] TmplStr: {% from "nagios/map.jinja" import nrpe with context %}
+
+{% set services_to_check = [ 'sshd', 'salt-minion', 'syslogd', 'mysql', 'java', 'nginx', 'splunkd' ] %}
+{% set ports_to_check = [ '22', '3306', '80', '443', '8080', '8089' ] %}
+{% set ADD_PATHS="PATH=/opt/perl/bin:/opt/perl/perls/perl-5.20.3/bin:/sbin:/bin:/usr/sbin:/usr/bin:/usr/games:/usr/local/sbin:/usr/local/bin" %}
+
+nagios:
+  nrpe:
+    nrpe_commands:
+      jira_s3_backup_check: command[jira_s3_backup_check]={{ nrpe.plugin_dir }}/jira_s3_backup_check.py
+      check_jira_backup: command[jira_check_backup]={{ nrpe.plugin_dir }}/check_jira_backup
+      check_important_services: command[check_important_services]={{ ADD_PATHS }} {{ nrpe.plugin_dir }}/check_system_pp "{% for d in services_to_check %}{{ d }} {% endfor %}" "" "{% for d in ports_to_check %}{{ d }} {% endfor %}"
+
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/templates.py", line 368, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python2.7/dist-packages/jinja2/environment.py", line 989, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python2.7/dist-packages/jinja2/environment.py", line 754, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 1, in top-level template code
+  File "/usr/lib/python2.7/dist-packages/salt/utils/jinja.py", line 138, in get_source
+    raise TemplateNotFound(template)
+TemplateNotFound: nagios/map.jinja
+```
+
+As you can see the "Jinja search path" changed and it will continue with that value thru the rest of the highstate.
+
+I have validated this in **v2016.11.6** and **v2017.7.3**, and if I comment the `/srv/pillar/common/users/general/init.sls` in `top.sls` it works just fine.
+
+Thank you!
+
+### Steps to Reproduce Issue
+See above
+
+### Versions Report
+Same output in v2016.11.6 and v2017.7.3 in masterless environment.

@@ -1,0 +1,63 @@
+Given a state to manage a file by salt, the resulting file that is copied to it's ultimate destination on the filesystem initially (albeit briefly) has 644 permissions allowing a window of opportunity for a local user to gain undesired access to the file's contents. Despite the state's mode specifying 600, for example.
+
+I first spotted this on CentOS 6.4 with Salt 0.16.4 on both master and minion (EPEL RPMs) but testing shows the same behaviour on the develop branch - last pull a couple of hours ago.
+
+Steps to demonstrate (on Gentoo here, in this case that's important):
+
+Logs, files, configuration are all running in a virtual environment created by pip.
+
+```
+$ cat srv/salt/files/secure.sls
+secure:
+  file.managed:
+    - name: /home/grant/secure.txt
+    - mode: 600
+    - source: salt://files/secure.txt
+```
+
+Running stat in another terminal (whilst calling `salt-call state.sls files.secure` in the virtual environment):
+
+```
+$ while true; do stat /home/grant/secure.txt 2>/dev/null --format=%a; done | grep -v '60'
+644
+```
+
+Because the operation can be quick, it's not always easy to catch but on a slower system and with many more salt states I have successfully copied /etc/sudoers as a regular user using cat in a while true loop.
+
+The source file srv/salt/files/secure.txt is just a file many lines of X chars.
+
+```
+$ ls -lh /home/grant/secure.txt
+-rw------- 1 grant grant 445K Nov 16 18:52 /home/grant/secure.txt
+$ wc /home/grant/virtualenv/salt-env/srv/salt/files/secure.txt
+  5758   5758 454882 /home/grant/virtualenv/salt-env/srv/salt/files/secure.txt
+```
+
+```
+$ pip list
+apache-libcloud (0.13.2)
+Jinja2 (2.7.1)
+M2Crypto (0.21.1)
+MarkupSafe (0.18)
+mock (1.0.1)
+msgpack-python (0.4.0)
+psutil (1.1.1)
+pycrypto (2.6.1)
+PyYAML (3.10)
+pyzmq (14.0.0)
+salt (0.17.0-4694-gae7e813, /home/grant/git/remote/salt-fork)
+wsgiref (0.1.2)
+```
+
+I believe files should be created with, at most, 0600 permissions and then the state mode (or internal default) applied once the file is successfully copied.
+
+---
+
+Looking through code I see some uses of shutil module copy functions (salt.utils also makes use of shutil). shutil.py uses open() on new files that seems to honour umasks, in isolated testing at least, and will create files with 644 permissions. So I have been experimenting with umasks in various places (primarily `salt/utils/__init__.py`) like daemonize(), copyfile() without success so far. Maybe `pip uninstall salt; pip install -e salt-fork;` isn't the best way to test or I am doing something wrong.
+
+Since `salt/modules/file.py:psed()` uses shutil.copy2 to create a backup file before editing, `file.replace` can also expose file content.
+
+I am still wrapping my head around the code and thought I would post this issue for review.
+
+Best regards,
+Grant

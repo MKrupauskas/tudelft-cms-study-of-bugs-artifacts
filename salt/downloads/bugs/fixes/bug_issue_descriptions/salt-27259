@@ -1,0 +1,96 @@
+Hi,
+
+I use orchestration to prepare files and copy them with file.recurse. file.recurse fails as it tries to copy the old files present before running salt-run (like 90% of the time on my master). Sleeping for a certain amount of time fixes it as if it was a caching problem. Could be related to #22040.
+
+To reproduce the issue, run:
+
+```
+# rm -rf /srv/salt/base/test-sync; mkdir -p /srv/salt/base/test-sync/; touch /srv/salt/base/test-sync/1; salt-run state.orchestrate orch.test-sync
+[ERROR   ] #### /tmp/test1/1 ####
+Source file salt://|test-sync/1 not found
+sarje-infra_master:
+    ----------
+    cmd_|-change filesystem_|-mv /srv/salt/base/test-sync/1 /srv/salt/base/test-sync/2_|-run:
+        ----------
+        __run_num__:
+            0
+        changes:
+            ----------
+            pid:
+                2349
+            retcode:
+                0
+            stderr:
+            stdout:
+        comment:
+            Command "mv /srv/salt/base/test-sync/1 /srv/salt/base/test-sync/2" run
+        duration:
+            7.778
+        name:
+            mv /srv/salt/base/test-sync/1 /srv/salt/base/test-sync/2
+        result:
+            True
+        start_time:
+            10:49:33.414612
+    file_|-/tmp/test1_|-/tmp/test1_|-recurse:
+        ----------
+        __run_num__:
+            1
+        changes:
+            ----------
+        comment:
+            #### /tmp/test1/1 ####
+            Source file salt://|test-sync/1 not found
+        duration:
+            116.632
+        name:
+            /tmp/test1
+        result:
+            False
+        start_time:
+            10:49:33.426720
+```
+
+with:
+
+```
+# cat salt/base/orch/test-sync.sls 
+change filesystem:
+  cmd.run:
+    - name: mv /srv/salt/base/test-sync/1 /srv/salt/base/test-sync/2
+#    - name: mv /srv/salt/base/test-sync/1 /srv/salt/base/test-sync/2 && sleep 30
+
+/tmp/test1:
+  file.recurse:
+    - source: salt://test-sync
+```
+
+It does not fail if it sleeps after changing the filesystem (commented line). Interestingly, it won't fail if `/srv/salt/base/test-sync/1` is a directory like this:
+
+```
+rm -rf /srv/salt/base/test-sync; mkdir -p /srv/salt/base/test-sync/1; rm -rf /tmp/test1; salt-run state.orchestrate orch.test-sync
+```
+
+I tried to reproduce this bug by creating dynamic states and calling them with `salt.state -sls`  or `salt.state - highstate: True` but it worked as expected.
+
+The version I am running:
+
+```
+# salt-run --versions-report
+                  Salt: 2015.5.3
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+               Tornado: Not Installed
+ Debian source package: 2015.5.3+ds-1trusty1
+```

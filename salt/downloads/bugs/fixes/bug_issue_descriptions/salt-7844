@@ -1,0 +1,52 @@
+Hi there,
+
+I am running Debian Wheezy and Salt installed from today's (15.10.2013) develop branch. 
+
+@mgwilliams fixed some LXC bugs in #7657. 
+
+Running
+
+```
+# salt 'minion' lxc.init lxc200 nic=default profile=local-debian-wheezy seed=True
+```
+
+results in the following error output
+
+``` python
+    The minion function caused an exception: Traceback (most recent call last):
+      File "/home/bud/.virtualenvs/salt/local/lib/python2.7/site-packages/salt/minion.py", line 694, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/home/bud/.virtualenvs/salt/local/lib/python2.7/site-packages/salt/modules/lxc.py", line 161, in init
+        install=install)
+      File "/home/bud/.virtualenvs/salt/local/lib/python2.7/site-packages/salt/modules/seed.py", line 142, in apply_
+        _umount(mpt, ftype)
+      File "/home/bud/.virtualenvs/salt/local/lib/python2.7/site-packages/salt/modules/seed.py", line 48, in _umount
+        os.rmdir(mpt)
+    OSError: [Errno 16] Device or resource busy: '/tmp/tmpkWYkqy'
+```
+
+Inserting a one second sleep before the final umount in salt.utils.seed fixes the problem. I don't know if this is the proper solution.
+
+``` python
+diff --git a/salt/modules/seed.py b/salt/modules/seed.py
+index 0053e14..804f9cd 100644
+--- a/salt/modules/seed.py
++++ b/salt/modules/seed.py
+@@ -10,6 +10,7 @@ import shutil
+ import yaml
+ import logging
+ import tempfile
++from time import sleep
+
+ # Import salt libs
+ import salt.crypt
+@@ -139,6 +140,7 @@ def apply_(path, id_=None, config=None, approve_key=True, install=True):
+                   '{0}'.format(mpt))
+         res = False
+
++    sleep(1)
+     _umount(mpt, ftype)
+     return res
+```
+
+This bug doesn't creep in when using file based containers.

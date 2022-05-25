@@ -1,0 +1,157 @@
+If I have an SLS file like so:
+
+```
+# runs before A and/or B
+A:
+  cmd.run:
+    - name: echo A third
+    # is running in test mode before C
+    # C gets executed first if this states modify something
+    - prereq:
+      - cmd: B
+      - cmd: C
+
+w:
+  cmd.wait:
+    - name: w if A
+    - watch:
+      - cmd: A
+
+# always has to run
+B:
+  cmd.run:
+    - name: echo B first
+
+# never has to run
+C:
+  cmd.wait:
+    - name: echo C second
+```
+
+the test=True run looks like:
+
+```
+local:
+----------
+          ID: A
+    Function: cmd.run
+        Name: echo A third
+      Result: None
+     Comment: Command "echo A third" would have been executed
+     Started: 14:49:58.456427
+    Duration: 0.512 ms
+     Changes:   
+----------
+          ID: w
+    Function: cmd.wait
+        Name: w if A
+      Result: True
+     Comment: 
+     Started: 14:49:58.457245
+    Duration: 0.374 ms
+     Changes:   
+----------
+          ID: B
+    Function: cmd.run
+        Name: echo B first
+      Result: None
+     Comment: Command "echo B first" would have been executed
+     Started: 14:49:58.457765
+    Duration: 0.45 ms
+     Changes:   
+----------
+          ID: C
+    Function: cmd.wait
+        Name: echo C second
+      Result: True
+     Comment: 
+     Started: 14:49:58.458407
+    Duration: 0.544 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 4 (unchanged=2)
+Failed:    0
+------------
+Total states run:     4
+```
+
+But the actual run looks like:
+
+```
+local:
+----------
+          ID: A
+    Function: cmd.run
+        Name: echo A third
+      Result: True
+     Comment: Command "echo A third" run
+     Started: 14:51:02.851786
+    Duration: 49.201 ms
+     Changes:   
+              ----------
+              pid:
+                  29927
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  A third
+----------
+          ID: w
+    Function: cmd.wait
+        Name: w if A
+      Result: True
+     Comment: Command "w if A" run
+     Started: 14:51:02.901999
+    Duration: 72.918 ms
+     Changes:   
+              ----------
+              pid:
+                  29928
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                   14:51:02 up 112 days,  4:36,  1 user,  load average: 1.97, 1.83, 1.65
+                  USER     TTY      FROM              LOGIN@   IDLE   JCPU   PCPU WHAT
+----------
+          ID: B
+    Function: cmd.run
+        Name: echo B first
+      Result: True
+     Comment: Command "echo B first" run
+     Started: 14:51:02.975195
+    Duration: 48.296 ms
+     Changes:   
+              ----------
+              pid:
+                  29932
+              retcode:
+                  0
+              stderr:
+
+              stdout:
+                  B first
+----------
+          ID: C
+    Function: cmd.wait
+        Name: echo C second
+      Result: True
+     Comment: 
+     Started: 14:51:03.023742
+    Duration: 0.435 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 4 (changed=3)
+Failed:    0
+------------
+Total states run:     4
+```
+
+Not a critical issue since it does actually do what it is supposed to, but the test=True output is a bit misleading.

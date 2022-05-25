@@ -1,0 +1,61 @@
+### Description of Issue/Question
+I use `_schedule.conf` define my work, when I modify module file and sync it. The schedule job still return old data.
+### Setup
+I define schedule job in `/etc/salt/minion.d/_schedule.conf`:
+```
+schedule:
+  __mine_interval: {enabled: true, function: mine.update, jid_include: true, maxrunning: 2,
+    minutes: 60, return_job: false}
+  collection: {function: ww.data,  seconds: 20}
+```
+### Steps to Reproduce Issue
+I write two module files. `ww.py` and `wp.py`.
+```
+# wp.py
+def test():
+    data = {
+        "id": 1,
+        "xxx": 6,
+        "yyy": 7,
+    }
+    return data
+```
+and another file `ww.py`:
+```
+# ww.py
+import wp
+def data():
+    return wp.test()
+```
+It work well:
+```
+Sending event: tag = __schedule_return; data = {'fun_args': [], 'jid': 'req', 'return': {'xxx': 6, 'yyy': 7, 'id': 1}, 'success': True, 'schedule': 'collection', 'cmd': '_return', 'pid': 22535, '_stamp': '2017-11-28T11:00:30.680710', 'fun': 'ww.data', 'id': 'kvm-trusty-vm-test-132140.kvm.nd'}
+```
+But, when I modify `wp.py` such as change var data :
+```
+# wp.py
+def test():
+    data = {
+        "id": 1,
+    }
+    return data
+```
+and I use "salt '*' saltutil.sync_modules" to sync my module files. I found, the schedule job still return old data.
+```
+[DEBUG   ] LazyLoaded config.merge
+[DEBUG   ] LazyLoaded mine.update
+[DEBUG   ] LazyLoaded ww.data
+[INFO    ] Running scheduled job: collection
+[DEBUG   ] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+[DEBUG   ] schedule: This job was scheduled with a max number of 1
+[DEBUG   ] schedule.handle_func: adding this job to the jobcache with data {'fun_args': [], 'jid': '20171128190030662547', 'schedule': 'collection', 'pid': 22535, 'fun': 'ww.data', 'id': 'kvm-trusty-vm-test-132140.kvm.nd'}
+[DEBUG   ] LazyLoaded ww.data
+[DEBUG   ] SaltEvent PUB socket URI: /var/run/salt/minion/minion_event_a1858682c1_pub.ipc
+[DEBUG   ] SaltEvent PULL socket URI: /var/run/salt/minion/minion_event_a1858682c1_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/minion/minion_event_a1858682c1_pull.ipc
+[DEBUG   ] Sending event: tag = __schedule_return; data = {'fun_args': [], 'jid': 'req', 'return': {'xxx': 6, 'yyy': 7, 'id': 1}, 'success': True, 'schedule': 'collection', 'cmd': '_return', 'pid': 22535, '_stamp': '2017-11-28T11:00:30.680710', 'fun': 'ww.data', 'id': 'kvm-trusty-vm-test-132140.kvm.nd'}
+```
+I saw `LazyLoaded ww.data` , I do not know if it is caused by `LazyLoaded`.
+### Versions Report
+salt-minion: salt-minion 2016.11.5 (Carbon)
+salt-master: salt-master 2016.11.5 (Carbon)

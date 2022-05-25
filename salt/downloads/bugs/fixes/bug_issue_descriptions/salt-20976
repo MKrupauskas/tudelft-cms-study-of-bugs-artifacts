@@ -1,0 +1,63 @@
+We started using salt sometime last week. 
+
+So far we just installed salt-minion on all servers, and set up salt-master. We also have reclass ( http://reclass.pantsfullofunix.net/ ) setup for classifying nodes. When we run saltutil.refresh_pillar after weekend, many of our servers will become unresponsive.
+
+I found a reliable way to reproduce this issue and here are the steps.
+1. Restart salt-master then salt-minion
+2. Drop the connection to port 4506 between master and minion from your firewall. We have state-full firewall so we can list all states and drop the ones we choose to. In this case two states corresponding to master:4506 - minion and minion - master:4506 are droped
+3. run salt 'salt-minion-name*' saltutil.refresh_pillar -b 1   . Not sure if batch mode changes anything or not, but that is what i tested with. The salt command should return True.
+4. The minion is now unreachable. Ie test.ping won't return anything
+
+I do not know why our firewall drops connections to port 4506 between salt-master and salt-minion, but salt should recover ie. see the connection is dead and restart new one. It does it to some extend as new connection is created  and closed when job finishes, but the one i dropped form firewall still shows as ESTABLISHED on the minion. 
+
+Our minion logs show the minion will try 3 \* 7200 before timing out and resuming normal operation:
+
+```
+2015-02-23 12:48:22,299 [salt.minion                                 ][INFO    ] User root Executing command saltutil.refresh_pillar with jid 20150223124822297185
+2015-02-23 12:48:22,300 [salt.minion                                 ][DEBUG   ] Command details {'tgt_type': 'glob', 'jid': '20150223124822297185', 'tgt': 'node004*', 'ret': '', 'user': 'root', 'arg': [], 'fun': 'saltutil.refresh_pillar'}
+2015-02-23 12:48:22,328 [salt.minion                                 ][INFO    ] Starting a new job with PID 29596
+2015-02-23 12:48:22,331 [salt.utils.event                            ][DEBUG   ] SaltEvent PUB socket URI: ipc:///var/run/salt/minion/minion_event_6d9691626f_pub.ipc
+2015-02-23 12:48:22,332 [salt.utils.event                            ][DEBUG   ] SaltEvent PULL socket URI: ipc:///var/run/salt/minion/minion_event_6d9691626f_pull.ipc
+2015-02-23 12:48:22,334 [salt.utils.event                            ][DEBUG   ] Sending event - data = {'_stamp': '2015-02-23T12:48:22.333264'}
+2015-02-23 12:48:22,335 [salt.minion                                 ][DEBUG   ] Handling event 'pillar_refresh||||||\x81\xa6_stamp\xba2015-02-23T12:48:22.333264'
+2015-02-23 12:48:22,361 [salt.minion                                 ][INFO    ] Returning information for job: 20150223124822297185
+2015-02-23 12:48:22,437 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-02-23 12:48:22,438 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-02-23 12:48:22,462 [salt.crypt                                  ][DEBUG   ] Decrypting the current master AES key
+2015-02-23 12:48:22,462 [salt.crypt                                  ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-02-23 14:48:22,624 [salt.payload                                ][INFO    ] SaltReqTimeoutError: after 7200 seconds. (Try 1 of 3)
+2015-02-23 16:48:22,658 [salt.payload                                ][INFO    ] SaltReqTimeoutError: after 7200 seconds. (Try 2 of 3)
+2015-02-23 18:48:22,759 [salt.payload                                ][INFO    ] SaltReqTimeoutError: after 7200 seconds. (Try 3 of 3)
+2015-02-23 18:48:22,760 [salt.minion                                 ][DEBUG   ] Exception while handling events
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1590, in tune_in
+    self.pillar_refresh()
+  File "/usr/lib/python2.6/site-packages/salt/minion.py", line 1411, in pillar_refresh
+    self.opts['environment'],
+  File "/usr/lib/python2.6/site-packages/salt/pillar/__init__.py", line 91, in compile_pillar
+    ret_pillar = self.sreq.crypted_transfer_decode_dictentry(load, dictkey='pillar', tries=3, timeout=7200)
+  File "/usr/lib/python2.6/site-packages/salt/transport/__init__.py", line 234, in crypted_transfer_decode_dictentry
+    ret = self.sreq.send('aes', self.auth.crypticle.dumps(load), tries, timeout)
+  File "/usr/lib/python2.6/site-packages/salt/payload.py", line 224, in send
+    'SaltReqTimeoutError: after {0} seconds, ran {1} tries'.format(timeout * tried, tried)
+SaltReqTimeoutError: SaltReqTimeoutError: after 21600 seconds, ran 3 tries
+```
+
+I do not know why port 4506 stays open. THe normal ZeroMQ 300s Keep alive are not send over this connection.
+
+```
+           Salt: 2014.7.0
+         Python: 2.6.6 (r266:84292, Nov 21 2013, 12:39:37)
+         Jinja2: unknown
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.4
+           Mako: Not Installed
+```

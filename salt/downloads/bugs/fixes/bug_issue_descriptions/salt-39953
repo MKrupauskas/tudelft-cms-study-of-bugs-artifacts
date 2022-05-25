@@ -1,0 +1,95 @@
+### Description of Issue
+
+As in grains/core.py the **os_family** evaluates on all SuSE-platforms to the string "Suse".
+In certain modules, the os_family string is compared agains "SUSE", which will never become true - even if it should be on the related check. This is causing some modules to malfunction.
+
+See core.py lines 1145-1153
+
+### Setup
+I am running 2016.11.1, but I see the same issue in the current development branch here on Github.
+
+The following example refers to the timezone module.
+
+### Steps to Reproduce Issue
+1. Install SLES11 (notably not SLES12, as this has systemd's "timeanddatectl" causing the module to function in a different way).
+2. Execute "timezone.zone_compare"
+
+```
+salt-call -l trace timezone.zone_compare 'America/Denver'
+[... non relevant lines omitted ...]
+[DEBUG   ] LazyLoaded timezone.zone_compare
+[TRACE   ] 'timedatectl' could not be found in the following search path: '['/sbin', '/usr/sbin', '/usr/local/sbin', '/root/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/bin/X11', '/usr/X11R6/bin', '/usr/games', '/opt/quest/bin', '/opt/symantec', '/opt/six/midrange/uvscan', '/opt/six/midrange/rkhunter', '/usr/openv/netbackup/bin', '/opt/ctmadmin', '/opt/ctmagent', '/opt/Sterling', '/opt/uc4/executor/bin', '/usr/lib/mit/bin', '/usr/lib/mit/sbin']'
+Traceback (most recent call last):
+  File "/usr/lib64/python2.6/site-packages/salt/cli/caller.py", line 197, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib64/python2.6/site-packages/salt/modules/timezone.py", line 259, in zone_compare
+    curtzstring = get_zone()
+  File "/usr/lib64/python2.6/site-packages/salt/modules/timezone.py", line 154, in get_zone
+    raise CommandExecutionError('Unable to get timezone')
+CommandExecutionError: Unable to get timezone
+```
+
+The cause for this sits in line 171 of modules/timezone.py, as the 'SUSE' will not be evaluated, causing "_get_zone_sysconfig()" not to be executed - which would have returned a correct value. This finally causes to reach the raise command, causing the exception as seen above. Note: As SLES11 does not have "timedatectl", it must evaluate the timezone via /etc/sysconfig/clock.
+
+I assume there are more errornous occurances of this issue:
+```
+# grep \'SUSE\' *.py
+apache.py:    elif os_family == 'Debian' or os_family == 'SUSE':
+iptables.py:    elif __grains__['os_family'] == 'SUSE':
+localemod.py:    elif 'SUSE' in __grains__['os_family']:
+localemod.py:    elif 'SUSE' in __grains__['os_family']:
+localemod.py:    on_suse = __grains__.get('os_family') == 'SUSE'
+rh_service.py:        'SUSE',
+rh_service.py:        if __grains__['os'] == 'SUSE':
+service.py:        'SUSE',
+service.py:    if __grains__.get('os_family', '') == 'SUSE':
+timezone.py:        for family in ('RedHat', 'SUSE'):
+timezone.py:    elif 'SUSE' in __grains__['os_family']:
+timezone.py:        for family in ('RedHat', 'SUSE'):
+timezone.py:    elif 'SUSE' in __grains__['os_family']:
+```
+
+Suggested fix: either update the match to 'Suse' or add .lower() and compare to 'suse' (and 'redhat').
+
+### Versions Report
+
+Note: The related errornous code is visible in current dev-branch here on Github - so an update will not help ;-)
+```
+Salt Version:
+           Salt: 2016.11.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.9 (unknown, Aug  5 2016, 11:15:31)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 14.0.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.0.4
+ 
+System Versions:
+           dist: SuSE 11 x86_64
+        machine: x86_64
+        release: 3.0.101-91-default
+         system: Linux
+        version: SUSE Linux Enterprise Server  11 x86_64
+```

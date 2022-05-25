@@ -1,0 +1,55 @@
+If `/etc/salt/pki/minion/minion_master.pub` does not exist and the salt-minion daemon is started in parallel to a salt-call, one of both fail with:
+
+```
+[salt.crypt       ][ERROR   ] The master failed to decrypt the random minion token
+[salt.crypt       ][CRITICAL] The Salt Master server's public key did not authenticate!
+The master may need to be updated if it is a version of Salt lower than 2014.7.1, or
+If you are confident that you are connecting to a valid Salt Master, then remove the master public key and restart the Salt Minion.
+The master public key can be found at:
+/etc/salt/pki/minion/minion_master.pub
+```
+
+Rational: We want to run `salt-call state.highstate` when booting the system and also start the salt-minion daemon. The system is a Debian 7 (wheezy) system with salt-minion 2014.7.1.
+
+``` sh
+$ salt-call --versions-report
+           Salt: 2014.7.1
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 4.0.4
+           Mako: Not Installed
+```
+
+Here is the debug log:
+
+```
+2015-02-03 11:18:09,860 [process 3417] [salt             ][INFO    ] Setting up the Salt Minion "<server>" 
+2015-02-03 11:18:09,865 [process 4322] [salt.utils.process][DEBUG   ] Created pidfile: /var/run/salt-minion.pid
+2015-02-03 11:18:09,865 [process 4322] [salt.config      ][DEBUG   ] Reading configuration from /etc/salt/minion
+2015-02-03 11:18:10,108 [process 4322] [salt.minion                              ][DEBUG   ] Attempting to authenticate with the Salt Master at 192.168.1.3
+2015-02-03 11:18:10,110 [process 4322] [salt.crypt                               ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-02-03 11:18:11,013 [process 4322] [salt.crypt                               ][DEBUG   ] Decrypting the current master AES key
+2015-02-03 11:18:11,014 [process 4322] [salt.crypt                               ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-02-03 11:18:11,113 [process 4322] [salt.minion                              ][INFO    ] Authentication with master at 192.168.1.3 successful!
+2015-02-03 11:18:11,153 [process 3780] [salt.crypt       ][ERROR   ] The master failed to decrypt the random minion token
+2015-02-03 11:18:11,153 [process 3780] [salt.crypt       ][CRITICAL] The Salt Master server's public key did not authenticate!
+The master may need to be updated if it is a version of Salt lower than 2014.7.1, or
+If you are confident that you are connecting to a valid Salt Master, then remove the master public key and restart the Salt Minion.
+The master public key can be found at:
+/etc/salt/pki/minion/minion_master.pub
+2015-02-03 11:18:11,942 [process 4322] [salt.crypt                               ][DEBUG   ] Decrypting the current master AES key
+2015-02-03 11:18:11,943 [process 4322] [salt.crypt                               ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-02-03 11:18:13,071 [process 4322] [salt.crypt                               ][DEBUG   ] Loaded minion key: /etc/salt/pki/minion/minion.pem
+2015-02-03 11:18:13,170 [process 4322] [salt.config                              ][DEBUG   ] Reading configuration from /etc/salt/minion
+```
+
+I can reproduce this bug on every boot and by running `salt-minion state.highstate` in parallel to `service salt-minion restart` after purging `/etc/salt/pki/minion/minion_master.pub`

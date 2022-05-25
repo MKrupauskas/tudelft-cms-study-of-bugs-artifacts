@@ -1,0 +1,383 @@
+### Description of Issue
+
+Using mine.get in an orchestrate fails with `KeyError: 'mine.get'`. Basically replicating the example from: https://docs.saltstack.com/en/latest/ref/modules/all/salt.modules.mine.html
+
+```
+{% set minion_ips = salt.saltutil.runner('mine.get',
+    tgt='*',
+    fun='network.ip_addrs',
+    tgt_type='glob') %}
+```
+
+### Setup
+
+One minion configured to return network.ip_addrs via the mine.
+
+```
+salt 'salt-master-test' mine.get '*' network.ip_addrs
+salt-master-test:
+    ----------
+    salt-master-test:
+        - 10.1.14.219
+```
+An orchestration as follows:
+```
+{% set stuff = salt.saltutil.runner('mine.get', tgt='salt-master-test', 
+     fun='network.ip_addrs', tgt_type='glob') %}
+
+render:
+  salt.function:
+    - name: file.write
+    - tgt: salt-master-test
+    - arg:
+      - /tmp/rendered
+      - {{ stuff }}
+```
+
+Note: it also fails when running against a different minion.
+
+### Steps to Reproduce Issue
+
+```
+# salt-run state.orch orch.test2 
+[ERROR   ] Rendering exception occurred
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/templates.py", line 392, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python3/dist-packages/jinja2/asyncsupport.py", line 76, in render
+    return original_render(self, *args, **kwargs)
+  File "/usr/lib/python3/dist-packages/jinja2/environment.py", line 1008, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python3/dist-packages/jinja2/environment.py", line 780, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "/usr/lib/python3/dist-packages/jinja2/_compat.py", line 37, in reraise
+    raise value.with_traceback(tb)
+  File "<template>", line 1, in top-level template code
+  File "/usr/lib/python3/dist-packages/salt/modules/saltutil.py", line 1615, in runner
+    full_return=full_return)
+  File "/usr/lib/python3/dist-packages/salt/runner.py", line 156, in cmd
+    full_return)
+  File "/usr/lib/python3/dist-packages/salt/client/mixins.py", line 238, in cmd
+    self.functions[fun], arglist, pub_data
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 1196, in __getitem__
+    func = super(LazyLoader, self).__getitem__(item)
+  File "/usr/lib/python3/dist-packages/salt/utils/lazy.py", line 108, in __getitem__
+    raise KeyError(key)
+KeyError: 'mine.get'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/templates.py", line 169, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/usr/lib/python3/dist-packages/salt/utils/templates.py", line 441, in render_jinja_tmpl
+    trace=tracestr)
+salt.exceptions.SaltRenderError: Jinja error: 'mine.get'
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/templates.py", line 392, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python3/dist-packages/jinja2/asyncsupport.py", line 76, in render
+    return original_render(self, *args, **kwargs)
+  File "/usr/lib/python3/dist-packages/jinja2/environment.py", line 1008, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python3/dist-packages/jinja2/environment.py", line 780, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "/usr/lib/python3/dist-packages/jinja2/_compat.py", line 37, in reraise
+    raise value.with_traceback(tb)
+  File "<template>", line 1, in top-level template code
+  File "/usr/lib/python3/dist-packages/salt/modules/saltutil.py", line 1615, in runner
+    full_return=full_return)
+  File "/usr/lib/python3/dist-packages/salt/runner.py", line 156, in cmd
+    full_return)
+  File "/usr/lib/python3/dist-packages/salt/client/mixins.py", line 238, in cmd
+    self.functions[fun], arglist, pub_data
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 1196, in __getitem__
+    func = super(LazyLoader, self).__getitem__(item)
+  File "/usr/lib/python3/dist-packages/salt/utils/lazy.py", line 108, in __getitem__
+    raise KeyError(key)
+KeyError: 'mine.get'
+
+; line 1
+
+---
+{% set stuff = salt.saltutil.runner('mine.get', tgt='salt-master-test', fun='network.ip_addrs', tgt_type='glob') %}    <======================
+
+render:
+  salt.function:
+    - name: file.write
+    - tgt: salt-master-test
+[...]
+---
+[CRITICAL] Rendering SLS 'base:orch.test2' failed: Jinja error: 'mine.get'
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/templates.py", line 392, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python3/dist-packages/jinja2/asyncsupport.py", line 76, in render
+    return original_render(self, *args, **kwargs)
+  File "/usr/lib/python3/dist-packages/jinja2/environment.py", line 1008, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python3/dist-packages/jinja2/environment.py", line 780, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "/usr/lib/python3/dist-packages/jinja2/_compat.py", line 37, in reraise
+    raise value.with_traceback(tb)
+  File "<template>", line 1, in top-level template code
+  File "/usr/lib/python3/dist-packages/salt/modules/saltutil.py", line 1615, in runner
+    full_return=full_return)
+  File "/usr/lib/python3/dist-packages/salt/runner.py", line 156, in cmd
+    full_return)
+  File "/usr/lib/python3/dist-packages/salt/client/mixins.py", line 238, in cmd
+    self.functions[fun], arglist, pub_data
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 1196, in __getitem__
+    func = super(LazyLoader, self).__getitem__(item)
+  File "/usr/lib/python3/dist-packages/salt/utils/lazy.py", line 108, in __getitem__
+    raise KeyError(key)
+KeyError: 'mine.get'
+
+; line 1
+
+---
+{% set stuff = salt.saltutil.runner('mine.get', tgt='salt-master-test', fun='network.ip_addrs', tgt_type='glob') %}    <======================
+
+render:
+  salt.function:
+    - name: file.write
+    - tgt: salt-master-test
+[...]
+---
+salt-master-test_master:
+    Data failed to compile:
+----------
+    Rendering SLS 'base:orch.test2' failed: Jinja error: 'mine.get'
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/templates.py", line 392, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python3/dist-packages/jinja2/asyncsupport.py", line 76, in render
+    return original_render(self, *args, **kwargs)
+  File "/usr/lib/python3/dist-packages/jinja2/environment.py", line 1008, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python3/dist-packages/jinja2/environment.py", line 780, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "/usr/lib/python3/dist-packages/jinja2/_compat.py", line 37, in reraise
+    raise value.with_traceback(tb)
+  File "<template>", line 1, in top-level template code
+  File "/usr/lib/python3/dist-packages/salt/modules/saltutil.py", line 1615, in runner
+    full_return=full_return)
+  File "/usr/lib/python3/dist-packages/salt/runner.py", line 156, in cmd
+    full_return)
+  File "/usr/lib/python3/dist-packages/salt/client/mixins.py", line 238, in cmd
+    self.functions[fun], arglist, pub_data
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 1196, in __getitem__
+    func = super(LazyLoader, self).__getitem__(item)
+  File "/usr/lib/python3/dist-packages/salt/utils/lazy.py", line 108, in __getitem__
+    raise KeyError(key)
+KeyError: 'mine.get'
+
+; line 1
+
+---
+{% set stuff = salt.saltutil.runner('mine.get', tgt='salt-master-test', fun='network.ip_addrs', tgt_type='glob') %}    <======================
+
+render:
+  salt.function:
+    - name: file.write
+    - tgt: salt-master-test
+[...]
+---
+```
+
+An excerpt from the logging:
+
+```
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] In saltenv 'base', looking at rel_path 'orch/test2.sls' to resolve 'salt://orch/test2.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/master/files/base/orch/test2.sls' to resolve 'salt://orch/test2.sls'
+[DEBUG   ] compile template: /var/cache/salt/master/files/base/orch/test2.sls
+[DEBUG   ] Jinja search path: ['/var/cache/salt/master/files/base']
+[DEBUG   ] LazyLoaded roots.envs
+[DEBUG   ] Created gitfs object with uninitialized remotes
+[DEBUG   ] LazyLoaded gitfs.envs
+[DEBUG   ] Could not LazyLoad roots.init: 'roots.init' is not available.
+[DEBUG   ] Re-using gitfs object for process 18523
+[TRACE   ] Error loading runners.bgp: The napalm-base module could not be imported
+[TRACE   ] Error loading runners.drac: The drac runner module cannot be loaded: paramiko package is not installed.
+[TRACE   ] Error loading runners.nacl: libnacl import error, perhaps missing python libnacl package or should update.
+[TRACE   ] Error loading runners.net: The napalm-base module could not be imported
+[TRACE   ] Loaded smartos_vmadm as virtual vmadm
+[TRACE   ] Error loading runners.spacewalk: No spacewalk configuration found
+[TRACE   ] Error loading runners.vistara: vistara config has not been specificed in the Salt master config. See documentation for this runner.
+[DEBUG   ] Could not LazyLoad mine.get: 'mine.get' is not available.
+[DEBUG   ] Could not LazyLoad mine.get: 'mine.get' is not available.
+[DEBUG   ] Jinja Error
+[DEBUG   ] Exception:
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/templates.py", line 392, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python3/dist-packages/jinja2/asyncsupport.py", line 76, in render
+    return original_render(self, *args, **kwargs)
+  File "/usr/lib/python3/dist-packages/jinja2/environment.py", line 1008, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python3/dist-packages/jinja2/environment.py", line 780, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "/usr/lib/python3/dist-packages/jinja2/_compat.py", line 37, in reraise
+    raise value.with_traceback(tb)
+  File "<template>", line 1, in top-level template code
+  File "/usr/lib/python3/dist-packages/salt/modules/saltutil.py", line 1615, in runner
+    full_return=full_return)
+  File "/usr/lib/python3/dist-packages/salt/runner.py", line 156, in cmd
+    full_return)
+  File "/usr/lib/python3/dist-packages/salt/client/mixins.py", line 238, in cmd
+    self.functions[fun], arglist, pub_data
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 1196, in __getitem__
+    func = super(LazyLoader, self).__getitem__(item)
+  File "/usr/lib/python3/dist-packages/salt/utils/lazy.py", line 108, in __getitem__
+    raise KeyError(key)
+KeyError: 'mine.get'
+[DEBUG   ] Out: 
+[DEBUG   ] Line: 1
+[DEBUG   ] TmplStr: {% set stuff = salt.saltutil.runner('mine.get', tgt='salt-master-test', fun='network.ip_addrs', tgt_type='glob') %}
+
+render:
+  salt.function:
+    - name: file.write
+    - tgt: salt-master-test
+    - arg:
+      - /tmp/rendered
+      - {{ stuff }}
+
+
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/utils/templates.py", line 392, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/lib/python3/dist-packages/jinja2/asyncsupport.py", line 76, in render
+    return original_render(self, *args, **kwargs)
+  File "/usr/lib/python3/dist-packages/jinja2/environment.py", line 1008, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/lib/python3/dist-packages/jinja2/environment.py", line 780, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "/usr/lib/python3/dist-packages/jinja2/_compat.py", line 37, in reraise
+    raise value.with_traceback(tb)
+  File "<template>", line 1, in top-level template code
+  File "/usr/lib/python3/dist-packages/salt/modules/saltutil.py", line 1615, in runner
+    full_return=full_return)
+  File "/usr/lib/python3/dist-packages/salt/runner.py", line 156, in cmd
+    full_return)
+  File "/usr/lib/python3/dist-packages/salt/client/mixins.py", line 238, in cmd
+    self.functions[fun], arglist, pub_data
+  File "/usr/lib/python3/dist-packages/salt/loader.py", line 1196, in __getitem__
+    func = super(LazyLoader, self).__getitem__(item)
+  File "/usr/lib/python3/dist-packages/salt/utils/lazy.py", line 108, in __getitem__
+    raise KeyError(key)
+KeyError: 'mine.get'
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: unknown
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: 2.1.8
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.26.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.2
+         Python: 3.6.8 (default, Aug 20 2019, 17:12:48)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.3
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 4.15.0-1047-aws
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```
+
+### Additional info
+
+Trying this out on a python2 based installation works.
+
+```
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: 2.7.3
+      docker-py: 3.5.0
+          gitdb: 2.0.4
+      gitpython: 2.1.11
+          ioflo: Not Installed
+         Jinja2: 2.10.1
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.1
+   mysql-python: Not Installed
+      pycparser: 2.19
+       pycrypto: 3.6.6
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.16 (default, Apr 30 2019, 15:54:43)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: 2.0.4
+        timelib: Not Installed
+        Tornado: 5.0.2
+            ZMQ: 4.3.1
+ 
+System Versions:
+           dist: fedora 30 Thirty
+         locale: UTF-8
+        machine: x86_64
+        release: 5.2.14-200.fc30.x86_64
+         system: Linux
+        version: Fedora 30 Thirty
+``` 
+
+After some messing around I found a work around:
+
+```
+{% set stuff = salt.saltutil.runner('cache.mine', tgt='salt-master-test', tgt_type='list') %}
+
+render:
+  salt.function:
+    - name: file.write
+    - tgt: salt-master-test
+    - arg:
+      - /tmp/rendered
+      - {{ stuff }}
+```
+
+Resulting in:
+
+```
+{'salt-master-test': {'network.ip_addrs': ['10.1.14.219'], 'test.ping': True}}
+```

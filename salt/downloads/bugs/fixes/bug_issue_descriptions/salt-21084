@@ -1,0 +1,93 @@
+im running the latest develop branch of salt... sorry i don't know if this is a regression. 
+
+sls
+
+```
+{{ sls }} packages:
+    pkg.installed:
+        - pkgs: ['keepalived']
+        - watch_in:
+            - service: {{ sls }} service
+
+{{ sls }}:
+    file.managed:
+        - name: /etc/keepalived/keepalived.conf
+        - source: {{ vars.config_source }}
+        - template: jinja
+        - context: { vars: {{ vars|json }} }
+        - mode: 0644
+        - watch_in:
+            - service: {{ sls }} service
+
+{{ sls }} service:
+    service.running:
+        - name: keepalived
+        - enable: True
+```
+
+highstate... looks good
+
+```
+          ID: _sdl.keepalived.config
+    Function: file.managed
+        Name: /etc/keepalived/keepalived.conf
+      Result: True
+     Comment: File /etc/keepalived/keepalived.conf updated
+     Started: 18:45:54.036919
+    Duration: 8.714 ms
+     Changes:   
+              ----------                                                                                                               
+              diff:
+                  --- 
+                  +++ 
+                  @@ -1,7 +1,7 @@
+                      virtual_ipaddress {
+                       -   129.97.6.162
+                       +  129.97.6.163
+                       }
+                       interval 2
+                       weight 2
+                   }
+
+----------
+          ID: _sdl.keepalived service
+    Function: service.running
+        Name: keepalived
+      Result: True
+     Comment: Service started
+     Started: 18:45:54.082904
+    Duration: 14.868 ms
+     Changes:   
+              ----------                                                                                                               
+              keepalived:
+                  True
+```
+
+but crap keepalived did not seem to reload :( because my system still has the old ip address 129.97.6.162
+
+```
+ip a
+2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 00:50:56:84:57:8a brd ff:ff:ff:ff:ff:ff
+    inet 129.97.6.158/32 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet 129.97.6.162/32 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet6 fe80::250:56ff:fe84:578a/64 scope link 
+       valid_lft forever preferred_lft 
+```
+
+looking at the logs... it seems that since `service keepalived status` returns an error salt just uses `service keepalived start`
+when it would be more safe and logical to first run `service keepalived stop` before running `service keepalived start`.  (lets stay away from service xxx restart because not all developers case it)
+
+```
+2015-02-26 18:45:54,083 [salt.state       ][INFO    ][18697] Executing state service.mod_watch for keepalived
+2015-02-26 18:45:54,084 [salt.loaded.int.module.cmdmod][INFO    ][18697] Executing command ['service', 'keepalived', 'status'] in directory '/root'
+2015-02-26 18:45:54,090 [salt.loaded.int.module.cmdmod][ERROR   ][18697] Command ['service', 'keepalived', 'status'] failed with return code: 1
+2015-02-26 18:45:54,090 [salt.loaded.int.module.cmdmod][ERROR   ][18697] output: Usage: /etc/init.d/keepalived {start|stop|restart|reload|force-reload}
+2015-02-26 18:45:54,091 [salt.loaded.int.module.cmdmod][INFO    ][18697] Executing command ['service', 'keepalived', 'start'] in directory '/root'
+2015-02-26 18:45:54,097 [salt.loaded.int.module.cmdmod][DEBUG   ][18697] output:  * Starting keepalived keepalived
+   ...fail!
+2015-02-26 18:45:54,098 [salt.state       ][INFO    ][18697] {'keepalived': True}
+2015-02-26 18:45:54,098 [salt.state       ][INFO    ][18697] Completed state [keepalived] at time 18:45:54.097772
+```

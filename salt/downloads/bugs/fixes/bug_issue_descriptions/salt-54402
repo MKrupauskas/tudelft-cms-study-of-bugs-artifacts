@@ -1,0 +1,60 @@
+### Description of Issue
+
+gitpython returns `bytes` with python3.x when traversing the commit tree and it returns `string` with python2.7. This leads to a failure in `fileserver.file_list`, `fileserver.dir_list` for salt and more failures are also possible wherever this functionality is used. 
+
+It also leads to errors being generated in logs while using `state.show_sls`.
+
+### Steps to Reproduce Issue
+
+Run salt master with gitpython using python3.x and attempt to `salt-run fileserver.file_list`
+
+### Versions Report
+
+```
+gitpython: 3.0.2
+Python: 3.7.4 (default, Jul  9 2019, 18:13:23)
+```
+
+### PoC offending code
+
+Offending code block: https://github.com/saltstack/salt/blob/develop/salt/utils/gitfs.py#L1320
+
+Demonstration:
+
+```
+# -*- coding: utf-8 -*-
+from git import Repo
+import git
+import six
+
+repo = Repo('salt-formula')
+
+rr = git.RemoteReference(repo,'refs/remotes/origin/master')
+tree = rr.commit.tree
+
+stream = six.StringIO()
+
+for file_blob in tree.traverse():
+    if not isinstance(file_blob, git.Blob):
+        continue
+    file_blob.stream_data(stream)
+```
+
+```
+Traceback (most recent call last):
+  File "gitpythontest.py", line 16, in <module>
+    file_blob.stream_data(stream)
+  File "/home/vagrant/.local/lib/python3.6/site-packages/git/objects/base.py", line 119, in stream_data
+    stream_copy(istream, ostream)
+  File "/home/vagrant/.local/lib/python3.6/site-packages/git/util.py", line 124, in stream_copy
+    destination.write(chunk)
+TypeError: string argument expected, got 'bytes'
+```
+
+### Possible solution
+
+Instead of assuming string output from gitpython, we could expect bytes and handle it using `six.BytesIO` fake file object. This is also what I believe gitpython would prefer as @Byron [mentions in this gitpython issue](https://github.com/gitpython-developers/GitPython/issues/915#issuecomment-527344155) This works with python2.7 as well.
+
+If this approach of handling this in Salt itself makes sense, I will be happy to send a PR. 
+
+Thanks!

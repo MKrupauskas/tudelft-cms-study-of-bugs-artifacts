@@ -1,0 +1,195 @@
+
+[issue1839_grain.py.txt](https://github.com/saltstack/salt/files/1360860/issue1839_grain.py.txt)
+### Description of Issue/Question
+When grains are evaluated at startup time or when ordered to do a grains refresh, custom grains are executed twice per master.  I'm not sure if the internal grains are executed twice or not.
+
+
+### Setup
+To set this up put the following file in your `/srv/salt/_grains/` directory:
+
+```
+[root@syndic01-2017 salt]# cat /srv/salt/_grains/custom_grain.py 
+#!/usr/bin/env python
+
+import logging
+log = logging.getLogger(__name__)
+
+
+def custom_grain():
+    '''
+    This is a custom grain to test how often a grain is run.
+    '''
+    log.warning('Ran custom grain!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+    grains = {}
+    grains['z_grain_repeat_issue'] = 'Hello_world'
+    return grains
+```
+
+I've also attached the file to this issue.
+
+
+
+### Steps to Reproduce Issue
+On the salt-minion stop the salt-minion daemon and then start up the minion in the foreground.
+
+```
+[root@minion01-syndic01-2017 ~]# salt-minion
+[WARNING ] Ran custom grain!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+[WARNING ] Ran custom grain!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+[WARNING ] Ran custom grain!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+[WARNING ] Ran custom grain!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+[WARNING ] Ran custom grain!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+[WARNING ] Ran custom grain!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+[WARNING ] Ran custom grain!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+[WARNING ] Ran custom grain!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+```
+
+Then you can run the following on the salt master and you'll see that for each Salt Master your minion is connected to it will evaluate the grains twice.  
+
+```
+[root@MOM-2017 ~]# salt minion01-syndic01-2017 saltutil.sync_grains
+minion01-syndic01-2017:
+```
+
+
+In this example the minion is connected to two salt syndics as masters so when I run a command from the master of masters I get 4 warning log entries:
+
+```
+master:
+  - syndic01-2017
+  - syndic02-2017
+```
+
+
+```
+### Versions Report
+
+[root@MOM-2017 ~]# salt-master --versions-report
+Salt Version:
+           Salt: 2016.11.1
+ 
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 5.6.0
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.3.1611 Core
+        machine: x86_64
+        release: 3.13.0-132-generic
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```
+
+```
+
+[root@minion01-syndic01-2017 ~]# salt-minion --versions-report
+Salt Version:
+           Salt: 2016.11.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.3.1611 Core
+        machine: x86_64
+        release: 3.13.0-132-generic
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```
+
+I also tested on 2017.7.1 and got the same exact behavior.
+
+```
+[root@minion01-syndic01-2017 ~]# salt-minion --versions-report
+Salt Version:
+           Salt: 2017.7.1
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.3.1611 Core
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 3.13.0-132-generic
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```

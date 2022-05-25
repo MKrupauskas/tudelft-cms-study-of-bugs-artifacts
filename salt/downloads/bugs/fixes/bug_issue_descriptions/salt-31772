@@ -1,0 +1,113 @@
+### Description of Issue/Question
+
+Using any of the win_dacl states causes state output to appear as YAML instead of highstate. For example, executing `salt <minion> state.apply test.sls test=True` (code for `test.sls` below) results in:
+
+```
+              ----------
+              <minion>:
+                  ----------
+                  win_dacl_|-test_dacl_|-c:/temp_|-present:
+                      ----------
+                      __run_num__:
+                          0
+                      changes:
+                          ----------
+                          Added ACEs:
+                              Everyone allow FullControl on FOLDER&SUBFOLDERS&FILES
+                      comment:
+                          - The ACE is set to be added
+                      duration:
+                          16.0
+                      name:
+                          c:/temp
+                      result:
+                          None
+                      start_time:
+                          10:03:02.835000
+```
+
+Whereas the expected output would be:
+
+```
+<minion>:                                            
+----------                                                               
+          ID: test_dacl                                                  
+    Function: win_dacl.present                                           
+        Name: c:/temp                                                    
+      Result: None                                                       
+     Comment: The ACE is set to be added                                 
+     Started: 10:08:57.131000                                            
+    Duration: 15.0 ms                                                    
+     Changes:                                                            
+              ----------                                                 
+              Added ACEs:                                                
+                  Everyone allow FullControl on FOLDER&SUBFOLDERS&FILES  
+```
+
+This appears to be because win_dacl returns the `comment` as a list, not a string. Wrapping every state function return with this function solves the issue:
+
+```
+def _comment_array_to_string(ret):
+    if 'comment' in ret:
+        ret['comment'] = ' '.join(ret['comment'])
+    return ret
+```
+
+i.e. change `return ret` to `return _comment_array_to_string(ret)`. (I include this code only as an example of how I fixed and tested - the author will likely have a preferred way to fix the issue).
+### Setup
+
+Contents of `test.sls`:
+
+```
+test_dacl:
+  win_dacl.present:
+    - name: c:/temp
+    - permission: FullControl
+    - acetype: allow
+    - propagation: 'FOLDER&SUBFOLDERS&FILES'
+    - objectType: directory
+    - user: Everyone
+```
+### Steps to Reproduce Issue
+
+Any use of a `win_dacl` state appears to cause the issue. The example state file above was run in test mode, but non-test mode results in the same behavior.
+### Versions Report
+
+```
+Salt Version:                                              
+           Salt: 2015.8.7                                  
+
+Dependency Versions:                                       
+         Jinja2: 2.7.2                                     
+       M2Crypto: 0.21.1                                    
+           Mako: 0.9.1                                     
+         PyYAML: 3.10                                      
+          PyZMQ: 14.0.1                                    
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)    
+           RAET: Not Installed                             
+        Tornado: 4.2.1                                     
+            ZMQ: 4.0.4                                     
+           cffi: Not Installed                             
+       cherrypy: Not Installed                             
+       dateutil: 1.5                                       
+          gitdb: 0.5.4                                     
+      gitpython: 0.3.2 RC1                                 
+          ioflo: Not Installed                             
+        libgit2: Not Installed                             
+        libnacl: 1.4.3                                     
+   msgpack-pure: Not Installed                             
+ msgpack-python: 0.3.0                                     
+   mysql-python: 1.2.3                                     
+      pycparser: Not Installed                             
+       pycrypto: 2.6.1                                     
+         pygit2: Not Installed                             
+   python-gnupg: Not Installed                             
+          smmap: 0.8.2                                     
+        timelib: Not Installed                             
+
+System Versions:                                           
+           dist: Ubuntu 14.04 trusty                       
+        machine: x86_64                                    
+        release: 3.16.0-62-generic                         
+         system: Ubuntu 14.04 trusty                       
+```

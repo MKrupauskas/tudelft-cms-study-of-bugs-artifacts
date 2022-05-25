@@ -1,0 +1,88 @@
+I found an issue when using multiple hgfs_remotes where the caching of the files does not seem to work correctly.
+
+My hgfs configuration looks like this:
+
+```
+fileserver_backend:
+  - hg
+  - roots
+
+hgfs_remotes:
+  - http://hgserver/dev/ops/salt/environments
+  - http://hgserver/dev/ops/salt/profiles-common
+
+hgfs_root: sls
+
+hgfs_branch_method: branches
+```
+
+I also have a file_roots configuration to serve other files.
+
+When I run highstate on one of my servers, I get the following message:
+
+```
+    State: - file
+    Name:      /root/.hgrc
+    Function:  managed
+        Result:    False
+        Comment:   Source file salt://salt/hgrc not found
+        Changes:
+```
+
+My salt state directory in the profiles-common repository looks like this:
+
+```
+root@salt-master:~/profiles-common/sls/salt$ ls -l
+total 56
+-rwxr-xr-x. 1 root root   298 Nov 19 14:09 bootstrap.sh
+-rw-r--r--. 1 root root    69 Nov 20 15:39 hgrc
+-rw-r--r--. 1 root root   479 Nov 19 14:31 init.sls
+-rw-r--r--. 1 root root 18757 Nov 25 12:52 master
+-rw-r--r--. 1 root root  1137 Nov 25 12:49 master.sls
+-rw-r--r--. 1 root root 20008 Nov 25 00:03 minion
+```
+
+The other files like master and bootstrap.sh get served correctly as I can see the following in the minion logs:
+
+```
+root@salt-master:~/profiles-common/sls/salt$ grep bootstrap /var/log/salt/minion
+2013-11-25 12:56:23,180 [salt.state                                  ][INFO    ] Executing state file.managed for /var/www/bootstrap.sh
+2013-11-25 12:56:25,241 [salt.fileclient                             ][INFO    ] Fetching file ** done ** 'salt/bootstrap.sh'
+2013-11-25 12:56:25,299 [salt.state                                  ][INFO    ] File /var/www/bootstrap.sh is in the correct state
+2013-11-25 13:40:34,658 [salt.state                                  ][INFO    ] Executing state file.managed for /var/www/bootstrap.sh
+2013-11-25 13:40:36,292 [salt.fileclient                             ][INFO    ] Fetching file ** done ** 'salt/bootstrap.sh'
+2013-11-25 13:40:36,317 [salt.state                                  ][INFO    ] File /var/www/bootstrap.sh is in the correct state
+root@salt-master:~/profiles-common/sls/salt$ grep hgrc /var/log/salt/minion
+2013-11-25 12:56:15,614 [salt.state                                  ][INFO    ] Executing state file.managed for /root/.hgrc
+2013-11-25 12:56:16,596 [salt.state                                  ][ERROR   ] Source file salt://salt/hgrc not found
+2013-11-25 13:40:30,589 [salt.state                                  ][INFO    ] Executing state file.managed for /root/.hgrc
+2013-11-25 13:40:31,129 [salt.state                                  ][ERROR   ] Source file salt://salt/hgrc not found
+```
+
+For hgrc it doesn't even seem to try to fetch the file.
+
+My salt and OS version are below:
+
+```
+           Salt: 0.17.2
+         Python: 2.7.3 (default, Sep 26 2013, 20:03:06)
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```
+
+```
+Distributor ID: Ubuntu
+Description:    Ubuntu 12.04.3 LTS
+Release:    12.04
+Codename:   precise
+```
+
+I am not really sure where to start troubleshooting this other than the cached repo in /var/cache/salt/master/hgfs. There is a hash/default directory in there that seems to hold all the md5 hashes. But then those "disappear" from time to time (I assume Salt clears the hg cache and pulls from the repo again?).
+
+Any ideas?

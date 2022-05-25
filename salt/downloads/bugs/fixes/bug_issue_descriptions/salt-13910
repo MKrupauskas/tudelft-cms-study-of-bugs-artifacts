@@ -1,0 +1,134 @@
+Salt v2014.1.5, Debian GNU/Linux (Wheezy).
+
+The short version is in the title. Here's the long version:
+
+Here is a test state:
+
+```
+/testdir:
+  file.directory:
+    - user: root
+    - group: www-data
+    - dir_mode: '0770'
+    - file_mode: '0660'
+    - makedirs: True
+    - recurse:
+      - user
+      - group
+      - mode
+```
+
+where mode recursively sets both both dir_mode and file_mode values as per #13866. This works as expected at first.
+
+Later, I populate some files in /testdir:
+
+```
+root@hostname:/testdir# touch testfile
+root@hostname:/testdir# ll
+total 0
+-rw-r--r-- 1 root root 0 Jul  2 11:36 testfile
+root@hostname:/testdir# mkdir another_testdir
+root@hostname:/testdir# salt-call state.sls teststate testenv
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'testenv', ** skipped ** latest already in cache 'salt://teststate.sls'
+[INFO    ] Running state [/testdir] at time 11:41:24.315991
+[INFO    ] Executing state file.directory for /testdir
+[INFO    ] {'group': 'www-data', 'mode': '0770'}
+[INFO    ] Completed state [/testdir] at time 11:41:24.319490
+local:
+----------
+          ID: /testdir
+    Function: file.directory
+      Result: True
+     Comment: Directory /testdir updated
+     Changes:   
+              ----------
+              group:
+                  www-data
+              mode:
+                  0770
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total:     1
+root@hostname:/testdir# 
+```
+
+And as expected, it worked fine, and re-running the state requires no changes:
+
+```
+root@hostname:/testdir# ll
+total 4
+drwxrwx--- 2 root www-data 4096 Jul  2 11:36 another_testdir
+-rw-rw---- 1 root www-data    0 Jul  2 11:36 testfile
+root@hostname:/testdir# salt-call state.sls teststate testenv
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'testenv', ** skipped ** latest already in cache 'salt://teststate.sls'
+[INFO    ] Running state [/testdir] at time 11:36:45.809782
+[INFO    ] Executing state file.directory for /testdir
+[INFO    ] Directory /testdir is in the correct state
+[INFO    ] Completed state [/testdir] at time 11:36:45.872631
+local:
+----------
+          ID: /testdir
+    Function: file.directory
+      Result: True
+     Comment: Directory /testdir is in the correct state
+     Changes:   
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total:     1
+root@hostname:/testdir#
+```
+
+Now lets add a symlink into the mix:
+
+```
+root@hostname:/testdir# ln -s another_testdir i_love_my_testdir
+root@hostname:/testdir# ll
+total 4
+drwxrwx--- 2 root www-data 4096 Jul  2 11:36 another_testdir
+lrwxrwxrwx 1 root root       15 Jul  2 11:41 i_love_my_testdir -> another_testdir
+-rw-rw---- 1 root www-data    0 Jul  2 11:36 testfile
+root@hostname:/testdir# salt-call state.sls teststate testenv
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'testenv', ** skipped ** latest already in cache 'salt://teststate.sls'
+[INFO    ] Running state [/testdir] at time 11:41:24.315991
+[INFO    ] Executing state file.directory for /testdir
+[INFO    ] {'group': 'www-data', 'mode': '0770'}
+[INFO    ] Completed state [/testdir] at time 11:41:24.319490
+local:
+----------
+          ID: /testdir
+    Function: file.directory
+      Result: True
+     Comment: Directory /testdir updated
+     Changes:   
+              ----------
+              group:
+                  www-data
+              mode:
+                  0770
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total:     1
+root@hostname:/testdir# ls -l
+total 4
+drwxrwx--- 2 root www-data 4096 Jul  2 11:36 another_testdir
+lrwxrwxrwx 1 root www-data   15 Jul  2 11:41 i_love_my_testdir -> another_testdir
+-rw-rw---- 1 root www-data    0 Jul  2 11:36 testfile
+root@hostname:/testdir# 
+```
+
+It doesn't matter how many times we re-run this state, it will always think that changes have been made. I think it's looking at the mode of the symlink (which cannot be changed), thinking it successfully made changes (chmod on a symlink returns 0 but does nothing), and then incorrectly reporting that changes were made. Instead, recurse needs to skip symlinks to avoid this problem.

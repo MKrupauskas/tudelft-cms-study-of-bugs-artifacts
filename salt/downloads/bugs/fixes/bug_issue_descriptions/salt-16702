@@ -1,0 +1,31 @@
+By including a missing state (eg a typo, forgotten `file_roots` entry, etc)  somewhere in the `top.sls` (or anywhere in the files processed for the highstate), an obscure exception errors occur:
+
+```
+$ salt-ssh '*' state.highstate
+[ERROR   ] JSON Render failed for: 
+Exception AttributeError: "'SaltEvent' object has no attribute 'cpub'" in <bound method SaltEvent.__del__ of <salt.utils.event.SaltEvent object at 0x356aa90>> ignored
+Passed invalid arguments: string indices must be integers
+[ERROR   ] No JSON object could be decoded
+```
+
+From this, I had no idea what I was looking at.  I couldn't tell what the state was that caused it (eg to know what to fix), nor can I actually see the traceback of the underlying issue (even with debug or trace level logging).  Eventually, I stepped through my state configuration, taking bits out, until I found the cause was that a state I was including couldn't be found.
+
+My simple, contrived `top.sls`, with a state that can't be found, looks like this:
+
+```
+base:
+  '*':
+    - i_do_not_exist
+```
+
+By contrast, calling the state manually produces the correct message:
+
+```
+$ salt-ssh '*' state.sls i_do_not_exist
+example:
+  - No matching sls found for 'i_do_not_exist' in env 'base'
+```
+
+In my specific case, I'd forgotten to include a formula under `file_roots`, but I could easily imagine someone making a typo in a state name and hitting the same issue.  
+
+Tested with latest `2014.7` version.

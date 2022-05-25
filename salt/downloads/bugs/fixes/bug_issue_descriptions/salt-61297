@@ -1,0 +1,137 @@
+### Description of Issue
+I am evaluating the deltaproxy feature released on 3004 version and noticed the configuration settings for other deltaproxy managed minions are getting overridden with the settings defined for the last minion defined under "ids". This results in cases like targeting one minion to execute a command and getting the result from another one. This behaviour was originally observed for napalm and netmiko proxies and, to make sure it's nothing related to my environment, I brought up a fresh 3004 instance with 1 deltaproxy and 3 dummy proxies. Details below:
+
+### Setup
+_/etc/salt/master_:
+```
+interface: 127.0.0.1
+```
+
+_/etc/salt/proxy_:
+```
+master: 127.0.0.1
+metaproxy: deltaproxy
+enable_fqdns_grains: False
+multiprocessing: True
+```
+
+_/srv/pillar/top.sls_:
+```
+base:
+  deltaproxy:
+    - deltaproxy
+  dummy1:
+    - dummy1
+  dummy2:
+   - dummy2
+  dummy3:
+   - dummy3
+```
+
+_/srv/pillar/deltaproxy.sls_:
+```
+proxy:
+  proxytype: deltaproxy
+  ids:
+    - dummy1
+    - dummy2
+    - dummy3
+```
+
+_/srv/pilar/dummy1.sls_:
+```
+proxy:
+  proxytype: dummy
+  hostname: dummy1
+```
+
+_/srv/pilar/dummy2.sls_:
+```
+proxy:
+  proxytype: dummy
+  hostname: dummy2
+```
+
+_/srv/pilar/dummy3.sls_:
+```
+proxy:
+  proxytype: dummy
+  hostname: dummy3
+```
+
+### Steps to Reproduce Issue
+Here it's possible to observe that _id_ and also settings defined under _pillar_ are overridden:
+```
+root@salt-3004:~# salt 'dummy*' config.get id
+dummy1:
+    dummy3
+dummy2:
+    dummy3
+dummy3:
+    dummy3
+
+root@salt-3004:~# salt 'dummy*' config.get proxy
+dummy1:
+    ----------
+    hostname:
+        dummy3
+    proxytype:
+        dummy
+dummy2:
+    ----------
+    hostname:
+        dummy3
+    proxytype:
+        dummy
+dummy3:
+    ----------
+    hostname:
+        dummy3
+    proxytype:
+        dummy
+```
+
+### Versions Report
+```
+root@salt-3004:~# salt --versions-report
+Salt Version:
+          Salt: 3004
+
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: unknown
+      dateutil: 2.8.1
+     docker-py: Not Installed
+         gitdb: 4.0.5
+     gitpython: 3.1.14
+        Jinja2: 2.11.3
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 1.0.0
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.9.7
+        pygit2: Not Installed
+        Python: 3.9.2 (default, Feb 28 2021, 17:03:44)
+  python-gnupg: Not Installed
+        PyYAML: 5.3.1
+         PyZMQ: 20.0.0
+         smmap: 4.0.0
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+
+System Versions:
+          dist: debian 11 bullseye
+        locale: utf-8
+       machine: x86_64
+       release: 5.10.0-9-amd64
+        system: Linux
+       version: Debian GNU/Linux 11 bullseye
+```
+
+Let me know if there's any other information I can provide that's relevant to this issue. 
+Thank you.

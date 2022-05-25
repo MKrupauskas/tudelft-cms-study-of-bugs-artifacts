@@ -1,0 +1,92 @@
+I am unable to get the most recent copy of my hgfs pulled from bitbucket. I believe the cause for this issue is also what is causing my inability to pull from github. The following is my /etc/salt/master configuration file
+
+```
+fileserver_backend:
+  - hg
+
+hgfs_remotes:
+  - https://jasonzhu12@bitbucket.org/jasonzhu12/salt
+
+hgfs_root: salt
+
+hgfs_branch_method: branches
+```
+
+and here is my salt --versions-report
+
+```
+           Salt: 0.17.4
+         Python: 2.7.5 (default, Nov 12 2013, 16:45:54)
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.2
+            ZMQ: 3.2.4
+```
+
+Here is a listing of my /var/cache/salt/master/hgfs directory:
+
+```
+total 12K
+drwxr-xr-x.  3 root root 4.0K Feb  1 21:35 8cf641c5014942d0da15c9a8810cb7a5
+drwxr-xr-x. 10 root root 4.0K Feb  1 21:31 ..
+drwxr-xr-x.  3 root root 4.0K Feb  1 21:31 .
+```
+
+While trying to debug this issue I added the following traceback lines to the update function in hgfs.py file. 
+
+```
+    try:
+        salt.fileserver.reap_fileserver_cache_dir(os.path.join(__opts__['cachedir'], 'hgfs/hash'), find_file)
+    except (IOError, OSError):
+            try:
+        salt.fileserver.reap_fileserver_cache_dir(os.path.join(__opts__['cachedir'], 'hgfs/hash'), find_file)
+    except (IOError, OSError):
+        import traceback # Line I added
+        traceback.print_exc() # Line I added 
+        # Hash file won't exist if no files have yet been served up
+        pass
+```
+
+The exception that I am getting is the following:
+
+```
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/fileserver/hgfs.py", line 201, in update
+    find_file
+  File "/usr/lib/python2.7/site-packages/salt/fileserver/__init__.py", line 57, in reap_fileserver_cache_dir
+    for env in os.listdir(cache_base):
+OSError: [Errno 2] No such file or directory: '/var/cache/salt/master/hgfs/hash'
+```
+
+It appears that the hash directory is missing and the code cannot iterate through it. I am not sure what the purpose of that piece of code is nor am I sure what is supposed to create it. 
+
+Note that when I run the following commands:
+
+```
+cd /var/cache/salt/master/hgfs/8cf641c5014942d0da15c9a8810cb7a5/
+hg update 
+```
+
+It populates it with my bitbucket directory but I am still unable to do a salt * state.highstate. The error I am getting is 
+
+```
+jzhu_laptop:
+----------
+    State: - no
+    Name:      states
+    Function:  None
+        Result:    False
+        Comment:   No Top file or external nodes data matches found
+        Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total:     1
+```

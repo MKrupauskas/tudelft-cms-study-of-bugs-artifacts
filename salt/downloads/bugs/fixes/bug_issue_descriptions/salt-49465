@@ -1,0 +1,121 @@
+### Description of Issue/Question
+Virtual module 'service' behaving wrong on a Manjaro distro - but the issues do NOT seem to be particular to Manjaro.
+
+Issues:
+
+-  a) saltstack seem to not load one and **only** one service implementation module
+-  b) has kind of wrong conditions for using the 'default' _service.py_ module
+
+I'll propose a small change that would fix b) although tests should be run on the affected platforms.
+
+### Setup
+When trying to force the service module, I am adding a 'providers.conf' file in /etc/salt/minion.d/ :
+```
+providers:
+   service: systemd
+
+```
+### Steps to Reproduce Issue
+On a Manjaro distro, freshly installed (KDE, 17.1.12), install 'salt' via pacman (`pacman -Su salt`)
+Then run
+`salt-call --local --refresh-grains-cache -l debug service.get_running`
+You will get a list of running service. Among them, 'sddm' let's say.
+
+Let's get the full list:
+`salt-call --local --refresh-grains-cache -l debug service.get_all`
+Surprise! List is empty.
+
+Let's check if 'sddm' service is available:
+`salt-call --local --refresh-grains-cache -l debug service.available sddm`
+Result: False (!!)
+
+Let's edit 'service.py' (/usr/lib/python2.7/site-packages/salt/modules/service.py) and rename function `get_available` to `get_available2` and run the command again.
+Result: True (!!) 
+So... service.py (using /etc/init.d/ files) gets **ALSO** loaded together with systemd.py one and functions are merged from both modules !?
+This looks like a wrong implementation of the concept: I have one and only one service module implementation.
+Or, unless by design, it is ok to maybe load multiple python modules for a single virtual service.
+
+Renaming `service.py:get_all()` to `service.py:get_all2()` will also show good results for the _service.get_all_ salt-call command run.
+
+If I add the providers.conf file and ensure it is listed in the debug output of salt-call run, things seem to work.
+
+One suggested patch:
+```
+--- /root/service.py.orig	2018-08-31 11:47:59.689732154 +0300
++++ /root/service.py	2018-08-31 11:39:55.767772241 +0300
+@@ -9,6 +9,8 @@
+ import fnmatch
+ import re
+ 
++import salt.utils.systemd
++
+ __func_alias__ = {
+     'reload_': 'reload'
+ }
+@@ -50,8 +52,12 @@
+         'XenServer',
+         'Cumulus'
+     ))
+-    if __grains__.get('os', '') in disable:
++    if __grains__.get('os', '') in disable or __grains__.get('os_family', '') in disable:
+         return (False, 'Your OS is on the disabled list')
++    if __grains__['kernel'] == 'Linux' \
++            and salt.utils.systemd.booted(__context__):
++	return (False, 'Your OS is using systemd')
++    
+     # Disable on all non-Linux OSes as well
+     if __grains__['kernel'] != 'Linux':
+         return (False, 'Non Linux OSes are not supported')
+
+```
+The first condition change was added in the idea that distros based on some more general ones, will behave the same, so that's why I added the check on 'os_family'.
+Note that 'Manjaro' is a derivative of 'Arch' distro, and it shows with os_family as 'Arch'.
+This needs some tests, at least for Suse distro(s).
+
+The second change would ensure that once _systemd_ use is detected then it would not use the current module. This is a more generic condition, until a proper fix for using a single service module implementation is done.
+
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.2
+ 
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: 0.27.0
+        libnacl: Not Installed
+       M2Crypto: 0.30.1
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.27.1
+         Python: 2.7.15 (default, Jun 27 2018, 13:05:28)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 5.1
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: x86_64
+        release: 4.19.0-1-MANJARO
+         system: Linux
+        version: Not Installed
+
+```

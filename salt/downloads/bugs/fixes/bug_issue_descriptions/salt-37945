@@ -1,0 +1,78 @@
+### Description of Issue/Question
+
+I noticed the following error in salt master logs. It was repeated many times.
+
+```
+2016-11-27 03:12:16,885 [salt.config                                          ][DEBUG   ][21595] Reading configuration from /etc/salt/master
+2016-11-27 03:12:16,933 [salt.config                                          ][DEBUG   ][21595] Using cached minion ID from /etc/salt/minion_id: rbalvcdstestm.bas.roche.com
+2016-11-27 03:12:16,935 [salt.config                                          ][DEBUG   ][21595] Reading configuration from /etc/salt/master
+2016-11-27 03:12:17,167 [salt.utils.lazy                                      ][DEBUG   ][21595] LazyLoaded local_cache.clean_old_jobs
+2016-11-27 03:12:17,168 [salt.payload                                         ][CRITICAL][21595] Could not deserialize msgpack message.This often happens when trying to read a file not in binary modeTo see message payload, enable debug logging and retry. Exception: Unpack failed: error = 0
+2016-11-27 03:12:17,168 [salt.payload                                         ][DEBUG   ][21595] Msgpack deserialization failure on message: 
+2016-11-27 03:12:17,168 [salt.utils.process                                   ][ERROR   ][21595] An un-handled exception from the multiprocessing process 'Maintenance-2441' was caught:
+Traceback (most recent call last):
+  File "/usr/lib/python2.6/site-packages/salt/utils/process.py", line 616, in _run
+    return self._original_run()
+  File "/usr/lib/python2.6/site-packages/salt/master.py", line 238, in run
+    salt.daemons.masterapi.clean_expired_tokens(self.opts)
+  File "/usr/lib/python2.6/site-packages/salt/daemons/masterapi.py", line 149, in clean_expired_tokens
+    token_data = serializer.loads(token_file.read())
+  File "/usr/lib/python2.6/site-packages/salt/payload.py", line 117, in loads
+    return msgpack.loads(msg, use_list=True)
+  File "msgpack/_unpacker.pyx", line 145, in msgpack._unpacker.unpackb (msgpack/_unpacker.cpp:145)
+UnpackValueError: Unpack failed: error = 0
+2016-11-27 03:12:17,173 [salt.utils.process                                   ][INFO    ][7911] Process <class 'salt.master.Maintenance'> (21595) died with exit status None, restarting...
+2016-11-27 03:12:18,187 [salt.utils.process                                   ][DEBUG   ][7911] Started 'salt.master.Maintenance' with pid 22028
+```
+
+I did a little investigation and it turns out that we had three empty tokens in ``/var/cache/salt/master/tokens/``. By empty I mean files had size = 0. To confirm that those empty files are the problem, I deleted them. Next time, this process completed successfully, cleaning up other tokens.
+
+The process that cleans up tokens, should handle empty files.
+
+There is also a matter, why empty token files were generated in a first place, but I don't know how to reproduce it.
+
+### Steps to Reproduce Issue
+Those are salt-api related tokens, so install salt-api. Create empty file in ``/var/cache/salt/master/tokens/`` to simulate some other bug, that creates empty tokens. Log in few times to create some proper tokens. Observe logs for error.
+
+### Versions Report
+```
+salt --versions-report
+
+Salt Version:
+           Salt: 2016.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 1.4.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Nov 21 2013, 10:50:32)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: redhat 6.6 Santiago
+        machine: x86_64
+        release: 2.6.32-504.12.2.el6.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 6.6 Santiago
+```

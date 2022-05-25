@@ -1,0 +1,87 @@
+On the minion
+- nsswitch.conf has "files sss ldap" for both user (passwd/shadow) and group
+- user and group are not present in files
+- user and group are present in ldap
+
+Salt:
+
+```
+[root@nautilus ~]# salt -N condor state.highstate test=True
+stingray.bmrb.wisc.edu:
+----------
+          ID: create_condor_group_please
+    Function: group.present
+        Name: condor
+      Result: True
+     Comment: Group condor is present and up to date
+     Started: 17:32:39.702288
+    Duration: 52.242 ms
+     Changes:   
+----------
+          ID: create_condor_user_please
+    Function: user.present
+      Result: None
+     Comment: User create_condor_user_please set to be added
+     Started: 17:32:39.754689
+    Duration: 2.371 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 2 (unchanged=1)
+Failed:    0
+------------
+Total states run:     2
+```
+
+Note that user.present returns None. On the minion, from python prompt:
+
+```
+[root@stingray etc]# python
+Python 2.7.5 (default, Jun 17 2014, 18:11:42) 
+[GCC 4.8.2 20140120 (Red Hat 4.8.2-16)] on linux2
+Type "help", "copyright", "credits" or "license" for more information.
+>>> import pwd
+>>> print pwd.getpwnam( "condor" )
+pwd.struct_passwd(pw_name='condor', pw_passwd='x', pw_uid=501, pw_gid=500, pw_gecos='CONDOR system user', pw_dir='/var/lib/condor', pw_shell='/bin/bash')
+>>> print pwd.getpwuid( 501 )
+pwd.struct_passwd(pw_name='condor', pw_passwd='x', pw_uid=501, pw_gid=500, pw_gecos='CONDOR system user', pw_dir='/var/lib/condor', pw_shell='/bin/bash')
+>>> 
+```
+
+So whatever makes salt's user.present return None is not the underlying pwd module. Also note that group.present returns True: the group is in the same openldap database as the user.
+
+Without "test=True":
+
+```
+[root@nautilus ~]# salt -N condor state.highstate 
+stingray.bmrb.wisc.edu:
+----------
+          ID: create_condor_group_please
+    Function: group.present
+        Name: condor
+      Result: True
+     Comment: Group condor is present and up to date
+     Started: 17:42:02.738490
+    Duration: 2.36 ms
+     Changes:   
+----------
+          ID: create_condor_user_please
+    Function: user.present
+      Result: False
+     Comment: Failed to create new user create_condor_user_please
+     Started: 17:42:02.740915
+    Duration: 15.789 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 1
+Failed:    1
+------------
+Total states run:     2
+```
+
+So the state system has a third state: user is not present and we can't add him. 
+
+The reason we can't add him is the call to useradd that fails with "3 -- user already present" so this is another potentially broken piece: the check and the update rely on two completely separate code paths whose picture of system's state is not guaranteed to agree.

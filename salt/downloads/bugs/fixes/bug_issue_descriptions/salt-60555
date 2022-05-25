@@ -1,0 +1,107 @@
+**Description**
+
+`onlyif` and `unless` pass the configured `shell` to `cmd.retcode`. This is done to support e.g. non-POSIX shell syntax with `shell: bash`, but there is a case in which passing `shell` breaks the `cmd.retcode`: `shell: /sbin/nologin`.
+
+The [Pull Request](https://github.com/saltstack/salt/pull/57825/files) that implemented passing `shell` to `cmd.retcode` considered adding a gate for configuring passing through the arguments to `cmd.retcode`, but decided not to do it yet because the cost/benefit analysis is unclear.
+
+There is also the option to work around the `/sbin/nologin` edge case, and only pass `shell` if the shell has a different value:
+
+```diff
+             cmd_opts[run_cmd_arg] = low_data.get(run_cmd_arg)
+
+         if "shell" in low_data:
+-            cmd_opts["shell"] = low_data["shell"]
++            shell = low_data["shell"]
+         elif "shell" in self.opts["grains"]:
+-            cmd_opts["shell"] = self.opts["grains"].get("shell")
++            shell = self.opts["grains"].get("shell")
++        else:
++            shell = None
++        # /sbin/nologin always causes the onlyif / unless cmd to fail
++        if shell != "/sbin/nologin":
++            cmd_opts["shell"] = shell
+```
+I would like to know which way you think is better before I send a pull request.
+
+**Setup**
+```yaml
+# /srv/salt/onlyif_reproducer.sls
+reproducer_onlyif:
+  user.present:
+    - name: onlyif
+    - onlyif: /bin/true
+    - shell: /sbin/nologin
+
+reproducer_unless:
+  user.present:
+    - name: unless
+    - unless: /bin/true
+    - shell: /sbin/nologin
+```
+
+**Steps to Reproduce the behavior**
+On minion: `salt-call -ldebug state.apply onlyif_reproducer`
+
+The log mentions that the shell is potentially invalid:
+```
+[WARNING ] Attempt to run a shell command with what may be an invalid shell! Check to ensure that the shell </sbin/nologin> is valid for this user.
+[INFO    ] Executing command '/bin/true' in directory '/root'
+[DEBUG   ] stdout: This account is currently not available.
+[DEBUG   ] retcode: 1
+[DEBUG   ] Last command return code: 1
+[INFO    ] ['onlyif condition is false']
+```
+Even though the condition is `onlyif: /bin/true`, the state function is skipped.
+
+**Expected behavior**
+The user `onlyif` is created with `/sbin/nologin` as login shell.
+
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+(Provided by running salt --versions-report. Please also mention any differences in master/minion versions.) 
+
+```
+sles15sp3:~ # salt-call --versions-report
+Salt Version:
+          Salt: 3002.2
+ 
+Dependency Versions:
+          cffi: 1.13.2
+      cherrypy: Not Installed
+      dateutil: Not Installed
+     docker-py: Not Installed
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.10.1
+       libgit2: Not Installed
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.5.6
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.17
+      pycrypto: Not Installed
+  pycryptodome: Not Installed
+        pygit2: Not Installed
+        Python: 3.6.13 (default, Mar 10 2021, 18:30:35) [GCC]
+  python-gnupg: Not Installed
+        PyYAML: 5.4.1
+         PyZMQ: 17.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.2.3
+ 
+System Versions:
+          dist: sles 15.3 
+        locale: UTF-8
+       machine: x86_64
+       release: 5.3.18-57-default
+        system: Linux
+       version: SLES 15.3 
+```
+</details>
+
+**Additional context**
+Please be aware that this 3002.2 is not what you expect. We don't increase the "patch-level" part of the version when we add patches to our packages. 

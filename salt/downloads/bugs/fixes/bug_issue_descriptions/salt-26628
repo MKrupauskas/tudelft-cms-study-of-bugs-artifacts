@@ -1,0 +1,132 @@
+I'm trying to get ipset working, and I'm getting this error:
+
+```
+[root@master1a wp_brute_block]# salt --version
+salt 2015.5.3 (Lithium)
+[root@master1a wp_brute_block]# pwd
+/srv/salt/wp_brute_block
+[root@master1a wp_brute_block]# cat init.sls
+ipset:
+  pkg.installed:
+    - name: ipset
+
+blacklist:
+  ipset.set_present:
+    - set_type: hash:net
+    - require:
+      - pkg: ipset
+
+blacklist_entries:
+  ipset.present:
+    - set_name: blacklist
+    - entry:
+{% for ip in pillar.get('blacklist', {}) %}
+      - {{ ip }}
+{% endfor %}
+    - require:
+      - ipset: blacklist
+
+whitelist:
+  ipset.set_present:
+    - set_type: hash:net
+    - require:
+      - pkg: ipset
+[root@master1a wp_brute_block]# cat /srv/pillar/wp_brute_block/init.sls
+blacklist:
+  - 198.154.210.89/32
+  - 211.10.17.19/32
+whitelist:
+  - 1.2.3.4/32
+[root@master1a wp_brute_block]# salt 'HOSTNAME' state.sls wp_brute_block
+cp26.whm.wwi.dk:
+----------
+          ID: ipset
+    Function: pkg.installed
+      Result: True
+     Comment: Package ipset is already installed.
+     Started: 14:35:43.891969
+    Duration: 3465.612 ms
+     Changes:
+----------
+          ID: blacklist
+    Function: ipset.set_present
+      Result: True
+     Comment: ipset set blacklist created successfully for ipv4
+     Started: 14:35:47.358634
+    Duration: 15.446 ms
+     Changes:
+              ----------
+              locale:
+                  blacklist
+----------
+          ID: blacklist_entries
+    Function: ipset.present
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.6/site-packages/salt/state.py", line 1560, in call
+                  **cdata['kwargs'])
+                File "/usr/lib64/python2.6/contextlib.py", line 34, in __exit__
+                  self.gen.throw(type, value, traceback)
+                File "/usr/lib/python2.6/site-packages/salt/utils/context.py", line 42, in func_globals_inject
+                  yield
+                File "/usr/lib/python2.6/site-packages/salt/state.py", line 1560, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.6/site-packages/salt/states/ipset.py", line 206, in present
+                  family) is True:
+                File "/usr/lib/python2.6/site-packages/salt/modules/ipset.py", line 395, in check
+                  settype = _find_set_type(set)
+                File "/usr/lib/python2.6/site-packages/salt/modules/ipset.py", line 522, in _find_set_type
+                  setinfo = _find_set_info(set)
+                File "/usr/lib/python2.6/site-packages/salt/modules/ipset.py", line 513, in _find_set_info
+                  key, value = item.split(':', 1)
+              ValueError: need more than 1 value to unpack
+     Started: 14:35:47.374721
+    Duration: 42.803 ms
+     Changes:
+----------
+          ID: whitelist
+    Function: ipset.set_present
+      Result: True
+     Comment: ipset set whitelist created successfully for ipv4
+     Started: 14:35:47.417899
+    Duration: 17.936 ms
+     Changes:
+              ----------
+              locale:
+                  whitelist
+
+Summary
+------------
+Succeeded: 3 (changed=2)
+Failed:    1
+------------
+Total states run:     4
+mrc@HOST [~]# sudo ipset list
+Name: blacklist
+Type: hash:net
+Header: family inet hashsize 1024 maxelem 65536
+Size in memory: 16784
+References: 0
+Members:
+198.154.210.89
+
+Name: whitelist
+Type: hash:net
+Header: family inet hashsize 1024 maxelem 65536
+Size in memory: 16752
+References: 0
+Members:
+```
+
+From what I can see it fails to parse ´ipset list -t blacklist´ as it expects "Members <ip>" where that command actually outputs:
+
+```
+Name: blacklist
+Type: hash:net
+Header: family inet hashsize 1024 maxelem 65536
+Size in memory: 16784
+References: 0
+198.154.210.89
+```
+
+The operating system is CLoudLinux (CentOS 6).

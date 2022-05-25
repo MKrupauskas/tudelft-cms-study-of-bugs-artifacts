@@ -1,0 +1,69 @@
+My previously working states fail to run when upgrading from 2014.7.2 to 2014.7.4.  The issue I'm seeing is that the `source` filed for `file.managed` _must_ be a single item, rather than a list of one or more items.
+
+From the docs:
+
+http://docs.saltstack.com/en/latest/ref/states/all/salt.states.file.html#salt.states.file.managed
+
+> A list of sources can also be passed in to provide a default source and a set of fallbacks. The first source in the list that is found to exist will be used and subsequent entries in the list will be ignored.
+
+The following works:
+
+```
+rsyslog:
+  file.managed:
+    - name: /etc/rsyslog.conf
+    - user: root
+    - group: root
+    - mode: 644 
+    - source: salt://rsyslog/files/rsyslog.conf
+    - require:
+      - pkg: rsyslog
+```
+
+However, this fails:
+
+```
+rsyslog:
+  file.managed:
+    - name: /etc/rsyslog.conf
+    - user: root
+    - group: root
+    - mode: 644
+    - source:
+      - salt://rsyslog/files/rsyslog.conf.{{ grains['fqdn'] }}
+      - salt://rsyslog/files/rsyslog.conf.{{ grains['instance_type'] }}
+      - salt://rsyslog/files/rsyslog.conf
+    - require:
+      - pkg: rsyslog
+```
+
+Changing to a single-item list still fails:
+
+```
+    - source:
+      - salt://rsyslog/files/rsyslog.conf
+```
+
+Whether `source` has one item in the list or multiple, the error returned is:
+
+"Comment: Unable to manage file: none of the specified sources were found"
+
+As soon as I switch to the `source: salt://...` syntax, it works as expected.
+
+```
+$ salt --versions-report
+           Salt: 2014.7.4
+         Python: 2.6.9 (unknown, Apr  1 2015, 18:16:00)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.4
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+```

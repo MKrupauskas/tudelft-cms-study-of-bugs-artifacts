@@ -1,0 +1,46 @@
+I am trying to create states for a proxy minion.  The proxy minion itself comes up fine and I can tell that communication is working between the master, the proxy minion, and my remote resource (a ping that hits the remote resource is successful).  I cannot, however, get states to work because whenever I run a highstate or even a saltutils.sync_\* I get the following error on the minion:
+
+``` python-traceback
+    [WARNING ] TypeError encountered executing saltutil.sync_all: can't serialize <salt.loader.LazyLoader object at 0x166f350>. See debug log for more info.
+    Traceback (most recent call last):
+      File "/usr/lib/python2.7/site-packages/salt/minion.py", line 1173, in _thread_return
+        return_data = func(*args, **kwargs)
+      File "/usr/lib/python2.7/site-packages/salt/modules/saltutil.py", line 421, in sync_all
+        ret['beacons'] = sync_beacons(saltenv, False)
+      File "/usr/lib/python2.7/site-packages/salt/modules/saltutil.py", line 263, in sync_beacons
+        ret = _sync('beacons', saltenv)
+      File "/usr/lib/python2.7/site-packages/salt/modules/saltutil.py", line 88, in _sync
+        saltenv = _get_top_file_envs()
+      File "/usr/lib/python2.7/site-packages/salt/modules/saltutil.py", line 72, in _get_top_file_envs
+        envs = list(st_.top_matches(top).keys()) or 'base'
+      File "/usr/lib/python2.7/site-packages/salt/state.py", line 2472, in top_matches
+        ext_matches = self.client.ext_nodes()
+      File "/usr/lib/python2.7/site-packages/salt/fileclient.py", line 1233, in ext_nodes
+        return self.channel.send(load)
+      File "/usr/lib/python2.7/site-packages/salt/transport/__init__.py", line 314, in send
+        return self._crypted_transfer(load, tries, timeout)
+      File "/usr/lib/python2.7/site-packages/salt/transport/__init__.py", line 302, in _crypted_transfer
+        return _do_transfer()
+      File "/usr/lib/python2.7/site-packages/salt/transport/__init__.py", line 291, in _do_transfer
+        self.auth.crypticle.dumps(load),
+      File "/usr/lib/python2.7/site-packages/salt/crypt.py", line 835, in dumps
+        return self.encrypt(self.PICKLE_PAD + self.serial.dumps(obj))
+      File "/usr/lib/python2.7/site-packages/salt/payload.py", line 121, in dumps
+        return msgpack.dumps(msg)
+      File "/usr/lib64/python2.7/site-packages/msgpack/__init__.py", line 47, in packb
+        return Packer(**kwargs).pack(o)
+      File "msgpack/_packer.pyx", line 223, in msgpack._packer.Packer.pack (msgpack/_packer.cpp:223)
+      File "msgpack/_packer.pyx", line 225, in msgpack._packer.Packer.pack (msgpack/_packer.cpp:225)
+      File "msgpack/_packer.pyx", line 184, in msgpack._packer.Packer._pack (msgpack/_packer.cpp:184)
+      File "msgpack/_packer.pyx", line 184, in msgpack._packer.Packer._pack (msgpack/_packer.cpp:184)
+      File "msgpack/_packer.pyx", line 220, in msgpack._packer.Packer._pack (msgpack/_packer.cpp:220)
+    TypeError: can't serialize <salt.loader.LazyLoader object at 0x166f350>
+```
+
+I'm using salt 2015.5.5 and have narrowed this down to adding the proxy module LazyLoader object to the minion's opts dictionary happening here:
+
+https://github.com/saltstack/salt/blob/v2015.5.5/salt/minion.py#L2948
+
+I was able to perform a highstate by changing the code in the class referenced above to just use the self.proxymodule handle to reference the LazyLoader object, but then I realized that the test.ping function no longer worked correctly because it was looking for the 'proxymodule' LazyLoader in the **opts** dictionary (https://github.com/saltstack/salt/blob/develop/salt/modules/test.py#L113).  The other modules in salt.proxy also rely on the 'proxymodule' object being in the __opts__dictionary.
+
+I haven't dug any further than that and wanted to see if someone else could talk about what is going on here.  This is reproducible with the standard salt proxy minion rest example (running saltutil.sync_all or state.highstate).

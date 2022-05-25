@@ -1,0 +1,320 @@
+### Description of Issue/Question
+Using salt-api we can make list jobs or run commands remotely but using Apache + WSGI it doesn´t work.
+With Apache, Authentication with LDAP works but using X-Auth-Token or cookies the server always answers with a 401 unathorized.
+### Setup
+
+Apache configuration:
+```
+<VirtualHost *:80>
+    ServerAdmin webmaster@dummy-host.example.com
+    DocumentRoot /usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy
+    ServerName rbalvsmaster2.example.com
+    ErrorLog logs/rbalvsmaster2.example.com-error_log
+    CustomLog logs/rbalvsmaster2.example.com-access_log combined
+
+LogLevel debug
+
+WSGIPassAuthorization On
+
+<Directory "/usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy">
+       <Files "wsgi.py">
+        Order deny,allow
+        Allow from all
+       </Files>
+</Directory>
+
+WSGIPassAuthorization On
+WSGIScriptAlias / /usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy/wsgi.py
+
+</VirtualHost>
+```
+
+Salt configuration:
+```
+external_auth:
+  ldap:
+     docuautn:
+      - .*
+      - '@wheel'
+```
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+With Auth-Token:
+```
+#curl -isSk http://rbalvsmaster2.example.com/login     -H 'Accept: application/x-yaml'     -d username=docuautn     -d password=Dusk2Dawn     -d eauth=ldap
+HTTP/1.1 200 OK
+Date: Thu, 20 Apr 2017 17:22:39 GMT
+Server: Apache
+Content-Length: 175
+Access-Control-Expose-Headers: GET, POST
+Vary: Accept-Encoding
+Allow: GET, HEAD, POST
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Origin: *
+X-Auth-Token: e10c9525a567fc043b594a0751c5e037325d7c34
+Set-Cookie: session_id=e10c9525a567fc043b594a0751c5e037325d7c34; expires=Fri, 21 Apr 2017 03:22:40 GMT; Path=/
+Content-Type: application/x-yaml
+
+return:
+- eauth: ldap
+  expire: 1492752160.3748529
+  perms:
+  - .*
+  - '@runner'
+  start: 1492708960.3748529
+  token: e10c9525a567fc043b594a0751c5e037325d7c34
+  user: docuautn
+```
+
+```
+#curl -isSk http://rbalvsmaster2.example.com/jobs     -H 'Accept: application/x-yaml'     -H "X-Auth-Token: e10c9525a567fc043b594a0751c5e037325d7c34"
+HTTP/1.1 401 Unauthorized
+Date: Thu, 20 Apr 2017 17:22:58 GMT
+Server: Apache
+Content-Length: 735
+Access-Control-Expose-Headers: GET, POST
+Vary: Accept-Encoding
+Allow: GET, HEAD, POST
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Origin: *
+Set-Cookie: session_id=b49e3a57ab0770a1b9e7b969281bfe23b5031080; expires=Fri, 21 Apr 2017 03:22:59 GMT; Path=/
+Content-Type: text/html;charset=utf-8
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"></meta>
+    <title>401 Unauthorized</title>
+    <style type="text/css">
+    #powered_by {
+        margin-top: 20px;
+        border-top: 2px solid black;
+        font-style: italic;
+    }
+
+    #traceback {
+        color: red;
+    }
+    </style>
+</head>
+    <body>
+        <h2>401 Unauthorized</h2>
+        <p>No permission -- see authorization schemes</p>
+        <pre id="traceback"></pre>
+    <div id="powered_by">
+    <span>Powered by <a href="http://www.cherrypy.org">CherryPy 3.2.2</a></span>
+    </div>
+    </body>
+</html>
+```
+
+Logs Apache
+
+```
+10.136.101.52 - - [20/Apr/2017:19:22:39 +0200] "POST /login HTTP/1.1" 200 175 "-" "curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.16.2.3 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2" "-" "application/x-yaml" "-"
+10.136.101.52 - - [20/Apr/2017:19:22:58 +0200] "GET /jobs HTTP/1.1" 401 735 "-" "curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.16.2.3 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2" "-" "application/x-yaml" "e10c9525a567fc043b594a0751c5e037325d7c34"
+
+[Thu Apr 20 19:22:39 2017] [info] [client 10.136.101.52] mod_wsgi (pid=8718, process='', application='rbalvsmaster2.example.com|'): Loading WSGI script '/usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy/wsgi.py'.
+[Thu Apr 20 19:22:58 2017] [info] [client 10.136.101.52] mod_wsgi (pid=8719, process='', application='rbalvsmaster2.example.com|'): Loading WSGI script '/usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy/wsgi.py'.
+```
+
+Logs Salt
+
+```
+2017-04-20 19:22:40,301 [salt.utils.lazy                                      ][DEBUG   ][7793] LazyLoaded ldap.auth
+2017-04-20 19:22:40,333 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7793] Running LDAP user dn search with filter:sAMAccountName=docuautn, dn:, scope:2
+2017-04-20 19:22:40,337 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7793] Attempting LDAP bind with user dn: CN=docuautn,OU=UsersGeneric,OU=PD,DC=example.com,DC=com
+2017-04-20 19:22:40,347 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7793] Successfully authenticated user dn via LDAP: CN=docuautn,OU=UsersGeneric,DC=example.com,DC=com
+2017-04-20 19:22:40,347 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7793] ldap bind to determine group membership succeeded!
+2017-04-20 19:22:40,350 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7793] Running LDAP group membership search: (&(member=CN=docuautn,OU=UsersGeneric,DC=example.com,DC=com)(objectClass=group))
+2017-04-20 19:22:40,351 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7793] User docuautn is a member of groups: ['GLOREGAINFO_DA']
+2017-04-20 19:22:40,360 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7793] Running LDAP user dn search with filter:sAMAccountName=docuautn, dn:, scope:2
+2017-04-20 19:22:40,365 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7793] Attempting LDAP bind with user dn: CN=docuautn,OU=UsersGeneric,OU=PD,DC=example.com,DC=com
+2017-04-20 19:22:40,374 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7793] Successfully authenticated user dn via LDAP: CN=docuautn,OU=UsersGeneric,DC=example.com,DC=com
+2017-04-20 19:22:40,374 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7793] LDAP authentication successful
+2017-04-20 19:23:22,452 [salt.config                                          ][DEBUG   ][7694] Reading configuration from /etc/salt/master
+```
+
+- With cookies
+
+```
+# curl -isSk http://rbalvsmaster2.example.com/login  -c ~/cookies.txt -H 'Accept: application/x-yaml' -d username=docuautn -d password=Dusk2Dawn -d eauth=ldap
+HTTP/1.1 200 OK
+Date: Thu, 20 Apr 2017 17:37:56 GMT
+Server: Apache
+Content-Length: 174
+Access-Control-Expose-Headers: GET, POST
+Vary: Accept-Encoding
+Allow: GET, HEAD, POST
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Origin: *
+X-Auth-Token: 109bf0c5816f16b545b4afd52088e088fd9d8adb
+Set-Cookie: session_id=109bf0c5816f16b545b4afd52088e088fd9d8adb; expires=Fri, 21 Apr 2017 03:37:56 GMT; Path=/
+Content-Type: application/x-yaml
+
+return:
+- eauth: ldap
+  expire: 1492753076.7987089
+  perms:
+  - .*
+  - '@wheel'
+  start: 1492709876.798708
+  token: 109bf0c5816f16b545b4afd52088e088fd9d8adb
+  user: docuautn
+```
+
+```
+ curl -isSk https://rbalvsmaster2.example.com:8000/jobs -b ~/cookies.txt -H 'Accept: application/x-yaml'
+HTTP/1.1 401 Unauthorized
+Content-Length: 735
+Access-Control-Expose-Headers: GET, POST
+Vary: Accept-Encoding
+Server: CherryPy/3.2.2
+Allow: GET, HEAD, POST
+Access-Control-Allow-Credentials: true
+Date: Thu, 20 Apr 2017 17:38:47 GMT
+Access-Control-Allow-Origin: *
+Content-Type: text/html;charset=utf-8
+Set-Cookie: session_id=c5c6dc3fa63206ef89f9e380f124036e194d5fb9; expires=Fri, 21 Apr 2017 03:38:47 GMT; Path=/
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"></meta>
+    <title>401 Unauthorized</title>
+    <style type="text/css">
+    #powered_by {
+        margin-top: 20px;
+        border-top: 2px solid black;
+        font-style: italic;
+    }
+
+    #traceback {
+        color: red;
+    }
+    </style>
+</head>
+    <body>
+        <h2>401 Unauthorized</h2>
+        <p>No permission -- see authorization schemes</p>
+        <pre id="traceback"></pre>
+    <div id="powered_by">
+    <span>Powered by <a href="http://www.cherrypy.org">CherryPy 3.2.2</a></span>
+    </div>
+    </body>
+</html>
+```
+
+Content of cookie
+```
+more ~/cookies.txt
+
+# Netscape HTTP Cookie File
+# http://curl.haxx.se/rfc/cookie_spec.html
+# This file was generated by libcurl! Edit at your own risk.
+
+rbalvsmaster2.example.com     FALSE   /       FALSE   1492745876      session_id      109bf0c5816f16b545b4afd520
+88e088fd9d8adb
+```
+
+
+Content of  ls -ltr /var/cache/salt/master/tokens/
+```
+-rw-r--r-- 1 root root 121 Apr 20 19:13 11217988430e5be0e0f0fd4d6fb613be
+-rw-r--r-- 1 root root 121 Apr 20 19:14 b53a71bcee8ef4dd4d04817d5c0d2fe5
+-rw-r--r-- 1 root root 121 Apr 20 19:22 1bd43d5b1f3871d27babb99423246770
+-rw-r--r-- 1 root root 121 Apr 20 19:37 0dd3dca19d43e834401661d6ca862c59
+-rw-r--r-- 1 root root 121 Apr 20 19:37 3c46dda178522a53d2e33b9ed4c1f26b
+```
+
+Apache logs
+```
+10.136.101.52 - - [20/Apr/2017:19:37:56 +0200] "POST /login HTTP/1.1" 200 174 "-" "curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.16.2.3 Basic ECC zlib/1.2.3 libidn/1.18 libssh2/1.4.2" "-" "application/x-yaml" "-"
+
+[Thu Apr 20 19:37:56 2017] [info] [client 10.136.101.52] mod_wsgi (pid=8721, process='', application='rbalvsmaster2.example.com|'): Loading WSGI script '/usr/lib/python2.6/site-packages/salt/netapi/rest_cherrypy/wsgi.py'.
+```
+
+Salt Logs
+
+```
+2017-04-20 19:37:56,750 [salt.utils.lazy                                      ][DEBUG   ][7792] LazyLoaded ldap.au
+th
+2017-04-20 19:37:56,760 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7792] Running LDAP user
+dn search with filter:sAMAccountName=docuautn, dn:, scope:2
+2017-04-20 19:37:56,763 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7792] Attempting LDAP bi
+nd with user dn: CN=docuautn,OU=UsersGeneric,DC=example,DC=com
+2017-04-20 19:37:56,772 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7792] Successfully authe
+nticated user dn via LDAP: CN=docuautn,OU=UsersGeneric,DC=example,DC=com
+2017-04-20 19:37:56,772 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7792] ldap bind to deter
+mine group membership succeeded!
+2017-04-20 19:37:56,774 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7792] Running LDAP group
+ membership search: (&(member=CN=docuautn,OU=UsersGeneric,DC=example,DC=com)(o
+bjectClass=group))
+2017-04-20 19:37:56,775 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7792] User docuautn is a
+ member of groups: ['GLOREGAINFO_DA']
+2017-04-20 19:37:56,785 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7792] Running LDAP user
+dn search with filter:sAMAccountName=docuautn, dn:, scope:2
+2017-04-20 19:37:56,788 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7792] Attempting LDAP bi
+nd with user dn: CN=docuautn,OU=UsersGeneric,OU=PD,DC=example,DC=com
+2017-04-20 19:37:56,798 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7792] Successfully authe
+nticated user dn via LDAP: CN=docuautn,OU=UsersGeneric,DC=example,DC=com
+2017-04-20 19:37:56,798 [salt.loaded.int.auth.ldap                            ][DEBUG   ][7792] LDAP authenticatio
+n successful
+2017-04-20 19:38:28,092 [salt.config                                          ][DEBUG   ][7694] Reading configurat
+ion from /etc/salt/master
+2017-04-20 19:38:28,193 [salt.config                                          ][DEBUG   ][7694] Using cached minio
+n ID from /etc/salt/minion_id: rbalvsmaster2.example.com
+```
+
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+```
+Packages:
+httpd-2.2.26-38.ep6.el6.x86_64
+python-cherrypy-3.2.2-3.el6.noarch
+```
+
+```
+ salt --versions-report
+Salt Version:
+           Salt: 2016.3.5
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 1.4.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Nov 21 2013, 10:50:32)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: redhat 6.6 Santiago
+        machine: x86_64
+        release: 2.6.32-504.12.2.el6.x86_64
+         system: Linux
+        version: Red Hat Enterprise Linux Server 6.6 Santiago
+```

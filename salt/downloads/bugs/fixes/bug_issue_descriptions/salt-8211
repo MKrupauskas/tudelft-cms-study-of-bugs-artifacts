@@ -1,0 +1,63 @@
+Reading **prereq** documentation (http://docs.saltstack.com/ref/states/requisites.html#prereq)  I assume prereq, after running the requisites in test mode, is reordering states to ensure the prereq target is runing first if any modification is done.
+
+> In this case the apache server will only be shutdown if the site-code state expects to deploy fresh code via the file.recurse call, **and the site-code deployment will only be executed if the graceful-down run completes successfully**
+
+So I made some tests, which seems to be OK, until I added multiple prereq dependencies. This is an example, where everything is fine until you add the state `D`:
+
+```
+#             expected rank
+# B --+             1
+#     |
+# C <-+ ----+       2/3
+#           |
+# D ---+    |       3/2
+#      |    |
+# A <--+ <--+       4
+#
+#             resulting rank
+# D --+
+#     |
+# A <-+ <==+
+#          |
+# B --+    +-- unrespected A prereq_in C
+#     |    |
+# C <-+ ===+
+
+# run after C
+A:
+  cmd.run:
+    - name: echo A fourth
+    # is run in test before C
+    # C gets executed first if this states modify something
+    - prereq_in:
+      - cmd: C
+
+# run before C
+B:
+  cmd.run:
+    - name: echo B first
+    # will test C and be applied only if C changes,
+    # and then will run before C
+    - prereq:
+      - cmd: C
+C:
+  cmd.run:
+    - name: echo C second
+    # replacing A prereq_in C by theses lines
+    # changes nothing
+    #- prereq:
+    #  - cmd: A
+
+# Removing D, A gets executed after C
+# as described in (A prereq_in C)
+# run before A
+D:
+  cmd.run:
+    - name: echo D third
+    # will test A and be applied only if A changes,
+    # and then will run before A
+    - prereq:
+      - cmd: A
+```
+
+Or am I wrong and scheduling orders should not get impacted by prereq?

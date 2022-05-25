@@ -1,0 +1,56 @@
+**Description**
+
+Updating the disks of a VM with LVM volumes that already exists fails as it tries to create the new disk. See https://github.com/saltstack/salt/issues/53081#issuecomment-851296460 for full detail.
+
+**Setup**
+
+Minion setup to reproduce the issue:
+  * Install software needed for virtualization.
+  * Add an empty disk to the minion (will be `/dev/vdb` in the these steps) 
+  * Run these commands to setup the LV:
+  
+```
+pvcreate /dev/vdb
+vgcreate ssd /dev/vdb
+lvcreate -L 10G -n vm_root ssd
+```
+
+The minion should now have a LV with path to `/dev/ssd/vm_root`
+
+**Steps to Reproduce the behavior**
+
+Apply the following state:
+
+```yaml
+vm:
+  virt.running:
+    - name: lvtest
+    - cpu: 1
+    - mem: 512
+    - disks:
+      - name: system
+        model: virtio
+        device: disk
+        image: /path/to/a/disk/template.qcow2
+    - interfaces:
+      - name: eth0
+        type: network
+        source: default
+    - graphics:
+        type: vnc
+    - seed: False
+```
+
+This should succeed. Now edit the state to add the following disk:
+
+```yaml
+      - name: data
+        format: raw
+        source_file: /dev/ssd/vm_root
+```
+
+And apply the state again.
+
+**Expected behavior**
+
+The `/dev/ssd/vm_root` disk is added to the VM

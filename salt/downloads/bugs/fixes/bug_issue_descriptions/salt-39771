@@ -1,0 +1,84 @@
+### Description of Issue/Question
+
+I'm running in an environment where the proxy processes and the master run on different physical machines. LATER EDIT: I have tried and it's the same when they are running on the same platform.
+
+I have a job scheduled on the proxy, having the config file (/etc/salt/proxy):
+
+```yaml
+schedule:
+  napalm_keepalive:
+    function: napalm_proxy.reconnect
+    minutes: 1
+```
+
+`napalm_proxy.reconnect` works fine when executed from the CLI and it makes use of the `__proxy__` dunder. Complete source here: https://github.com/napalm-automation/napalm-salt/blob/master/nitrogen/_modules/napalm_proxy.py
+
+Starting the proxy in debug more, I can see that is trying to execute the job, but is failing to execute `__proxy__['napalm.call']()`:
+
+```
+[INFO    ] Running scheduled job: napalm_keepalive
+[DEBUG   ] schedule: This job was scheduled with jid_include, adding to cache (jid_include defaults to True)
+[DEBUG   ] schedule: This job was scheduled with a max number of 2
+[DEBUG   ] schedule.handle_func: adding this job to the jobcache with data {'fun_args': [], 'jid': '20170302001945879004', 'schedule': 'napalm_keepalive', 'pid': 18056, 'fun': 'napalm_proxy.reconnect', 'id': 'device1'}
+[DEBUG   ] LazyLoaded napalm_proxy.reconnect
+[ERROR   ] Unhandled exception running napalm_proxy.reconnect
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/utils/schedule.py", line 836, in handle_func
+    ret['return'] = self.functions[func](*args, **kwargs)
+  File "/var/cache/salt/minion/extmods/modules/napalm_proxy.py", line 101, in reconnect
+    is_alive = alive()
+  File "/var/cache/salt/minion/extmods/modules/napalm_proxy.py", line 80, in alive
+    return __proxy__['napalm.call'](
+  File "/usr/lib/python2.7/dist-packages/salt/utils/context.py", line 203, in __getitem__
+    return self._dict()[key]
+KeyError: 'napalm.call'
+[DEBUG   ] SaltEvent PUB socket URI: /var/run/salt/minion/minion_event_18faa0dd7a_pub.ipc
+[DEBUG   ] SaltEvent PULL socket URI: /var/run/salt/minion/minion_event_18faa0dd7a_pull.ipc
+[DEBUG   ] Initializing new IPCClient for path: /var/run/salt/minion/minion_event_18faa0dd7a_pull.ipc
+[DEBUG   ] Sending event: tag = __schedule_return; data = {'fun_args': [], 'jid': 'req', 'return': 'Unhandled exception running napalm_proxy.reconnect', 'retcode': 254, 'success': False, 'schedule': 'napalm_keepalive', 'cmd': '_return', 'pid': 18056, '_stamp': '2017-03-02T00:19:45.881385', 'fun': 'napalm_proxy.reconnect', 'id': 'device1'}
+[DEBUG   ] schedule.handle_func: Removing /var/cache/salt/proxy/device1/proc/20170302001945879004
+```
+
+After some investigation, I have noticed that at the time `napalm_proxy.reconnect` is executed inside the scheduled job, the `__proxy__` object is empty.
+
+Both master and minion machines are running 2016.11.2:
+
+```yaml
+Salt Version:
+           Salt: 2016.11.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.5.3
+          gitdb: 2.0.0
+      gitpython: 2.1.0
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Jan 19 2017, 14:48:08)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.1
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.2.1
+
+System Versions:
+           dist: debian 8.6
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.6
+```

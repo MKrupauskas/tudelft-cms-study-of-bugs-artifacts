@@ -1,0 +1,52 @@
+In certain configurations, salt's yumpkg implementation is painfully slow when having to deal with multiple package installs despite using the pkgs list instead of names.
+This happens because the current implementation calls repoquery on a package by package basis.
+Now, when you have plugins installed and some of them are slow you end up waiting a few good seconds for each repoquery invocation. If your list to pkg.installed has tens of packages, you end up waiting minutes for the state to be applied, even if no installation is to be made at all.
+Problem resides in yumpkg.py in function check_db :
+
+``` python
+    for name in names:
+        ret.setdefault(name, {})['found'] = name in avail
+        if not ret[name]['found']:
+            repoquery_cmd = repoquery_base + ' {0}'.format(name)
+            provides = sorted(
+                set(x.name for x in _repoquery_pkginfo(repoquery_cmd))
+            )
+```
+
+In the current implementation, for a list of packages I would get :
+
+```
+        comment:
+            57 targeted packages were installed/updated. 30 targeted packages were already installed.
+        duration:
+            1409453.224
+```
+
+I propose the following workaround : for the first name in names, call repoquery as default, to make it refresh its caches. For any subsequent packages in the list tell it to use its local cache.
+The following patch implements this 
+
+``` diff
+705a706
+>     cache_control_params=" "
+709c710
+<             repoquery_cmd = repoquery_base + ' {0}'.format(name)
+
+---
+>             repoquery_cmd = repoquery_base + ' {0} {1}'.format(name,cache_control_params) 
+717a719
+>         cache_control_params=" --cache "
+```
+
+This may not be the best solution, as it's not very clear if a first run of repoquery will actually recreate all the metadata for all the packages in its local cache so that all subsequent queries return meaningful results.
+The best solution would be to actually call repoquery once with ALL the names in the command line - just as the documentation for parameter pkgs pretends it would do:
+
+```
+        Unlike ``pkgs``, the ``names`` parameter cannot specify a version.
+        In addition, it makes a separate call to the package management
+        frontend to install each package, whereas ``pkgs`` makes just a
+        single call. It is therefore recommended to use ``pkgs`` instead of
+        ``names`` to install multiple packages, both for the additional
+        features and the performance improvement that it brings.
+```
+
+This obviously does not happen now. It may call yum install with all the needed packages, but querying package details is still going one by one and this is very slow when you have yum plugins that each takes a few seconds to execute, or when network is slow or unavailable (and you are waiting for sockets to timeout at each repoquery invocation)

@@ -1,0 +1,46 @@
+Unfortunately we're still on v0.15.3 and I don't have time to dig in further right now, but I skimmed the relevant code in git and it still doesn't seem like there's any explicit logic for this case.
+
+To repro:
+1. Create a MySQL user and database.
+2. Manually grant the user `ALL PRIVILEGES` to the database.
+3. Attempt to execute a state that specifies more limited privileges:
+
+``` yaml
+whatever_identifier:
+  mysql_grants.present:
+    - database: "your_db_here.*"
+    - user: your_username_here
+    - grant: SELECT
+```
+
+Results (names Find/Replace'd for privacy):
+
+```
+----------
+    State: - mysql_grants
+    Name:      whatever_identifier
+    Function:  present
+        Result:    False
+        Comment:   Failed to execute: "GRANT SELECT ON your_db_here.* TO your_username_here@localhost"
+        Changes:   
+----------
+```
+
+```
+2013-08-10 02:47:36,901 [salt.state       ][INFO    ] Executing state mysql_grants.present for whatever_identifier
+2013-08-10 02:47:36,901 [salt.loaded.int.module.mysql][DEBUG   ] Query generated: GRANT SELECT ON `your_db_here`.* TO 'your_username_here'@'localhost'
+2013-08-10 02:47:36,903 [salt.loaded.int.module.mysql][DEBUG   ] Doing query: SELECT User,Host FROM mysql.user WHERE User = 'your_username_here' AND Host = 'localhost'
+2013-08-10 02:47:36,905 [salt.loaded.int.module.mysql][DEBUG   ] Doing query: SHOW GRANTS FOR 'your_username_here'@'localhost'
+2013-08-10 02:47:36,905 [salt.loaded.int.module.mysql][DEBUG   ] ["GRANT USAGE ON *.* TO 'your_username_here'@'localhost'", "GRANT ALL PRIVILEGES ON `your_db_here`.* TO 'your_username_here'@'localhost'"]
+2013-08-10 02:47:36,906 [salt.loaded.int.module.mysql][DEBUG   ] Grant does not exist, or is perhaps not ordered properly?
+2013-08-10 02:47:36,907 [salt.loaded.int.module.mysql][DEBUG   ] Query generated: GRANT SELECT ON `your_db_here`.* TO 'your_username_here'@'localhost'
+2013-08-10 02:47:36,907 [salt.loaded.int.module.mysql][DEBUG   ] Query: GRANT SELECT ON `your_db_here`.* TO 'your_username_here'@'localhost'
+2013-08-10 02:47:36,908 [salt.loaded.int.module.mysql][DEBUG   ] Query generated: GRANT SELECT ON `your_db_here`.* TO 'your_username_here'@'localhost'
+2013-08-10 02:47:36,909 [salt.loaded.int.module.mysql][DEBUG   ] Doing query: SELECT User,Host FROM mysql.user WHERE User = 'your_username_here' AND Host = 'localhost'
+2013-08-10 02:47:36,911 [salt.loaded.int.module.mysql][DEBUG   ] Doing query: SHOW GRANTS FOR 'your_username_here'@'localhost'
+2013-08-10 02:47:36,911 [salt.loaded.int.module.mysql][DEBUG   ] ["GRANT USAGE ON *.* TO 'your_username_here'@'localhost'", "GRANT ALL PRIVILEGES ON `your_db_here`.* TO 'your_username_here'@'localhost'"]
+2013-08-10 02:47:36,912 [salt.loaded.int.module.mysql][DEBUG   ] Grant does not exist, or is perhaps not ordered properly?
+2013-08-10 02:47:36,912 [salt.loaded.int.module.mysql][INFO    ] Grant 'SELECT' on 'your_db_here.*' for user 'your_username_here' has NOT been added
+```
+
+I would hope for either a more helpful+specific error message, or for the user to end up with just `SELECT` privileges, as desired.

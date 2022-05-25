@@ -1,0 +1,100 @@
+### Description of Issue/Question
+Update Note: Markdown is messing with all of my backslashes.  The madness continues!  I did my best to make it print correctly.
+
+Okay, kind of a weird one.  
+1. We have a win repo entry (in full below) for Octopus Tentacle.  We supply `install_flags: ' /quiet ' `
+2.  We have a state (full below) where we install it- and we add: `extra_install_flags: INSTALLLOCATION={{ s.appdir }}`
+3. We pull that directory from a jinja variable- `{%- set appdir = octopus.get('appdir', 'd:\\apps\\octopus') %}`
+
+This all worked with 2016.3.4  But with 2016.11.1- we started getting unspecified errors when running the state.  Digging in, we found that the pkg.install command failed with return code: 1603, which is apparently a permissions issue.  We forked the module and added some debugging so we could catch the actual msiexec command (changing debug info back to trace was all that was strictly necessary for that).  
+
+We also simplified the above- by putting the INSTALLLOCATION flag in the win repo file itself- instead of passing it from jinja into the state that calls pkg.install.  Just for troubleshooting purposes.
+
+We found that the directory path had lost all of its backslashes, so it was trying to install to d:appsoctopus.  That was apparently the cause of the 1603 error code.  We added extra backslashes in the directory name in the win repo file, and that allowed single backslashes to get passed all the way to the install command.  
+
+Experimenting on the command line, we found that double backslashes in the directoy name during pkg.install weren't enough- we needed triple backslashes-  i.e.: `salt-call pkg.install Octopus.Tentacle extra_install_flags="INSTALLLOCATION=d:\\\ apps\\\octopus"`   We also determined that 4 backslashes produced the same msiexec command as 3 did.
+
+Looking at the module, we haven't determined where the original backslashes are getting consumed now (and weren't previously in 2016.3.4) or why we now need one more backslash before every directory name to have one left by the time it becomes the msiexec command.
+
+At this point we tried to return to our original configuration of win repo files, states, and jinja variables.  When we tried to add a third backslash to the jinja variable, however-  it prevented jinja rendering due to the bell error:
+`Rendering SLS octopus.tentacle failed, render error: unacceptable character #x0007: special characters are not allowed`
+
+Are \\\\\\'s not allowed in Jinja?
+
+To get along for now, we've had to discontinue the use of jinja to set the INSTALLLOCATION argument, and set it directly in the state, although we regret the loss of setting this through jinja/pillar data.
+
+> \-    - extra_install_flags: INSTALLLOCATION={{ s.appdir }}
+>\+    - extra_install_flags: INSTALLLOCATION=D:\\\\apps\\\\octopus
+
+
+### Setup
+**win/repo-ng/octopus/init.sls**
+```
+Octopus.Tentacle:
+  3.4.15:
+    installer: 'https://download.octopusdeploy.com/octopus/Octopus.Tentacle.3.4.15-x64.msi'
+    full_name: 'Octopus Deploy Tentacle'
+    locale: en-US
+    reboot: False
+    msiexec: True
+    install_flags: ' /quiet '
+```
+
+**octopus/tentacle.sls**
+```
+{%- set octopus = salt['pillar.get']('octopus', {}) %}
+{%- set appdir = octopus.get('appdir', 'd:\\apps\\octopus') %}
+{%- set version = octopus.get('version', '3.4.15') %} 
+
+octopus-install:
+  pkg.installed:
+    - name: Octopus.Tentacle
+    - version: {{ s.version }}
+    - extra_install_flags: INSTALLLOCATION={{ s.appdir }}
+```
+
+### Steps to Reproduce Issue
+Using salt 2016.11.1, set up win repo file and state as above, sync as necessary and run state on minion.
+
+
+### Versions Report
+Minions are Windows 2016.11.1
+
+**Master:**
+Salt Version:
+           Salt: 2016.11.1
+
+Dependency Versions:
+           cffi: 1.6.0
+       cherrypy: 3.2.2
+       dateutil: 1.5
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.21.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: 0.21.4
+         Python: 2.7.5 (default, Nov  6 2016, 00:28:07)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.3.1611 Core
+        machine: x86_64
+        release: 3.10.0-514.6.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core

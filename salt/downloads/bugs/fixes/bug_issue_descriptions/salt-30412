@@ -1,0 +1,105 @@
+Versions: openSuse 13.2 with salt-2015.8.3-223.7.x86_64
+
+I have this sls:
+
+```
+mypackage:
+  pkg.latest:
+    - name: mypackage
+    - refresh: true
+    - skip_verify: true
+```
+
+When running 
+
+```
+salt-call state.sls mypackage
+```
+
+I get this error:
+
+```
+----------
+          ID: mypackage
+    Function: pkg.latest
+        Name: mypackage
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/site-packages/salt/state.py", line 1594, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/site-packages/salt/loader.py", line 1491, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/site-packages/salt/states/pkg.py", line 1449, in latest
+                  elif not cur[pkg] \
+              KeyError: 'mypackage'
+     Started: 01:15:59.350284
+    Duration: 1709.687 ms
+     Changes:   
+----------
+
+```
+
+I tested a little bit with:
+
+```
+salt-call  pkg.latest_version mypackage
+```
+
+and got:
+
+```
+local:
+    ----------
+```
+
+Maybe there others, but one problem is the handling of the status:
+
+```
+ salt-call pkg.info_available  mypackage
+local:
+    ----------
+   mypackage:
+        ----------
+        arch:
+            noarch
+        installed:
+            True
+        installed size:
+            819 B
+        repository:
+            xxx
+        status:
+            out-of-date (version 1.0.1-1 installed)
+        summary:
+            scripts
+        vendor:
+            xxxx
+        version:
+            1.0.5-1
+
+```
+
+I found the problem  in the zypper.py code
+
+```
+if pkg_info.get('status', '').lower() in ['not installed', 'out-of-date']:
+```
+
+I changed it to
+
+```
+        if re.search('not installed',pkg_info.get('status', '').lower()) or re.search('out-of-date',pkg_info.get('status', '').lower()) or re.search('up-to-date',pkg_info.get('status', '').lower()):
+```
+
+With these changes, running again:
+
+```
+salt-call  pkg.latest_version mypackage
+```
+
+shows the expected result:
+
+```
+local:
+    1.0.5-1
+```

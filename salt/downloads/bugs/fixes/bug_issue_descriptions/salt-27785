@@ -1,0 +1,73 @@
+salt-call --versions-report
+
+```
+                  Salt: 2014.7.5
+                Python: 2.7.3 (default, Jun 22 2015, 19:33:41)
+                Jinja2: 2.6
+              M2Crypto: 0.21.1
+        msgpack-python: 0.1.10
+          msgpack-pure: Not Installed
+              pycrypto: 2.4.1
+               libnacl: Not Installed
+                PyYAML: 3.11
+                 ioflo: Not Installed
+                 PyZMQ: 14.5.0
+                  RAET: Not Installed
+                   ZMQ: 4.0.5
+                  Mako: Not Installed
+ Debian source package: 2014.7.5+ds-1precise1
+```
+
+clamav/init.sls:
+
+```
+clamav-daemon:
+  pkg:
+    - latest
+    - require:
+      - cmd: apt_sources
+      - pkg: clamav-freshclam
+  file:
+    - managed
+    - name: /etc/clamav/clamd.conf
+    - source: salt://clamav/clamd.jinja2
+    - template: jinja
+    - mode: 440
+    - user: root
+    - group: clamav
+    - require:
+      - pkg: clamav-daemon
+```
+
+amavis/clamav/init.sls:
+
+```
+include:
+  - clamav
+
+extend:
+  clamav:
+    user:
+      - groups:
+        - amavis
+      - require:
+        - pkg: clamav-daemon
+        - pkg: amavis
+      - watch_in:
+        - blah: clamav-daemon
+```
+
+Running `state.sls amavis.clamav` still passed although `blah: clamav-daemon` does not exist.
+The reason is it just check the ID `clamav-daemon` and only throw an error when that ID does not exist:
+
+```
+local:
+    Data failed to compile:
+----------
+    Cannot extend ID 't' in 'base:clamav'. It is not part of the high state.
+This is likely due to a missing include statement or an incorrectly typed ID.
+Ensure that a state with an ID of 't' is available
+in environment 'base' and to SLS 'clamav'
+```
+
+You can specify `whatever: clamav-daemon` in this case and it does not failed.

@@ -1,0 +1,97 @@
+I'm using Salt (from the Saltstack Ubuntu PPA) to mount a LizardFS filesystem which is fuse based.
+
+On the second run of the state that mounts the filesystem, it forces a remount:
+
+``` yaml
+          ID: lizardfs-backup-mount
+    Function: mount.mounted
+        Name: /sites/database_dumps
+      Result: None
+     Comment: Remount would be forced because options (mfsdelayedinit) changed
+     Started: 12:34:16.380087
+    Duration: 33.308 ms
+     Changes: 
+```
+
+My state looks like this:
+
+``` salt
+{% for volname, volinfo in salt['pillar.get']('lizard:volumes', {}).iteritems() %}
+lizardfs-{{ volname }}-mount:
+  mount.mounted:
+    - fstype: fuse
+    - mkmnt: True
+    - opts: mfsdelayedinit,mfssubfolder={{ volinfo['sub_folder'] }},_netdev
+    - persist: False
+    - device: mfsmount
+    - name: {{ volinfo['mount_point'] }}
+    - require:
+      - pkg: lizardfs-client
+{% endfor %}
+```
+
+So I think the mfs specific mount options need to go on the list of mount options to be considered hidden (https://github.com/saltstack/salt/issues/18630#issuecomment-66734164) when verifying a mount:
+- mfsmeta
+- mfspassword
+- mfsmaster
+- mfsport
+- mfsbind
+- mfssubfolder
+- mfsmd5pass
+- mfsdebug
+- mfscachemode
+- mfscachefiles
+- mfsattrcacheto
+- mfsentrycacheto
+- mfsdirentrycacheto
+- mfswritecachesize
+- mfsrlimitnofile
+- mfsdelayedinit
+- mfsnice
+- mfsioretries
+- dev
+- exec
+- suid
+- enablefilelocks
+- mfsacl
+- mfsrwlock
+- mfsmkdircopysgid
+- mfssugidclearmode
+- mfscacheinodepercentage
+- mfschunkserverreadto
+- mfschunkserverwriteto
+- mfschunkserverrtt
+- mfschunkserverconnectreadto
+- mfschunkserverbasicreadto
+- mfschunkservertotalreadto
+- mfswriteworkers
+- mfswritewindowsize
+- mfsmemlock
+- mfsdonotrememberpassword
+- mfsioretries
+- mfsreportreservedperiod
+- symlinkcachetimeout
+
+There's further details here:
+http://linux.die.net/man/8/mfsmount
+
+and here:
+https://github.com/lizardfs/lizardfs/blob/master/doc/mfsmount.1.txt
+
+I realise that's a fairly long list and I see several issues before where people have added support for various options to this hidden list within Saltstack's mount state. Perhaps there could be some mechanism within the state itself to specify additional options that should be ignored rather than having these hard coded in to saltstack itself?
+
+eg:
+
+``` salt
+test-state:
+  mount.mounted:
+    - fstype: fuse
+    - mkmnt: True
+    - opts: mfsdelayedinit,mfssubfolder=/test,_netdev
+    - persist: False
+    - device: mfsmount
+    - name: /mnt/test
+    - hiddenopts: mfsdelayedinit,mfssubfolder
+    - require:
+      - pkg: lizardfs-client
+```

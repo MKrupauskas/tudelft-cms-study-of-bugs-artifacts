@@ -1,0 +1,95 @@
+Ok, I'm going to try to report this as best I can so others can reproduce the issues, but the number of possible variations is pretty large so I might not capture it all properly.
+
+Use case:
+- Set a REG_BINARY value in the registry, where the data is a hex-escaped string of bytes. e.g. b'\x12\xec'. I tested python's `winreg()` function, and this only works if the data is passed in exactly that format. 
+
+This is where it gets difficult, with yaml and jinja both doing their own thing to the string, and then python interpreting it as either a byte string or a unicode string.
+
+**Issue 1**
+I did some research on yaml and found that the string must be presented to yaml as `"\x12\xec"` for yaml to handle properly the hex escapes (this is one of the cases where the use of double quotes is very important). This is where the first issue occurs, as this formatting causes python to handle the value as a unicode string, and [this line](https://github.com/saltstack/salt/blob/2015.8/salt/states/reg.py#L223) in the `reg.present` salt state treats it as a byte string. With unicode values outside the ascii range (e.g. `"\xec"`), salt generates a `UnicodeEncodeError` exception.
+
+Contents of `regbinary.sls`:
+
+```
+regbinary:
+  reg.present:
+    - name: 'HKEY_LOCAL_MACHINE\SOFTWARE\Salt'
+    - vname: 'Blob'
+    - vdata: "\xec"
+    - vtype: REG_BINARY
+```
+
+Output of `C:\salt\salt-call.bat --local state.sls regbinary`:
+
+```
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache u'salt://regbinary.sls'
+[INFO    ] Running state [HKEY_LOCAL_MACHINE\SOFTWARE\Salt] at time 22:14:00.946000
+[INFO    ] Executing state reg.present for HKEY_LOCAL_MACHINE\SOFTWARE\Salt
+[WARNING ] C:\salt\bin\lib\site-packages\salt\states\reg.py:204: UnicodeWarning: Unicode equal comparison failed to convert both arguments to Unicode - interpreting them as being unequal
+  if vdata == reg_current['vdata'] and reg_current['success']:
+
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "C:\salt\bin\lib\site-packages\salt\state.py", line 1591, in call
+    **cdata['kwargs'])
+  File "C:\salt\bin\lib\site-packages\salt\states\reg.py", line 211, in present
+    'Value': '{0}'.format(vdata)}
+UnicodeEncodeError: 'ascii' codec can't encode character u'\xec' in position 0: ordinal not in range(128)
+
+[INFO    ] Completed state [HKEY_LOCAL_MACHINE\SOFTWARE\Salt] at time 22:14:00.946000
+[INFO    ] Executing command ['attrib', '-R', 'c:\\salt\\var\\cache\\salt\\minion\\sls.p'] in directory 'C:\\Users\\Administrator'
+local:
+----------
+          ID: regbinary
+    Function: reg.present
+        Name: HKEY_LOCAL_MACHINE\SOFTWARE\Salt
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "C:\salt\bin\lib\site-packages\salt\state.py", line 1591, in call
+                  **cdata['kwargs'])
+                File "C:\salt\bin\lib\site-packages\salt\states\reg.py", line 211, in present
+                  'Value': '{0}'.format(vdata)}
+              UnicodeEncodeError: 'ascii' codec can't encode character u'\xec' in position 0: ordinal not in range(128)
+     Started: 22:14:00.946000
+    Duration: 0.0 ms
+     Changes:
+
+Summary for local
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:   0.000 ms
+```
+
+That's pretty easy to fix, just change [that line](https://github.com/saltstack/salt/blob/2015.8/salt/states/reg.py#L223) so unicode is handled and it works: 
+
+```
+                  'Value': u'{0}'.format(vdata)}
+```
+
+**Issue 2**:
+Now that we're past that problem, we have to deal with the fact that it's a unicode string and `winreg()` only handles byte strings properly (at least for vtypes of REG_BINARY). The problem if we leave it as a unicode string, is that `winreg()` writes `ec 00` to the registry value. Not good; the correct value is just `ec`. I haven't found a good way to display this on the command line, so here's a screenshot:
+![image](https://cloud.githubusercontent.com/assets/8457307/11602904/ff499936-9aab-11e5-881c-3b40fca84e57.png)
+
+Fixing this requires converting the unicode string to a byte string. I've managed this like so to confirm it fixes this issue:
+
+```
+    vdata = b''.join(chr(ord(c)) for c in vdata)
+```
+
+but there are probably better ways. I also haven't tested around other registry value types (REG_SZ, REG_DWORD, etc) to see whether the conversion needs to be gated behind a test for `vtype == 'REG_BINARY'`. I am also unsure of the best place to handle the conversion; the state module, the execution module, a custom helper function, etc. Anyway, once it's converted to a byte string, the value is written correctly to the registry:
+![image](https://cloud.githubusercontent.com/assets/8457307/11603065/0a68fa40-9aad-11e5-980c-eefe71b67e87.png)
+
+**Issue 3**:
+With those issues out of the way, the last issue I've found is that the [comparison](https://github.com/saltstack/salt/blob/2015.8/salt/states/reg.py#L216) always fails when checking the current state and the desired state. This is because the vdata is a unicode string and the value read from the registry is a byte string. 
+
+```
+[WARNING ] C:\salt\bin\lib\site-packages\salt\states\reg.py:204: UnicodeWarning: Unicode equal comparison failed to convert both arguments to Unicode - interpreting them as being unequal
+  if vdata == reg_current['vdata'] and reg_current['success']:
+```
+
+So, again, some kind of conversion is required. The 'easy' way is to convert `vdata = b''.join(chr(ord(c)) for c in vdata)` in the state module just prior to that comparison. That actually solves all three issues (without requiring the prior edit mentioned to fix issue 1). But, it only solves it for the `reg.present` state function, and there may be other functions that are similarly impacted.
+
+I know this is long...hopefully it's not too confusing and provides enough info to reproduce the issue and generate some ideas for fixing it...

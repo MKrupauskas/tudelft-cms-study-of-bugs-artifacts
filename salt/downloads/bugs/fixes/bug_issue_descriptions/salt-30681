@@ -1,0 +1,150 @@
+Hi, I've been having following issue - every time I ran my sls configuring user on rabbitmq server I got this message on the end of state run:
+
+```
+Passed invalid arguments: can't serialize set([' administrator']).
+
+Usage:
+
+    Execute a set list of state files from an environment.
+
+    test
+        Notify states to execute in test-only (dry-run) mode.
+
+        Sets the ``test`` variable in the minion ``opts`` for the duration of
+        the state run.
+    pillar
+        Custom Pillar data can be passed with the ``pillar`` kwarg. Values
+        passed here will override hard-coded Pillar values.
+    queue : ``False``
+        Instead of failing immediately when another state run is in progress,
+        queue the new state run to begin running once the other has finished.
+
+        This option starts a new thread for each queued state run so use this
+        option sparingly.
+    saltenv : None
+        Specify a ``file_roots`` environment.
+
+        .. versionchanged:: 0.17.0
+            Argument name changed from ``env`` to ``saltenv``.
+        .. versionchanged:: 2014.7
+            Defaults to None. If no saltenv is specified, the minion config will
+            be checked for a saltenv and if found, it will be used. If none is found,
+            base will be used.
+    pillarenv : None
+        Specify a ``pillar_roots`` environment. By default all pillar environments
+        merged together will be used.
+    concurrent:
+        WARNING: This flag is potentially dangerous. It is designed
+        for use when multiple state runs can safely be run at the same
+        Do not use this flag for performance optimization.
+    localconfig:
+        Instead of using running minion opts, load ``localconfig`` and merge that
+        with the running minion opts. This functionality is intended for using
+        "roots" of salt directories (with their own minion config, pillars,
+        file_roots) to run highstate out of.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' state.sls core,edit.vim dev
+        salt '*' state.sls core exclude="[{'id': 'id_to_exclude'}, {'sls': 'sls_to_exclude'}]"
+
+        salt '*' state.sls myslsfile pillar="{foo: 'Foo!', bar: 'Bar!'}"
+```
+
+My sls looks like this:
+
+```
+rabbit_user_admin_present:
+  rabbitmq_user.present:
+  - name: {{ server.admin.name }}
+  - password: {{ server.admin.password }}
+  - force: True
+  - tags: management administrator
+  - perms:
+    {%- for vhost_name, vhost in server.get('host', {}).iteritems() %}
+    - '{{ vhost_name }}':
+      - '.*'
+      - '.*'
+      - '.*'
+    {%- endfor %}
+```
+
+Here are my version reports:
+
+root@master:/# salt-master --versions-report
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.19.0-26-generic
+         system: Ubuntu 14.04 trusty
+
+root@minion:~# salt-minion --versions-report
+Salt Version:
+           Salt: 2015.8.3
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: 0.8.2
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.19.0-26-generic
+         system: Ubuntu 14.04 trusty
+
+I tried to fix this issue myself and it seems this message goes away and everything works properly when values from new_tags set are popped before returning, I'll link my pull request to this issue

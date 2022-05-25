@@ -1,0 +1,140 @@
+### Description of Issue/Question
+`docker_container.running` states fail if the argument `ulimits` is set and a `watch` requisite is triggered.
+
+### Setup
+docker_ulimits_test.sls
+```
+always-changes-and-succeeds:
+  test.succeed_with_changes
+
+redis:
+  docker_container.running:
+    - image: redis:alpine
+    - ulimits:
+      - nofile=10000:10000
+    - watch:
+      - test: always-changes-and-succeeds
+```
+
+### Steps to Reproduce Issue
+1. first run of `salt-call state.apply docker_ulimits_test` works fine. it creates and starts the docker container redis.
+2. the second run of `salt-call state.apply docker_ulimits_test` fails:
+```
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'docker_ulimits_test.sls'
+[INFO    ] Running state [always-changes-and-succeeds] at time 16:11:46.530969
+[INFO    ] Executing state test.succeed_with_changes for [always-changes-and-succeeds]
+[INFO    ] Made the following changes:
+'testing' changed from 'Unchanged' to 'Something pretended to change'
+
+[INFO    ] Completed state [always-changes-and-succeeds] at time 16:11:46.532644 duration_in_ms=1.674
+[INFO    ] Running state [redis] at time 16:11:46.560269
+[INFO    ] Executing state docker_container.running for [redis]
+[ERROR   ] Container 'redis' is already configured as specified. Failed to start container 'redis': 'Error 500: oci runtime error: container_linux.go:262: starting container process caused "process_linux.go:339: container init caused \"process_linux.go:289: setting rlimits for ready process caused \\\"error setting rlimit type 7: invalid argument\\\"\""
+'.
+[INFO    ] Completed state [redis] at time 16:11:47.012841 duration_in_ms=452.575
+[INFO    ] Running state [redis] at time 16:11:47.013087
+[INFO    ] Executing state docker_container.mod_watch for [redis]
+[ERROR   ] Failed to translate input. Additional info follows:
+
+invalid:
+    ----------
+    ulimits:
+        Ulimit definition '{'Hard': 10000, 'Soft': 10000, 'Name': 'nofile'}' is not in the format type=soft_limit[:hard_limit]
+
+If you feel this information is incorrect, the skip_translate argument can be used to skip input translation for the argument(s) identified as invalid. See the documentation for details.
+[INFO    ] Completed state [redis] at time 16:11:47.039872 duration_in_ms=26.783
+local:
+----------
+          ID: always-changes-and-succeeds
+    Function: test.succeed_with_changes
+      Result: True
+     Comment: Success!
+     Started: 16:11:46.530970
+    Duration: 1.674 ms
+     Changes:   
+              ----------
+              testing:
+                  ----------
+                  new:
+                      Something pretended to change
+                  old:
+                      Unchanged
+----------
+          ID: redis
+    Function: docker_container.running
+      Result: False
+     Comment: Failed to translate input. Additional info follows:
+              
+              invalid:
+                  ----------
+                  ulimits:
+                      Ulimit definition '{'Hard': 10000, 'Soft': 10000, 'Name': 'nofile'}' is not in the format type=soft_limit[:hard_limit]
+              
+              If you feel this information is incorrect, the skip_translate argument can be used to skip input translation for the argument(s) identified as invalid. See the documentation for details.
+     Started: 16:11:47.013089
+    Duration: 26.783 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    1
+------------
+Total states run:     2
+Total run time:  28.457 ms
+```
+
+if the suggested  argument `skip_translate: ulimits` is added the `docker_container.running` state, the state fails always with:
+```
+          ID: redis
+    Function: docker_container.running
+      Result: False
+     Comment: Unable to perform create_host_config: type object argument after ** must be a mapping, not str
+     Started: 16:24:01.875622
+    Duration: 50.406 ms
+     Changes:  
+```
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: 2.4.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-96-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

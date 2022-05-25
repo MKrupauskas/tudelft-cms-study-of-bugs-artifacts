@@ -1,0 +1,27 @@
+### Description of Issue/Question
+When attempting to create a VM using the VMWare driver with the --no-deploy argument I am seeing this error on develop:
+
+```
+[ERROR   ] Failed to create VM CLOUD-TEST-RNDTWU. Configuration value 'deploy_kwargs' needs to be set
+Traceback (most recent call last):
+  File "/home/ch3ll/git/salt/salt/cloud/__init__.py", line 1274, in create
+    output = self.clouds[func](vm_)
+  File "/home/ch3ll/git/salt/salt/cloud/clouds/vmware.py", line 2725, in create
+    data['deploy_kwargs'] = out['deploy_kwargs']
+KeyError: 'deploy_kwargs'
+```
+
+This is because when running with `--no-deploy` argument, in the code [here](https://github.com/saltstack/salt/blob/develop/salt/cloud/clouds/vmware.py#L2360) deploy ends up becoming True even though I set it as an argument to be False. The reason is because the call to get_cloud_config_value has `search_global` set to False so it won't end up searching in opts
+
+Now that deploy is set to True even though it should be false it then gets to [here](https://github.com/saltstack/salt/blob/develop/salt/cloud/clouds/vmware.py#L2713) because deploy is now true and out ends up equaling: `{'Error': {'No Deploy': "'deploy' is not enabled. Not deploying."}}`
+
+This then causes the key error further down [here](https://github.com/saltstack/salt/blob/develop/salt/cloud/clouds/vmware.py#L2718) because out does not have `deploy_kwargs`.
+
+Looks like setting deploy in the vmware config was added here 9d57bfc9
+ping @nmadhok is there a reason you want to specify `search_global` to be False?
+
+### Steps to Reproduce Issue
+`salt-cloud -p <vmware-profile> <vmware-vmname> --no-deploy -ldebug`
+
+### Versions Report
+`salt 2016.11.0-1072-gaa95b99 (Carbon)`

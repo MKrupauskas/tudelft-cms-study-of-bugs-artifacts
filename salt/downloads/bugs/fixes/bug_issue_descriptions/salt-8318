@@ -1,0 +1,75 @@
+While testing _cp.get_dir_ and _file.recurse_ I wanted to see the status of the job. I first tried
+
+```
+salt-run jobs.lookup_jid <jid>
+```
+
+but it seems like the command hung (that's why I first thought this is bug #3820). So I tried
+
+```
+salt-run jobs.print_job <jid>
+```
+
+which returned data within 40 seconds.
+
+I retried _salt.runners.jobs.lookup_jid_ and now waited ~10 minutes. When I came back to my terminal, this command had also returned data, so the command did not hang.
+
+But while comparing the output of the two commands I noticed, that there is no real difference between them. So the question is:
+
+Why takes _salt.runners.jobs.lookup_jid_ ~7min30 and _salt.runners.jobs.print_job_ only 40 seconds?
+
+After the first ~30 seconds of _salt.runners.jobs.lookup_jid_ I see thousands of
+
+```
+brk(0x2bee000)                          = 0x2bee000
+brk(0x2c0f000)                          = 0x2c0f000
+brk(0x2c30000)                          = 0x2c30000
+brk(0x2c51000)                          = 0x2c51000
+brk(0x2c72000)                          = 0x2c72000
+```
+
+lines I don't see when running _salt.runners.jobs.print_job_ (I was running salt-run with strace).
+
+To reproduce:
+1. Download a portage snapshot (~60MB):
+
+```
+wget http://distfiles.gentoo.org/snapshots/portage-latest.tar.bz2
+```
+1. Extract portage to /srv/salt (extracted 150.641 small files, total size on disk 808MB):
+
+```
+ tar xfj portage-latest.tar.bz2 -C /srv/salt/
+```
+1. Copy /srv/salt/portage to your minions:
+
+```
+salt '*' cp.get_dir salt://portage /tmp/test1
+```
+1. Press CTRL+C because the command will never return.
+2. Watch the job
+
+```
+salt-run jobs.lookup_jid 20131104150150758257
+```
+1. Wait...
+
+Pulling the portage tree via get_dir takes ~5 minutes on my environment.
+"lookup_jid" will actual take 7.5 minutes (my setup has only one minion).
+print_job will only take ~40 seconds.
+
+Also, have you thought about adding a progress indicator to commands which may take some time?
+
+```
+ # salt-run --versions-report
+           Salt: 0.17.1
+         Python: 2.7.5 (default, Oct 27 2013, 16:08:51)
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+            ZMQ: 4.0.1
+```

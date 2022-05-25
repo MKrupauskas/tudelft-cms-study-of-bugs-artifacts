@@ -1,0 +1,33 @@
+In `__virtual__`, salt-cloud checks for the GCE configuration by looking for 'provider' in details and checking if that's GCE.  It looks like instead the format of details is this:
+
+``` python
+{'gce': {
+  'minion': {'master': 'SOMEMASTER'},
+  'profiles': {'inst-profile': {'delete_boot_pd': False,
+    'deploy': True,
+    'image': 'SOMEIMAGE',
+    'location': 'SOME_LOCATION',
+    'network': 'default',
+    'profile': 'inst-profile',
+    'provider': 'gce-config:gce',
+    'size': 'SIZE',
+    'ssh_keyfile': 'SSH_KEYFILE',
+    'ssh_username': 'SSH_USERNAME',
+    'use_persistent_disk': True}},
+  'project': 'MYPROJECT',
+  'provider': 'gce',
+  'service_account_email_address': 'some@email',
+  'service_account_private_key': 'MYKEYPATH'}}
+```
+
+so the configuration is actually underneath the `'gce'` key and it then skips checking the configuration all together.  So it looks like the check needs to be something like: 
+
+``` python
+for provider, details in __opts__['providers'].iteritems():
+    if 'gce' not in details:
+        continue
+    keypath = details['gce']['service_account_key_path']
+    pathname = os.path.expanduser(keypath)
+```
+
+as opposed to what it currently is. I can put up a pull request if that's helpful (I had a previous PR (#15589) but it was at the wrong level of detail).  Also, right now it always returns True in `__virtual__`, even if it doesn't have any GCE profiles, so long as all deps are installed, is that the right behavior?

@@ -1,0 +1,107 @@
+I have a newly installed Salt Master. I've done some minimal config to set it up on GitFS using PyGit2. The master won't start in the foreground, almost immediately encountering a UnicodeDecodeError.
+
+Turns out the problem was "curly single-quotes" pasted into the config file. Note the special quote characters in the gitfs_pubkey and gitfs_privkey below.
+
+This problem is obviously fixable by fixing the config, but it would be nice if it were handled more gracefully and the logs pointed unambiguously at the config being the problem.
+
+# GitFS config:
+
+```
+fileserver_backend:
+ - git
+gitfs_provider: pygit2
+gitfs_insecure_auth: False
+gitfs_pubkey: ‘/root/.ssh/id_rsa.pub’
+gitfs_privkey: ‘/root/.ssh/id_rsa’
+gitfs_remotes:
+  - git@github.com:salt-gitfs.git
+gitfs_root: /gitfs_root
+```
+
+**Debug output:**
+
+```
+# salt-master -l debug
+[DEBUG   ] Reading configuration from /etc/salt/master
+[DEBUG   ] Including configuration from '/etc/salt/master.d/fileserver.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/fileserver.conf
+[DEBUG   ] Including configuration from '/etc/salt/master.d/gitfs.conf'
+[DEBUG   ] Reading configuration from /etc/salt/master.d/gitfs.conf
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: salt-master
+[DEBUG   ] Configuration file path: /etc/salt/master
+[WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+[INFO    ] Setting up the Salt Master
+[DEBUG   ] Loaded master key: /etc/salt/pki/master/master.pem
+[PROFILE ] Beginning pwd.getpwall() call in masterarpi acess_keys function
+[PROFILE ] End pwd.getpwall() call in masterarpi acess_keys function
+[INFO    ] Preparing the root key for local communication
+[DEBUG   ] Removing stale keyfile: /var/cache/salt/master/.root_key
+[DEBUG   ] Created pidfile: /var/run/salt-master.pid
+[INFO    ] Starting up the Salt Master
+[DEBUG   ] pygit2 gitfs_provider enabled
+[DEBUG   ] LazyLoaded git.envs
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+UnicodeDecodeError: 'ascii' codec can't decode byte 0xe2 in position 0: ordinal not in range(128)
+Traceback (most recent call last):
+  File "/usr/bin/salt-master", line 22, in <module>
+    salt_master()
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 90, in salt_master
+    master.start()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/daemons.py", line 208, in start
+    self.master.start()
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 522, in start
+    self._pre_flight()
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 475, in _pre_flight
+    fileserver.init()
+  File "/usr/lib/python2.7/dist-packages/salt/fileserver/__init__.py", line 496, in init
+    self.servers[fstr]()
+  File "/usr/lib/python2.7/dist-packages/salt/fileserver/gitfs.py", line 158, in init
+    PER_REMOTE_OVERRIDES, PER_REMOTE_ONLY)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/gitfs.py", line 2191, in init_remotes
+    six.text_type(self.opts[key]) if param not in BOOL_PARAMS \
+```
+
+**Versions report:**
+
+```
+# salt --versions-report
+Salt Version:
+           Salt: 2016.11.4
+ 
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: 0.24.0
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.24.0
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-75-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```

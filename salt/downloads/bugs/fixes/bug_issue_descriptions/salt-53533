@@ -1,0 +1,122 @@
+### Description of Issue
+I'm running windows VM installation with salt-run (on XEN servers if t matters).
+Salt minion is installed with setup.exe, then the setup supposed to stop then start the minion.
+It seems that sometimes the service is not stopped in a timely fashion and therefore the start command fails.
+Is there a way to add sleep for a few secs after stop command or maybe validate that the service actually stopped before trying to start it?
+
+
+```
+[INFO    ] Running command under pid 382: 'winexe -U 'Administrator%XXX-REDACTED-XXX' //10.0.0.1 "c:\salttemp\Salt-Minion-2018.3.4-Py3-AMD64-Setup.exe /S /master=[u'master1'] /minion-name=server11"'
+[DEBUG   ] Executing command(PID 382): 'winexe -U 'Administrator%XXX-REDACTED-XXX' //10.0.0.1 "c:\salttemp\Salt-Minion-2018.3.4-Py3-AMD64-Setup.exe /S /master=[u'master1'] /minion-name=server11"'
+[INFO    ] Running command under pid 449: 'winexe -U 'Administrator%XXX-REDACTED-XXX' //10.0.0.1 "sc stop salt-minion"'
+[DEBUG   ] Executing command(PID 449): 'winexe -U 'Administrator%XXX-REDACTED-XXX' //10.0.0.1 "sc stop salt-minion"'
+[DEBUG   ]
+SERVICE_NAME: salt-minion
+        TYPE               : 10  WIN32_OWN_PROCESS
+        STATE              : 3  STOP_PENDING
+                                (NOT_STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+
+SERVICE_NAME: salt-minion
+        TYPE               : 10  WIN32_OWN_PROCESS
+        STATE              : 3  STOP_PENDING
+                                (NOT_STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+[DEBUG   ]    SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x1
+        WAIT_HINT          : 0x7d0
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x1
+        WAIT_HINT          : 0x7d0
+[INFO    ] Running command under pid 450: 'winexe -U 'Administrator%XXX-REDACTED-XXX' //10.0.0.1 "sc start salt-minion"'
+[DEBUG   ] Executing command(PID 450): 'winexe -U 'Administrator%XXX-REDACTED-XXX' //10.0.0.1 "sc start salt-minion"'
+[DEBUG   ] [SC] StartService FAILED 1056:
+
+An instance of the service is already running.
+[SC] StartService FAILED 1056:
+
+An instance of the service is already running.
+
+
+```
+
+
+### Setup
+my SLS:
+```
+provision_vm:
+  salt.runner:
+    - name: cloud.profile
+    - prof: {{ vm.profile }}
+    - instances:
+      - {{ vm.hostname }}
+    - order: 1
+    - vm_overrides:
+        minion:
+          master:
+            {%- for saltmaster in vm.masters %}
+            - {{ saltmaster }}
+            {%- endfor %}
+          grains:
+            roles:
+              {%- for role in vm.roles %}
+              - {{ role }}
+              {%- endfor %}
+            environment:
+              {%- for env in vm.environment %}
+              - {{ env }}
+              {%- endfor %}
+            region:
+              {%- for reg in vm.region %}
+              - {{ reg }}
+              {%- endfor %}
+```
+
+### Steps to Reproduce Issue
+This is the command I'm using:
+`sudo salt-run state.orch orch.deploy_server pillar='{"profile": "vm-profile", "name": "server11", "region": ["region"], "env": ["env"], "roles": ["role"]}' -l debug
+`
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.4
+
+Dependency Versions:
+           cffi: 1.12.2
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: 0.26.3
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.14
+       pycrypto: 2.6.1
+   pycryptodome: 3.7.0
+         pygit2: 0.26.4
+         Python: 2.7.5 (default, Oct 30 2018, 23:45:53)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.6.1810 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-514.26.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.6.1810 Core
+
+```

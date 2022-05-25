@@ -1,0 +1,111 @@
+This issue was initially mentioned in #8263 and moved here at the request of @basepi. It might also be related to #5768.
+
+I encountered this error today when using the vagrant salt provisioner.
+
+```
+vagrant@vagrant-ubuntu-trusty-64:~$ sudo salt-call state.highstate
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+TypeError: string indices must be integers, not str
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 82, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/__init__.py", line 309, in run
+    caller = salt.cli.caller.Caller(self.config)
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 47, in __init__
+    self.minion = salt.minion.SMinion(opts)
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 283, in __init__
+    self.gen_modules()
+  File "/usr/lib/python2.7/dist-packages/salt/minion.py", line 295, in gen_modules
+    self.opts['environment'],
+  File "/usr/lib/python2.7/dist-packages/salt/pillar/__init__.py", line 78, in compile_pillar
+    ret_pillar = self.sreq.crypted_transfer_decode_dictentry(load, dictkey='pillar', tries=3, timeout=7200)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 61, in crypted_transfer_decode_dictentry
+    aes = key.private_decrypt(ret['key'], 4)
+TypeError: string indices must be integers, not str
+```
+
+Calling salt-call again produced a different traceback:
+
+```
+vagrant@vagrant-ubuntu-trusty-64:~$ sudo salt-call state.highstate
+[ERROR   ] An un-handled exception was caught by salt's global exception handler:
+AuthenticationError: message authentication failed
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 82, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/__init__.py", line 319, in run
+    caller.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 144, in run
+    ret = self.call()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 81, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/state.py", line 268, in highstate
+    st_ = salt.state.HighState(opts, pillar, kwargs.get('__pub_jid'))
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 2603, in __init__
+    BaseHighState.__init__(self, opts)
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1826, in __init__
+    self.opts = self.__gen_opts(opts)
+  File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1853, in __gen_opts
+    mopts = self.client.master_opts()
+  File "/usr/lib/python2.7/dist-packages/salt/fileclient.py", line 1130, in master_opts
+    return channel.send(load)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 91, in send
+    return self._crypted_transfer(load, tries, timeout)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 83, in _crypted_transfer
+    return _do_transfer()
+  File "/usr/lib/python2.7/dist-packages/salt/transport/__init__.py", line 77, in _do_transfer
+    timeout)
+  File "/usr/lib/python2.7/dist-packages/salt/crypt.py", line 505, in loads
+    data = self.decrypt(data)
+  File "/usr/lib/python2.7/dist-packages/salt/crypt.py", line 482, in decrypt
+    raise AuthenticationError('message authentication failed')
+AuthenticationError: message authentication failed
+```
+
+```
+vagrant@vagrant-ubuntu-trusty-64:~$ salt-call --versions-report
+           Salt: 2014.1.11
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.3.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+            ZMQ: 4.0.4
+```
+
+I was always producing these errors but which error occurred wasn't consistent. It seemed that TypeError would usually happen first and additional calls to high state would become AuthenticationError. This error sequence didn't always happen.
+
+I was able to resolve this by deleting ~/.vagrant.d and allowing vagrant to recreate the directory. I believe that this was related to copying ~/.vagrant.d to a different computer. While this might be an edge case, I believe that the errors that salt is providing are ambiguous at best.
+
+For example, I can _sometimes_ generate similar errors by changing my master config to contain:
+
+```
+gitfs_remotes:
+  - git://github.com/saltstack-formulas/nginx-formula.git:
+    - base: some-branch-that-exists
+```
+
+This setting requires 2014.7 and I'm running 2014.1.11. I would expect an error or warning telling me that I'm using an invalid setting, but this was generating the message "TypeError: string indices must be integers, not str" and omitting the stack trace. Once while running with these settings, I also saw "AuthenticationError: message authentication failed".
+
+In both cases, salt-key appeared configured properly:
+
+```
+vagrant@vagrant-ubuntu-trusty-64:~$ sudo salt-key
+Accepted Keys:
+vagrant-ubuntu-trusty-64
+Unaccepted Keys:
+Rejected Keys:
+```
+
+In the case of the issue with ~/.vagrant.d, `sudo salt-key -D; sudo salt-call state.highstate; sudo salt-key -A; sudo salt-call state.highstate` would initially allow the high state to run, but it would later report auth errors in states that had _file.manage_ states that used salt://. When re-adding the key, the fingerprint reported by `sudo salt-key -F` was reported as the same.
+
+Initially, these cases appear unrelated to each other and possibly even unrelated to #8263 and #5768. However, I think that what is happening in cases of "TypeError: string indices must be integers, not str" and _sometimes_ "AuthenticationError: message authentication failed" is that other exceptions are being raised but by the time that they bubble up to what is reported to the user, they have been swallowed up into another class of exception.
+
+_tl;dr_ seemingly unrelated configuration errors present possibly unrelated error messages to the user in inconsistent ways.

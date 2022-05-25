@@ -1,0 +1,54 @@
+This bug was originally filed on the salt-users mailing list: https://groups.google.com/forum/#!topic/salt-users/zfBhDHkFmB0
+
+In version 2015.5.3, there are a couple of values for the `external_ip` key for the GCE driver that cause stacktraces that previously used to work. The first one is `external_ip: Ephemeral` with a capital E used to work, but now stacktraces:
+
+```
+[ERROR   ] There was a profile error: {u'locationType': u'parameter', u'domain': u'global', u'message': u"Invalid value 'Ephemeral'. Values must match the following regular expression: '[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?'", u'reason': u'invalidParameter', u'location': u'address'}
+Traceback (most recent call last):
+  File "/root/SaltStack/salt/salt/cloud/cli.py", line 276, in run
+    self.config.get('names')
+  File "/root/SaltStack/salt/salt/cloud/__init__.py", line 1403, in run_profile
+    ret[name] = self.create(vm_)
+  File "/root/SaltStack/salt/salt/cloud/__init__.py", line 1249, in create
+    output = self.clouds[func](vm_)
+  File "/root/SaltStack/salt/salt/cloud/clouds/gce.py", line 2083, in create
+    kwargs['external_ip'] = __create_orget_address(conn, kwargs['external_ip'], region)
+  File "/root/SaltStack/salt/salt/cloud/clouds/gce.py", line 474, in __create_orget_address
+    addy = conn.ex_get_address(name, region)
+  File "/usr/local/lib/python2.7/dist-packages/libcloud/compute/drivers/gce.py", line 3952, in ex_get_address
+    response = self.connection.request(request, method='GET').object
+  File "/usr/local/lib/python2.7/dist-packages/libcloud/compute/drivers/gce.py", line 120, in request
+    response = super(GCEConnection, self).request(*args, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/libcloud/common/google.py", line 692, in request
+    *args, **kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/libcloud/common/base.py", line 799, in request
+    response = responseCls(**kwargs)
+  File "/usr/local/lib/python2.7/dist-packages/libcloud/common/base.py", line 145, in __init__
+    self.object = self.parse_body()
+  File "/usr/local/lib/python2.7/dist-packages/libcloud/common/google.py", line 271, in parse_body
+    raise InvalidRequestError(message, self.status, code)
+InvalidRequestError: {u'locationType': u'parameter', u'domain': u'global', u'message': u"Invalid value 'Ephemeral'. Values must match the following regular expression: '[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?'", u'reason': u'invalidParameter', u'location': u'address'}
+```
+
+We shouldn't care if a user enters `ephemeral` or `Ephemeral`, especially if the latter previously worked.
+
+The second issue is when using `external-ip: None`. This worked previously, but now doesn't.
+
+```
+[DEBUG   ] Sending event - data = {'profile': 'gce-ubuntu-14', 'event': 'create instance', '_stamp': '2015-10-01T21:14:56.065608', 'name': 'nt-gce-0', 'provider': 'gce-config:gce'}
+[ERROR   ] There was a profile error: list index out of range
+Traceback (most recent call last):
+  File "/root/SaltStack/salt/salt/cloud/cli.py", line 276, in run
+    self.config.get('names')
+  File "/root/SaltStack/salt/salt/cloud/__init__.py", line 1403, in run_profile
+    ret[name] = self.create(vm_)
+  File "/root/SaltStack/salt/salt/cloud/__init__.py", line 1249, in create
+    output = self.clouds[func](vm_)
+  File "/root/SaltStack/salt/salt/cloud/clouds/gce.py", line 2122, in create
+    vm_['ssh_host'] = __get_host(node_data, vm_)
+  File "/root/SaltStack/salt/salt/cloud/clouds/gce.py", line 433, in __get_host
+    ip_address = node.public_ips[0]
+IndexError: list index out of range
+```
+
+The current work-around for this is to also set `ssh_interface: private_ips` and the stacktrace is avoided and everything works as expected.

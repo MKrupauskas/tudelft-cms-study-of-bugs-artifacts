@@ -1,0 +1,54 @@
+When running a tomcat.war_deployed state, in 2015.5 it now always redeploys the module:
+
+``` yaml
+          ID: /test
+    Function: tomcat.war_deployed
+        Name: /test
+      Result: True
+     Comment: {'fullname': 'test##None', 'version': 'None', 'mode': 'running', 'sessions': '0'}
+     Started: 15:52:03.168657
+    Duration: 9829.36 ms
+     Changes:
+              ----------
+              deploy:
+                  deployed /test in version test-1.0.2-20150609.052602-3
+              undeploy:
+                  undeployed /test in version None
+```
+
+Note that the version is detected in the changes comment, but when deployed the version is appears as "None". The "None" version also appears in tomcat.ls.
+
+I suspect the breaking change was in commit c6c0dd511bbf71b2b4e937bd63e577c31c61afc1 where the version# detection changed from simply being the filename (minus .war) to:
+
+``` python
+    version_extract = re.findall("\d+.\d+.\d+?",os.path.basename(war).replace('.war', ''))
+    if len(version_extract) == 1:
+        version_string = version_extract[0]
+    else:
+        version_string = None
+```
+
+Which breaks on snapshot releases that include timestamps/build numbers/etc in them in addition to the version# itself.
+
+I suspect extracting using a more generic regex of something like: "-([\d.-]+)$" would solve this, but I'm not quite sure if this is necessarily the best approach either or if it would regress PR #16832 which introduced this regression while fixing something else.
+
+I'm not quite sure what PR #16832 fixed as I was personally deploying from a https url without issues so the non-salt:// files is a little incorrect anyway. Perhaps @syphernl can chime in to confirm exactly what broke in his setup previously and confirm that we won't inadvertently break him in fixing this.
+
+RHEL7
+
+``` yaml
+           Salt: 2015.5.0
+         Python: 2.7.5 (default, Feb 11 2014, 07:46:25)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+```

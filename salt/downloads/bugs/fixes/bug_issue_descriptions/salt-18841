@@ -1,0 +1,63 @@
+The following state:
+
+```
+{% set files = salt['file.find']('/etc/xinetd.d', name='*', type='f') %}
+
+{% for file in files %}
+etc_xinetd_d_{{ file }}:
+  file.replace:
+    - name: {{ file }}
+    - pattern: '\bdisable\s*=\s*no\b'
+    - repl: 'disable = yes'
+    - show_changes: True
+    - flags: ['IGNORECASE']
+    - backup: False
+{% endfor %}
+```
+
+correctly renders expected as "No changes were made":
+
+```
+          ID: etc_xinetd_d_/etc/xinetd.d/chargen
+    Function: file.replace
+        Name: /etc/xinetd.d/chargen
+      Result: True
+     Comment: No changes were made
+     Started: 16:56:26.569695
+    Duration: 6.057 ms
+     Changes:
+```
+
+However, unexpected is that all files are touched (note the identical time stamp):
+
+```
+host:/etc/xinetd.d # la
+-rw-r--r-- 1 root root  313 Dec  9 16:56 chargen
+-rw-r--r-- 1 root root  333 Dec  9 16:56 chargen-udp
+-rw-r--r-- 1 root root  409 Dec  9 16:56 cvs
+....
+```
+
+The expected behavior is: if there was no change: to leave the file alone and untouched.
+
+Furthermore: if  `backup: False` is omitted in the state, there are backup files to every file created (as well if salt reports "No changes were made"). As well I noted that  "append_if_not_found" will append if the match was found, so this sounds linked to #18612 (grows infinitely on append_if_not_found).
+
+It appears to me, that the handling of a "no change" is not handled as expected.
+
+```
+host:/etc/xinetd.d # salt-call --versions-report
+           Salt: 2014.7.0
+         Python: 2.7.7 (default, Jun 23 2014, 13:38:05) [GCC]
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+```

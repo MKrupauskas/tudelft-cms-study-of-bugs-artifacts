@@ -1,0 +1,199 @@
+### Description of Issue/Question
+
+Whatever backing scheduler is used for the parallelization feature seems to only work if the state has no requisites.  If it does- for example, a dependency on a pkg.install- parallelization doesn't occur, instead it's ran sequentially.
+
+Unfortunately, this kind of strongly limits the parallelization usefulness; whether it be formatting disks or dumping files into a directory, each of those will have a requisite that must be satisfied first- which in turn results in the parallel section being serialized.
+
+### Setup + reproduction
+
+test-case.sls; this should parallelize to ~10s total clock, but doesn't.
+```
+barrier:
+  test.nop 
+  
+{%- for x in [1,2,3] %}
+blah-{{x}}:
+  cmd.run:
+    - name: sleep 10
+    - require:
+      - barrier
+    - parallel: true
+    - require_in:
+      - barrier2
+{% endfor %}
+
+barrier2:
+  test.nop
+```
+The following is the render results.  Note the start timestamps, and total runtime.  warnings truncated from output:
+```
+local:
+----------
+          ID: barrier
+    Function: test.nop
+      Result: True
+     Comment: Success!
+     Started: 06:53:52.316003
+    Duration: 0.311 ms
+     Changes:   
+----------
+          ID: blah-1
+    Function: cmd.run
+        Name: sleep 10
+      Result: True
+     Comment: Command "sleep 10" run
+     Started: 06:53:52.317096
+    Duration: 10008.755 ms
+     Changes:   
+              ----------
+              pid:
+                  13508
+              retcode:
+                  0
+              stderr:
+              stdout:
+----------
+          ID: blah-2
+    Function: cmd.run
+        Name: sleep 10
+      Result: True
+     Comment: Command "sleep 10" run
+     Started: 06:54:02.333901
+    Duration: 10012.71 ms
+     Changes:   
+              ----------
+              pid:
+                  13510
+              retcode:
+                  0
+              stderr:
+              stdout:
+----------
+          ID: blah-3
+    Function: cmd.run
+        Name: sleep 10
+      Result: True
+     Comment: Command "sleep 10" run
+     Started: 06:54:12.353356
+    Duration: 10011.777 ms
+     Changes:   
+              ----------
+              pid:
+                  13512
+              retcode:
+                  0
+              stderr:
+              stdout:
+----------
+          ID: barrier2
+    Function: test.nop
+      Result: True
+     Comment: Success!
+     Started: 06:54:22.371214
+    Duration: 0.502 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 5 (changed=3)
+Failed:    0
+------------
+Total states run:     5
+Total run time:  30.034 s
+
+real	0m44.792s
+user	0m3.196s
+sys	0m0.657s
+```
+
+Contrast that with this test case- note that there is no barrier1, IE the parallelized content doesn't have any requisites of their own.
+```
+{%- for x in [1,2,3] %}
+blah-{{x}}:
+  cmd.run:
+    - name: sleep 10
+    - require_in:
+      - barrier2
+    - parallel: true
+{% endfor %}
+
+barrier2:
+  test.nop 
+```
+
+Output is thus; it's 20s faster since the 3 sleeps are ran in parallel now.
+```
+local:
+----------
+          ID: blah-1
+    Function: cmd.run
+        Name: sleep 10
+      Result: True
+     Comment: Command "sleep 10" run
+     Started: 06:56:31.062373
+    Duration: 10009.84 ms
+     Changes:   
+              ----------
+              pid:
+                  13680
+              retcode:
+                  0
+              stderr:
+              stdout:
+----------
+          ID: blah-2
+    Function: cmd.run
+        Name: sleep 10
+      Result: True
+     Comment: Command "sleep 10" run
+     Started: 06:56:31.066379
+    Duration: 10009.478 ms
+     Changes:   
+              ----------
+              pid:
+                  13681
+              retcode:
+                  0
+              stderr:
+              stdout:
+----------
+          ID: blah-3
+    Function: cmd.run
+        Name: sleep 10
+      Result: True
+     Comment: Command "sleep 10" run
+     Started: 06:56:31.068708
+    Duration: 10009.141 ms
+     Changes:   
+              ----------
+              pid:
+                  13682
+              retcode:
+                  0
+              stderr:
+              stdout:
+----------
+          ID: barrier2
+    Function: test.nop
+      Result: True
+     Comment: Success!
+     Started: 06:56:41.084674
+    Duration: 0.537 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 4 (changed=3)
+Failed:    0
+------------
+Total states run:     4
+Total run time:  30.029 s
+
+real	0m24.015s
+user	0m1.909s
+sys	0m0.612s
+```
+
+
+### Versions Report
+I've verified this behaviour for 2017.7.2 through 2018.3.2 for the minion, and 2017.7.2 for the master.  I've validated this behaviour both via master side salt call's, and via salt-call from the minion itself.

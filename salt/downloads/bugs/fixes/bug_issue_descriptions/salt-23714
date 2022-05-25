@@ -1,0 +1,128 @@
+During highstate, force is ignored:
+
+```
+     Comment: The target file "/home/deploy/.env" exists and will not be overwritten
+```
+
+State below
+
+``` yaml
+bash_app_env:
+  file.managed:
+    - name: /home/deploy/.bash_app_env
+    - source: salt://application-base/autoscale-base/deployment-user/bash_app_env
+    - template: jinja
+    - user: deploy
+    - group: deploy
+    - mode: 0644
+
+formatappenv:
+  file.replace:
+    - name: /home/deploy/.bash_app_env
+    - pattern: '^\s*$'
+    - repl: ''
+    - backup: False
+    - require:
+      - file: bash_app_env
+
+removeblanklinesappenv:
+  cmd.run:
+    - name: "sed -i.bak '/^$/d' /home/deploy/.bash_app_env"
+    - user: deploy
+    - shell: /bin/bash
+    - require:
+      - file: formatappenv
+
+createENV:
+  file.copy:
+    - name: /home/deploy/.env
+    - source: /home/deploy/.bash_app_env
+    - user: deploy
+    - group: deploy
+    - force: True
+    - require:
+      - cmd: removeblanklinesappenv
+```
+
+But run with 'salt-call state.sls_id', it functions as expected:
+
+``` yaml
+     local:
+----------
+          ID: bash_app_env
+    Function: file.managed
+        Name: /home/deploy/.bash_app_env
+      Result: True
+     Comment: File /home/deploy/.bash_app_env updated
+     Started: 14:32:44.099434
+    Duration: 28.466 ms
+     Changes:
+
+          ID: formatappenv
+    Function: file.replace
+        Name: /home/deploy/.bash_app_env
+      Result: True
+     Comment: Changes were made
+     Started: 14:32:44.132742
+    Duration: 4.311 ms
+
+          ID: removeblanklinesappenv
+    Function: cmd.run
+        Name: sed -i.bak '/^$/d' /home/deploy/.bash_app_env
+      Result: True
+     Comment: Command "sed -i.bak '/^$/d' /home/deploy/.bash_app_env" run
+     Started: 14:32:44.140639
+    Duration: 126.497 ms
+     Changes:
+              ----------
+              pid:
+                  16113
+              retcode:
+                  0
+              stderr:
+              stdout:
+----------
+          ID: createENV
+    Function: file.copy
+        Name: /home/deploy/.env
+      Result: True
+     Comment: Copied "/home/deploy/.bash_app_env" to "/home/deploy/.env"
+     Started: 14:32:44.269203
+    Duration: 4.918 ms
+     Changes:
+              ----------
+              /home/deploy/.env:
+                  /home/deploy/.bash_app_env
+              group:
+                  deploy
+              user:
+                  deploy
+
+Summary
+------------
+Succeeded: 4 (changed=4)
+Failed:    0
+------------
+Total states run:     4
+```
+
+Versions
+
+``` yaml
+deploy@prd-app-050521:~$ salt-call --versions-report
+                  Salt: 2015.5.0
+                Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+                Jinja2: 2.7.2
+              M2Crypto: 0.21.1
+        msgpack-python: 0.3.0
+          msgpack-pure: Not Installed
+              pycrypto: 2.6.1
+               libnacl: Not Installed
+                PyYAML: 3.10
+                 ioflo: Not Installed
+                 PyZMQ: 14.0.1
+                  RAET: Not Installed
+                   ZMQ: 4.0.4
+                  Mako: 0.9.1
+ Debian source package: 2015.5.0+ds-1trusty1
+```

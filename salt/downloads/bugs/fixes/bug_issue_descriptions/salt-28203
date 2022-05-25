@@ -1,0 +1,89 @@
+Hi,
+
+I'm seeing an issue with my use of `blockdev.formatted` state.
+
+I've set up a new Amazon EC2 instance using the standard Amazon AMI and I've founded a second EBS volume with 50gb of space. The disk is mounted at `/dev/sdf` which Amazon shows as `/dev/xvdf` on the instance.
+
+I'm using the following state configuration to format and then mount the disk:
+
+```
+formatted_elasticsearch_data:
+  blockdev.formatted:
+    - name: /dev/xvdf
+    - fs_type: ext4
+
+mnt_elasticsearch_data:
+  mount.mounted:
+    - name: {{ elasticsearch.data_dir }}
+    - device: /dev/xvdf
+    - fstype: ext4
+    - mkmnt: True
+```
+
+Everything works perfectly the first time. The volume is formatted and mounted at the correct point. I can continue as normal from there.
+
+However, when I run this state again I get the following output:
+
+```
+----------
+          ID: formatted_elasticsearch_data
+    Function: blockdev.formatted
+        Name: /dev/xvdf
+      Result: False
+     Comment: Failed to format /dev/xvdf
+     Started: 09:19:23.718308
+    Duration: 434.387 ms
+     Changes:
+```
+
+From looking at the code at https://github.com/saltstack/salt/blob/develop/salt/states/blockdev.py, I see the following line is used to investigate whether the disk has the correct `fstype` (at both lines 130 and 162 in current development branch):
+
+`blk = __salt__['cmd.run']('lsblk -o fstype {0}'.format(name)).splitlines()`
+
+If I run `lsblk -o fstype` (plus a few other columns) on the instance directly I note that the fstype is not set to `ext4` as I would expect:
+
+```
+NAME    FSTYPE LABEL MOUNTPOINT
+xvda
+xvda1 ext4   /     /
+xvdf                 /usr/local/var/data/elasticsearch/disk1
+```
+
+This output would trigger the error path that I'm seeing on line 169 and then 175.
+
+Is there an alternate way the system can determine if the block is formatted correctly? Amazon suggests using this command `sudo file -s /dev/xvdf` here http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-using-volumes.html, which outputs the below, but I'm way out of my depth here!
+
+Output from: `sudo file -s /dev/xvdf`:
+
+```
+/dev/xvdf: Linux rev 1.0 ext4 filesystem data, UUID=2891c754-391e-4e80-bc3b-b70d7089a042 (needs journal recovery) (extents) (large files) (huge files)
+```
+
+Alternatively, does `df -T` work?
+
+```
+Filesystem     Type 1K-blocks    Used Available Use% Mounted on
+/dev/xvdf      ext4  51475068 3350592  45486652   7% /usr/local/var/data/elasticsearch/disk1
+```
+
+Here's my output from salt --versions-report (I'm aware that I'm not running the latest, but I couldn't see anything in the blockdev.formatted implementation that would change the outcome given the underlying command appears to be giving an unexpected output).
+
+```
+Salt: 2015.5.5
+         Python: 2.6.9 (unknown, Apr  1 2015, 18:16:00)
+         Jinja2: 2.7.2
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.5
+           Mako: Not Installed
+        Tornado: Not Installed
+        timelib: Not Installed
+       dateutil: Not Installed
+```

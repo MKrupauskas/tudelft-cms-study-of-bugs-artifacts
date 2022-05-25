@@ -1,0 +1,289 @@
+I have come across what appears to be a very serious bug in the way pillar overlays work.
+
+We use a pillar structure similar to this:
+
+```
+# this contains "global" variables used throughout all regions
+/srv/pillar/global/data.sls 
+
+# these contain variables specific to each region, sometimes 
+# overriding variables set in the global data.sls
+/srv/pillar/iad3/data.sls
+/srv/pillar/lon3/data.sls
+/srv/pillar/hkg1/data.sls
+/srv/pillar/ord1/data.sls
+/srv/pillar/dfw2/data.sls
+/srv/pillar/syd2/data.sls
+```
+
+Our `/srv/pillar/top.sls` file looks like this:
+
+```
+base:
+  '*':
+    - global.data
+  {% for dc in 'dfw2', 'hkg1', 'iad3', 'lon3', 'ord1', 'syd2' %}
+  'dc:{{ dc }}':
+    - match: grain
+    - {{ dc }}.data
+  {% endfor %}
+```
+
+This was working wonderfully for us for our first few regions.  Pillar would load variables set in `global/data.sls` first, then override them with whatever was set in that regions `data.sls` file.  However, recently we expanded our salt configuration to include the full 6 regions listed in the pillar topfile, and that is when we began to notice the problem.
+
+It boils down to:
+- If a variable is defined in `global/data.sls`, but not in `$region/data.sls`, then the global variable is used.
+- If a variable is not defined in `global/data.sl`s, but is defined in `$region/data.sls`, then region specific variable is used.
+- If a variable is defined in both `global/data.sls` and `$region/data.sls`, then in some cases the global variable is used, and other cases the region's variable is used. I can not find a reason why this happens only for certain regions.
+
+I have been able to reproduce this using Salt versions `2014.1.0-1precise1`, `2014.1.1-1precise1`, and `salt-2014.1.3.tar.gz` (via pip). In Salt 2014.1.3 the behavior changed again, as I'll show below.
+
+I have created a git repository with all files needed to reproduce this issue: https://github.com/corywright/salt-pillar-overlay-bug
+
+To demonstrate this issue I created 7 Ubuntu Precise 12.04 instances, 1 as the salt-master and the other 6 with names similar to hostnames we use in production:
+
+```
+salt-master1.control.test.corywright.org
+minion1.hkg1.test.corywright.org
+minion1.lon3.test.corywright.org
+minion1.ord1.test.corywright.org
+minion1.iad3.test.corywright.org
+minion1.dfw2.test.corywright.org
+minion1.syd2.test.corywright.org
+```
+
+In our production environments we use the minion's hostname to indicate what region a server is in (the second label in the hostname, dfw2, hkg1, etc). A custom grain is used to retrieve this, and also to dictate which pillar files are served to that minion. The naming style of the test nodes is important in order for the rest of these steps to illustrate the bug.
+
+To test 2014.1.0 and 2014.1.1 I used the [standard Ubuntu installation instructions](http://docs.saltstack.com/en/latest/topics/installation/ubuntu.html) to install salt-master on the salt-master1 node, and salt-minion on each minion node. To test 2014.1.3 I installed Salt using pip.
+
+I then cloned my [salt-pillar-overlay-bug](https://github.com/corywright/salt-pillar-overlay-bug) github repository into root's home directory on the salt-master1 server, and configured it to serve my files:
+
+```
+root@salt-master1:~# git clone https://github.com/corywright/salt-pillar-overlay-bug.git
+root@salt-master1:~# ln -s /root/salt-pillar-overlay-bug/salt/ /srv/
+root@salt-master1:~# ln -s /root/salt-pillar-overlay-bug/pillar/ /srv/
+root@salt-master1:~# service salt-master restart
+```
+
+Next I added the salt-master1's ip to `/etc/salt/minion.d/master.conf` and restarted salt-minion on each of the 6 minion servers. Once salt-minion was restarted I was able to accept all of the keys on salt-master1:
+
+```
+root@salt-master1:~# salt-key -L
+Accepted Keys:
+minion1.dfw2.test.corywright.org
+minion1.hkg1.test.corywright.org
+minion1.iad3.test.corywright.org
+minion1.lon3.test.corywright.org
+minion1.ord1.test.corywright.org
+minion1.syd2.test.corywright.org
+Unaccepted Keys:
+Rejected Keys:
+```
+
+First I tested that I could communicate with each minion:
+
+```
+root@salt-master1:~# salt --out=txt '*' test.ping
+minion1.lon3.test.corywright.org: True
+minion1.hkg1.test.corywright.org: True
+minion1.syd2.test.corywright.org: True
+minion1.ord1.test.corywright.org: True
+minion1.iad3.test.corywright.org: True
+minion1.dfw2.test.corywright.org: True
+```
+
+Then I updated the pillar data that would be used to illustrate the bug:
+
+```
+root@salt-master1:~# salt --out=txt '*' saltutil.refresh_pillar
+minion1.lon3.test.corywright.org: None
+minion1.hkg1.test.corywright.org: None
+minion1.syd2.test.corywright.org: None
+minion1.ord1.test.corywright.org: None
+minion1.dfw2.test.corywright.org: None
+minion1.iad3.test.corywright.org: None
+```
+
+Next I updated the custom grain that is used to detect the server's region:
+
+```
+root@salt-master1:~# salt --out=txt '*' saltutil.sync_all
+minion1.lon3.test.corywright.org: {'outputters': [], 'grains': ['grains.region'], 'returners': [], 'modules': [], 'renderers': [], 'states': []}
+minion1.iad3.test.corywright.org: {'outputters': [], 'grains': ['grains.region'], 'returners': [], 'modules': [], 'renderers': [], 'states': []}
+minion1.dfw2.test.corywright.org: {'outputters': [], 'grains': ['grains.region'], 'returners': [], 'modules': [], 'renderers': [], 'states': []}
+minion1.hkg1.test.corywright.org: {'outputters': [], 'grains': ['grains.region'], 'returners': [], 'modules': [], 'renderers': [], 'states': []}
+minion1.ord1.test.corywright.org: {'outputters': [], 'grains': ['grains.region'], 'returners': [], 'modules': [], 'renderers': [], 'states': []}
+minion1.syd2.test.corywright.org: {'outputters': [], 'grains': ['grains.region'], 'returners': [], 'modules': [], 'renderers': [], 'states': []}
+```
+
+Test that the grains are working properly:
+
+```
+root@salt-master1:~# salt --out=txt '*' grains.item dc
+minion1.hkg1.test.corywright.org: {'dc': 'hkg1'}
+minion1.lon3.test.corywright.org: {'dc': 'lon3'}
+minion1.iad3.test.corywright.org: {'dc': 'iad3'}
+minion1.ord1.test.corywright.org: {'dc': 'ord1'}
+minion1.syd2.test.corywright.org: {'dc': 'syd2'}
+minion1.dfw2.test.corywright.org: {'dc': 'dfw2'}
+```
+
+A quick glance at the `pillar/global/data.sls` data in the git repository will show the global variables I've created for this test:
+
+```
+# pillar/global/data.sls
+defined_only_in_global: global
+defined_in_both_global_and_region: global
+```
+
+Also look at the variables that are in each region's `data.sls` file:
+
+```
+# pillar/dfw2/data.sls
+defined_in_both_global_and_region: dfw2
+defined_only_in_region: dfw2
+```
+
+At this point we can now test the pillar data to see what is being returned.  
+
+Data that is only defined in the global `data.sls` file is returned as expected:
+
+```
+# behaves the same in all three versions I tested, 2014.1.0, 2014.1.1, and 2014.1.3
+root@salt-master1:~# salt --out=txt '*' pillar.get defined_only_in_global
+minion1.hkg1.test.corywright.org: global
+minion1.dfw2.test.corywright.org: global
+minion1.ord1.test.corywright.org: global
+minion1.iad3.test.corywright.org: global
+minion1.syd2.test.corywright.org: global
+minion1.lon3.test.corywright.org: global
+```
+
+As is the data that was defined in each regions `data.sls` file, for version 2014.1.0 and 2014.1.1:
+
+```
+# for 2014.1.0 and 2014.1.1, see the next section for 2014.1.3 results
+root@salt-master1:~# salt --out=txt '*' pillar.get defined_only_in_region
+minion1.hkg1.test.corywright.org: hkg1
+minion1.lon3.test.corywright.org: lon3
+minion1.dfw2.test.corywright.org: dfw2
+minion1.iad3.test.corywright.org: iad3
+minion1.syd2.test.corywright.org: syd2
+minion1.ord1.test.corywright.org: ord1
+
+#2014.1.3 returns nothing at all
+root@salt-master1:~# salt --out=txt '*' pillar.get defined_only_in_region
+root@salt-master1:~# salt '*' pillar.get defined_only_in_region
+minion1.ord1.test.corywright.org:
+
+minion1.syd2.test.corywright.org:
+
+minion1.lon3.test.corywright.org:
+
+minion1.hkg1.test.corywright.org:
+
+minion1.dfw2.test.corywright.org:
+
+minion1.iad3.test.corywright.org:
+```
+
+Oddly enough, the `defined_only_in_region` variable does appear in pillar.items output and the values are consistent with those found in the output from 2014.1.0 and 2014.1.1:
+
+```
+root@salt-master1:~# salt '*' pillar.items
+minion1.ord1.test.corywright.org:
+    ----------
+    defined_in_both_global_and_region:
+        ord1
+    defined_only_in_global:
+        global
+    defined_only_in_region:
+        ord1
+[...]
+minion1.lon3.test.corywright.org:
+    ----------
+    defined_in_both_global_and_region:
+        global
+    defined_only_in_global:
+        global
+    defined_only_in_region:
+        lon3
+[...]
+minion1.syd2.test.corywright.org:
+    ----------
+    defined_in_both_global_and_region:
+        global
+    defined_only_in_global:
+        global
+    defined_only_in_region:
+        syd2
+[...]
+minion1.hkg1.test.corywright.org:
+    ----------
+    defined_in_both_global_and_region:
+        hkg1
+    defined_only_in_global:
+        global
+    defined_only_in_region:
+        hkg1
+[...]
+minion1.iad3.test.corywright.org:
+    ----------
+    defined_in_both_global_and_region:
+        iad3
+    defined_only_in_global:
+        global
+    defined_only_in_region:
+        iad3
+[...]
+minion1.dfw2.test.corywright.org:
+    ----------
+    defined_in_both_global_and_region:
+        dfw2
+    defined_only_in_global:
+        global
+    defined_only_in_region:
+        dfw2
+[...]
+```
+
+When we ask for the value of the `defined_in_both_global_and_region` pillar variable we see that it inconsistently returns regional data sometimes, and global data others:
+
+```
+# for 2014.1.0 and 2014.1.1, see the next section for 2014.1.3 results
+root@salt-master1:~# salt --out=txt '*' pillar.get defined_in_both_global_and_region
+minion1.hkg1.test.corywright.org: hkg1
+minion1.lon3.test.corywright.org: global
+minion1.ord1.test.corywright.org: ord1
+minion1.iad3.test.corywright.org: iad3
+minion1.dfw2.test.corywright.org: dfw2
+minion1.syd2.test.corywright.org: global
+```
+
+In Salt 2014.1.3 it's even worse in that it never returns the region's variable that should be overlaid on top of the global definitions, instead always returning the global value:
+
+```
+root@salt-master1:~# salt --out=txt '*' pillar.get defined_in_both_global_and_region
+minion1.lon3.test.corywright.org: global
+minion1.dfw2.test.corywright.org: global
+minion1.iad3.test.corywright.org: global
+minion1.hkg1.test.corywright.org: global
+minion1.syd2.test.corywright.org: global
+minion1.ord1.test.corywright.org: global
+
+root@salt-master1:~# salt --versions-report
+           Salt: 2014.1.3
+         Python: 2.7.3 (default, Feb 27 2014, 19:58:35)
+         Jinja2: 2.6
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.4.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```
+
+This is a major problem for us as we use the overlays to define global variables that are used in most environments, and then override them in regions that deviate from standard variables.  I've had to revert to defining all variables in all regions until we can get this issue fixed.
+
+I was waiting for a new release to test this again in case it was fixed. But 2014.1.3 has now been cut and the issue is still present.

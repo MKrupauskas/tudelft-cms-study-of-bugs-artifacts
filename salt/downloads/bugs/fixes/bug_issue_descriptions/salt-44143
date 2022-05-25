@@ -1,0 +1,209 @@
+### Description of Issue/Question
+I'm trying to provision a VM using a salt-cloud azurearm profile. The NIC is provisioned successfully, but the provisioning job fails when it attempts to get and assign information about the NIC. Looking at the NIC properties in the Azure console, I can see it correctly gets assigned VNet, subnet, VM resource group, and NSG.
+
+### Setup
+
+Provider:
+```
+azure:
+  driver: azurearm
+  minion:
+    master: saltmaster
+  subscription_id: <removed>
+  location: centralus
+  username: <removed>
+  password: <removed>
+  resource_group: rgVMs
+  network_resource_group: Test
+  network: MainVNet
+  subnet: snMainVNet-Subnet1
+  security_group: nsgMainVNet
+  cleanup_disks: true
+  cleanup_vhds: true
+  cleanup_data_disks: true
+  cleanup_interfaces: true
+```
+Profile:
+```
+vm_profile:
+  image: my-custom-azure-centos-7.3-x86_64-base-image
+  location: Central US
+  media_link: https://<removed>.blob.core.windows.net/vdisks
+  provider: azure
+  size: Standard_D12_v2
+  slot: staging
+  ssh_password: <removed>
+  ssh_username: <removed>
+```
+
+### Steps to Reproduce Issue
+In my case I've been using `salt-run cloud.map_run mapdata=...`, but the same behavior happens when I simply execute `salt-cloud -p vm_profile test-vm1`. The VM NIC is created successfully, but the VM provisioning fails when trying to get the NIC resource group. Throws the following stacktrace:
+
+```
+Exception occurred in runner cloud.map_run: Traceback (most recent call last):
+  File "/usr/lib/python2.7/site-packages/salt/client/mixins.py", line 392, in _low
+    data['return'] = self.functions[fun](*args, **kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/runners/cloud.py", line 126, in map_run
+    info = client.map_run(path, **_filter_kwargs(kwargs))
+  File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 362, in map_run
+    mapper.run_map(dmap)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 2240, in run_map
+    profile, local_master=local_master
+  File "/usr/lib/python2.7/site-packages/salt/cloud/__init__.py", line 1287, in create
+    output = self.clouds[func](vm_)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/azurearm.py", line 1190, in create
+    'wait_for_ip_interval_multiplier', vm_, __opts__, default=1),
+  File "/usr/lib/python2.7/site-packages/salt/utils/cloud.py", line 2421, in wait_for_ip
+    data = update_callback(*update_args, **update_kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/azurearm.py", line 1165, in _query_ip_address
+    data = request_instance(kwargs=vm_)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/azurearm.py", line 964, in request_instance
+    iface_data = create_interface(kwargs=vm_)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/azurearm.py", line 908, in create_interface
+    return show_interface(kwargs=kwargs)
+  File "/usr/lib/python2.7/site-packages/salt/cloud/clouds/azurearm.py", line 706, in show_interface
+    data['resource_group'] = kwargs['resource_group']
+TypeError: 'instancemethod' object does not support item assignment
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.0
+
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: 3.2.2
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Aug  4 2017, 00:39:18)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.3.1611 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-514.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.3.1611 Core
+```
+
+pip freeze:
+```
+adal==0.4.7
+apache-libcloud==2.0.0rc2
+asn1crypto==0.22.0
+azure==2.0.0rc5
+azure-batch==0.30.0rc5
+azure-common==1.1.8
+azure-graphrbac==0.30.0rc5
+azure-mgmt==0.30.0rc5
+azure-mgmt-authorization==0.30.0rc5
+azure-mgmt-batch==0.30.0rc5
+azure-mgmt-cdn==0.30.0rc5
+azure-mgmt-cognitiveservices==0.30.0rc5
+azure-mgmt-commerce==0.30.0rc5
+azure-mgmt-compute==0.30.0rc5
+azure-mgmt-keyvault==0.30.0rc5
+azure-mgmt-logic==0.30.0rc5
+azure-mgmt-network==0.30.0rc5
+azure-mgmt-notificationhubs==0.30.0rc5
+azure-mgmt-nspkg==2.0.0
+azure-mgmt-powerbiembedded==0.30.0rc5
+azure-mgmt-redis==0.30.0rc5
+azure-mgmt-resource==0.30.0rc5
+azure-mgmt-scheduler==0.30.0rc5
+azure-mgmt-storage==0.30.0rc5
+azure-mgmt-web==0.30.0rc5
+azure-nspkg==2.0.0
+azure-servicebus==0.20.2
+azure-servicemanagement-legacy==0.20.3
+azure-storage==0.32.0
+Babel==0.9.6
+backports.ssl-match-hostname==3.4.0.2
+certifi==2017.7.27.1
+cffi==1.10.0
+chardet==3.0.4
+CherryPy==3.2.2
+configobj==4.7.2
+cryptography==2.1.1
+decorator==3.4.0
+enum34==1.1.6
+futures==3.0.5
+idna==2.6
+iniparse==0.4
+ipaddress==1.0.18
+isodate==0.5.4
+Jinja2==2.7.2
+keyring==10.4.0
+kitchen==1.1.1
+langtable==0.0.31
+lxml==3.8.0
+MarkupSafe==0.11
+msgpack-python==0.4.8
+msrest==0.4.17
+msrestazure==0.4.15
+oauthlib==2.0.4
+pathlib2==2.3.0
+pathspec==0.5.5
+perf==0.1
+psutil==2.2.1
+pycparser==2.18
+pycrypto==2.6.1
+pycurl==7.19.0
+pygobject==3.14.0
+pygpgme==0.3
+PyJWT==1.5.3
+pyliblzma==0.5.3
+pyOpenSSL==17.1.0
+python-augeas==0.5.0
+python-dateutil==2.6.1
+python-dmidecode==3.10.13
+python-gnupg==0.3.8
+pyudev==0.15
+pyvmomi==6.5.0.2017.5
+pyxattr==0.5.1
+PyYAML==3.11
+pyzmq==15.3.0
+requests==2.7.0
+requests-oauthlib==0.8.0
+salt==2017.7.0
+scandir==1.6
+SecretStorage==2.3.1
+six==1.9.0
+slip==0.4.0
+slip.dbus==0.4.0
+tornado==4.2.1
+urlgrabber==3.10
+urllib3==1.22
+yamllint==1.8.2
+yum-langpacks==0.4.2
+yum-metadata-parser==1.1.4
+```
+The above `pip freeze` is from my latest run (trying out `azure==2.0.0rc5`); however, the issue is also reproducible pinning the `pip install` to `azure==2.0.0rc6`. 
+
+I've also verified that all modules listed [here](https://github.com/saltstack/salt/blob/v2016.11.2/salt/cloud/clouds/azurearm.py#L57-L89) import successfully with `python -c 'import ...'`.
+
+Thanks

@@ -1,0 +1,136 @@
+### Description of Issue/Question
+I have an state which configures an docker container and keeps it running.
+In my setup i have set the `restart_policy` to `unless-stopped`.
+As long as the docker is running all works as expected, no chages are made on state.apply.
+This behavior changes if i restart my docker daemon (or reboot the system).
+Afterwards salt changes the DNS Setting of the container, i do not configer something here, these are default).
+
+### Setup
+```
+docker_container_image_portainer:
+    docker_image.present:
+        - name: portainer/portainer:latest
+        - force: true
+
+docker_container_running_portainer:
+    docker_container.running:
+        - name: portainer
+        - image: portainer/portainer:latest
+        - binds: /var/lib/docker_store/portainer:/data:rw
+        - command: --no-analytics
+        - port_bindings: 9000:9000
+        - restart_policy: unless-stopped
+        - watch:
+            - docker_image: docker_container_image_portainer
+```
+
+### Steps to Reproduce Issue
+1. Container is in final state, state.apply does not change anything:
+```
+docker inspect portainer |jq .[0].HostConfig | grep Dns
+  "Dns": null,
+  "DnsOptions": null,
+  "DnsSearch": null,
+```
+2. Restart docker
+```
+systemctl restart docker
+docker inspect portainer |jq .[0].HostConfig | grep Dns
+  "Dns": [],
+  "DnsOptions": [],
+  "DnsSearch": [],
+```
+3. Run state.apply
+```
+----------
+          ID: docker_container_running_portainer
+    Function: docker_container.running
+        Name: portainer
+      Result: True
+     Comment: Replaced container 'portainer'
+     Started: 09:12:40.808433
+    Duration: 5227.086 ms
+     Changes:   
+              ----------
+              container:
+                  ----------
+                  HostConfig:
+                      ----------
+                      Dns:
+                          ----------
+                          new:
+                              None
+                          old:
+                      DnsOptions:
+                          ----------
+                          new:
+                              None
+                          old:
+                      DnsSearch:
+                          ----------
+                          new:
+                              None
+                          old:
+              container_id:
+                  ----------
+                  added:
+                      6df2c48d0696543167534bbab63f1c5f32f54519fc4d020d9a571f33bc785d0a
+                  removed:
+                      - 274288f91a0bf83ba32f0816e7c03c18f5e7ac07521ef4714d595981e85f0350
+    Warnings: The detected changes may be due to incorrect handling of arguments
+              in earlier Salt releases. If this warning persists after running
+              the state again, and no changes were made to the SLS file, then
+              please report this.
+
+docker inspect portainer |jq .[0].HostConfig | grep Dns
+  "Dns": null,
+  "DnsOptions": null,
+  "DnsSearch": null,
+```
+
+
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2017.7.1
+ 
+Dependency Versions:
+           cffi: 1.10.0
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: 2.4.2
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.9.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.24.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.13 (default, Jul 21 2017, 03:24:34)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.1
+            ZMQ: 4.2.2
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: x86_64
+        release: 4.9.44-1-lts
+         system: Linux
+        version: Not Installed
+```
+So it seems that `null` isn't the right default value and this should be `[]` if nothing is set.

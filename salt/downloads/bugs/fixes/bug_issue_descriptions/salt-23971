@@ -1,0 +1,102 @@
+The problematic state tries to disable firewalls on some OS'es and works perfectly for everything we have, except SLES 11 SP3. We use `service.dead` and then require it in another state. The current incarnation is:
+
+``` salt
+#
+# State for disabling firewall when not necessary and interfering with 
+# our stuff, eg. zabbix-agent. For now just for RHEL/CentOS 7 and SLES.
+#
+
+{% if grains['os_family'] == 'RedHat' and grains['osrelease'].startswith('7') %}
+    {% set firewall_service_name = 'firewalld' %}
+{% elif grains['osfullname'] == 'SLES' %}
+    {% if grains['osrelease'].startswith('11') %}
+        {% set firewall_service_name = 'SuSEfirewall2_setup' %}
+    {% else %}
+        {% set firewall_service_name = 'SuSEfirewall2' %}
+    {% endif %}
+{% else %}
+    # Required for minions with no firewall to disable.
+    {% set firewall_service_name = 'aFakeNameToPleaseSalt' %}
+{% endif %}
+
+Disable firewall:
+  service.dead:
+    - name: {{firewall_service_name}}
+    - enable: False
+```
+
+Salt minion version 2015.5.0 (Lithium) running on  SLES 11 SP 3 (still supported by SUSE) returns:
+
+``` python-traceback
+          ID: Disable firewall
+    Function: service.dead
+        Name: aFakeNameToPleaseSalt
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib64/python2.6/site-packages/salt/state.py", line 1563, in call
+                  **cdata['kwargs'])
+                File "/usr/lib64/python2.6/contextlib.py", line 34, in __exit__
+                  self.gen.throw(type, value, traceback)
+                File "/usr/lib64/python2.6/site-packages/salt/utils/context.py", line 42, in func_globals_inject
+                  yield
+                File "/usr/lib64/python2.6/site-packages/salt/state.py", line 1563, in call
+                  **cdata['kwargs'])
+                File "/usr/lib64/python2.6/site-packages/salt/states/service.py", line 327, in dead
+                  ret.update(_disable(name, None, **kwargs))
+                File "/usr/lib64/python2.6/site-packages/salt/states/service.py", line 164, in _disable
+                  if __salt__['service.disabled'](name):
+                File "/usr/lib64/python2.6/site-packages/salt/modules/rh_service.py", line 498, in disabled
+                  return not _sysv_is_enabled(name)
+                File "/usr/lib64/python2.6/site-packages/salt/modules/rh_service.py", line 144, in _sysv_is_enabled
+                  result = _chkconfig_is_enabled(name, runlevel)
+                File "/usr/lib64/python2.6/site-packages/salt/modules/rh_service.py", line 162, in _chkconfig_is_enabled
+                  cols = result['stdout'].splitli
+```
+
+This seems to partly be a rehash of https://github.com/saltstack/salt/issues/4315, because I can fix the error if I replace in `salt/modules/rh_service.py` this:
+
+``` python
+    cmdline = '/sbin/chkconfig --list {0}'.format(name)
+    result = __salt__['cmd.run_all'](cmdline, python_shell=False)
+```
+
+with this:
+
+``` python
+    cmdline = '/sbin/chkconfig --list {0} | grep "0:off"'.format(name)
+    result = __salt__['cmd.run_all'](cmdline, python_shell=True)
+```
+
+taking into account that xinetd-related lines look like this
+
+``` salt
+xinetd based services:
+        chargen:            off
+```
+
+while the lines that we want look like this:
+
+```
+SuSEfirewall2_setup       0:off  1:off  2:off  3:off  4:off  5:off  6:off
+```
+
+I guess it's a safe assumption that all services we want to check are off in level 0.
+
+With the above change, I get no errors. The output on the minion for `salt --versions-report`:
+
+``` yaml
+           Salt: 2015.5.0
+         Python: 2.6.8 (unknown, May 29 2012, 22:30:44)
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+ msgpack-python: 0.4.6
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+            ZMQ: 4.0.4
+           Mako: Not Installed
+```

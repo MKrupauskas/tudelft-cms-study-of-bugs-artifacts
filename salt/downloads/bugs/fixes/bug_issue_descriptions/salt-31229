@@ -1,0 +1,94 @@
+We rely heavily on `git.latest` for deploying our web properties. After upgrading from 2014.7.x to 2015.8.x this month, I've begun witnessing very strange behavior on Ubuntu Precise with Git 1.7.9.5. 
+
+Here are steps to reproduce the problem as I experienced it, starting with 2014.7.x and then upgrading to 2015.8.x:
+## Steps to reproduce:
+### Locally:
+
+Set up the VM on step-1 tag:
+
+```
+git clone https://gist.github.com/bd959cbabe91aa690e17.git weird-git
+cd weird-git
+git checkout step-1
+vagrant up
+vagrant ssh
+```
+### On the VM:
+
+Check the state of the VM after the highstate.
+
+```
+cd /opt/stuff/django
+git branch  # Should be `stable/1.4.x`:
+#   master
+# * stable/1.4.x
+git log -1  # Should be `5864e1f8e91d31d914c27885240ea6e065b38fd4`
+logout
+```
+### Locally:
+
+Switch to step-2 tag:
+
+```
+git checkout step-2
+vagrant ssh
+```
+### On the VM:
+
+Upgrade Salt to `v2015.8.5` and run the highstate.
+
+```
+sudo sh /root/install_salt.sh -P git v2015.8.5
+sudo salt-call state.highstate
+cd /opt/stuff/django
+git branch  # Is still `stable/1.4.x`:
+git log -1  # Should be `57671dd0b91ed4def9c7a49c486944f4e98fed9d` (HEAD of stable/1.5.x)
+```
+
+Note the branches now:
+
+```
+#   master
+#   origin/stable/1.5.x
+# * stable/1.4.x
+```
+
+First of all, this is just weird, and breaks my expectations of common git conventions. When I check out a branch, I expect the local branch to be the name of the branch I checked out, not whatever branch I was on.
+### Run the highstate again
+
+Here's where it gets weird:
+
+```
+sudo salt-call state.highstate  # This will fail on the `django` state.
+```
+
+OK, so fix that manually:
+
+```
+git checkout 57671dd0b91ed4def9c7a49c486944f4e98fed9d
+git branch -d stable/1.4.x
+git branch -d origin/stable/1.5.x
+sudo salt-call state.highstate  # This will fail again on the `django` state
+# fatal: Cannot setup tracking information; starting point is not a branch.
+```
+
+OK, so I guess we need to use that new `branch` option on the state, right?
+
+```
+logout
+```
+### Locally:
+
+```
+git checkout step-3
+vagrant ssh
+```
+### On the VM:
+
+```
+sudo salt-call state.highstate  # Success! Fistpump!
+sudo salt-call state.highstate  # Failure! Whaaaa?!!
+# fatal: A branch named 'origin/stable/1.5.x' already exists.
+```
+
+I've also been able to produce behavior where a branch deploys an old revision, and not the HEAD, when switching between branchs, but I'm not sure how to reproduce it.

@@ -1,0 +1,84 @@
+Based on [this stackoverflow question](http://stackoverflow.com/q/29960947/441652).
+## Problem
+
+Config in `/etc/salt/master`:
+
+```
+show_jid: True
+```
+
+Dummy state in `/srv/salt/dummy.sls`:
+
+```
+dummy_state:
+    cmd.run:
+        - name: "echo dummy"
+```
+
+Command:
+
+```
+salt --out json '*' state.sls dummy
+```
+
+Output (for 1 minion):
+
+```
+jid: 20150705154900243813
+{
+    "elephant": {
+        "cmd_|-dummy_state_|-echo dummy_|-run": {
+            "comment": "Command \"echo dummy\" run", 
+            "name": "echo dummy", 
+            "start_time": "15:49:04.196608", 
+            "result": true, 
+            "duration": 7.117, 
+            "__run_num__": 0, 
+            "changes": {
+                "pid": 6501, 
+                "retcode": 0, 
+                "stderr": "", 
+                "stdout": "dummy"
+            }
+        }
+    }
+}
+
+```
+
+This output is not [valid JSON](http://json.org/) - it contains `jid`.
+
+The problem is that instead of using JSON output directly, one has to create a [special parser](https://github.com/uvsmtid/common-salt-states/blob/75e42afb04cbd7d82722c9793c1c9be6637b8bbd/states/bootstrap/bootstrap.dir/modules/utils/check_salt_output.py#L107) to weed out all interleaved JSON and non-JSON text before feeding it to the parser. Or, in short, the output is unusable.
+## Solution
+
+The solution should stem from requirement to have valid requested format on STDOUT no matter what.
+
+Ideally, I can think of an aggregator which collects outputs from everywhere (1 code honouring `show_jid`, 2 state modules, 3 anything else) and formats it properly on STDOUT based on user request (JSON, YAML, etc.). Otherwise, when each module or feature generates data on its own, it is hard to think about how they can insert their part of text to create valid format as a whole.
+## Test
+
+`load_json.py`:
+
+```
+import sys
+import json
+data = json.load(sys.stdin)
+print str(data)
+```
+
+For example, capturing the output above and feeding it into standard JSON parser in Python does not work:
+
+```
+salt --out json '*' state.sls dummy > output.json
+Traceback (most recent call last):
+  File "load_json.py", line 4, in <module>
+    data = json.load(sys.stdin)
+  File "/usr/lib64/python2.7/json/__init__.py", line 290, in load
+    **kw)
+  File "/usr/lib64/python2.7/json/__init__.py", line 338, in loads
+    return _default_decoder.decode(s)
+  File "/usr/lib64/python2.7/json/decoder.py", line 366, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+  File "/usr/lib64/python2.7/json/decoder.py", line 384, in raw_decode
+    raise ValueError("No JSON object could be decoded")
+ValueError: No JSON object could be decoded
+```

@@ -1,0 +1,45 @@
+When running:
+
+```
+sudo salt-call dockerng.push master:5000/petar/export_beam_integrals.server:latest insecure_registry=True
+```
+
+I get the following error:
+
+```
+APIError: 500 Server Error: Internal Server Error ("invalid registry endpoint https://master:5000/v2/: Get https://master:5000/v2/: tls: oversized record received with length 20527. If this private registry supports only HTTP or HTTPS with an unknown CA certificate, please add `--insecure-registry master:5000` to the daemon's arguments. In the case of HTTPS, if you have access to the registry's CA certificate, no need for the flag; simply place the CA certificate at /etc/docker/certs.d/master:5000/ca.crt")
+Traceback (most recent call last):
+  File "/usr/bin/salt-call", line 11, in <module>
+    salt_call()
+  File "/usr/lib/python2.7/dist-packages/salt/scripts.py", line 331, in salt_call
+    client.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/call.py", line 53, in run
+    caller.run()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 133, in run
+    ret = self.call()
+  File "/usr/lib/python2.7/dist-packages/salt/cli/caller.py", line 196, in call
+    ret['return'] = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/dockerng.py", line 3691, in push
+    response = _image_wrapper('push', repo_name, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/modules/dockerng.py", line 569, in wrapper
+    return wrapped(*args, **salt.utils.clean_kwargs(**kwargs))
+  File "/usr/lib/python2.7/dist-packages/salt/modules/dockerng.py", line 872, in _image_wrapper
+    registry=registry)
+  File "/usr/local/lib/python2.7/dist-packages/docker/api/daemon.py", line 71, in login
+    return self._result(response, json=True)
+  File "/usr/local/lib/python2.7/dist-packages/docker/client.py", line 146, in _result
+    self._raise_for_status(response)
+  File "/usr/local/lib/python2.7/dist-packages/docker/client.py", line 142, in _raise_for_status
+    raise errors.APIError(e, response, explanation=explanation)
+docker.errors.APIError: 500 Server Error: Internal Server Error ("invalid registry endpoint https://master:5000/v2/: Get https://master:5000/v2/: tls: oversized record received with length 20527. If this private registry supports only HTTP or HTTPS with an unknown CA certificate, please add `--insecure-registry master:5000` to the daemon's arguments. In the case of HTTPS, if you have access to the registry's CA certificate, no need for the flag; simply place the CA certificate at /etc/docker/certs.d/master:5000/ca.crt")
+```
+
+due to not passing the `insecure_registry` parameter to the `__context__['docker.client'].login` call in https://github.com/saltstack/salt/blob/v2015.8.1/salt/modules/dockerng.py#L868
+
+Easy fix would be to just pass the `insecure_registry` parameter, but please note that the docker-py's `login()` is depreciating the `insecure_registry` parameter:
+- https://github.com/docker/docker-py/blob/1.5.0/docker/api/daemon.py#L35
+- https://github.com/docker/docker-py/blob/1.5.0/docker/constants.py#L8
+
+A better solution would be not to perform `__context__['docker.client'].login` calls in https://github.com/saltstack/salt/blob/v2015.8.1/salt/modules/dockerng.py#L868 if `insecure_registry` is `True`.
+
+I got to this issue while trying to find a new workaround to #28004, so I'll mark it as related.

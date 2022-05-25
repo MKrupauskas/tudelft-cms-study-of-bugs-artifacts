@@ -1,0 +1,71 @@
+Running ~70 salt minions sometimes I'm getting this error in salt master's log:
+
+```
+...
+  File "/usr/lib/pymodules/python2.7/salt/fileserver/minionfs.py", line 152, in file_hash
+    file_hash(load, fnd)
+  File "/usr/lib/pymodules/python2.7/salt/fileserver/minionfs.py", line 151, in file_hash
+    log.debug('Fileserver attempted to read incomplete cache file. Retrying.')
+  File "/usr/lib/python2.7/logging/__init__.py", line 1128, in debug
+    self._log(DEBUG, msg, args, **kwargs)
+  File "/usr/lib/python2.7/logging/__init__.py", line 1257, in _log
+    record = self.makeRecord(self.name, level, fn, lno, msg, args, exc_info, func, extra)
+  File "/usr/lib/python2.7/logging/__init__.py", line 1231, in makeRecord
+    rv = LogRecord(name, level, fn, lno, msg, args, exc_info, func)
+  File "/usr/lib/python2.7/logging/__init__.py", line 271, in __init__
+    self.module = os.path.splitext(self.filename)[0]
+  File "/usr/lib/python2.7/posixpath.py", line 96, in splitext
+    return genericpath._splitext(p, sep, altsep, extsep)
+  File "/usr/lib/python2.7/genericpath.py", line 101, in _splitext
+    if p[filenameIndex] != extsep:
+RuntimeError: maximum recursion depth exceeded in cmp
+```
+
+Same time on some minions it results in
+`Source file salt://minionXXX/filename not found"`
+during state.highstate execution.
+I use minionfs like this:
+
+```
+{% if grains['id'] == 'minionXXX' %}
+filename:
+  module.run:
+    - name: cp.push
+    - path: filename
+{% else %}
+filename:
+  file.managed:
+    - source: salt://minionXXX/filename
+{% endif %}
+```
+
+This is master's fs backend config:
+
+```
+fileserver_backend:
+  - git
+  - minion
+
+file_recv: True
+gitfs_remotes:
+  - git://blablabla/myrepo.git
+```
+
+I tried to add `time.sleep(0.5)` before https://github.com/saltstack/salt/blob/develop/salt/fileserver/minionfs.py#L182 line and it solves the issue (there are still retries, but none of them results in recursion depth exceeded). However, I think it's not the best way to solve it.
+
+salt --versions-report:
+
+```
+           Salt: 2014.1.0
+         Python: 2.7.3 (default, Feb 27 2014, 19:58:35)
+         Jinja2: 2.7-dev
+       M2Crypto: 0.21.1
+ msgpack-python: 0.1.10
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 13.0.0
+            ZMQ: 3.2.2
+```
+
+But I've also tried on 2014.7

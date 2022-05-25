@@ -1,0 +1,101 @@
+The state:
+
+```
+etc_security_limits_d:
+  file.directory:
+    - name: /etc/security/limits.d
+    - user: root
+    - group: root
+    - file_mode: 644
+    - dir_mode: 755
+    - makedirs: True
+    - recurse:
+      - user
+      - group
+      - mode
+```
+
+The state gets corretly parsed as OrderedDict([('etc_security_limits_d', OrderedDict([('file.directory', [OrderedDict([('name', '/etc/security/limits.d')]), OrderedDict([('user', 'root')]), OrderedDict([('group', 'root')]), OrderedDict([('file_mode', 644)]), OrderedDict([('dir_mode', 755)]), OrderedDict([('makedirs', True)]), OrderedDict([('recurse', ['user', 'group', 'mode'])])])])), ....<next state>....
+
+It is applied to a directory with the (intentionally wrong) file/directory-modes (this is the state, which is expected to be reported as wrong); note the modes on "." and "90-nproc.conf":
+
+```
+root@hostname:/etc/security/limits.d# la
+total 12
+drwxrwxrwx 2 root root 4096 Dec  2 14:26 .
+drwxr-xr-x 3 root root 4096 Dec  2 14:05 ..
+-rw-rw-rw- 1 root root  191 Dec  2 13:45 90-nproc.conf
+```
+
+However, the test mode returns the wrong state detection (salt is called locally on the machine for this "screenshot"; however if calling from the master, it is producing the same result):
+
+```
+local:
+----------
+          ID: etc_security_limits_d
+    Function: file.directory
+        Name: /etc/security/limits.d
+      Result: True
+     Comment: The directory /etc/security/limits.d is in the correct state
+     Changes:
+```
+
+Now, omitting the test=True brings what is expected:
+
+```
+local:
+----------
+          ID: etc_security_limits_d
+    Function: file.directory
+        Name: /etc/security/limits.d
+      Result: True
+     Comment: Directory /etc/security/limits.d updated
+     Changes:  
+              ----------
+              mode:
+                  0644
+```
+
+And as well the directory is recursively corrected as expected from the state:
+
+```
+root@hostname:/etc/security/limits.d# la
+total 12
+drwxr-xr-x 2 root root 4096 Dec  2 14:26 .
+drwxr-xr-x 3 root root 4096 Dec  2 14:05 ..
+-rw-r--r-- 1 root root  191 Dec  2 13:45 90-nproc.conf
+```
+
+This can be reproduced with different versions of salt in an identical way:
+
+```
+a) salt-call --versions-report
+           Salt: 2014.1.13
+         Python: 2.6.9 (unknown, Mar 31 2014, 22:15:20)
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+ msgpack-python: 0.4.0
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.11
+          PyZMQ: 14.3.1
+            ZMQ: 4.0.4
+```
+
+```
+b) salt-call --versions-report
+           Salt: 2014.7.0
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+        libnacl: Not Installed
+         PyYAML: 3.09
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 3.2.4
+           Mako: 0.3.4
+```

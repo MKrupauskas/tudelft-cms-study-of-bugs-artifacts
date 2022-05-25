@@ -1,0 +1,96 @@
+### Description of Issue/Question
+Salt is choking when one of my ext_pillars imports the [`ipaddress` module](https://docs.python.org/3.4/library/ipaddress.html).
+
+Here's an example (obviously not the real thing, but should serve the purpose of demonstration):
+
+```Python
+#!/usr/bin/env python3.4
+import ipaddress
+
+# fdb3:de94:8a2b::1
+i = b'\xfd\xb3\xde\x94\x8a+\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01'
+ip = ipaddress.ip_address(i)
+ip = str(ip)
+print(ip)
+```
+When executed directly with python 3.4 (see below for full environment), it behaves as expected, and prints `fdb3:de94:8a2b::1`.
+
+However, it seems salt is modifying the python path, and instead of using the system `ipaddress` module, it's using `ext/ipaddress.py` (which is [shitbroken](https://twitter.com/SysAdm_Podcast/status/1082880036603072512)):
+
+```Python
+Traceback (most recent call last):
+  File "./poc.py", line 3, in <module>
+    import ipaddress
+  File "/usr/lib/python3.4/site-packages/salt/ext/ipaddress.py", line 15, in <module>
+    from itertools import imap as map
+ImportError: cannot import name 'imap'
+```
+
+Which of course makes sense, because imap doesn't exist in python 3 itertools. (I initially noticed this when the ext_pillar refused to render a "packed" IPv6 address with `'hex' is not a text encoding; use codecs.encode() to handle arbitrary codecs` - which is also true, because `.encode('hex')` does not work in python 3. Reference: [line 50](https://github.com/saltstack/salt/blob/4b37292ffb1a0ba7cee402071bf8e851fd7c90dc/salt/ext/ipaddress.py#L50) and [line 56](https://github.com/saltstack/salt/blob/4b37292ffb1a0ba7cee402071bf8e851fd7c90dc/salt/ext/ipaddress.py#L56) of `ext/ipaddress.py`.)
+
+I'd recommend doing a **conditional prepending** of the python path for ext_pillars.
+
+Stupid-quick simple demo:
+
+```Python
+import sys
+
+# https://docs.python.org/3/library/sys.html#sys.hexversion
+tgtver = 0x300000f0  # would match 3.0.0; 0x30409f0 would match v 3.4.9, etc.
+pyver = sys.hexversion
+
+if pyver < tgtver:
+    sys.path.insert(1, 'ext/')  # or whatever
+```
+
+This unfortunately is a blocker for me, as I now need to rollback (I'm using the [RedHat/CentOS 7 PY3 Saltstack repo](https://repo.saltstack.com/#rhel)) and it renders any minion (and master) that updates to 2019.2.0 unusable.
+
+### Setup
+N/A
+
+### Steps to Reproduce Issue
+See above
+
+### Versions Report
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: unknown
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: 0.26.8
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.17
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.26.4
+         Python: 3.4.9 (default, Feb  5 2019, 14:36:09)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.4.2
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.6.1810 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-957.5.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.6.1810 Core
+
+(same for minion and master)

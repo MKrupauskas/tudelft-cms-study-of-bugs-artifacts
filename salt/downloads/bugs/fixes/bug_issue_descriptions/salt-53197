@@ -1,0 +1,159 @@
+### salt.auth.rest response merged doesn't seems to work
+
+Thanks for the work done on Salt that a really nice product.
+
+The rest auth documentation https://docs.saltstack.com/en/latest/ref/auth/all/salt.auth.rest.html is saying:
+
+> If there are entries underneath the ^url entry then they are merged with any responses from the REST call. In the above example, assuming the REST call does not return any additional ACLs, this will authenticate Fred via a REST call and allow him to run any execution module and all runners.
+
+I've tried many setup and may be the json returned by the rest api is not in proper format, but documentation is may be not clear enough about it.
+
+### Setup
+
+In `/etc/salt/master.d/auth.conf` I've tried the following configuration
+
+```
+external_auth:
+    rest:
+        ^url: http://myauth.service.local
+```
+
+With a rest call returning the folowing acl in json:
+
+```
+[TRACE   ] Response Text: [".*","@wheel","@jobs","@runner"]
+[DEBUG   ] eauth REST call returned 200: {u'body': '[".*","@wheel","@jobs","@runner"]', u'status': 200, u'dict': [u'.*', u'@wheel', u'@jobs', u'@runner']}
+[TRACE   ] Compiled auth_list: []
+[WARNING ] Authentication failure of type "token" occurred.
+```
+Compile list is empty. So merrge didn't happen
+
+With the following:
+
+```
+[TRACE   ] Response Text: {"fred":[".*","@wheel","@jobs","@runner"]}
+[DEBUG   ] eauth REST call returned 200: {u'body': '{"fred":[".*","@wheel","@jobs","@runner"]}', u'status': 200, u'dict': {u'fred': [u'.*', u'@wheel', u'@jobs', u'@runner']}}
+[TRACE   ] Compiled auth_list: []
+```
+
+Same than previous. With:
+
+```
+external_auth:
+    rest:
+        ^url: http://myauth.service.local
+        'fred':
+```
+
+I've test with the same json as previous and I've got the following stack trace:
+
+```
+[ERROR   ] Some exception handling a payload from minion
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 750, in handle_message
+    ret, req_opts = yield self.payload_handler(payload)
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 1015, in run
+    value = future.result()
+  File "/usr/lib/python2.7/dist-packages/tornado/concurrent.py", line 237, in result
+    raise_exc_info(self._exc_info)
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 270, in wrapper
+    result = func(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 1064, in _handle_payload
+    'clear': self._handle_clear}[key](load)
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 1095, in _handle_clear
+    ret = getattr(self.clear_funcs, cmd)(load), {'fun': 'send_clear'}
+  File "/usr/lib/python2.7/dist-packages/salt/master.py", line 2077, in publish
+    auth_check = self.loadauth.check_authentication(extra, auth_type)
+  File "/usr/lib/python2.7/dist-packages/salt/auth/__init__.py", line 436, in check_authentication
+    auth_list = self.get_auth_list(load, token=token)
+  File "/usr/lib/python2.7/dist-packages/salt/auth/__init__.py", line 396, in get_auth_list
+    groups)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/minions.py", line 1014, in fill_auth_list
+    auth_list.extend(auth_provider[match])
+TypeError: 'NoneType' object is not iterable
+[ERROR   ] Uncaught exception, closing connection.
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/zmq/eventloop/zmqstream.py", line 444, in _handle_events
+    self._handle_send()
+  File "/usr/lib/python2.7/dist-packages/zmq/eventloop/zmqstream.py", line 487, in _handle_send
+    status = self.socket.send_multipart(msg, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/zmq/sugar/socket.py", line 363, in send_multipart
+    i, rmsg,
+TypeError: Frame 0 (u'Some exception handling minion...) does not support the buffer interface.
+[ERROR   ] Exception in callback None
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/tornado/ioloop.py", line 887, in start
+    handler_func(fd_obj, events)
+  File "/usr/lib/python2.7/dist-packages/tornado/stack_context.py", line 275, in null_wrapper
+    return fn(*args, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/zmq/eventloop/zmqstream.py", line 444, in _handle_events
+    self._handle_send()
+  File "/usr/lib/python2.7/dist-packages/zmq/eventloop/zmqstream.py", line 487, in _handle_send
+    status = self.socket.send_multipart(msg, **kwargs)
+  File "/usr/lib/python2.7/dist-packages/zmq/sugar/socket.py", line 363, in send_multipart
+    i, rmsg,
+TypeError: Frame 0 (u'Some exception handling minion...) does not support the buffer interface.
+[TRACE   ] Process manager iteration
+```
+
+Error during the merge because list is empty. And with the following configuration with the same two senario of rest reply:
+
+```
+external_auth:
+    rest:
+        ^url: http://myauth.service.local
+        'fred':
+            - test.ping
+```
+
+Reply in both json case is:
+
+```
+[TRACE   ] Compiled auth_list: [u'test.ping']
+```
+So the list define in the `auth.conf` file override everything and is not merged. Or may be the meaning of merge is not the one I'm thinking about or may be my JSON format is not correct so an example of JSON would be much appreciate.
+
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2019.2.0
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: 3.5.0
+       dateutil: 2.5.3
+      docker-py: Not Installed
+          gitdb: 2.0.5
+      gitpython: 2.1.11
+          ioflo: Not Installed
+         Jinja2: 2.9.4
+        libgit2: 0.24.5
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: 1.3.7
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: 0.24.2
+         Python: 2.7.13 (default, Sep 26 2018, 18:42:22)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+           RAET: Not Installed
+          smmap: 2.0.5
+        timelib: Not Installed
+        Tornado: 4.4.3
+            ZMQ: 4.2.1
+ 
+System Versions:
+           dist: debian 9.6 
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 5.1.4-zen1-1-zen
+         system: Linux
+        version: debian 9.6 
+ ```

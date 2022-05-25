@@ -1,0 +1,121 @@
+**Description**
+When attempting to use a custom runner that calls other runners while using a threadpool, `__salt__` becomes unavailable.
+
+**Setup**
+
+custom runner is below:
+
+```
+# Import Python libs
+import asyncio
+import logging
+import concurrent.futures
+import time
+
+
+def custom_runner_function():
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+    #This call works fine!!
+    result = __salt__["state.orchestrate_single"]("pkg.installed", "vim")
+    try:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(main(loop, executor))
+    finally:
+        loop.close()
+
+
+async def main(loop, executor):
+    blocking_tasks = [loop.run_in_executor(executor, blocking_func, i)
+                      for i in range(2)
+                      ]
+    results = await asyncio.gather(*blocking_tasks)
+
+
+def blocking_func(n):
+    print("Executing task " + str(n))
+    # Here __salt__ not populates
+    result = __salt__["state.orchestrate_single"]("pkg.installed", "vim")
+    return result
+```
+
+**Steps to Reproduce the behavior**
+1. Add the runner above.  
+2. Start master and minion
+3. Run the runner:
+
+```
+salt-3.6)  ch3ll@megan-precision5550  ~/git/salt   83f551aeca <B>  sudo -E salt-run megan.custom_runner_function                                                                         
+suffix:                                                                                        
+    progress                                                                                                                                                                                                                                  
+event:                                                                                         
+The State execution failed to record the order in which all states were executed. The state return missing data is:                                                                                                                                                             
+{'megan-precision5550_master': {'pkg_|-vim_|-vim_|-installed': {'__id__': 'vim',   
+                                                                '__run_num__': 0,
+                                                                '__sls__': None, 
+                                                                'changes': {},                                                                                                                
+                                                                'comment': 'All '                                      
+                                                                           'specified '                                
+                                                                           'packages '                                 
+                                                                           'are '                                      
+                                                                           'already '                                  
+                                                                           'installed',                                
+                                                                'duration': 49.744,                                    
+                                                                'name': 'vim',                                                                                                                                                                
+                                                                'result': True,                                                         
+                                                                'start_time': '09:58:04.770576'}}}                                                                                                                                                                              
+                                                                                                                                                                                              
+Summary for event                 
+-----------                                                                                                                                                                                   
+Succeeded: 0                                                                                   
+Failed:   0                                                                                    
+-----------                                                                                    
+Total states run:    0                                                                         
+Total run time:  0.000 ms    
+Executing task 0                                                                                                                                                                                                                              
+Executing task 1                                           
+[ERROR   ] exception calling callback for <Future at 0x7fbf673d7320 state=finished raised TypeError>                                                                                                                                          
+Traceback (most recent call last):                                                                                     
+  File "/home/ch3ll/.pyenv/versions/3.6.8/lib/python3.6/concurrent/futures/thread.py", line 56, in run                                                                                                                                                                          
+    result = self.fn(*self.args, **self.kwargs)                                                                                                                                               
+  File "/home/ch3ll/git/salt/salt/runners/megan.py", line 30, in blocking_func                                         
+    result = __salt__["state.orchestrate_single"]("pkg.installed", "vim")                                                                                                                     
+  File "/home/ch3ll/git/salt/salt/loader_context.py", line 62, in __getitem__
+    return self.value()[item]                                                                                                                                                                 
+TypeError: 'NoneType' object is not subscriptable                                                                      
+                                                                                                                                                                                              
+During handling of the above exception, another exception occurred:                                                                     
+                                                                                                                                                                                                                                              
+Traceback (most recent call last):                         
+  File "/home/ch3ll/.pyenv/versions/3.6.8/lib/python3.6/concurrent/futures/_base.py", line 324, in _invoke_callbacks                                                                                                                          
+    callback(self)                                                                                                     
+  File "/home/ch3ll/.pyenv/versions/3.6.8/lib/python3.6/asyncio/futures.py", line 417, in _call_set_state                                                                                                                                     
+    dest_loop.call_soon_threadsafe(_set_state, destination, source)                                                                     
+  File "/home/ch3ll/.pyenv/versions/3.6.8/lib/python3.6/asyncio/base_events.py", line 637, in call_soon_threadsafe                                                                                                                            
+    self._check_closed()                                   
+  File "/home/ch3ll/.pyenv/versions/3.6.8/lib/python3.6/asyncio/base_events.py", line 377, in _check_closed                                                                                                                                                                     
+    raise RuntimeError('Event loop is closed')                      
+RuntimeError: Event loop is closed                                  
+
+Passed invalid arguments: 'NoneType' object is not subscriptable                                                                        
+
+Usage:                                                              
+None                                                                
+```
+
+This is happening because `__salt__` is not available when the `blocking_func` is called.
+
+I bisected the issue to this 83f551aeca1552a57044416a14c6095091127bfb which is this PR: 
+https://github.com/saltstack/salt/pull/58853
+
+
+ping @dwoz since you were the original submitter of the changes to the loader is this a bug or something that needs to be handled differently with the new changes to the loader.
+
+**Expected behavior**
+The runner runs and does not stack trace. I confirmed this does work on 3002.
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+Broken on v3003, Works on <=3002

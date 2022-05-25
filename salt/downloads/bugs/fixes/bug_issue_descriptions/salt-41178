@@ -1,0 +1,112 @@
+### Description of Issue/Question
+When using services like AWS RDS Mysql, specifying a global grant with '*.*' returns an permission denied error.   MySQL supports using '%.*'  which is also supported by AWS RDS MySQL.
+
+mysql_grants.present will allow the use of the % and returns a success, but the grant has an invalid escape character.
+
+### Setup
+```
+mysql_grant_test:
+ mysql_grants.present:
+   - grant: select
+   - database: '%.*'
+   - user: testuser
+   - host: '10.%'
+   - grant_option: False
+   - revoke_first: True
+   - connection_host: XXXXXXXXXXXXX.us-west-2.rds.amazonaws.com
+   - connection_user: XXXXX
+   - connection_pass: XXXXXXXXXXXX
+```
+
+Returns
+```
+          ID: mysql_grant_test
+    Function: mysql_grants.present
+      Result: True
+     Comment: Grant select on %.* to testuser@10.% has been added
+     Started: 21:39:38.051226
+    Duration: 2193.412 ms
+     Changes:
+              ----------
+              mysql_grant_test:
+                  Present
+
+Summary for xxxxxxxxxx
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   2.193 s
+```
+
+And the grant it creates is 
+
+```GRANT ALL PRIVILEGES ON `\%`.* TO 'testuser'@'10.%'```
+
+### Steps to Reproduce Issue
+
+```2017-05-10 22:10:33,258 [salt.loaded.int.module.mysql                         ][DEBUG   ] Doing query: SELECT User,Host FROM mysql.user WHERE User = %(user)s AND Host = %(host)s args: {'host': '10.%', 'user': 'testuser'}
+2017-05-10 22:10:33,459 [salt.loaded.int.module.mysql                         ][DEBUG   ] Doing query: SHOW GRANTS FOR %(user)s@%(host)s args: {'host': '10.%', 'user': 'testuser'}
+2017-05-10 22:10:33,492 [salt.loaded.int.module.mysql                         ][DEBUG   ] ["GRANT USAGE ON *.* TO 'testuser'@'10.%'"]
+2017-05-10 22:10:33,493 [salt.loaded.int.module.mysql                         ][DEBUG   ] _grant_to_tokens entry 'GRANT USAGE ON *.* TO 'testuser'@'10.%''
+2017-05-10 22:10:33,493 [salt.loaded.int.module.mysql                         ][DEBUG   ] grant to token 'testuser'::'10.%'::'['USAGE']'::'*.*'
+2017-05-10 22:10:33,657 [salt.loaded.int.module.mysql                         ][DEBUG   ] Grant Query generated: GRANT ALL PRIVILEGES ON `\%%`.* TO %(user)s@%(host)s args {'host': '10.%', 'user': 'testuser'}
+2017-05-10 22:10:33,657 [salt.loaded.int.module.mysql                         ][DEBUG   ] Doing query: GRANT ALL PRIVILEGES ON `\%%`.* TO %(user)s@%(host)s args: {'host': '10.%', 'user': 'testuser'}
+2017-05-10 22:10:33,690 [salt.loaded.int.module.mysql                         ][DEBUG   ] Grant Query generated: GRANT ALL PRIVILEGES ON `\%%`.* TO %(user)s@%(host)s args {'host': '10.%', 'user': 'testuser'}
+2017-05-10 22:10:34,020 [salt.loaded.int.module.mysql                         ][DEBUG   ] Doing query: SELECT column_name from information_schema.COLUMNS WHERE table_schema=%(schema)s and table_name=%(table)s and column_name=%(column)s args: {'column': 'Password', 'table': 'user', 'schema': 'mysql'}
+2017-05-10 22:10:34,054 [salt.loaded.int.module.mysql                         ][DEBUG   ] Doing query: SELECT User,Host FROM mysql.user WHERE User = %(user)s AND Host = %(host)s args: {'host': '10.%', 'user': 'testuser'}
+2017-05-10 22:10:34,254 [salt.loaded.int.module.mysql                         ][DEBUG   ] Doing query: SHOW GRANTS FOR %(user)s@%(host)s args: {'host': '10.%', 'user': 'testuser'}
+2017-05-10 22:10:34,287 [salt.loaded.int.module.mysql                         ][DEBUG   ] ["GRANT USAGE ON *.* TO 'testuser'@'10.%'", "GRANT ALL PRIVILEGES ON `\\%`.* TO 'testuser'@'10.%'"]
+2017-05-10 22:10:34,288 [salt.loaded.int.module.mysql                         ][DEBUG   ] _grant_to_tokens entry '{'qry': 'GRANT ALL PRIVILEGES ON `\\%%`.* TO %(user)s@%(host)s', 'args': {'host': '10.%', 'user': 'testuser'}}'
+2017-05-10 22:10:34,288 [salt.loaded.int.module.mysql                         ][DEBUG   ] grant to token 'testuser'::'10.%'::'['ALL PRIVILEGES']'::'`\%`.*'
+2017-05-10 22:10:34,288 [salt.loaded.int.module.mysql                         ][DEBUG   ] _grant_to_tokens entry 'GRANT USAGE ON *.* TO 'testuser'@'10.%''
+2017-05-10 22:10:34,288 [salt.loaded.int.module.mysql                         ][DEBUG   ] grant to token 'testuser'::'10.%'::'['USAGE']'::'*.*'
+2017-05-10 22:10:34,288 [salt.loaded.int.module.mysql                         ][DEBUG   ] grants mismatch '{'host': '10.%', 'database': '*.*', 'user': 'testuser', 'grant': ['USAGE']}'<>'{'host': '10.%', 'database': '`\\%`.*', 'user': 'testuser', 'grant': ['ALL PRIVILEGES']}'
+2017-05-10 22:10:34,289 [salt.loaded.int.module.mysql                         ][DEBUG   ] _grant_to_tokens entry 'GRANT ALL PRIVILEGES ON `\%`.* TO 'testuser'@'10.%''
+2017-05-10 22:10:34,289 [salt.loaded.int.module.mysql                         ][DEBUG   ] grant to token 'testuser'::'10.%'::'['ALL PRIVILEGES']'::'`\%`.*'
+2017-05-10 22:10:34,289 [salt.loaded.int.module.mysql                         ][INFO    ] Grant 'ALL' on '%.*' for user 'testuser' has been added
+2017-05-10 22:10:34,289 [salt.state                                           ][INFO    ] {'mysql_grant_test': 'Present'}
+2017-05-10 22:10:34,290 [salt.state                                           ][INFO    ] Completed state [mysql_grant_test] at time 22:10:34.289823 duration_in_ms=2005.841```
+
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)```
+```root@local-salt-api-prod-1:/tmp# salt --versions-report
+Salt Version:
+           Salt: 2016.11.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.0
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 19 2016, 06:48:10)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+        machine: x86_64
+        release: 4.4.0-51-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial```

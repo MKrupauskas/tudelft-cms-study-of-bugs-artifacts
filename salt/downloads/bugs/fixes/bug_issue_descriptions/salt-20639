@@ -1,0 +1,171 @@
+Hello folks,
+
+I recently ran into an issue where connections to the local salt-master from a python 2.7 application using salt.client.LocalClient were not closed properly. 
+This is not happening with 2014.1.13, but is reproducible every time with 2014.7.0 and above.
+
+Found this while running a multi-threaded python application that executes several jobs. It runs on the same machine as the salt master. Each job would spawn a new salt.client.LocalClient() to connect to the salt master, do whatever, and we'd run `del client` when done. 
+Running long term, the application would eventually crash, having run out of file descriptors. 
+
+We tracked this down to leaked connections to the local salt master:
+
+```
+# netstat -tulnap | grep 15484
+tcp        0      0 127.0.0.1:49783         127.0.0.1:4506          ESTABLISHED 15484/python2.7     
+tcp        0      0 127.0.0.1:49781         127.0.0.1:4506          ESTABLISHED 15484/python2.7     
+tcp        0      0 127.0.0.1:49785         127.0.0.1:4506          ESTABLISHED 15484/python2.7     
+..... <dozens more like this>
+```
+
+Lots of eventfd and eventpoll open descriptors:
+
+```
+~ # cd /proc/15484/fd
+fd # ls -l
+total 0
+lrwx------ 1 root root 64 Feb 12 17:58 0 -> /dev/pts/1
+lrwx------ 1 root root 64 Feb 12 17:58 1 -> /dev/pts/1
+lrwx------ 1 root root 64 Feb 12 17:58 10 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 100 -> socket:[21557248]
+lrwx------ 1 root root 64 Feb 12 17:58 101 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 102 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 103 -> anon_inode:[eventpoll]
+lrwx------ 1 root root 64 Feb 12 17:58 104 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 105 -> anon_inode:[eventpoll]
+lrwx------ 1 root root 64 Feb 12 17:58 106 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 107 -> socket:[21557339]
+lrwx------ 1 root root 64 Feb 12 17:58 108 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 109 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 11 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 110 -> anon_inode:[eventpoll]
+lrwx------ 1 root root 64 Feb 12 17:58 111 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 112 -> anon_inode:[eventpoll]
+lrwx------ 1 root root 64 Feb 12 17:58 113 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 114 -> socket:[21558294]
+lrwx------ 1 root root 64 Feb 12 17:58 115 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 116 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 117 -> anon_inode:[eventpoll]
+lrwx------ 1 root root 64 Feb 12 17:58 118 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 119 -> anon_inode:[eventpoll]
+lrwx------ 1 root root 64 Feb 12 17:58 12 -> anon_inode:[eventpoll]
+lrwx------ 1 root root 64 Feb 12 17:58 120 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 121 -> socket:[21558303]
+lrwx------ 1 root root 64 Feb 12 17:58 122 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 123 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 124 -> anon_inode:[eventpoll]
+lrwx------ 1 root root 64 Feb 12 17:58 125 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 126 -> anon_inode:[eventpoll]
+lrwx------ 1 root root 64 Feb 12 17:58 127 -> anon_inode:[eventfd]
+lrwx------ 1 root root 64 Feb 12 17:58 128 -> socket:[21557366]
+..... dozens more of these.
+```
+
+I wrote a quick script that simulates what our app does with salt, much more aggressively.
+Obviously we run more commands with each client, and not just ping, but the idea of creating new LocalClient objects, running a command or two and then dropping them in a multi-threaded environment is there. 
+
+To reproduce, run the python 2.7 script below as `./testfd.py ONE_RANDOM_MINION_NAME_HERE`
+
+``` python
+import salt
+import os
+import threading
+import time
+import subprocess
+import sys
+
+t_lock = threading.RLock()
+global threads_started, threads_stopped, minion
+minion = sys.argv[1]
+threads_started = 0
+threads_stopped = 0
+
+def salt_ping(client):
+    global minion
+    resp = client.cmd(minion, "test.ping", expr_form="list", timeout=300)
+    if not isinstance(resp, dict) and not minion in resp and not resp.get('minion'):
+        print resp
+        raise Exception("Ping did not respond as expected! {0}".format(resp))
+
+def worker():
+    global threads_started, threads_stopped
+    with t_lock:
+        threads_started += 1
+    client = salt.client.LocalClient()
+    salt_ping(client)
+    time.sleep(.2)
+    salt_ping(client)
+    del client
+    time.sleep(.2)
+    with t_lock:
+        threads_stopped += 1
+
+
+pid = os.getpid()
+fd_path = "/proc/{0}/fd".format(pid)
+fd_count_cmd = "ls -l {0}".format(fd_path)
+wc_cmd = "wc -l"
+
+
+def check_count():
+    proc1 = subprocess.Popen(fd_count_cmd.split(), stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    proc2 = subprocess.Popen(wc_cmd.split(), stdin=proc1.stdout, stdout=subprocess.PIPE)
+    output, error = proc2.communicate()
+    return int(str(output))
+
+count = 0
+
+iter=0
+while  not os.path.isfile("stop"):
+    t = threading.Thread(target=worker)
+    t.start()
+    time.sleep(.25)
+    if iter % 20 == 0:
+        count = check_count()
+        print "------------------------------------------------"
+        print "FD Count: {0}".format(count)
+        print ""
+        with t_lock:
+           print "Threads started: {0}".format(threads_started)
+           print "Threads stopped: {0}".format(threads_stopped)
+    iter += 1
+```
+
+Everything works fine and we stay at a constant 23 file descriptors with 2014.1.13:
+
+```
+# salt --versions-report
+           Salt: 2014.1.13
+         Python: 2.7.6 (default, Feb  6 2014, 18:26:13)
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.1
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+            ZMQ: 3.2.4
+```
+
+But the test file descriptor count skyrockets to 1024 within 30 seconds or so and gets killed when it hits
+1024 with 2014.7.0
+
+```
+# salt --versions-report
+           Salt: 2014.7.0
+         Python: 2.7.6 (default, Feb  6 2014, 18:26:13)
+         Jinja2: 2.7.1
+       M2Crypto: 0.21.1
+ msgpack-python: 0.4.1
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.10
+          ioflo: Not Installed
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+            ZMQ: 3.2.4
+           Mako: Not Installed
+```
+
+For what it's worth, this runs on Gentoo, though I doubt that makes a difference. 
+
+Let me know if you need any more info.

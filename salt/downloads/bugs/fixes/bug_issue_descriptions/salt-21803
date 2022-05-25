@@ -1,0 +1,78 @@
+We are experimenting with returners.
+Our goal is to log every event to a 3rd party storage. Two options: `ext_job_cache` or `master_job_cache`. We are building a dashboard upon this data.
+
+The minions itself don't get a connection to the 3rd party storage, only the master server.
+So `ext_job_cache` is out and `master_job_cache` will be used.
+
+We thought: Okay, lets store everything in Kafka, because we got this already in our stack.
+The `master_job_cache` requires implementions of functions like `prep_jid` and others.
+Sadly, Kafka didn't work, because it only implements `returner` function.
+
+Next thought: Okay, lets use a Redis for the `prep_jid` and Kafka as persistent storage that we can build a realtime dashboard.
+We saw the [`multi_returner`](https://github.com/saltstack/salt/blob/develop/salt/returners/multi_returner.py).
+
+Our configuration looks like:
+
+```
+master_job_cache: multi_returner
+
+redis.db: '0'
+redis.host: '127.0.0.1'
+redis.port: 6379
+
+multi_returner:
+  - redis
+  - kafka
+
+returner.kafka.hostnames:
+  - "192.168.5.10:9092"
+
+returner.kafka.topic: saltstack_return
+```
+
+Even if we call `salt '*' test.ping` it is _really_ slow.
+Our example setup looks like:
+- 1 x master
+- 2 x minions
+  Every master / minion on a separate virtual machine on the same ESXi host.
+  Slow means ~13 sec.
+
+If we deactivate the  `master_job_cache` completely, the `test.ping` returns immediately (after ~1.5 sec).
+If we activate the  `master_job_cache` again and get rid of the `multi_returner` our config looks like:
+
+```
+master_job_cache: redis
+
+redis.db: '0'
+redis.host: '127.0.0.1'
+redis.port: 6379
+```
+
+and `test.ping` commands returns immediately (after ~1.5 sec) as well.
+
+When we start to merge the redis + kafka returner into a custom returner and add them as `master_job_cache` we got the same speed as with the redis returner or without any returner (~1.5 sec).
+
+The merged returner looks like [redis_kafka_returner.py](https://gist.github.com/andygrunwald/b0a0248d108e9352be46).
+
+Our conclusion: The `multi_returner` is really slow and we are asking us why?
+
+Our version report:
+
+```
+           Salt: 2014.7.2
+         Python: 2.7.9 (default, Jan 28 2015, 05:37:45)
+         Jinja2: 2.7.3
+       M2Crypto: 0.22
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.3.1
+           RAET: Not Installed
+            ZMQ: 4.0.5
+           Mako: Not Installed
+```
+
+PS: We know that v2014.7 don`t implement the Kafka returner. We had backported it.

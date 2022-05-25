@@ -1,0 +1,82 @@
+Either logstash doesn't like Salt's certificates, or I'm doing something wrong. I hope it's the latter, in which case someone will straighten me out and anyone else searching for the error will find the correct steps via this issue report. 
+
+To reproduce on an Ubuntu 12.04 throw-away VM or container via `docker run --rm -t -i ubuntu:precise bash`:
+
+**Install `salt-minion` and `logstash`:**
+
+```
+apt-key adv --keyserver keyserver.ubuntu.com --recv-keys D88E42B4 0E27C0A6
+echo deb http://ppa.launchpad.net/saltstack/salt/ubuntu precise main > /etc/apt/sources.list.d/saltstack.list
+echo deb http://packages.elasticsearch.org/logstash/1.4/debian stable main > /etc/apt/sources.list.d/logstash.list
+apt-get update
+apt-get install -y salt-minion logstash
+```
+
+**Make the keys and certificates:**
+
+```
+mkdir -p /etc/pki
+salt-call --local tls.create_self_signed_cert tls_dir=lsf C=US ST=UT L=SLC O=SaltStack OU=core CN=hostname emailAddress=info@saltstack.com
+salt-call --local tls.create_ca ca_name=lsf C=US ST=UT L=SLC O=SaltStack OU=core CN=lsf emailAddress=info@saltstack.com
+```
+
+If you're using Docker for your test environment, it can't create the certificates:
+
+> ```
+> [INFO    ] The `dmidecode` binary is not available on the system. GPU grains will not be available.
+> Function tls.create_self_signed_cert is not available
+> ```
+
+Workaround:
+- Ensure `/etc/pki/lsf` doesn't exist on your usual VM
+- Run the `salt-call --local` commands there
+- Exfiltrate the keys from your VM with `cd /etc/pki ; clear ; tar cfz - lsf/ | base64`
+- In your container, run `cd /etc/pki ; base64 -d | tar xfz -`
+- Copy and paste from the VM to the container, then hit `^D` in the container
+
+**Configure and run logstash:**
+
+```
+mkdir -p /tmp/logstash
+cd /tmp/logstash
+cat > lumberjack.conf <<EOF
+input {
+  lumberjack {
+    ssl_certificate => '/etc/pki/lsf/lsf_ca_cert.crt'
+    ssl_key => '/etc/pki/lsf/lsf_ca_cert.key'
+    port => 6782
+  }
+}
+
+output {
+  stdout {}
+}
+EOF
+/opt/logstash/bin/logstash -f /tmp/logstash/lumberjack.conf
+```
+
+**Output:**
+
+> ```
+> Using milestone 1 input plugin 'lumberjack'. This plugin should work, but would benefit from use by folks like you. Please let us know if you find bugs or have suggestions on how to improve this plugin.  For more information on plugin milestones, see http://logstash.net/docs/1.4.0/plugin-milestones {:level=>:warn}
+> +---------------------------------------------------------+
+> | An unexpected error occurred. This is probably a bug.   |
+> | You can find help with this problem in a few places:    |
+> |                                                         |
+> | * chat: #logstash IRC channel on freenode irc.          |
+> |     IRC via the web: http://goo.gl/TI4Ro                |
+> | * email: logstash-users@googlegroups.com                |
+> | * bug system: https://logstash.jira.com/                |
+> |                                                         |
+> +---------------------------------------------------------+
+> The error reported is: 
+>   Extensions not allowed in v2 certificate
+> ```
+
+Any ideas? I don't know the bloke, but [Peter den Haan once reckoned](http://www.coderanch.com/t/205547/sockets/java/Extensions-allowed-certificate) this error could be a perfectly appropriate refusal to deal with a v3 extension with a v2 header. Is that a good clue? How would I verify that? Could I adjust my options to `tls.create_ca` to remove the extension? Or, is this something else entirely? 
+
+**Context:**
+
+I thought it'd be a good idea to use Salt's machinery to generate a CA for my log gathering box and keys for my log senders. 
+
+/ping @basepi because he [asked](https://twitter.com/basepi/status/449571081783746562).

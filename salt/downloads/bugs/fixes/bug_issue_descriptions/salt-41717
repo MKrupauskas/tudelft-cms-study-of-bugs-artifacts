@@ -1,0 +1,551 @@
+### Description of Issue/Question
+
+(Background: adding `rabbitmq` service to `public` zone)
+
+Running `state.apply test=True` shows the service will be added:
+
+    ----------
+              ID: firewall_public_zone
+        Function: firewalld.present
+            Name: public
+          Result: None
+         Comment: Configuration for 'public' will change.
+         Started: 13:56:51.722334
+        Duration: 6807.121 ms
+         Changes:
+                  ----------
+                  services:
+                      ----------
+                      new:
+                          - dchpv6-client
+                          - ssh
+                          - http
+                          - wso2
+                          - prometheus-node-exporter
+                          - ldap
+                          - rabbitmq
+                          - mysql
+                      old:
+                          - dhcpv6-client
+                          - http
+                          - ldap
+                          - mysql
+                          - prometheus-node-exporter
+                          - ssh
+                          - wso2
+
+However, running `state.apply` says the zone has not been modified because it's already in the desired state:
+
+    ----------
+              ID: firewall_public_zone
+        Function: firewalld.present
+            Name: public
+          Result: True
+         Comment: 'public' is already in the desired state.
+         Started: 13:58:49.202416
+        Duration: 3667.779 ms
+         Changes:
+
+On the minion, the service has not been added:
+
+    firewall-cmd --list-all
+    public (active)
+     target: default
+     icmp-block-inversion: no
+     interfaces: eno16777984
+     sources:
+     services: dhcpv6-client http ldap mysql prometheus-node-exporter ssh wso2
+     ports:
+     protocols:
+     masquerade: no
+     forward-ports:
+     sourceports:
+     icmp-blocks:
+     rich rules:
+           
+### Setup
+
+Minion:
+
+`firewall.sls`
+
+    firewall_installed:
+      pkg.installed:
+        - name: firewalld
+        - version: 0.4.3.2-8.1.el7_3.3
+
+    firewall_service:
+      service.running:
+        - name: firewalld
+        - enable: True
+
+    firewall_dhcpv6_client_service:
+      firewalld.service:
+        - name: dhcpv6-client
+        - ports:
+          - 546/udp
+
+    firewall_ssh_service:
+      firewalld.service:
+        - name: ssh
+        - ports:
+          - 22/tcp
+
+    firewall_wso2_service:
+      firewalld.service:
+        - name: wso2
+        - ports:
+          - 5555/tcp
+
+    firewall_http_service:
+      firewalld.service:
+        - name: http
+        - ports:
+          - 80/tcp
+          - 443/tcp
+
+    firewall_prometheus_node_exporter_service:
+      firewalld.service:
+        - name: prometheus-node-exporter
+        - ports:
+          - 9100/tcp
+
+    firewall_ldap_service:
+      firewalld.service:
+        - name: ldap
+        - ports:
+          - 389/tcp
+
+    firewall_rabbitmq_service:
+      firewalld.service:
+        - name: rabbitmq
+        - ports:
+          - 5672/tcp
+
+    firewall_mysql_service:
+      firewalld.service:
+        - name: mysql
+        - ports:
+          - 3306/tcp
+
+    firewall_public_zone:
+      firewalld.present:
+        - name: public
+        - services:
+          - dchpv6-client
+          - ssh
+          - http
+          - wso2
+          - prometheus-node-exporter
+          - ldap
+          - rabbitmq
+          - mysql
+
+
+### Steps to Reproduce Issue
+
+    [salt@config] salt -l all '[removed]' state.apply firewall
+    [DEBUG   ] Reading configuration from /etc/salt/master
+    [DEBUG   ] Missing configuration file: /root/.saltrc
+    [TRACE   ] The required configuration section, 'fluent_handler', was not found the in the configuration. Not loading the fluent logging handlers module.
+    [TRACE   ] None of the required configuration sections, 'logstash_udp_handler' and 'logstash_zmq_handler', were found in the configuration. Not loading the Logstash logging handlers module.
+    [DEBUG   ] Configuration file path: /etc/salt/master
+    [WARNING ] Insecure logging configuration detected! Sensitive data may be logged.
+    [DEBUG   ] Reading configuration from /etc/salt/master
+    [DEBUG   ] Missing configuration file: /root/.saltrc
+    [DEBUG   ] MasterEvent PUB socket URI: /var/run/salt/master/master_event_pub.ipc
+    [DEBUG   ] MasterEvent PULL socket URI: /var/run/salt/master/master_event_pull.ipc
+    [DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/master', '75f2e80105e3_master', 'tcp://127.0.0.1:4506', 'clear')
+    [TRACE   ] Inserted key into loop_instance_map id 139747516664864 for key ('/etc/salt/pki/master', '75f2e80105e3_master', 'tcp://127.0.0.1:4506', 'clear') and process 1286
+    [DEBUG   ] Initializing new IPCClient for path: /var/run/salt/master/master_event_pub.ipc
+    [TRACE   ] IPCClient: Connecting to socket: /var/run/salt/master/master_event_pub.ipc
+    [TRACE   ] func get_cli_event_returns()
+    [DEBUG   ] LazyLoaded local_cache.get_load
+    [DEBUG   ] Reading minion list from /var/cache/salt/master/jobs/f6/c238eb91ff8f692e6b93d5fcb2ed658d88a0f79382886281faa8ec1932fca8/.minions.p
+    [DEBUG   ] get_iter_returns for jid 20170613131503212552 sent to set(['[removed]']) will timeout at 13:15:08.219384
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] get_event() received = {'tag': 'salt/job/20170613131503212552/new', 'data': {'tgt_type': 'glob', 'jid': '20170613131503212552', 'tgt': '[removed]', '_stamp': '2017-06-13T13:15:03.213850', 'user': 'root', 'arg': ['firewall'], 'fun': 'state.apply', 'minions': ['[removed]']}}
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [DEBUG   ] Checking whether jid 20170613131503212552 is still running
+    [DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/master', '75f2e80105e3_master', 'tcp://127.0.0.1:4506', 'clear')
+    [TRACE   ] Inserted key into loop_instance_map id 139747516870168 for key ('/etc/salt/pki/master', '75f2e80105e3_master', 'tcp://127.0.0.1:4506', 'clear') and process 1286
+    [TRACE   ] get_event() caching unwanted event = {'tag': '20170613131508321665', 'data': {'_stamp': '2017-06-13T13:15:08.322099', 'minions': ['[removed]']}}
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] get_event() caching unwanted event = {'tag': 'salt/job/20170613131508321665/new', 'data': {'tgt_type': 'list', 'jid': '20170613131508321665', 'tgt': ['[removed]'], '_stamp': '2017-06-13T13:15:08.322513', 'user': 'root', 'arg': ['20170613131503212552'], 'fun': 'saltutil.find_job', 'minions': ['[removed]']}}
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] get_event() returning cached event = {'tag': 'salt/job/20170613131508321665/new', 'data': {'tgt_type': 'list', 'jid': '20170613131508321665', 'tgt': ['[removed]'], '_stamp': '2017-06-13T13:15:08.322513', 'user': 'root', 'arg': ['20170613131503212552'], 'fun': 'saltutil.find_job', 'minions': ['[removed]']}}
+    [DEBUG   ] Passing on saltutil error. This may be an error in saltclient. 'retcode'
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] get_event() caching unwanted event = {'tag': 'salt/job/20170613131508321665/ret/[removed]', 'data': {'fun_args': ['20170613131503212552'], 'jid': '20170613131508321665', 'return': {'tgt_type': 'glob', 'jid': '20170613131503212552', 'tgt': '[removed]', 'pid': 27479, 'ret': '', 'user': 'root', 'arg': ['firewall'], 'fun': 'state.apply'}, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2017-06-13T13:15:08.476494', 'fun': 'saltutil.find_job', 'id': '[removed]'}}
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] get_event() returning cached event = {'tag': 'salt/job/20170613131508321665/ret/[removed]', 'data': {'fun_args': ['20170613131503212552'], 'jid': '20170613131508321665', 'return': {'tgt_type': 'glob', 'jid': '20170613131503212552', 'tgt': '[removed]', 'pid': 27479, 'ret': '', 'user': 'root', 'arg': ['firewall'], 'fun': 'state.apply'}, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2017-06-13T13:15:08.476494', 'fun': 'saltutil.find_job', 'id': '[removed]'}}
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [DEBUG   ] Checking whether jid 20170613131503212552 is still running
+    [DEBUG   ] Initializing new AsyncZeroMQReqChannel for ('/etc/salt/pki/master', '75f2e80105e3_master', 'tcp://127.0.0.1:4506', 'clear')
+    [TRACE   ] Inserted key into loop_instance_map id 139747499665960 for key ('/etc/salt/pki/master', '75f2e80105e3_master', 'tcp://127.0.0.1:4506', 'clear') and process 1286
+    [TRACE   ] get_event() caching unwanted event = {'tag': '20170613131518381116', 'data': {'_stamp': '2017-06-13T13:15:18.381509', 'minions': ['[removed]']}}
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] get_event() caching unwanted event = {'tag': 'salt/job/20170613131518381116/new', 'data': {'tgt_type': 'list', 'jid': '20170613131518381116', 'tgt': ['[removed]'], '_stamp': '2017-06-13T13:15:18.381916', 'user': 'root', 'arg': ['20170613131503212552'], 'fun': 'saltutil.find_job', 'minions': ['[removed]']}}
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] get_event() returning cached event = {'tag': 'salt/job/20170613131518381116/new', 'data': {'tgt_type': 'list', 'jid': '20170613131518381116', 'tgt': ['[removed]'], '_stamp': '2017-06-13T13:15:18.381916', 'user': 'root', 'arg': ['20170613131503212552'], 'fun': 'saltutil.find_job', 'minions': ['[removed]']}}
+    [DEBUG   ] Passing on saltutil error. This may be an error in saltclient. 'retcode'
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] get_event() received = {'tag': 'salt/job/20170613131518381116/ret/[removed]', 'data': {'fun_args': ['20170613131503212552'], 'jid': '20170613131518381116', 'return': {'tgt_type': 'glob', 'jid': '20170613131503212552', 'tgt': '[removed]', 'pid': 27479, 'ret': '', 'user': 'root', 'arg': ['firewall'], 'fun': 'state.apply'}, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2017-06-13T13:15:18.849513', 'fun': 'saltutil.find_job', 'id': '[removed]'}}
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [TRACE   ] get_event() received = {'tag': 'salt/job/20170613131503212552/ret/[removed]', 'data': {'fun_args': ['firewall'], 'jid': '20170613131503212552', 'return': {'firewalld_|-firewall_public_zone_|-public_|-present': {'comment': "'public' is already in the desired state.", 'name': 'public', 'start_time': '14:15:21.827317', 'result': True, 'duration': 3408.936, '__run_num__': 10, 'changes': {}, '__id__': 'firewall_public_zone'}, 'firewalld_|-firewall_ssh_service_|-ssh_|-service': {'comment': "'ssh' is already in the desired state.", 'name': 'ssh', 'start_time': '14:15:10.458695', 'result': True, 'duration': 2516.252, '__run_num__': 3, 'changes': {}, '__id__': 'firewall_ssh_service'}, 'firewalld_|-firewall_mysql_service_|-mysql_|-service': {'comment': "'mysql' is already in the desired state.", 'name': 'mysql', 'start_time': '14:15:20.570424', 'result': True, 'duration': 1256.655, '__run_num__': 9, 'changes': {}, '__id__': 'firewall_mysql_service'}, 'firewalld_|-firewall_ldap_service_|-ldap_|-service': {'comment': "'ldap' is already in the desired state.", 'name': 'ldap', 'start_time': '14:15:17.991030', 'result': True, 'duration': 1312.523, '__run_num__': 7, 'changes': {}, '__id__': 'firewall_ldap_service'}, 'firewalld_|-firewall_dhcpv6_client_service_|-dhcpv6-client_|-service': {'comment': "'dhcpv6-client' is already in the desired state.", 'name': 'dhcpv6-client', 'start_time': '14:15:07.699836', 'result': True, 'duration': 2758.625, '__run_num__': 2, 'changes': {}, '__id__': 'firewall_dhcpv6_client_service'}, 'service_|-firewall_service_|-firewalld_|-running': {'comment': 'The service firewalld is already running', 'name': 'firewalld', 'start_time': '14:15:07.602776', 'result': True, 'duration': 90.922, '__run_num__': 1, 'changes': {}, '__id__': 'firewall_service'}, 'firewalld_|-firewall_rabbitmq_service_|-rabbitmq_|-service': {'comment': "'rabbitmq' is already in the desired state.", 'name': 'rabbitmq', 'start_time': '14:15:19.303787', 'result': True, 'duration': 1266.4, '__run_num__': 8, 'changes': {}, '__id__': 'firewall_rabbitmq_service'}, 'firewalld_|-firewall_http_service_|-http_|-service': {'comment': "'http' is already in the desired state.", 'name': 'http', 'start_time': '14:15:14.474622', 'result': True, 'duration': 1321.262, '__run_num__': 5, 'changes': {}, '__id__': 'firewall_http_service'}, 'pkg_|-firewall_installed_|-firewalld_|-installed': {'comment': "Version 0.4.3.2-8.1.el7_3.3 of package 'firewalld' is already installed", 'name': 'firewalld', 'start_time': '14:15:06.023253', 'result': True, 'duration': 1566.404, '__run_num__': 0, 'changes': {}, '__id__': 'firewall_installed'}, 'firewalld_|-firewall_wso2_service_|-wso2_|-service': {'comment': "'wso2' is already in the desired state.", 'name': 'wso2', 'start_time': '14:15:12.975175', 'result': True, 'duration': 1499.216, '__run_num__': 4, 'changes': {}, '__id__': 'firewall_wso2_service'}, 'firewalld_|-firewall_prometheus_node_exporter_service_|-prometheus-node-exporter_|-service': {'comment': "'prometheus-node-exporter' is already in the desired state.", 'name': 'prometheus-node-exporter', 'start_time': '14:15:15.796117', 'result': True, 'duration': 2194.686, '__run_num__': 6, 'changes': {}, '__id__': 'firewall_prometheus_node_exporter_service'}}, 'retcode': 0, 'success': True, 'cmd': '_return', '_stamp': '2017-06-13T13:15:25.244553', 'fun': 'state.apply', 'id': '[removed]', 'out': 'highstate'}}
+    [DEBUG   ] jid 20170613131503212552 return from [removed]
+    [DEBUG   ] LazyLoaded highstate.output
+    [TRACE   ] data = {'[removed]': {'firewalld_|-firewall_public_zone_|-public_|-present': {'comment': u"'public' is already in the desired state.", 'name': 'public', 'start_time': '14:15:21.827317', 'result': True, 'duration': u'3408.936 ms', '__run_num__': 10, 'changes': {}, '__id__': 'firewall_public_zone'}, 'firewalld_|-firewall_ssh_service_|-ssh_|-service': {'comment': u"'ssh' is already in the desired state.", 'name': 'ssh', 'start_time': '14:15:10.458695', 'result': True, 'duration': u'2516.252 ms', '__run_num__': 3, 'changes': {}, '__id__': 'firewall_ssh_service'}, 'firewalld_|-firewall_mysql_service_|-mysql_|-service': {'comment': u"'mysql' is already in the desired state.", 'name': 'mysql', 'start_time': '14:15:20.570424', 'result': True, 'duration': u'1256.655 ms', '__run_num__': 9, 'changes': {}, '__id__': 'firewall_mysql_service'}, 'firewalld_|-firewall_ldap_service_|-ldap_|-service': {'comment': u"'ldap' is already in the desired state.", 'name': 'ldap', 'start_time': '14:15:17.991030', 'result': True, 'duration': u'1312.523 ms', '__run_num__': 7, 'changes': {}, '__id__': 'firewall_ldap_service'}, 'firewalld_|-firewall_dhcpv6_client_service_|-dhcpv6-client_|-service': {'comment': u"'dhcpv6-client' is already in the desired state.", 'name': 'dhcpv6-client', 'start_time': '14:15:07.699836', 'result': True, 'duration': u'2758.625 ms', '__run_num__': 2, 'changes': {}, '__id__': 'firewall_dhcpv6_client_service'}, 'service_|-firewall_service_|-firewalld_|-running': {'comment': u'The service firewalld is already running', 'name': 'firewalld', 'start_time': '14:15:07.602776', 'result': True, 'duration': u'90.922 ms', '__run_num__': 1, 'changes': {}, '__id__': 'firewall_service'}, 'firewalld_|-firewall_rabbitmq_service_|-rabbitmq_|-service': {'comment': u"'rabbitmq' is already in the desired state.", 'name': 'rabbitmq', 'start_time': '14:15:19.303787', 'result': True, 'duration': u'1266.4 ms', '__run_num__': 8, 'changes': {}, '__id__': 'firewall_rabbitmq_service'}, 'firewalld_|-firewall_http_service_|-http_|-service': {'comment': u"'http' is already in the desired state.", 'name': 'http', 'start_time': '14:15:14.474622', 'result': True, 'duration': u'1321.262 ms', '__run_num__': 5, 'changes': {}, '__id__': 'firewall_http_service'}, 'pkg_|-firewall_installed_|-firewalld_|-installed': {'comment': u"Version 0.4.3.2-8.1.el7_3.3 of package 'firewalld' is already installed", 'name': 'firewalld', 'start_time': '14:15:06.023253', 'result': True, 'duration': u'1566.404 ms', '__run_num__': 0, 'changes': {}, '__id__': 'firewall_installed'}, 'firewalld_|-firewall_wso2_service_|-wso2_|-service': {'comment': u"'wso2' is already in the desired state.", 'name': 'wso2', 'start_time': '14:15:12.975175', 'result': True, 'duration': u'1499.216 ms', '__run_num__': 4, 'changes': {}, '__id__': 'firewall_wso2_service'}, 'firewalld_|-firewall_prometheus_node_exporter_service_|-prometheus-node-exporter_|-service': {'comment': u"'prometheus-node-exporter' is already in the desired state.", 'name': 'prometheus-node-exporter', 'start_time': '14:15:15.796117', 'result': True, 'duration': u'2194.686 ms', '__run_num__': 6, 'changes': {}, '__id__': 'firewall_prometheus_node_exporter_service'}}}
+    [removed]:
+    ----------
+              ID: firewall_installed
+        Function: pkg.installed
+            Name: firewalld
+          Result: True
+         Comment: Version 0.4.3.2-8.1.el7_3.3 of package 'firewalld' is already installed
+         Started: 14:15:06.023253
+        Duration: 1566.404 ms
+         Changes:
+    ----------
+              ID: firewall_service
+        Function: service.running
+            Name: firewalld
+          Result: True
+         Comment: The service firewalld is already running
+         Started: 14:15:07.602776
+        Duration: 90.922 ms
+         Changes:
+    ----------
+              ID: firewall_dhcpv6_client_service
+        Function: firewalld.service
+            Name: dhcpv6-client
+          Result: True
+         Comment: 'dhcpv6-client' is already in the desired state.
+         Started: 14:15:07.699836
+        Duration: 2758.625 ms
+         Changes:
+    ----------
+              ID: firewall_ssh_service
+        Function: firewalld.service
+            Name: ssh
+          Result: True
+         Comment: 'ssh' is already in the desired state.
+         Started: 14:15:10.458695
+        Duration: 2516.252 ms
+         Changes:
+    ----------
+              ID: firewall_wso2_service
+        Function: firewalld.service
+            Name: wso2
+          Result: True
+         Comment: 'wso2' is already in the desired state.
+         Started: 14:15:12.975175
+        Duration: 1499.216 ms
+         Changes:
+    ----------
+              ID: firewall_http_service
+        Function: firewalld.service
+            Name: http
+          Result: True
+         Comment: 'http' is already in the desired state.
+         Started: 14:15:14.474622
+        Duration: 1321.262 ms
+         Changes:
+    ----------
+              ID: firewall_prometheus_node_exporter_service
+        Function: firewalld.service
+            Name: prometheus-node-exporter
+          Result: True
+         Comment: 'prometheus-node-exporter' is already in the desired state.
+         Started: 14:15:15.796117
+        Duration: 2194.686 ms
+         Changes:
+    ----------
+              ID: firewall_ldap_service
+        Function: firewalld.service
+            Name: ldap
+          Result: True
+         Comment: 'ldap' is already in the desired state.
+         Started: 14:15:17.991030
+        Duration: 1312.523 ms
+         Changes:
+    ----------
+              ID: firewall_rabbitmq_service
+        Function: firewalld.service
+            Name: rabbitmq
+          Result: True
+         Comment: 'rabbitmq' is already in the desired state.
+         Started: 14:15:19.303787
+        Duration: 1266.4 ms
+         Changes:
+    ----------
+              ID: firewall_mysql_service
+        Function: firewalld.service
+            Name: mysql
+          Result: True
+         Comment: 'mysql' is already in the desired state.
+         Started: 14:15:20.570424
+        Duration: 1256.655 ms
+         Changes:
+    ----------
+              ID: firewall_public_zone
+        Function: firewalld.present
+            Name: public
+          Result: True
+         Comment: 'public' is already in the desired state.
+         Started: 14:15:21.827317
+        Duration: 3408.936 ms
+         Changes:
+
+    Summary for [removed]
+    -------------
+    Succeeded: 11
+    Failed:     0
+    -------------
+    Total states run:     11
+    Total run time:   19.192 s
+    [TRACE   ] _get_event() waited 0 seconds and received nothing
+    [DEBUG   ] jid 20170613131503212552 found all minions set(['[removed]'])
+### Versions Report
+
+Minion is running 2016.11.5 (Carbon)
+
+    Salt Version:
+               Salt: 2016.11.2
+
+    Dependency Versions:
+               cffi: Not Installed
+           cherrypy: Not Installed
+           dateutil: 2.5.3
+              gitdb: 2.0.0
+          gitpython: 2.1.1
+              ioflo: Not Installed
+             Jinja2: 2.8
+            libgit2: Not Installed
+            libnacl: Not Installed
+           M2Crypto: Not Installed
+               Mako: Not Installed
+       msgpack-pure: Not Installed
+     msgpack-python: 0.4.8
+       mysql-python: Not Installed
+          pycparser: Not Installed
+           pycrypto: 2.6.1
+             pygit2: Not Installed
+             Python: 2.7.13 (default, Jan 19 2017, 14:48:08)
+       python-gnupg: Not Installed
+             PyYAML: 3.12
+              PyZMQ: 16.0.2
+               RAET: Not Installed
+              smmap: 2.0.1
+            timelib: Not Installed
+            Tornado: 4.4.3
+                ZMQ: 4.2.1
+
+    System Versions:
+               dist: debian 9.0
+            machine: x86_64
+            release: 3.10.0-514.2.2.el7.x86_64
+             system: Linux
+            version: debian 9.0
+        

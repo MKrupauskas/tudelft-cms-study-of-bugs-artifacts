@@ -1,0 +1,100 @@
+Testing with the develop branch.
+
+pkg.installed state doesn't return a helpful error when yum-plugin-versionlock is not installed and the hold option is used:
+
+```
+(virtualenv)[root@testsrv1 virtualenv]# bin/salt-call -c ./etc/salt pkg.hold curl
+[INFO    ] Executing command 'repoquery --queryformat="%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}" --all --pkgnarrow=installed' in directory '/root'
+local:
+    Error: Package yum-plugin-versionlock needs to be installed.
+
+(virtualenv)[root@testsrv1 virtualenv]# cat /srv/salt/hold.sls                  EPEL:
+  pkg.installed:
+    - pkgs:
+      - curl
+    - hold: True
+
+(virtualenv)[root@testsrv1 virtualenv]# bin/salt-call -c ./etc/salt state.sls hold
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://hold.sls'
+[INFO    ] Running state [EPEL] at time 08:40:38.402491
+[INFO    ] Executing state pkg.installed for EPEL
+[INFO    ] Executing command 'repoquery --queryformat="%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}" --all --pkgnarrow=installed' in directory '/root'
+[INFO    ] Executing command 'repoquery --queryformat="%{NAME}_|-%{ARCH}"  --pkgnarrow=all --all --plugins' in directory '/root'
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/devel/salt/salt/state.py", line 1492, in call
+    **cdata['kwargs'])
+  File "/usr/lib64/python2.6/contextlib.py", line 34, in __exit__
+    self.gen.throw(type, value, traceback)
+  File "/devel/salt/salt/utils/context.py", line 41, in func_globals_inject
+    yield
+  File "/devel/salt/salt/state.py", line 1492, in call
+    **cdata['kwargs'])
+  File "/devel/salt/salt/states/pkg.py", line 579, in installed
+    modified_hold = [hold_ret[x] for x in hold_ret.keys() if hold_ret[x]['changes']]
+AttributeError: 'str' object has no attribute 'keys'
+
+[INFO    ] Completed state [EPEL] at time 08:40:41.810364
+local:
+----------
+          ID: EPEL
+    Function: pkg.installed
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/devel/salt/salt/state.py", line 1492, in call
+                  **cdata['kwargs'])
+                File "/usr/lib64/python2.6/contextlib.py", line 34, in __exit__
+                  self.gen.throw(type, value, traceback)
+                File "/devel/salt/salt/utils/context.py", line 41, in func_globals_inject
+                  yield
+                File "/devel/salt/salt/state.py", line 1492, in call
+                  **cdata['kwargs'])
+                File "/devel/salt/salt/states/pkg.py", line 579, in installed
+                  modified_hold = [hold_ret[x] for x in hold_ret.keys() if hold_ret[x]['changes']]
+              AttributeError: 'str' object has no attribute 'keys'
+     Started: 08:40:38.402491
+     Duration: 407 ms
+     Changes:
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+```
+
+get_locked_packages in the yumpkg module does not seem to handle packages with hyphens in their name correctly:
+
+```
+(virtualenv)[root@testsrv1 virtualenv]# bin/salt-call -c ./etc/salt pkg.hold epel-release
+[INFO    ] Executing command 'repoquery --queryformat="%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}" --all --pkgnarrow=installed' in directory '/root'
+[INFO    ] Executing command 'yum -q versionlock list' in directory '/root'
+[INFO    ] Executing command 'yum -q versionlock epel-release' in directory '/root'
+local:
+    ----------
+    epel-release:
+        ----------
+        changes:
+            ----------
+            new:
+                hold
+            old:
+
+        comment:
+            Package epel-release is now being held.
+        name:
+            epel-release
+        result:
+            True
+
+(virtualenv)[root@testsrv1 virtualenv]# yum versionlock list
+Loaded plugins: fastestmirror, security, versionlock
+0:epel-release-6-5.*
+versionlock list done
+
+(virtualenv)[root@testsrv1 virtualenv]# bin/salt-call -c ./etc/salt pkg.get_locked_packages
+[INFO    ] Executing command 'yum -q versionlock list' in directory '/root'
+local:
+    - epel
+```

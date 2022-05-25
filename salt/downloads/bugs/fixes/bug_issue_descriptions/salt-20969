@@ -1,0 +1,19 @@
+`file.replace` relies on python's `fileinput` method, passing it the parameter `inplace=True` so that `file.replace` can write to the same filename. This parameter causes `fileinput` to _move_ the target file, appending `backup` to the filename. See the [fileinput documentation](https://docs.python.org/2.7/library/fileinput.html). Then, when <stdout> is written, `fileinput` redirects the output to a new inode that has the same filename as the target. This is a new file, because it is a new inode.
+
+All of this happens even if `backup=False` due to the way `fileinput` works.
+
+The original file that was moved retains it's original inode. So at this point, if there are hard links to the target file, they now point to the backup rather than original. This is likely to cause confusion for users at some point. I.e., they will edit the hard link (which they likely created in the first place), thinking it is still the same as the target file, though now its inode is shared by the backup instead.
+
+I can think of two approaches to addressing this behavior:
+1. Continue using `fileinput`, but delete any hardlinks that point to the original file and re-create them so they point to the resulting file. To do this, we'd have to get the inode of the original file, then get a list of files that point to that inode.
+   - This approach is probably easiest, and the behavior could be controlled by a boolean parameter `preserve_hardlinks`.
+2. Stop using `fileinput`. Instead, _copy_ the target file to create the backup. By creating a copy instead of moving it, we retain the inode of the original. Then `open` the backup in 'r' mode and `open` the target in 'w' mode, and read the lines from the backup and write them to the target while searching and replacing the pattern. If `backup=False`, delete the backup file afterwards (just like `fileinput`).
+   - This approach may be more 'complete' but a little more difficult to implement. If someone _really_ wanted to preserve existing broken behavior, just _move_ the file instead of using _copy_ (with the behavior again toggled by a boolean parameter).
+
+Other thoughts:
+- I thought about using two handles to the same file, and reading from one (mode 'r') while writing to the other (mode 'r+' to avoid truncation). This would avoid the copy, but if the replacement string contains multiple lines then there are potential cases where we'd write over lines that hadn't yet been read.
+- We could also avoid the copy by reading the entire file into memory and operating on that, but `file.replace` currently appears to avoid that approach intentionally. Probably to reduce resource consumption and mitigate buffer overflow attacks.
+
+Perhaps there are other approaches as well?
+
+> Note: I discovered this issue while researching another issue with file.replace and symlinks, reported [here](https://github.com/saltstack/salt/issues/20910). Linking the two so anyone searching issues that ends up at the other one gets redirected here.

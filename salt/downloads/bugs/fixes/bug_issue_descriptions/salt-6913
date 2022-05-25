@@ -1,0 +1,53 @@
+I'm trying to set up my pillar to use both pillar_roots and git_pillar. I want to have two environments on the filesystem, and a third directly from git. For some strange reason the git_pillar is loaded, but it's not associated with an environment based on its branch name.
+
+Relevant portion of the master config:
+
+```
+pillar_roots:
+  base:
+    - /var/local/salt/pillar/base
+  prod:
+    - /var/local/salt/pillar/prod
+  dev:
+    - /does/not/exist
+
+ext_pillar:
+  - git: dev git+ssh://git@git.example.com/salt-pillar.git
+```
+
+N.B.: The pillar_roots entry for dev is to workaround a KeyError (which I should probably also open an issue for) that gets raised in git_pillar.py.
+
+When running state.highstate, I get the following error:
+
+```
+pypi2:
+    Data failed to compile:
+----------
+    Pillar failed to render with the following messages:
+----------
+    Specified SLS 'datadog' in environment 'dev' is not available on the salt master
+```
+
+Relevant information from /var/log/salt/master
+
+```
+2013-08-27 00:33:17,542 [salt.utils.jinja ][DEBUG   ] Jinja search path: '['/var/local/salt/cache/pillar_gitfs/0']'
+2013-08-27 00:33:17,543 [salt.template    ][DEBUG   ] Rendered data from file: /var/local/salt/cache/pillar_gitfs/0/datadog.sls:
+datadog:
+  api_key: aoeu
+
+2013-08-27 00:33:17,543 [salt.loaded.int.render.yaml][DEBUG   ] Results of YAML rendering:
+OrderedDict([('datadog', OrderedDict([('api_key', 'aoeu')]))])
+2013-08-27 00:33:18,531 [salt.pillar      ][CRITICAL] Pillar render error: Specified SLS 'datadog' in environment 'dev' is not available on the salt master
+```
+
+And running `pillar.get datadog` shows that it is populated:
+
+```
+pypi2:
+    ----------
+    api_key:
+        aoeu
+```
+
+So, it looks like the pillar data is pulled from git, but not in the correct environment.

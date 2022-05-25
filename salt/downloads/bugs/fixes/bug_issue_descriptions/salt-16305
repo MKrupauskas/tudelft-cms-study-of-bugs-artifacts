@@ -1,0 +1,47 @@
+See an issue with `hg.latest` in latest develop branch
+
+``` yaml
+    Function: hg.latest
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1529, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/states/hg.py", line 114, in latest
+                  ret = _update_repo(ret, target, clean, user, rev, opts)
+                File "/usr/lib/python2.7/dist-packages/salt/states/hg.py", line 142, in _update_repo
+                  current_rev = __salt__['hg.revision'](target, user=user)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/hg.py", line 55, in revision
+                  python_shell=False)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/cmdmod.py", line 867, in run_all
+                  use_vt=use_vt)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/cmdmod.py", line 270, in _run
+                  stdout=subprocess.PIPE
+                File "/usr/lib/python2.7/subprocess.py", line 710, in __init__
+                  errread, errwrite)
+                File "/usr/lib/python2.7/subprocess.py", line 1327, in _execute_child
+                  raise child_exception
+              OSError: [Errno 2] No such file or directory
+```
+
+It is basically getting an error in the `modules.cmd.run_all` logic which gets the environment variables for the user
+
+``` python
+            # Getting the environment for the runas user
+            # There must be a better way to do this.
+            py_code = '''import os, itertools; print \"\\0\".join(itertools.chain(*os.environ.items()))'''
+            if __grains__['os'] in ['MacOS', 'Darwin']:
+                env_cmd = ('sudo -i -u {0} -- "{1}"'
+                           ).format(runas, sys.executable)
+            elif __grains__['os'] in ['FreeBSD']:
+                env_cmd = ('su - {1} -c "{0} -c \'{2}\'"'
+                           ).format(shell, runas, sys.executable)
+            else:
+                env_cmd = ('su -s {0} - {1} -c "{2}"'
+                           ).format(shell, runas, sys.executable)
+            env_encoded = subprocess.Popen(
+                env_cmd,
+                shell=python_shell,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE
+            ).communicate(py_code)[0]
+```

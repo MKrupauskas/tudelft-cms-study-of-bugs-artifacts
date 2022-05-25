@@ -1,0 +1,257 @@
+**Description**
+Every time when salt-minion executes _salt-call_ command (or salt-master execute command: _salt 'target'_) salt-masters logs are flooded with following errors (it happens when salt-master renders _top file_):
+
+> [salt.state       :322 ][ERROR   ][15897] State 'file.managed' was not found in SLS 'linux.saltssh'
+Reason: 'file.managed' is not available.
+[salt.state       :322 ][ERROR   ][15897] State 'ssh_known_hosts.present' was not found in SLS 'linux.saltssh'
+Reason: 'ssh_known_hosts.present' is not available.
+[salt.state       :322 ][ERROR   ][15897] State 'ssh_auth.present' was not found in SLS 'linux.ssh_authorized_keys'
+Reason: 'ssh_auth.present' is not available.
+[salt.state       :322 ][ERROR   ][15897] State 'pkg.installed' was not found in SLS 'linux.utils'
+Reason: 'pkg.installed' is not available.
+[salt.state       :322 ][ERROR   ][15897] State 'pkg.latest' was not found in SLS 'linux.sudo_update'
+Reason: 'pkg.latest' is not available.
+[salt.state       :322 ][ERROR   ][15897] State 'timezone.system' was not found in SLS 'linux'
+Reason: 'timezone.system' is not available.
+[salt.state       :322 ][ERROR   ][15897] State 'cron.env_present' was not found in SLS 'linux.cron'
+Reason: 'cron.env_present' is not available.
+
+State is executed properly on target, there is no issues with that. This also happens when salt-master service is started.
+
+
+**Setup**
+We utilize gitfs as a fileserver backend for state.sls/pillars. 
+Salt-master config:
+
+```
+default_include: master.d/*.conf
+autosign_file: /etc/salt/master.d/autosign_file
+timeout: 60
+worker_threads: 10
+
+key_cache: 'sched'
+
+engines:
+  - thorium: {}
+
+fileserver_followsymlinks: True
+fileserver_backend:
+  - roots
+  - git
+
+file_ignore_regex:
+  - '/\.svn($|/)'
+  - '/\.git($|/)'
+
+gitfs_remotes:
+  - ssh://user@repo_link/salt:
+    - name: repo_states
+    - root: states
+    - privkey: /usr/somepath/salt.key
+    - pubkey: /usr/somepath/salt.pub
+  - ssh://user@repo_link/salt:
+    - name: repo_reactors
+    - root: reactors
+    - mountpoint: salt://reactors
+    - privkey: /usr/somepath/salt.key
+    - pubkey: /usr/somepath/salt.pub
+  - ssh://user@repo_link/salt:
+    - name: repo_thorium
+    - root: thorium
+    - mountpoint: salt://thorium
+    - privkey: /usr/somepath/salt.key
+    - pubkey: /usr/somepath/salt.pub
+
+gitfs_saltenv_whitelist:
+  - base
+
+file_roots:
+  base:
+    - /nfs/salt-share
+
+ext_pillar:
+  - git:
+    - master user@repo_link/salt:
+      - env: base
+      - root: pillar
+      - privkey: /usr/somepath/salt.key
+      - pubkey: /usr/somepath/salt.pub
+```
+
+salt-minion config:
+```
+master: 10.10.10.2
+
+random_reauth_delay: 60
+keysize: 2048
+
+recon_default: 1000
+recon_max: 10000
+recon_randomize: True
+
+top_file_merging_strategy: merge
+default_top: base
+
+state_output: mixed
+
+backend: requests
+```
+
+linux/cron/init.sls content:
+```
+cron_path:
+  cron.env_present:
+    - name: PATH
+    - value: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+```
+
+linux/sudo_update/init.sls content:
+```
+upgrade_sudo_to_latest_version:
+  pkg.latest:
+    - pkgs:
+      - sudo
+    - refresh: True
+```
+
+**Steps to Reproduce the behavior**
+Setup fresh salt-master [tested versions: 3000, 3000.1, 3000.6, 3000.8, 3000.9, 3001, 3002, 3002.3, 3002.5, 3002.6, 3003, 3003.1] with gitfs backend and fresh salt-minion [many versions are present in test env, including: 3000, 3000.8, 3001, 3001.3, 3002, 3002.3, 3003]
+
+Execute state.apply on salt-minion side:
+```
+$ salt-call state.sls linux.sudo_update -ldebug
+<plenty of logs>
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/linux/sudo_update/init.sls:
+upgrade_sudo_to_latest_version:
+  pkg.latest:
+    - pkgs:
+      - sudo
+    - refresh: True
+<plenty of logs>
+[DEBUG   ] LazyLoaded highstate.output
+local:
+  Name: upgrade_sudo_to_latest_version - Function: pkg.latest - Result: Clean Started: - 08:46:37.093242 Duration: 15115.413 ms
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:  15.115 s
+```
+
+Log file on salt-master is flooded with following logs:
+> [salt.state       :322 ][ERROR   ][15897] State 'file.managed' was not found in SLS 'linux.saltssh'
+Reason: 'file.managed' is not available.
+[salt.state       :322 ][ERROR   ][15897] State 'ssh_known_hosts.present' was not found in SLS 'linux.saltssh'
+Reason: 'ssh_known_hosts.present' is not available.
+[salt.state       :322 ][ERROR   ][15897] State 'ssh_auth.present' was not found in SLS 'linux.ssh_authorized_keys'
+Reason: 'ssh_auth.present' is not available.
+[salt.state       :322 ][ERROR   ][15897] State 'pkg.installed' was not found in SLS 'linux.utils'
+Reason: 'pkg.installed' is not available.
+[salt.state       :322 ][ERROR   ][15897] State 'pkg.latest' was not found in SLS 'linux.sudo_update'
+Reason: 'pkg.latest' is not available.
+[salt.state       :322 ][ERROR   ][15897] State 'timezone.system' was not found in SLS 'linux'
+Reason: 'timezone.system' is not available.
+[salt.state       :322 ][ERROR   ][15897] State 'cron.env_present' was not found in SLS 'linux.cron'
+Reason: 'cron.env_present' is not available.
+
+Almost every state (or possibly all of states) that are in **_the top file_** reports that used state wasn't found in SLS.
+
+**Expected behavior**
+Salt-master renders/fetch top file without errors/flooding logs.
+
+**Versions Report**
+<details><summary>salt-master -V</summary>
+
+```
+Salt Version:
+          Salt: 3003
+
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: 18.6.0
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.6
+     gitpython: 3.0.7
+        Jinja2: 2.10.1
+       libgit2: 0.28.3
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: 1.0.3
+        Python: 3.8.5 (default, Jul 28 2020, 12:59:40)
+  python-gnupg: 0.4.5
+        PyYAML: 5.3.1
+         PyZMQ: 18.0.1
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.1
+
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 5.4.0-62-generic
+        system: Linux
+       version: Ubuntu 20.04 focal
+```
+
+</details>
+
+
+<details><summary>salt-minion -V</summary>
+
+```
+Salt Version:
+          Salt: 3003
+
+Dependency Versions:
+          cffi: 1.14.0
+      cherrypy: Not Installed
+      dateutil: Not Installed
+     docker-py: 2.6.1
+         gitdb: Not Installed
+     gitpython: Not Installed
+        Jinja2: 2.11.1
+       libgit2: Not Installed
+      M2Crypto: 0.35.2
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: 2.19
+      pycrypto: 2.6.1
+  pycryptodome: Not Installed
+        pygit2: Not Installed
+        Python: 3.6.8 (default, Apr  2 2020, 13:34:55)
+  python-gnupg: Not Installed
+        PyYAML: 3.13
+         PyZMQ: 17.0.0
+         smmap: Not Installed
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.1.4
+
+System Versions:
+          dist: centos 7 Core
+        locale: ANSI_X3.4-1968
+       machine: x86_64
+       release: 3.10.0-1127.19.1.el7.x86_64
+        system: Linux
+       version: CentOS Linux 7 Core
+```
+
+</details>
+
+
+**Additional context**
+Everything is configured on freshly deployed VMs that are using latest OS versions and updates. Mainly on Windows Server 2019, Ubuntu 20.04 LTS, CentOS 7.8 & 8.X.

@@ -1,0 +1,26 @@
+When running in Docker, I would like for a service that relies on upstart to be dead so that a corresponding supervisor "program" can run instead. Of course this will be the case unless I set /sbin/init to upstart, which I have no intention of doing.
+
+When not running in Docker, however, I would like for the service to be running and watched by other chunks like package or file declarations. Here's an example...
+
+``` yaml
+...
+include:
+  - .depend-supervisor
+  -  ceph
+
+ceph-mon:
+{% if salt['config.get']('virtual_subtype') == 'Docker' %}
+  service.dead:
+    - enable:      False
+{% else %}
+  service.running:
+    - enable:      True
+{% endif %}
+    - name:        ceph-mon-all
+    - watch:
+      - pkg:       ceph
+      - file:     /etc/ceph/{{ cluster }}.conf
+...
+```
+
+The problem is that salt.states.service.mod_watch assumes that the desired state of my service is running and not dead, and so attempts to restart the service regardless. The desired behavior would be for mod_watch to determine whether the service is intended to be running or dead and act accordingly.

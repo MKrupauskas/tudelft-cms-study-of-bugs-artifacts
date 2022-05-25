@@ -1,0 +1,56 @@
+I followed the instructions at 
+http://docs.saltstack.com/en/latest/topics/development/hacking.html
+to get a separate salt environment for tests, debugging, extending and so on.
+Used on ubuntu 14.04, set up virtualenv.
+However, the current code seems to produce cpu eating salt-masters as soon as the first execution module is invoked. It should be noted that until some minion interaction is required, everything idles fine. 
+stracing the process eating cpu leads to 
+
+``` C
+poll([{fd=13, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=15, events=POLLIN}], 1, 0)    = 0 (Timeout)
+
+poll([{fd=13, events=POLLIN}, {fd=15, events=POLLIN}], 2, 0) = 0 (Timeout)
+poll([{fd=13, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=15, events=POLLIN}], 1, 0)    = 0 (Timeout)
+
+poll([{fd=13, events=POLLIN}, {fd=15, events=POLLIN}], 2, 0) = 0 (Timeout)
+poll([{fd=13, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=15, events=POLLIN}], 1, 0)    = 0 (Timeout)
+
+
+
+poll([{fd=13, events=POLLIN}, {fd=15, events=POLLIN}], 2, 0) = 0 (Timeout)
+poll([{fd=13, events=POLLIN}], 1, 0)    = 0 (Timeout)
+poll([{fd=15, events=POLLIN}], 1, 0)    = 0 (Timeout)
+```
+
+In very fast succession. Forcing a stack trace to the python process leads eventually to 
+salt/utils/event.py
+And more exactly at this :
+
+``` python
+        while not wait or time.time() <= timeout_at:
+            try:
+                # convert to milliseconds
+                socks = dict(self.poller.poll(wait * 1000))
+                if socks.get(self.sub) != zmq.POLLIN:
+                    continue
+```
+
+It seems that the code enters on the `socks.get(self.sub) != zmq.POLLIN` branch which then goes on and on forever (I put a debug statement before continue, and it fires forever).
+I am not yet sure why this never ends and why even for a few seconds this fires so rapidly (I dont suppose its normal to hog the cpu even for a a few seconds with which wait eventually is called).
+Maybe someone working on the transport/zmq core could take over from here and recheck  the logic of the above code, something seems not right there.
+In the current stable code, the construct has that POLLIN check outside the try block, and this is why maybe it does not loop forever due to continue :
+
+``` python
+        while not wait or time.time() <= timeout_at:
+            # convert to milliseconds
+            socks = dict(self.poller.poll(wait * 1000))
+            if socks.get(self.sub) != zmq.POLLIN:
+                continue
+
+            try:
+                # Please do not use non-blocking mode here.
+                # Reliability is more important than pure speed on the event bus.
+                ret = self.get_event_block()
+```

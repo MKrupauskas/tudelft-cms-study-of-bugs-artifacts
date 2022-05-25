@@ -1,0 +1,84 @@
+### Description of Issue/Question
+
+In salt.states.ldap there are few directives (like replace, delete, add, default, delete_others), directive 'add' tries to replace (delete and re-add) attributes of an existing object in the back end. This is bad as in some cases it's not possible (openldap will refuse to perform). 
+One example is adding a new module (in my case to setup replication) - it's not possible (with openldap 2.4) to UNLOAD module dynamically which would happen if salt would delete attribute.
+### Setup
+
+What should work but it doesnt:
+
+```
+      - 'cn=module{0},cn=config':
+        - add:
+            olcModuleLoad:
+              - '{1}syncprov'
+              - '{2}accesslog'
+```
+
+Error I get:
+
+```
+LDAPError: exception in ldap backend: OTHER({'info': 'cannot delete olcModuleLoad', 'desc': 'Other (e.g., implementation specific) error'},)
+```
+
+A workaround is to define a ldif like below and load it with ldapadd command:
+
+```
+#Load the syncprov module.
+dn: cn=module{0},cn=config
+changetype: modify
+add: olcModuleLoad
+olcModuleLoad: syncprov
+```
+
+So it's clear that 'add' doesn't really add in the background... and it should.
+### Steps to Reproduce Issue
+
+Try to load ANY new module via ldap state, eg:
+
+```
+      - 'cn=module{0},cn=config':
+        - add:
+            olcModuleLoad:
+              - '{1}syncprov'
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2016.3.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  1 2015, 12:57:24)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.3 
+        machine: x86_64
+        release: 3.16.0-4-amd64
+         system: Linux
+        version: debian 8.3
+```

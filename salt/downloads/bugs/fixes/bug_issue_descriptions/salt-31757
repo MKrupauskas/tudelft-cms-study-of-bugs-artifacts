@@ -1,0 +1,124 @@
+I am running salt-cloud 2015.8.5 (Beryllium) in Amazon EC2.  Running "salt-cloud -p salt-profile new_server"  The installation fails and when I check the Salt repo it is incorrect.
+### Setup
+
+```
+cloud.profiles:
+edd_api:
+  provider: ec2
+  image: XXXXX
+  size: m3.medium
+  ssh_username: ec2-user
+  minion:
+    master: XXXXXX
+  ssh_interface: private_ips
+  id: XXXXXX
+  key: XXXXXXX
+  private_key: /root/.ssh/id_rsa
+  keyname: salt
+  securitygroup: EDD API
+  location: us-west-2
+  availability_zone: us-west-2b
+  ssh_username: ec2-user
+  driver: ec2
+  grains:
+    type: eddAPI
+  block_device_mappings:
+    - DeviceName: /dev/sdf
+      Ebs.VolumeSize: 100
+      Ebs.VolumeType: gp2
+  file_map:
+    /etc/yum.repos.d/saltstack.repo: /etc/yum.repos.d/saltstack.repo
+```
+
+  Added the file map to try to get Salt Cloud to install the correct repo file, that isn't working
+
+```
+cloud.providers:
+ec2:
+  id: XXXX
+  key: XXXX
+  private_key: XXX
+  keyname: XXX
+  securitygroup: XXX
+  location: us-west-2
+  availability_zone: us-west-2b
+  ssh_username: ec2-user
+  driver: ec2
+```
+### Steps to Reproduce Issue
+1. Run: salt-cloud -p salt-profile new_server
+2. It successfully builds the node in EC2
+3. It starts to install the salt packages and fails because of the contents of the repo file:
+   File contains no section headers.
+   file: file:///etc/yum.repos.d/saltstack-salt-epel-6.repo, line: 1
+4. yum then fails and prints out a usage page
+5. Salt Cloud quits with the following error:  
+
+```
+* ERROR: Failed to run install_amazon_linux_ami_deps()!!!
+Error: There was a profile error: Command 'ssh -t -t -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oControlPath=none -oPasswordAuthentication=no -oChallengeResponseAuthentication=no -oPubkeyAuthentication=yes -oKbdInteractiveAuthentication=no -i /root/.ssh/id_rsa -p 22 ec2-user@10.36.75.154 \'sudo /tmp/.saltcloud-2792bb16-034d-49c5-bcae-5a216f8c4dbb/deploy.sh -c \'"\'"\'/tmp/.saltcloud-2792bb16-034d-49c5-bcae-5a216f8c4dbb\'"\'"\'\'' failed. Exit code: 1
+
+This is the resulting /etc/yum.repos.d/saltstack-salt-epel-6.repo file:
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<html><head>
+<title>302 Found</title>
+</head><body>
+<h1>Found</h1>
+<p>The document has moved <a href="https://copr.fedorainfracloud.org/coprs/saltstack/salt/repo/epel-6/saltstack-salt-epel-6.repo">here</a>.</p>
+<hr>
+<address>Apache/2.4.6 (Red Hat Enterprise Linux) Server at copr.fedoraproject.org Port 80</address>
+</body></html>
+```
+
+This is what is should be in the saltstack.rep I sent during the cloud launch:
+
+```
+[saltstack-repo]
+name=SaltStack repo for RHEL/CentOS $releasever
+baseurl=https://repo.saltstack.com/yum/redhat/6Server/x86_64/latest/
+enabled=1
+gpgcheck=1
+gpgkey=https://repo.saltstack.com/yum/redhat/$releasever/$basearch/latest/$releaseverSALTSTACK-GPG-KEY.pub
+```
+
+When I replace it I can finish the install manually just fine.
+### Versions Report
+
+```
+[root@salt edd]# salt --versions-report
+Salt Version:
+           Salt: 2015.8.5
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.5.0
+         Python: 2.6.9 (unknown, Dec 17 2015, 01:08:55)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist:   
+        machine: x86_64
+        release: 3.14.27-25.47.amzn1.x86_64
+```

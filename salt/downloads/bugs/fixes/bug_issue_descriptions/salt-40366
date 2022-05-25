@@ -1,0 +1,119 @@
+Salt minions are timing out with SaltReqTimeoutError and I have tracked it down to an invalid minion id that is affecting the salt master.
+
+We started seeing SaltReqTimeoutError everywhere, and I turned on debug mode on the salt master. This bit stood out to me.
+```
+2017-03-27 14:32:15,578 [salt.transport.mixins.auth                           ][INFO    ][25177] Authentication accepted from ^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@
+2017-03-27 14:32:15,578 [tornado.application                                  ][ERROR   ][25177] Future exception was never retrieved: Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/tornado/gen.py", line 230, in wrapper
+    yielded = next(result)
+  File "/usr/lib/python2.7/dist-packages/salt/transport/zeromq.py", line 606, in handle_message
+    stream.send(self.serial.dumps(self._auth(payload['load'])))
+  File "/usr/lib/python2.7/dist-packages/salt/transport/mixins/auth.py", line 389, in _auth
+    if not os.path.isfile(pubfn) and not self.opts['open_mode']:
+  File "/usr/lib/python2.7/genericpath.py", line 29, in isfile
+    st = os.stat(path)
+TypeError: must be encoded string without NULL bytes, not str
+```
+So I guess, somewhere out there we have a salt minion and somehow it's id is set to null characters. We have a huge test network and don't always control or know where folks install salt minion for their use. But it is odd that salt master stops working due to this. This error shows up in the log and minions just start timing out. Unfortunately I haven't been able to track down the erroneous minion, and I don't know how it would get a null character in it's id.
+
+Here's a log from the master in debug mode https://gist.github.com/ksalman/6313cb325ae123798dc899a53028d63f. The error first appears on line 1669. I ran the file through `cat -A` to get printable null characters, and that is also why every line show end-of-line character `$`.
+
+Here is a log from the minion in debug mode https://gist.github.com/ksalman/867b146de02cb36070f1e69399ffe551.
+
+Master versions:
+```
+Salt Version:
+           Salt: 2016.11.1
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.6
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 0.7.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.3 (default, Mar 13 2014, 11:03:55)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 13.1.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 7.7
+        machine: x86_64
+        release: 3.2.0-4-amd64
+         system: Linux
+        version: debian 7.7
+```
+
+Minion versions:
+```
+Salt Version:
+           Salt: 2016.11.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3c1
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.6.6 (r266:84292, Jul 22 2015, 16:47:47)
+   python-gnupg: Not Installed
+         PyYAML: 3.09
+          PyZMQ: 14.5.0
+           RAET: Not Installed
+          smmap: 0.8.1
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: redhat 6.1 Carbon
+        machine: x86_64
+        release: 2.6.32-279.11.1.el6.x86_64
+         system: Linux
+        version: Scientific Linux 6.1 Carbon
+```
+I say that the null character is the reason of this issue because when I patch salt master to ignore this minion, things start working. On the master, I edited the file `/usr/share/pyshared/salt/utils/verify.py` and added this bit to the `valid_id` function
+```
+    if b'\x00' in id_:
+        log.info('null character')
+        return False
+```
+
+Master debug log after patch:
+```
+2017-03-27 11:36:08,986 [salt.utils.verify                                    ][INFO    ][2433] null character
+2017-03-27 11:36:08,986 [salt.transport.mixins.auth                           ][INFO    ][2433] Authentication request from invalid id ^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@^@
+^@
+2017-03-27 11:36:08,987 [salt.transport.mixins.auth                           ][INFO    ][2433] Authentication request from oak-sh126
+2017-03-27 11:36:09,003 [salt.loaded.int.grains.core                          ][DEBUG   ][2470] Please install 'virt-what' to improve results of the 'virtual' grain.
+
+```

@@ -1,0 +1,51 @@
+### Description of Issue
+
+We use the salt-masters ext_pillar feature using the git backend (with pygit2). 
+We now observe the situation that we have a tag in our git repository which is handled differently by pygit2. Basically this seems to be caused by the situation that it is annotated (with an assigned message). This finally leads to the situation that the tag cannot be used due to error message
+
+```
+root@salt-master:/# salt-run pillar.show_pillar saltenv=v3.2.10 pillarenv=v3.2.10
+[ERROR   ] Failed to checkout v3.2.10 from git_pillar remote '__env__ ssh://repositoryhost/salt': remote ref does not exist
+```
+
+
+When adding logging to the utils/gitfs.py file which raises the error, the situation is as follows. The tag v3.2.10 fails while tag v3.2.9 can be processed without error:
+
+```
+root@salt-master:/# salt-run pillar.show_pillar saltenv=v3.2.10 pillarenv=v3.2.10
+[ERROR   ] <_pygit2.Tag object at 0x7f42339c5c30>
+[ERROR   ] <class '_pygit2.Tag'>
+[ERROR   ] refs/tags/v3.2.10 does not correspond to pygit2.Commit object
+[ERROR   ] Failed to checkout v3.2.10 from git_pillar remote '__env__ ssh://repositoryhost/salt': remote ref does not exist
+root@salt-master:/# salt-run pillar.show_pillar saltenv=v3.2.9 pillarenv=v3.2.9
+[ERROR   ] <_pygit2.Commit object at 0x7f59a1a37c30>
+[ERROR   ] <class '_pygit2.Commit'>
+```
+
+Due to that I propose to change the code in method `utils.gitfs.Pygit2.checkout` from
+
+```(python)
+            elif tag_ref in refs:
+                tag_obj = self.repo.revparse_single(tag_ref)
+                if not isinstance(tag_obj, pygit2.Commit):
+                    log.error(
+                        '%s does not correspond to pygit2.Commit object',
+                        tag_ref
+                    )
+```
+
+to 
+
+```(python)
+            elif tag_ref in refs:
+                tag_obj = self.repo.revparse_single(tag_ref)
+                if type(tag_obj) not in [pygit2.Commit, pygit2.Tag]:
+                    log.error(
+                        '%s does not correspond to pygit2.Commit or pygit2.Tag object (%s)',
+                        tag_ref, tag_obj
+                    )
+```
+
+I see no further issues with that in testing. 
+
+The issue is present from at least 2018.3 up to development. 

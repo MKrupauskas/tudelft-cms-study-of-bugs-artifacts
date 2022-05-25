@@ -1,0 +1,60 @@
+### Description of Issue/Question
+
+AWS allow user with EC2 creation rights to create and launch EC2 instances inside VPC private Subnet.  
+salt-cloud make use of boto/boto3 functionality, but not using "client-token" during instances creation. this mean salt-cloud cannot ensure idempotent of instance creation in following conditions : 
+1. The connection drop or timeout 
+2. EC2 instance create inside private subnet that doesn't have connection back to machine that issue the salt-cloud command
+### Setup
+1. Just use AWS VPC wizard create VPC that only contains private subnet  , e.g. using CIDR 172.16.50.0/23  , create Private subnet  172.16.50.0/24 and 172.16.51.0/24
+2. Use saltstack provider config example  (https://docs.saltstack.com/en/latest/topics/cloud/aws.html#configuration) for provider config, use saltstack profiles config example for profile config .  Just change the credential and key with policies that allow to maintain above VPC 
+### Versions Report
+
+`Salt Version:
+            Salt: 2015.8.3
+
+Dependency Versions:
+ Apache Libcloud: Not Installed
+          Jinja2: 2.8
+        M2Crypto: Not Installed
+            Mako: Not Installed
+          PyYAML: 3.11
+           PyZMQ: 15.1.0
+          Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+            RAET: Not Installed
+         Tornado: 4.3
+             ZMQ: 4.1.2
+            cffi: 1.5.2
+        cherrypy: Not Installed
+        dateutil: 2.4.2
+           gitdb: Not Installed
+       gitpython: Not Installed
+           ioflo: Not Installed
+         libnacl: Not Installed
+    msgpack-pure: Not Installed
+  msgpack-python: 0.4.6
+    mysql-python: 1.2.5
+       pycparser: 2.14
+        pycrypto: 2.6.1
+          pygit2: Not Installed
+    python-gnupg: Not Installed
+           smmap: Not Installed
+         timelib: Not Installed
+
+System Versions:
+            dist: Ubuntu 14.04 trusty
+         machine: x86_64
+         release: 3.16.0-62-generic
+          system: Ubuntu 14.04 trusty
+
+`
+### Steps to Reproduce Issue
+1. Run salt-cloud to create EC2 instance inside VPC private subnet. 
+   `salt-cloud -p base_ec2_private ami.example.com
+   `
+2. The instance will be created and launched by salt-cloud. Because the instance is inside private subnet,  salt-cloud failed to make any connection to the instance private IP, even it may retrieve the private subnet IP in the first place.
+3. When redo step  3 , salt-cloud will create another new EC2 instance  
+#### Suggestion to enable EC2 idempotent inside VPC private subnet.
+1. Make use of AWS SDK create_instances()  "client-token" parameter (http://boto3.readthedocs.org/en/latest/reference/services/ec2.html#EC2.ServiceResource.create_instances)
+2. Generate 64 character hash for client-token, then cache it inside saltstack as token to identify the instance
+3. Add "client-token" for user who wish to use their custom client-token (saltstack should store this custom token in cache to identify the instance.  
+4.  Use describe_instances(Filters=[{"Name":"client-token","Values":[saltstack-or-custom-tokens-key , ...]}])  to check whether EC2 instance with the same client-token exist. 

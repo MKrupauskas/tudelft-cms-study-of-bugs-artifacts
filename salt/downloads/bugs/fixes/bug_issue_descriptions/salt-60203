@@ -1,0 +1,148 @@
+### Description of Issue
+
+If the return from `salt.utils.http.query()` does not contain the 'handle' key it will raise a new `MinionError` containing the unsanitized URL, potentially exposing basic credentials in the output. For example:
+
+```
+local:
+----------
+          ID: credentials exposed
+    Function: file.managed
+        Name: /tmp/test.tar.gz
+      Result: False
+     Comment: Unable to manage file: Error: [Errno -2] Name or service not known reading https://account:dontshowme@notahost.saltstack.io/files/test.tar.gz.sha256
+     Started: 15:51:16.771767
+    Duration: 26.247 ms
+     Changes:   
+----------
+          ID: credentials exposed via archive
+    Function: archive.extracted
+        Name: /tmp/unpacked
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python3/dist-packages/salt/state.py", line 2171, in call
+                  ret = self.states[cdata["full"]](
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 1235, in __call__
+                  return self.loader.run(run_func, *args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2268, in run
+                  return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2283, in _run_as
+                  return _func_or_method(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2316, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/states/archive.py", line 968, in extracted
+                  source_sum = __salt__["file.get_source_sum"](
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 1235, in __call__
+                  return self.loader.run(run_func, *args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2268, in run
+                  return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2283, in _run_as
+                  return _func_or_method(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/modules/file.py", line 847, in get_source_sum
+                  hash_fn = __salt__["cp.cache_file"](
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 1235, in __call__
+                  return self.loader.run(run_func, *args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2268, in run
+                  return self._last_context.run(self._run_as, _func_or_method, *args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/loader.py", line 2283, in _run_as
+                  return _func_or_method(*args, **kwargs)
+                File "/usr/lib/python3/dist-packages/salt/modules/cp.py", line 499, in cache_file
+                  result = _client().cache_file(
+                File "/usr/lib/python3/dist-packages/salt/fileclient.py", line 180, in cache_file
+                  return self.get_url(
+                File "/usr/lib/python3/dist-packages/salt/fileclient.py", line 759, in get_url
+                  raise MinionError("Error: {} reading {}".format(query["error"], url))
+              salt.exceptions.MinionError: Error: [Errno -2] Name or service not known reading https://account:dontshowme@notahost.saltstack.io/files/test.tar.gz.sha256
+     Started: 15:51:16.798776
+    Duration: 13.397 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 0
+Failed:    2
+------------
+Total states run:     2
+Total run time:  39.644 ms
+```
+
+I'm not sure all the ways _into_ this scenario, however I noticed it in our environment for URL or HTTP errors when we declare `source_hash` for bad locations or paths. It's simple enough to reproduce with some bad links. Conversely, if you do `skip_verify: True`, instead of declaring a hash, it will strip the output of credentials and replace it with `<redacted>`.
+
+In both cases outlined it a very specific case in `fileclient.py:758-759` for v3003:
+
+```
+            if "handle" not in query:
+                raise MinionError("Error: {} reading {}".format(query["error"], url))
+```
+
+This same code block is what causes the throw where we noticed in a test environment (v3002.6).
+
+### Setup
+
+SLS to demonstrate the problem:
+
+```
+# totally contrived and broken URLs:
+credentials exposed via file:
+  file.managed:
+    - name: /tmp/test.tar.gz
+    - source: 'https://account:dontshowme@notahost.saltstack.io/files/test.tar.gz'
+    - source_hash: 'https://account:dontshowme@notahost.saltstack.io/files/test.tar.gz.sha256'
+
+
+credentials exposed via archive:
+  archive.extracted:
+    - name: /tmp/unpacked
+    - source: 'https://account:dontshowme@notahost.saltstack.io/files/test.tar.gz'
+    - source_hash: {'https://account:dontshowme@notahost.saltstack.io/files/test.tar.gz.sha256'
+    - archive_format: tar
+```
+
+### Steps to Reproduce Issue
+
+1. Apply the SLS listed above.
+2. Observe `account:dontshowme` being output, rather than the expected `<redacted>`.
+
+### Versions Report
+
+Reproduced on a new Ubuntu 20.04 VM with a fresh salt install.
+
+```
+# salt --versions-report
+Salt Version:
+          Salt: 3003
+ 
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.7.3
+     docker-py: Not Installed
+         gitdb: 2.0.6
+     gitpython: 3.0.7
+        Jinja2: 2.10.1
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 0.6.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.6.1
+        pygit2: Not Installed
+        Python: 3.8.5 (default, Jul 28 2020, 12:59:40)
+  python-gnupg: 0.4.5
+        PyYAML: 5.3.1
+         PyZMQ: 18.1.1
+         smmap: 2.0.5
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.2
+ 
+System Versions:
+          dist: ubuntu 20.04 focal
+        locale: utf-8
+       machine: x86_64
+       release: 5.8.0-53-generic
+        system: Linux
+       version: Ubuntu 20.04 focal
+```

@@ -1,0 +1,45 @@
+Short version:
+The boto states/modules sometimes use resource name as a primary identifier.  But resource names aren't guaranteed to be unique, as they are just tags.
+
+Details:
+I'd like to use boto_vpc to modify AWS resources based on salt configuration.  For example, on an instance that provides VPN services to users, I'd like to automatically update the VPC routing table to point the VPN prefixes at the appropriate instance:
+
+``` yaml
+vpn_route_table_update:
+  boto_vpc.route_table_present:
+    - name: PrivateRouteTable
+    - vpc_id: vpc-01234567
+    - routes:
+        - destination_cidr_block: {{ salt['grains.get']('VpnPrefix') }}
+          instance_id: {{ salt['grains.get']('ec2:instance_id') }}
+    - region: {{ salt['grains.get']('ec2:region') }}
+```
+
+This fails if the account already has multiple route tables named `PrivateRouteTable`:
+
+```
+local:
+----------
+          ID: my_route_table
+    Function: boto_vpc.route_table_present
+        Name: new-nat-instance-private-1
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/usr/lib/python2.7/dist-packages/salt/state.py", line 1626, in call
+                  **cdata['kwargs'])
+                File "/usr/lib/python2.7/dist-packages/salt/loader.py", line 1492, in wrapper
+                  return f(*args, **kwargs)
+                File "/usr/lib/python2.7/dist-packages/salt/states/boto_vpc.py", line 572, in route_table_present
+                  keyid=keyid, profile=profile)
+                File "/usr/lib/python2.7/dist-packages/salt/states/boto_vpc.py", line 606, in _route_table_present
+                  profile=profile)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/boto_vpc.py", line 372, in get_resource_id
+                  keyid=keyid, profile=profile)}
+                File "/usr/lib/python2.7/dist-packages/salt/modules/boto_vpc.py", line 349, in _get_resource_id
+                  keyid=keyid, profile=profile)
+                File "/usr/lib/python2.7/dist-packages/salt/modules/boto_vpc.py", line 292, in _get_resource
+                  resource, name))
+              CommandExecutionError: Found more than one route_table named "PrivateRouteTable"
+```
+
+Is there any way to use the route table ID instead to work around such an environment?  In this case, salt would not be able to create the table, but instead must have it already exist.

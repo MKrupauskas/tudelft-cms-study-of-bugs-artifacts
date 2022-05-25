@@ -1,0 +1,19 @@
+A few months ago, a change was made to the event handling such that when filtering by tag, non-matching messages were appended to an internal list instead of being discarded (https://github.com/saltstack/salt/issues/8580)
+
+This has bitten us, because it turns any usage along these lines into a deadly memory leak:
+
+```
+master_event = salt.utils.event.MasterEvent(<my config>)
+while True:
+    ev = master_event.get_event(tag='interesting/tag')
+```
+
+Every event not matching interesting/tag is appended to master_event.pending_events, with no limit.  The system eventually exhausts available memory.
+
+I consider this a dangerously broken API, because everything appears to work until you go into production and run for several days.
+
+Some various options to improve the situation:
+- Make this behaviour explicit in the API documentation
+- Disable the pending_requests behaviour by default so that only people who are aware of the buffering will use it
+- Remove tag filtering from the salt API entirely, as it is not doing it especially cleverly and callers can equally just do their own "ev['tag'].startswith()" check instead of having salt do that for them.
+- Make the 0MQ-level filtering work, so that non-matching events never make it to the code to begin with and we're not worried about them being buffered.

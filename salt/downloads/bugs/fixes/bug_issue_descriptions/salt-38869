@@ -1,0 +1,62 @@
+### Description of Issue/Question
+
+When configuring an openvswitch port in GRE-tunnel mode, the openvswitch.port_present state fails because it does not found the "dst_port" argument, which is required only in VXLAN mode.
+
+It seems that states/openvswitch_port.py pre-generates error messages (https://github.com/saltstack/salt/blob/af286c1e89ce7afc03bd9f53274055a3fb69ee9d/salt/states/openvswitch_port.py#L39) without checking for the "type" argument.
+
+We could fix that, by enclosing those "comment_" var in conditions, maybe?
+
+### Setup
+
+I'm running this with salt-ssh:
+
+```
+openvswitch:
+  pkg.installed: []
+ovs-vswitchd:
+  service.running:
+    - enable: true
+    - require:
+      - pkg: openvswitch
+
+br-lan:
+  openvswitch_bridge.present: []
+
+ovs-tun-gre:
+  openvswitch_port.present:
+    - bridge: br-lan
+    - type: gre
+    - remote: {{ ip }}
+    - id: 1
+```
+throws:
+
+```
+----------
+          ID: ovs-tun-gre
+    Function: openvswitch_port.present
+        Name: ovs-tun-gre
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/var/tmp/.root_e78424_salt/py3/salt/state.py", line 1744, in call
+                  **cdata['kwargs'])
+                File "/var/tmp/.root_e78424_salt/py3/salt/loader.py", line 1702, in wrapper
+                  return f(*args, **kwargs)
+                File "/var/tmp/.root_e78424_salt/py3/salt/states/openvswitch_port.py", line 75, in present
+                  comment_dstport = ' (dst_port' + str(dst_port) + ')' if 0 < dst_port <= 65535 else ''
+              TypeError: '<' not supported between instances of 'int' and 'NoneType'
+     Started: 18:26:22.079644
+    Duration: 29.143 ms
+     Changes:   
+
+```
+(the "port_dst" parameter is optionnal when doing a GRE tunnel)
+
+### Steps to Reproduce Issue
+
+Run the provided SLS on a freshly spawned arch-linux minion (you would have to adapt the pkg names for testing on other distros)
+
+### Versions Report
+Salt Version:
+           Salt: 2016.11.1
+(masterless setup)

@@ -1,0 +1,168 @@
+Context:
+
+We make heavy use of grains and pillars to add meta data about each environment we manage and what data gets passed into that environment. We then use this data to run dynamic configuration of some of our services in most cases its the web server and the load balancer.
+
+We have a salt state that dynamically configures a load balancer. 
+The key part of the state is the following
+
+``` jinja
+{% set balancer_dict = {} %}
+{% set services = [] %}
+{% for balancer_env in environment_list %}
+{% set balancer_list_dict = {} %}
+{% set matchexr_prefix = 'G@environment:client_env:' + balancer_env + ' and G@environment:type:' + env_type %}
+{% for app in applist.keys() %}
+{% set dict_value = salt['publish.publish'](matchexr_prefix+' and G@services:'+app, 'network.get_hostname', expr_form='compound').keys() %}
+{% set dict_key = balancer_env+'_'+applist[app] %}
+
+{% set env_grains_value = salt['publish.publish'](matchexr_prefix, 'grains.items', expr_form='compound').values() %} 
+{% for grains in env_grains_value -%}
+{% for grain, value in grains.iteritems() -%}
+{% if grain == 'services' -%}
+{% for service in value -%}
+{% if service not in services -%}
+{% if  services.append(service) -%}{% endif -%}
+{% endif -%}
+{% endfor -%}
+{% endif -%}
+{% endfor -%}
+{% endfor -%}
+{% if balancer_list_dict.update({dict_key.lower():dict_value})%} {% endif %}
+{% endfor %}
+{% if balancer_dict.update({balancer_env.lower():[balancer_list_dict]})%} {% endif %}
+{% endfor %}
+```
+
+where we have a nested structure to create a dictionary that will be passed in to the configuration template for the load balancer for a particular set of environments. 
+
+The key line is the following:
+
+``` jinja
+{% set dict_value = salt['publish.publish'](matchexr_prefix+' and G@services:'+app, 'network.get_hostname', expr_form='compound').keys() %}
+```
+
+When running this state on 
+
+```
+           Salt: 2014.1.4
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.9.final
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+         PyYAML: 3.10
+          PyZMQ: 2.2.0
+            ZMQ: 3.2.1
+
+```
+
+It works fine and collects the correct data to pass into the the template configuration file for the load balancer.
+
+So far so good. We have a dynamically configured load balancer for all our environments.
+
+Now when we upgrade to
+
+```
+Salt Version:
+           Salt: 2015.8.0
+
+Dependency Versions:
+         Jinja2: 2.2.1
+       M2Crypto: 0.20.2
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.5.0
+         Python: 2.6.6 (r266:84292, Jul 23 2015, 15:22:56)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+           cffi: Not Installed
+       cherrypy: 3.2.2
+       dateutil: 1.4.1
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: 0.20.3
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist: centos 6.7 Final
+        machine: x86_64
+        release: 2.6.32-431.17.1.el6.x86_64
+         system: CentOS 6.7 Final
+```
+
+The same state fails with the following error.
+
+```
+    Data failed to compile:
+----------
+    Rendering SLS 'dev:haproxy.test' failed: Jinja variable 'keys' is undefined
+```
+
+This to me seems that the dictionary I should be expecting is not returning and hence can't call the key method.
+
+At this point the master configuration file is the same on both servers. We have the peer system turned on 
+
+``` yaml
+peer:                                                                                                                                                                                                                                     
+   .*:
+     - network.get_hostname
+     - grains.items
+     - grains.get
+
+```
+
+Initially I thought maybe the peer system was broken so we run a test from the the command line on the upgraded salt server.
+
+```
+salt 'tst-min-001*' cmd.run "salt-call publish.publish 'G@environment:client_env:HARRIER_QA and G@environment:type:tst and G@services:UPLOADPIPELINE_HOSTS' network.get_hostname  expr_form='compound'"
+tst-min-001.orbitbenefits.capita:
+    [INFO    ] Publishing 'network.get_hostname' to tcp://172.23.30.56:4506
+    local:
+        ----------
+        tst-min-001.orbitbenefits.capita:
+            tst-min-001
+
+```
+
+So the publish.publish module is working and returning the data. So maybe its just the when the module is being run from the state thats causing the issue.
+
+``` jinja
+{% set test = salt['publish.publish']( matchexr_prefix +' and G@services:TCT_HOSTS',  'network.get_hostname', expr_form='compound') %}
+
+```
+
+seems to return data and compile.
+
+but when running the following :
+
+```
+{% for app in applist %}
+{% set test = salt['publish.publish']( matchexr_prefix +' and G@services:' + app,  'network.get_hostname', expr_form='compound').keys() %}
+{% endfor %}
+
+```
+
+we get the same error
+
+```
+    Data failed to compile:
+----------
+    Rendering SLS 'dev:haproxy.test' failed: Jinja variable 'keys' is undefined
+```
+
+its as if the variables from the outer scope are not being passed into the `{% set %}` 
+
+Any help on why this might be happening would be most welcome. This is now blocking the upgrade of salt as we make heavy use of the peer/mine system to dynamically configure some of our environments.
+
+If there is anything else that you might need to know please ask.

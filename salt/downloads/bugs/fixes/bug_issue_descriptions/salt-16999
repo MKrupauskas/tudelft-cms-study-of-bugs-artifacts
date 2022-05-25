@@ -1,0 +1,36 @@
+We saw extremely long transfer time (in term of state completion) under CentOS 6.5 when the source of a file.recurse state is composed of a lot of files (over 7000). After investigation we found that restorecon was call sequentially for every deployed files. SELinux feature is disabled on our machines!
+
+version :
+
+```
+ Salt: 2014.7.0rc6
+         Python: 2.6.6 (r266:84292, Jan 22 2014, 09:42:36)
+         Jinja2: 2.7.3
+       M2Crypto: 0.20.2
+ msgpack-python: 0.4.2
+   msgpack-pure: Not Installed
+       pycrypto: 2.6.1
+        libnacl: Not Installed
+         PyYAML: 3.11
+          ioflo: Not Installed
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+            ZMQ: 3.2.4
+           Mako: Not Installed
+```
+
+The problem is in the `salt:utils:copyfile` method :
+
+```
+    rcon = which('restorecon')
+    if rcon:
+        with fopen(os.devnull, 'w') as dev_null:
+            cmd = [rcon, dest]
+            subprocess.call(cmd, stdout=dev_null, stderr=dev_null)
+```
+
+Is it possible to not execute that code if SELinux is disabled? Using a subprocess for every file is really  really slow. I looked in the Ansible code and they are relying on `libselinux-python` to do the job. Can file transfer be paralleled?
+
+The "which" method doesn't seem to cache the path either. I don't know if it's worth to implement but 7000 invocations for always the same path (a unique file.recurse state) might see speed improvement. 
+
+I know that there's a lot of different requests in my issue, I can create new one if you want.  For us now, the main problem is the restorecon call, everything else will be probably small to medium improvements.

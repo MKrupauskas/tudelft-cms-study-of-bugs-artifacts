@@ -1,0 +1,162 @@
+**Description**
+A clear and concise description of what the bug is.
+
+**Setup**
+(Please provide relevant configs and/or SLS files (be sure to remove sensitive info. There is no general set-up of Salt.)
+
+Please be as specific as possible and give set-up details.
+
+- [X] on-prem machine
+- [ ] VM (Virtualbox, KVM, etc. please specify)
+- [ ] VM running on a cloud service, please be explicit and add details
+- [X] LXC container
+- [ ] or a combination, please be explicit
+- [ ] jails if it is FreeBSD
+
+Map.jinja:
+```
+# -*- coding: utf-8 -*-
+# vim: ft=jinja
+
+{% import_yaml "common/repository/defaults.yml" as defaults with context -%}
+
+{% set config = pillar['repository'] %}
+{% for x,y in config.items() %}
+  {% for z in y %}
+    {% set config = z %}
+  {% endfor %}
+{% endfor %}
+```
+pillar sls file:
+```
+repository:
+  unifi:
+    debian:
+      default:
+        url:
+          - deb http://www.ui.com/downloads/unifi/{{ grains.lsb_distrib_id | lower }} stable ubiquiti
+        key_server: http://download.proxmox.com/debian/proxmox-release-{{ grains['lsb_distrib_codename'] }}.gpg
+        key_id: 06E85760C0A52C50
+    ubuntu:
+      foo: bar
+```
+State file test-dict.sls:
+
+```
+---
+{% from "common/repository/map.jinja" import config with context %}
+
+/var/tmp/test.txt:
+  file.managed:
+    - source: salt://common/repository/templates/test.j2
+    - user: root
+    - group: root
+    - mode: 0600
+    - template: jinja
+    - context:
+        config: {{ config }}
+```
+
+test.j2 file:
+```
+{{ config|yaml(False) }}
+```
+
+
+**Steps to Reproduce the behavior**
+
+```
+salt 'unifi' state.sls common.repository.test-dict
+```
+On the host:
+
+```
+# cat /var/tmp/test.txt
+unifi:
+  debian:
+    default:
+      key_id: 06E85760C0A52C50
+      url:
+      - deb http://www.ui.com/downloads/unifi/debian stable ubiquiti
+      key_server: http://download.proxmox.com/debian/proxmox-release-stretch.gpg
+  ubuntu:
+    foo: bar
+```
+
+**Expected behavior**
+When I make the test.j2 template file as:
+```
+{{ config|yaml(False) }}
+
+{% for x,y in config.items() %}
+	{% for z in y %}
+	    {{ z }}
+	{% endfor %}
+{% endfor %}
+```
+It creates the output as expected, I expected the value {{ config }} from the map.jinja to contain the last key in the for loop, so `config` SHOULD be `ubuntu`, however it contains the entire dict???
+In the `map.jinja` file I first set the value `config`, but it SHOULD then be overwritten because of the for loop.
+
+```
+# cat /var/tmp/test.txt
+unifi:
+  debian:
+    default:
+      key_id: 06E85760C0A52C50
+      url:
+      - deb http://www.ui.com/downloads/unifi/debian stable ubiquiti
+      key_server: http://download.proxmox.com/debian/proxmox-release-stretch.gpg
+  ubuntu:
+    foo: bar
+
+            debian
+
+            ubuntu
+```
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Versions Report**
+```Salt Version:
+          Salt: 3004
+
+Dependency Versions:
+          cffi: Not Installed
+      cherrypy: Not Installed
+      dateutil: 2.8.2
+     docker-py: Not Installed
+         gitdb: 4.0.5
+     gitpython: 3.1.14
+        Jinja2: 2.11.3
+       libgit2: Not Installed
+      M2Crypto: Not Installed
+          Mako: Not Installed
+       msgpack: 1.0.2
+  msgpack-pure: Not Installed
+  mysql-python: Not Installed
+     pycparser: Not Installed
+      pycrypto: Not Installed
+  pycryptodome: 3.9.7
+        pygit2: Not Installed
+        Python: 3.9.2 (default, Feb 28 2021, 17:03:44)
+  python-gnupg: Not Installed
+        PyYAML: 5.3.1
+         PyZMQ: 20.0.0
+         smmap: 4.0.0
+       timelib: Not Installed
+       Tornado: 4.5.3
+           ZMQ: 4.3.4
+
+System Versions:
+          dist: debian 11 bullseye
+        locale: utf-8
+       machine: x86_64
+       release: 5.13.19-2-pve
+        system: Linux
+       version: Debian GNU/Linux 11 bullseye
+```
+</details>
+
+**Additional context**
+Add any other context about the problem here.

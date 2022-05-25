@@ -1,0 +1,144 @@
+Using a Saltfile with a private configuration, `salt-ssh` seems to ignore the cachedir that I set in my $config_dir/master. I followed the instructions [here](https://docs.saltstack.com/en/2015.5/topics/ssh/index.html#running-salt-ssh-as-non-root-user).
+
+`Saltfile`:
+
+``` yaml
+salt-ssh:
+  max_procs: 30
+  wipe_ssh: True
+  roster_file: .salt-secret/roster
+  config_dir: .salt-secret/conf
+  ssh_priv: .salt-secret/pki/salt_rsa
+```
+
+`.salt-secret/conf/master`:
+
+``` yaml
+pki_dir: "/home/pirogoeth/maiome-saltstates/.salt-secret/local/pki"
+cachedir: "/home/pirogoeth/maiome-saltstates/.salt-secret/local/cache"
+log_file: "/home/pirogoeth/maiome-saltstates/.salt-secret/local/log/master"
+
+state_verbose: False
+state_output: mixed
+
+file_roots:
+  base:
+    - base
+    - base/states
+    - base/files
+  staging:
+    - staging
+    - staging/states
+    - staging/files
+  prod:
+    - prod
+    - prod/states
+    - prod/files
+
+pillar_roots:
+  base:
+    - base/pillars
+  staging:
+    - staging/pillars
+  prod:
+    - prod/pillars
+```
+
+Example from `salt-ssh 'omega.maio.me' state.highstate`:
+
+```
+[CRITICAL] Rendering SLS 'base:core' failed: Jinja error: [Errno 13] Permission denied: '/var/cache/salt/minion/roots/mtime_map'
+Traceback (most recent call last):
+  File "/usr/local/lib/python2.7/site-packages/salt/utils/templates.py", line 368, in render_jinja_tmpl
+    output = template.render(**decoded_context)
+  File "/usr/local/lib/python2.7/site-packages/jinja2/environment.py", line 969, in render
+    return self.environment.handle_exception(exc_info, True)
+  File "/usr/local/lib/python2.7/site-packages/jinja2/environment.py", line 742, in handle_exception
+    reraise(exc_type, exc_value, tb)
+  File "<template>", line 3, in top-level template code
+  File "/usr/local/lib/python2.7/site-packages/salt/utils/jinja.py", line 113, in get_source
+    self.check_cache(template)
+  File "/usr/local/lib/python2.7/site-packages/salt/utils/jinja.py", line 101, in check_cache
+    self.cache_file(template)
+  File "/usr/local/lib/python2.7/site-packages/salt/utils/jinja.py", line 94, in cache_file
+    self.file_client().get_file(saltpath, '', True, self.saltenv)
+  File "/usr/local/lib/python2.7/site-packages/salt/utils/jinja.py", line 86, in file_client
+    self.opts, self.pillar_rend)
+  File "/usr/local/lib/python2.7/site-packages/salt/fileclient.py", line 53, in get_file_client
+    }.get(client, RemoteClient)(opts)
+  File "/usr/local/lib/python2.7/site-packages/salt/fileclient.py", line 1290, in __init__
+    self.channel = salt.fileserver.FSChan(opts)
+  File "/usr/local/lib/python2.7/site-packages/salt/fileserver/__init__.py", line 663, in __init__
+    self.fs.update()
+  File "/usr/local/lib/python2.7/site-packages/salt/fileserver/__init__.py", line 412, in update
+    self.servers[fstr]()
+  File "/usr/local/lib/python2.7/site-packages/salt/fileserver/roots.py", line 154, in update
+    with salt.utils.fopen(mtime_map_path, 'w') as fp_:
+  File "/usr/local/lib/python2.7/site-packages/salt/utils/__init__.py", line 1208, in fopen
+    fhandle = open(*args, **kwargs)
+IOError: [Errno 13] Permission denied: '/var/cache/salt/minion/roots/mtime_map'
+```
+
+Annoyingly enough, it works when run as root:
+
+```
+ pirogoeth@epsilon | ~/maiome-saltstates | branch: master * | load: 0.56
+λ sudo salt-ssh 'omega.maio.me' state.highstate
+[ERROR   ] Template was specified incorrectly: False
+[ERROR   ] Template was specified incorrectly: False
+omega.maio.me:
+  Name: /etc/sudoers - Function: file.managed - Result: Changed
+
+Summary for omega.maio.me
+-------------
+Succeeded: 12 (changed=1)
+Failed:     0
+-------------
+Total states run:     12
+Total run time:   10.362 s
+```
+
+Environment:
+
+```
+ pirogoeth@epsilon | ~ | load: 0.21
+λ uname -a
+FreeBSD epsilon.maio.me 10.1-RELEASE-p10 FreeBSD 10.1-RELEASE-p10 #3: Sat May 30 02:06:42 CDT 2015     root@epsilon.maio.me:/usr/obj/usr/src/sys/MAIOME-XEN  amd64
+
+ pirogoeth@epsilon | ~ | load: 0.18
+λ salt --versions-report
+Salt Version:
+           Salt: 2015.8.0
+
+Dependency Versions:
+         Jinja2: 2.7.3
+       M2Crypto: Not Installed
+           Mako: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.7.0
+         Python: 2.7.10 (default, Sep  4 2015, 18:58:11)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.3
+           cffi: 1.1.1
+       cherrypy: Not Installed
+       dateutil: 2.3
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: Not Installed
+      pycparser: 2.10
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+
+System Versions:
+           dist:
+        machine: amd64
+        release: 10.1-RELEASE-p10
+```

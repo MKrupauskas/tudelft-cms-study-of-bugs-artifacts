@@ -1,0 +1,67 @@
+On Gentoo, multiple versions of a single package can be installed at the same time using Portage's `SLOT` capabilities.
+This is exposed in `state.pkg.installed` through the `slot` parameter (provided by `modules.ebuild`).
+
+When a package which provides more than 1 slot is installed in one of the provided slots, installing another version into its slot is impossible as `state.pgk.installed` claims it would be already installed.
+
+The manual query of Gentoo's package DB provides this output:
+
+```
+moria ~ # eix -e media-libs/tiff
+[I] media-libs/tiff
+     Available versions:  
+     (3)    3.9.7-r1
+     (0)    4.0.3-r6
+     Installed versions:  4.0.3-r6(11:55:15 PM 02/05/2014)
+     Homepage:            http://www.remotesensing.org/libtiff/
+     Description:         Tag Image File Format (TIFF) librar
+```
+
+This shows, the package `media-libs/tiff` is available in two slots, where `0` is the default slot and `3` provides the ability to install the older `3.x` generation of the package at the same time.
+
+Besides that, it also shows that version `4.0.3-r6` is currently installed in slot `0`.
+
+Now, the package `media-libs/tiff` should also be installed in slot `3` using `pkg.installed`.
+As the result shows, `pkg.installed` doesn't do anything further, as it determines the package is already installed (although in another slot), ignoring the specific request for `slot=3`:
+
+```
+moria ~ # salt-call --local state.single pkg.installed name="media-libs/tiff" slot="3"
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Running state [media-libs/tiff] at time 23:04:18.875130
+[INFO    ] Executing state pkg.installed for media-libs/tiff
+[INFO    ] Package media-libs/tiff is already installed.
+[INFO    ] Completed state [media-libs/tiff] at time 23:04:19.001287
+local:
+----------
+          ID: media-libs/tiff
+    Function: pkg.installed
+      Result: True
+     Comment: Package media-libs/tiff is already installed.
+     Started: 23:04:18.875130
+    Duration: 126.157 ms
+     Changes:   
+
+Summary
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+```
+
+This was tested on `develop` 0d8f2a54254f57f9173d85145ddfebb20c0741d7, but also affects at least `2014.1` (reported by a user on IRC running `2014.1.11`) and most likely `2014.7` too.
+
+The slot of a package in `modules.ebuild` can be retrieved using:
+
+``` Python
+# query the DB of installed packages for the slot of the current CPV
+# and split off any sub-SLOTs (e.g. 3/0.17 to 3)
+cpv_slot = _vartree().dbapi.aux_get(cpv, ['SLOT'])[0].split('/', 1)[0]
+```
+
+The `CPV` is a full package atom consisting of:
+- the package's category: `media-libs`
+- the package's name: `tiff`
+- the package's full version: `4.0.3-r6`
+  combined into a unicode-string: `u'media-libs/tiff-4.0.3-r6'`
+
+I'm not sure, whether any Gentoo/Portage specific code should be added to `state.pkg.installed` to deal with this or what's the proper approach to get this working - ideas welcome.

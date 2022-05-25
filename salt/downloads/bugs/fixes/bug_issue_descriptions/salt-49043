@@ -1,0 +1,300 @@
+### Description of Issue/Question
+
+Trying to use `file.blockreplace` is impossible when the context contains unicode strings.
+Affected version is `v2018.3.2`, branch `2018.3` with a different error, and also `develop` with still another error.
+
+### Setup
+`unicodetest.sls`:
+```yaml
+somefile-exists:
+  file:
+    - managed
+    - name: /somefile
+
+somefile-blockreplace:
+  file:
+    - blockreplace
+    - append_if_not_found: true
+    - name: /somefile
+    - template: jinja
+    - source: salt://somefile
+    - require:
+      - file: somefile-exists
+    - context:
+        unicode_string: "\xe4\xf6\xfc"
+```
+`somefile`:
+```jinja
+{{unicode_string}}
+```
+
+### Steps to Reproduce Issue
+Running `salt-call --local -ldebug state.apply unicodetest` on `v2018.3.2`:
+```
+local:
+----------
+          ID: somefile-exists
+    Function: file.managed
+        Name: /home/werner/somefile
+      Result: True
+     Comment: Empty file
+     Started: 21:57:12.447617
+    Duration: 71.766 ms
+     Changes:   
+              ----------
+              new:
+                  file /home/werner/somefile created
+----------
+          ID: somefile-blockreplace
+    Function: file.blockreplace
+        Name: /home/werner/somefile
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/home/werner/git/saltstack/salt/state.py", line 1905, in call
+                  **cdata['kwargs'])
+                File "/home/werner/git/saltstack/salt/loader.py", line 1830, in wrapper
+                  return f(*args, **kwargs)
+                File "/home/werner/git/saltstack/salt/states/file.py", line 4391, in blockreplace
+                  context=context)
+                File "/home/werner/git/saltstack/salt/states/file.py", line 1116, in _get_template_texts
+                  txtl.append(''.join(tmplines))
+              UnicodeDecodeError: 'ascii' codec can't decode byte 0xc3 in position 0: ordinal not in range(128)
+     Started: 21:57:12.520045
+    Duration: 69.739 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    1
+------------
+Total states run:     2
+Total run time: 141.505 ms
+```
+
+Looking at `_get_template_texts` the issue is that strings are only decoded on Python3, and also that the empty string used to join is not a unicode string.
+
+Running `salt-call --local -ldebug state.apply unicodetest` on branch `2018.3.`:
+```
+[DEBUG   ] cp.get_template returned /var/cache/salt/minion/extrn_files/base/somefile (Called with: salt://somefile)
+[DEBUG   ] LazyLoaded files.get_encoding
+[DEBUG   ] Found ASCII
+[DEBUG   ] LazyLoaded stringutils.get_diff
+[INFO    ] Executing command [u'lsattr', u'/home/werner/somefile.bak'] in directory '/root'
+[DEBUG   ] stdout: --------------e--- /home/werner/somefile.bak
+[DEBUG   ] output: --------------e--- /home/werner/somefile.bak
+[ERROR   ] Encountered error managing block
+Traceback (most recent call last):
+  File "/home/werner/git/saltstack/salt/states/file.py", line 4594, in blockreplace
+    append_newline=append_newline)
+  File "/home/werner/git/saltstack/salt/modules/file.py", line 2710, in blockreplace
+    fh_.write(salt.utils.stringutils.to_bytes(line, encoding=file_encoding))
+  File "/home/werner/git/saltstack/salt/utils/stringutils.py", line 63, in to_bytes
+    return to_str(s, encoding, errors)
+  File "/home/werner/git/saltstack/salt/utils/stringutils.py", line 117, in to_str
+    raise exc  # pylint: disable=raising-bad-type
+UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-2: ordinal not in range(128)
+[ERROR   ] Encountered error managing block: 'ascii' codec can't encode characters in position 0-2: ordinal not in range(128). See the log for details.
+[INFO    ] Completed state [/home/werner/somefile] at time 22:09:49.598770 (duration_in_ms=115.915)
+[DEBUG   ] File /var/cache/salt/minion/accumulator/139629650717648 does not exist, no need to cleanup
+[DEBUG   ] LazyLoaded state.check_result
+[DEBUG   ] LazyLoaded highstate.output
+local:
+----------
+          ID: somefile-exists
+    Function: file.managed
+        Name: /home/werner/somefile
+      Result: True
+     Comment: File /home/werner/somefile exists with proper permissions. No changes made.
+     Started: 22:09:49.409352
+    Duration: 72.827 ms
+     Changes:   
+----------
+          ID: somefile-blockreplace
+    Function: file.blockreplace
+        Name: /home/werner/somefile
+      Result: False
+     Comment: Encountered error managing block: 'ascii' codec can't encode characters in position 0-2: ordinal not in range(128). See the log for details.
+     Started: 22:09:49.482855
+    Duration: 115.915 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    1
+------------
+Total states run:     2
+Total run time: 188.742 ms
+```
+
+And a different outcome on `develop`:
+```
+[INFO    ] Executing command [u'lsattr', u'/home/werner/somefile.bak'] in directory '/root'
+[DEBUG   ] stdout: --------------e--- /home/werner/somefile.bak
+[DEBUG   ] output: --------------e--- /home/werner/somefile.bak
+[ERROR   ] Encountered error managing block
+Traceback (most recent call last):
+  File "/home/werner/git/saltstack/salt/states/file.py", line 4765, in blockreplace
+    append_newline=append_newline)
+  File "/home/werner/git/saltstack/salt/modules/file.py", line 2716, in blockreplace
+    fh_.write(salt.utils.stringutils.to_bytes(line, encoding=file_encoding))
+  File "/home/werner/git/saltstack/salt/utils/stringutils.py", line 51, in to_bytes
+    return to_str(s, encoding, errors)
+  File "/home/werner/git/saltstack/salt/utils/stringutils.py", line 85, in to_str
+    return _normalize(s).encode(encoding, errors)
+UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-2: ordinal not in range(128)
+[ERROR   ] Encountered error managing block: 'ascii' codec can't encode characters in position 0-2: ordinal not in range(128). See the log for details.
+[INFO    ] Completed state [/home/werner/somefile] at time 22:16:37.434501 (duration_in_ms=93.482)
+[DEBUG   ] File /var/cache/salt/minion/accumulator/140196407160784 does not exist, no need to cleanup
+[DEBUG   ] LazyLoaded state.check_result
+[DEBUG   ] LazyLoaded direct_call.execute
+[DEBUG   ] key: test, ret: _|-
+[DEBUG   ] LazyLoaded roots.envs
+[DEBUG   ] Could not LazyLoad roots.init: 'roots.init' is not available.
+[DEBUG   ] Determining pillar cache
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] LazyLoaded jinja.render
+[DEBUG   ] LazyLoaded yaml.render
+[DEBUG   ] In saltenv 'base', looking at rel_path 'unicodetest.sls' to resolve 'salt://unicodetest.sls'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/unicodetest.sls' to resolve 'salt://unicodetest.sls'
+[DEBUG   ] compile template: /var/cache/salt/minion/files/base/unicodetest.sls
+[DEBUG   ] Jinja search path: [u'/var/cache/salt/minion/files/base']
+[DEBUG   ] LazyLoaded roots.envs
+[DEBUG   ] Could not LazyLoad roots.init: 'roots.init' is not available.
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/unicodetest.sls' using 'jinja' renderer: 0.0285930633545
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/unicodetest.sls:
+somefile-exists:
+  file:
+    - managed
+    - name: /home/werner/somefile
+
+somefile-blockreplace:
+  file:
+    - blockreplace
+    - append_if_not_found: true
+    - name: /home/werner/somefile
+    - template: jinja
+    - source: salt://somefile
+    - require:
+      - file: somefile-exists
+    - context:
+        unicode_string: "\xe4\xf6\xfc"
+
+[DEBUG   ] Results of YAML rendering: 
+OrderedDict([(u'somefile-exists', OrderedDict([(u'file', [u'managed', OrderedDict([(u'name', u'/home/werner/somefile')])])])), (u'somefile-blockreplace', OrderedDict([(u'file', [u'blockreplace', OrderedDict([(u'append_if_not_found', True)]), OrderedDict([(u'name', u'/home/werner/somefile')]), OrderedDict([(u'template', u'jinja')]), OrderedDict([(u'source', u'salt://somefile')]), OrderedDict([(u'require', [OrderedDict([(u'file', u'somefile-exists')])])]), OrderedDict([(u'context', OrderedDict([(u'unicode_string', u'\xe4\xf6\xfc')]))])])]))])
+[PROFILE ] Time (in seconds) to render '/var/cache/salt/minion/files/base/unicodetest.sls' using 'yaml' renderer: 0.00230097770691
+[DEBUG   ] LazyLoaded config.option
+[DEBUG   ] LazyLoaded file.managed
+[INFO    ] Running state [/home/werner/somefile] at time 22:16:37.610401
+[INFO    ] Executing state file.managed for [/home/werner/somefile]
+[WARNING ] State for file: /home/werner/somefile - Neither 'source' nor 'contents' nor 'contents_pillar' nor 'contents_grains' was defined, yet 'replace' was set to 'True'. As there is no source to replace the file with, 'replace' has been set to 'False' to avoid reading the file unnecessarily.
+[DEBUG   ] LazyLoaded file.check_perms
+[DEBUG   ] LazyLoaded cmd.run
+[INFO    ] Executing command [u'lsattr', u'/home/werner/somefile'] in directory '/root'
+[DEBUG   ] stdout: --------------e--- /home/werner/somefile
+[DEBUG   ] output: --------------e--- /home/werner/somefile
+[INFO    ] File /home/werner/somefile exists with proper permissions. No changes made.
+[INFO    ] Completed state [/home/werner/somefile] at time 22:16:37.634527 (duration_in_ms=24.126)
+[INFO    ] Running state [/home/werner/somefile] at time 22:16:37.635359
+[INFO    ] Executing state file.blockreplace for [/home/werner/somefile]
+[DEBUG   ] LazyLoaded cp.get_template
+[DEBUG   ] LazyLoaded roots.envs
+[DEBUG   ] Could not LazyLoad roots.init: 'roots.init' is not available.
+[DEBUG   ] In saltenv 'base', looking at rel_path 'somefile' to resolve 'salt://somefile'
+[DEBUG   ] In saltenv 'base', ** considering ** path '/var/cache/salt/minion/files/base/somefile' to resolve 'salt://somefile'
+[DEBUG   ] Jinja search path: [u'/var/cache/salt/minion/files/base']
+[DEBUG   ] LazyLoaded roots.envs
+[DEBUG   ] Could not LazyLoad roots.init: 'roots.init' is not available.
+[DEBUG   ] cp.get_template returned /var/cache/salt/minion/extrn_files/base/somefile (Called with: salt://somefile)
+[DEBUG   ] LazyLoaded files.get_encoding
+[DEBUG   ] Found ASCII
+[ERROR   ] Encountered error managing block
+Traceback (most recent call last):
+  File "/home/werner/git/saltstack/salt/states/file.py", line 4765, in blockreplace
+    append_newline=append_newline)
+  File "/home/werner/git/saltstack/salt/modules/file.py", line 2667, in blockreplace
+    'Unterminated marked block. End of file reached before marker_end.'
+CommandExecutionError: Unterminated marked block. End of file reached before marker_end.
+[ERROR   ] Encountered error managing block: Unterminated marked block. End of file reached before marker_end.. See the log for details.
+[INFO    ] Completed state [/home/werner/somefile] at time 22:16:37.701550 (duration_in_ms=66.19)
+[DEBUG   ] File /var/cache/salt/minion/accumulator/140196407157648 does not exist, no need to cleanup
+[DEBUG   ] LazyLoaded highstate.output
+local:
+----------
+          ID: somefile-exists
+    Function: file.managed
+        Name: /home/werner/somefile
+      Result: True
+     Comment: File /home/werner/somefile exists with proper permissions. No changes made.
+     Started: 22:16:37.610401
+    Duration: 24.126 ms
+     Changes:   
+----------
+          ID: somefile-blockreplace
+    Function: file.blockreplace
+        Name: /home/werner/somefile
+      Result: False
+     Comment: Encountered error managing block: Unterminated marked block. End of file reached before marker_end.. See the log for details.
+     Started: 22:16:37.635360
+    Duration: 66.19 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    1
+------------
+Total states run:     2
+Total run time:  90.316 ms
+```
+
+Interesting to note is that the file did not exist in the filesystem before the run, but the file.managed state found the file existing, even with the requirement in the statefile.
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2018.3.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.15 (default, Jun 27 2018, 13:05:28)
+   python-gnupg: Not Installed
+         PyYAML: 3.13
+          PyZMQ: 17.1.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 5.1
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist:   
+         locale: UTF-8
+        machine: x86_64
+        release: 4.17.12-arch1-1-ARCH
+         system: Linux
+        version: Not Installed
+```
+For branch `2018.3`: `2018.3.0-619-gb24c96a`
+For branch `develop`: `2018.11.0-7-g03303a3`

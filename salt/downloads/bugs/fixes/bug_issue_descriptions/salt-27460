@@ -1,0 +1,135 @@
+I have some custom states related to setting up GlusterFS that invoke the builtin glusterfs state. When these were all invoked as part of the top file all was peachy (except the event ordering that I need). I created an orchestrate sls file and now my references to the built in glusterfs state are not being resolved.
+
+This is the orchestrate state file /srv/salt/orch/genotyper.sls
+
+``` saltstack
+gluster_setup:
+  salt.state:
+    - tgt: 'roles:glusterfs-server'
+    - tgt_type: grain
+    - highstate: True
+gluster_volume_setup:
+  salt.state:
+    - tgt: 'roles:glusterfs-master'
+    - tgt_type: grain
+    - sls: 
+      - gluster.master
+gluster_volume_mount:
+  salt.state:
+    - tgt: 'roles:glusterfs-server'
+    - tgt_type: grain
+    - sls:
+      - gluster.mount
+```
+
+This is the custom state file /srv/salt/gluster/master.sls
+
+``` saltstack
+{%- set servers = salt['mine.get']('roles:glusterfs-server', 'network.get_hostname', 'grain_pcre').values() %}
+blah:
+  cmd.run:
+    - name: echo '{{servers}}'
+
+cluster-peers:
+  glusterfs.peered:
+    - names:
+{%- for server in servers %}
+      - {{ server }}
+{%- endfor %}
+
+cluster-volume:
+  glusterfs.created:
+    - name: share
+    - bricks:
+{%- for server in servers %}
+      - {{ server }}:/mnt/gluster/brick1
+{%- endfor %}
+    - stripe: {{ servers|length }}
+    - start: True
+    - require:
+      - glusterfs: cluster-peers
+
+```
+
+The command I use is
+
+```
+salt-run state.orchestrate orch.genotyper -l debug
+```
+
+This is the error that I get:
+
+``` yaml
+[ERROR   ] Run failed on minions: salt-master
+Failures:
+    salt-master:
+    ----------
+              ID: blah
+        Function: cmd.run
+            Name: echo '['genotyper-1', 'genotyper-0', 'genotyper-2']'
+          Result: True
+         Comment: Command "echo '['genotyper-1', 'genotyper-0', 'genotyper-2']'" run
+         Started: 14:30:30.997670
+        Duration: 5.931 ms
+         Changes:   
+                  ----------
+                  pid:
+                      12539
+                  retcode:
+                      0
+                  stderr:
+                  stdout:
+                      [genotyper-1, genotyper-0, genotyper-2]
+    ----------
+              ID: cluster-peers
+        Function: glusterfs.peered
+            Name: genotyper-1
+          Result: False
+         Comment: State 'glusterfs.peered' was not found in SLS 'gluster.master'
+                  Reason: 'glusterfs' __virtual__ returned False
+         Started: 
+        Duration: 
+         Changes:   
+    ----------
+              ID: cluster-peers
+        Function: glusterfs.peered
+            Name: genotyper-0
+          Result: False
+         Comment: State 'glusterfs.peered' was not found in SLS 'gluster.master'
+                  Reason: 'glusterfs' __virtual__ returned False
+         Started: 
+        Duration: 
+         Changes:   
+    ----------
+              ID: cluster-peers
+        Function: glusterfs.peered
+            Name: genotyper-2
+          Result: False
+         Comment: State 'glusterfs.peered' was not found in SLS 'gluster.master'
+                  Reason: 'glusterfs' __virtual__ returned False
+         Started: 
+        Duration: 
+         Changes:   
+    ----------
+```
+
+Why is it looking for the definition of the glusterfs.peered state inside my custom gluster.master state?
+
+When my top file was like this, there was no problem:
+
+``` saltstack
+base:
+  'G@roles:glusterfs-server':
+    - gluster
+    - gluster.mount
+  'G@roles:glusterfs-master':
+    - gluster.master
+```
+
+The state definition is definitely present on the host:
+
+``` console
+[root@salt-master state]# find / -name glusterfs.py
+/usr/lib/python2.7/site-packages/salt/modules/glusterfs.py
+/usr/lib/python2.7/site-packages/salt/states/glusterfs.py
+```

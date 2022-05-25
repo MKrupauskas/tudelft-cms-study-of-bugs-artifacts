@@ -1,0 +1,138 @@
+This fails in a completely unexpected manner, when the SAME function name and state works on an Ubuntu box perfectly.
+
+install_icecream_package.sls
+
+```
+install_icecream:
+  pkg:
+    - installed
+    - name: {{ salt['pillar.get']('icecream:name') }}
+    - version: {{ salt['pillar.get']('icecream:version') }}
+  {% if grains['os'] == 'Ubuntu' %}
+    - skip_verify: True
+  {% endif %}
+```
+
+pillar/icecream_settings.sls
+
+```
+icecream:
+  {% if grains['os'] == 'RedHat' %}
+  - name: 'icecream'
+    version: 1.1.el6
+  {% elif grains['os'] == 'Ubuntu' %}
+  - name: 'icecc'
+    version: 1.0.1-1
+  {% endif %}
+```
+
+```
+[root@rhel6 /]# salt-call state.sls install_icecream_package
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** skipped ** latest already in cache 'salt://install_icecream_package/init.sls'
+[INFO    ] Running state [install_icecc] at time 17:37:22.754596
+[INFO    ] Executing state pkg.installed for install_icecream
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}' --all --pkgnarrow=installed" in directory '/root'
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{ARCH}'  --pkgnarrow=all --all" in directory '/root'
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}'   --all --quiet --whatprovides install_icecream" in directory '/root'
+[ERROR   ] The following package(s) were not found, and no possible matches were found in the package db: install_icecream
+[INFO    ] Completed state [install_icecream] at time 17:37:25.280555
+local:
+  Name: install_icecream - Function: pkg.installed - Result: Failed
+```
+
+However, if we install change the "function" name in the state, it will work on RHEL, but this is not expected, and really limits us in case we wanted to use the function name 'icecream' in any other state. Notice our pillar lists the package name as icecream for RHEL
+
+install_icecream_package.sls
+
+```
+icecream:
+  pkg:
+    - installed
+    - name: {{ salt['pillar.get']('icecream:name') }}
+    - version: {{ salt['pillar.get']('icecream:version') }}
+  {% if grains['os'] == 'Ubuntu' %}
+    - skip_verify: True
+  {% endif %}
+```
+
+```
+[root@rhel6 /]# salt-call state.sls install_icecream_package
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'install_icecream_package/init.sls'
+[INFO    ] Running state [icecream] at time 17:39:19.717828
+[INFO    ] Executing state pkg.installed for icecream
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}' --all --pkgnarrow=installed" in directory '/root'
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{ARCH}'  --pkgnarrow=all --all" in directory '/root'
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}'   --all --quiet --whatprovides icecream" in directory '/root'
+[INFO    ] Executing command 'yum -q clean expire-cache' in directory '/root'
+[INFO    ] Executing command 'yum -q check-update ' in directory '/root'
+[INFO    ] Executing command 'yum -y     install icecream' in directory '/root'
+[INFO    ] Executing command "repoquery --plugins --queryformat '%{NAME}_|-%{VERSION}_|-%{RELEASE}_|-%{ARCH}_|-%{REPOID}' --all --pkgnarrow=installed" in directory '/root'
+[INFO    ] Installed Packages:
+icecream changed from absent to 1.1.el6
+lzo changed from absent to 2.03-3.1.el6
+
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Completed state [icecream] at time 17:39:27.664807
+local:
+  Name: icecream - Function: pkg.installed - Result: Changed
+
+Summary
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+```
+
+Same state running on an Ubuntu machine to verify it works.
+
+```
+root@ubuntutrusty:/# salt-call state.sls install_icecream_package
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Fetching file from saltenv 'base', ** done ** 'install_icecream_package/init.sls'
+[INFO    ] Running state [icecc] at time 17:12:16.353420
+[INFO    ] Executing state pkg.installed for icecc
+[INFO    ] Executing command ['dpkg-query', '--showformat', '${Status} ${Package} ${Version} ${Architecture}\n', '-W'] in directory '/root'
+[INFO    ] Executing command ['apt-cache', '-q', 'policy', 'icecc'] in directory '/root'
+[INFO    ] Executing command 'apt-get -q update' in directory '/root'
+[INFO    ] Executing command ['apt-get', '-q', '-y', '-o', 'DPkg::Options::=--force-confold', '-o', 'DPkg::Options::=--force-confdef', '--allow-unauthenticated', 'install', 'icecc=1.0.1-1'] in directory '/root'
+[INFO    ] Executing command ['dpkg-query', '--showformat', '${Status} ${Package} ${Version} ${Architecture}\n', '-W'] in directory '/root'
+[INFO    ] Installed Packages:
+libmpfr4 changed from absent to 3.1.2-1
+libcloog-isl4 changed from absent to 0.18.2-1
+libasan0 changed from absent to 4.8.2-19ubuntu1
+libtsan0 changed from absent to 4.8.2-19ubuntu1
+icecc changed from absent to 1.0.1-1
+manpages-dev changed from absent to 3.54-1ubuntu1
+libc6-dev changed from absent to 2.19-0ubuntu6.6
+manpages changed from absent to 3.54-1ubuntu1
+cpp-4.8 changed from absent to 4.8.2-19ubuntu1
+linux-libc-dev changed from absent to 3.13.0-52.86
+libatomic1 changed from absent to 4.8.2-19ubuntu1
+gcc changed from absent to 4:4.8.2-1ubuntu6
+gcc-4.8 changed from absent to 4.8.2-19ubuntu1
+libgcc-4.8-dev changed from absent to 4.8.2-19ubuntu1
+libitm1 changed from absent to 4.8.2-19ubuntu1
+libisl10 changed from absent to 0.12.2-1
+g++ changed from absent to 4:4.8.2-1ubuntu6
+libstdc++-4.8-dev changed from absent to 4.8.2-19ubuntu1
+libquadmath0 changed from absent to 4.8.2-19ubuntu1
+g++-4.8 changed from absent to 4.8.2-19ubuntu1
+libc-dev-bin changed from absent to 2.19-0ubuntu6.6
+libmpc3 changed from absent to 1.0.1-1ubuntu1
+cpp changed from absent to 4:4.8.2-1ubuntu6
+
+[INFO    ] Loading fresh modules for state activity
+[INFO    ] Completed state [icecc] at time 17:12:57.310448
+local:
+  Name: icecc - Function: pkg.installed - Result: Changed
+
+Summary
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+```

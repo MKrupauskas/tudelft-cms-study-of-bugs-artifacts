@@ -1,0 +1,118 @@
+### Description of Issue/Question
+When bootstrapping a fresh VM, the first runs fails after upgrading to 2019 version, because mdadm returns "No md superblock detected" with return code 1. That let the state fail. After another "state.apply" all states are ok. I think the raid.present module should ignore the return code.
+
+```
+2019-03-22 09:36:54,864 [salt.state       :1852][INFO    ][6377] Executing state raid.present for [/dev/md0]
+2019-03-22 09:36:54,865 [salt.loaded.int.module.cmdmod:397 ][INFO    ][6377] Executing command [u'mdadm', u'--detail', u'--scan'] in directory '/home/conrad'
+2019-03-22 09:36:54,921 [salt.loaded.int.module.cmdmod:397 ][INFO    ][6377] Executing command 'mdadm -Y -E /dev/sdc' in directory '/home/conrad'
+2019-03-22 09:36:54,940 [salt.loaded.int.module.cmdmod:826 ][ERROR   ][6377] Command '[u'mdadm', u'-Y', u'-E', u'/dev/sdc']' failed with return code: 1
+```
+```
+2019-03-22 09:37:11,664 [salt.state       :320 ][INFO    ][6377] {u'device': u'/dev/md0', u'uuid': u'1b4f477c:6c0e3f77:276ab2af:c16b3684', u'name': u'Elastic-Node-8:0', u'metadata': u'1.2'}
+2019-03-22 09:37:11,665 [salt.state       :1997][INFO    ][6377] Completed state [/dev/md0] at time 09:37:11.665242 (duration_in_ms=16801.519)
+2019-03-22 09:37:11,666 [salt.state       :1819][INFO    ][6377] Running state [partition.mkpart] at time 09:37:11.666767
+2019-03-22 09:37:11,667 [salt.state       :1852][INFO    ][6377] Executing state module.run for [partition.mkpart]
+2019-03-22 09:37:11,982 [salt.loaded.int.module.cmdmod:397 ][INFO    ][6377] Executing command 'blkid /dev/md0' in directory '/home/skowronc'
+2019-03-22 09:37:11,997 [salt.utils.decorators:613 ][WARNING ][6377] The function "module.run" is using its deprecated version and will expire in version "Sodium".
+2019-03-22 09:37:11,998 [salt.state       :322 ][ERROR   ][6377] Module function partition.mkpart threw an exception. Exception: Invalid fs_type passed to partition.mkpart
+2019-03-22 09:37:11,998 [salt.state       :1997][INFO    ][6377] Completed state [partition.mkpart] at time 09:37:11.998392 (duration_in_ms=331.625)
+2019-03-22 09:37:11,998 [salt.state       :1819][INFO    ][6377] Running state [extfs.mkfs] at time 09:37:11.998832
+2019-03-22 09:37:11,999 [salt.state       :1852][INFO    ][6377] Executing state module.run for [extfs.mkfs]
+```
+### Setup
+```
+#raid
+create_raid:
+  raid.present:
+    - name: /dev/md0
+    - level: 0
+    - devices:
+      - /dev/sdc
+      - /dev/sdd
+    - run: True
+
+create_partition_disk:
+  module.run:
+    - name: partition.mkpart
+    - device: /dev/md0
+    # using percent permit to have maximum size
+    - start: 0%
+    - end: 100%
+    - part_type: primary
+    - unless: blkid /dev/md0
+
+#bug on minion, already formatted?
+format_datadisk:
+  module.run:
+    - name: extfs.mkfs
+    - device: /dev/md0
+    - fs_type: ext4
+    - unless: blkid /dev/md0 | grep ext4
+
+/data:
+  mount.mounted:
+    - device: /dev/md0
+    - fstype: ext4
+    - mkmnt: True
+    - opts: defaults,nofail,noatime,nodiratime
+    - persist: True
+    - dump: 1
+    - pass_num: 2
+```
+
+### Steps to Reproduce Issue
+(Include debug logs if possible and relevant.)
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+master:
+```
+Salt Version:
+           Salt: 2019.2.0
+
+Dependency Versions:
+           cffi: 1.11.2
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.3
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.12 (default, Nov 12 2018, 14:36:49)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-138-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```
+
+minion:
+```
+dpkg -l | grep salt
+ii  salt-common                         2019.2.0+ds-1                               all          shared libraries that salt requires for all packages
+ii  salt-minion                         2019.2.0+ds-1                               all          client package for salt, the distributed remote execution system
+```

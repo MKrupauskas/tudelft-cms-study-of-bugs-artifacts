@@ -1,0 +1,100 @@
+### version
+
+``` yaml
+# salt-ssh --version
+salt-ssh 2015.8.0-24-gb71de75 (Beryllium)
+```
+### configs
+
+``` saltstack
+# cat /srv/salt/repo.sls
+pkgrepo:
+  pkgrepo.managed:
+    - name: 'deb http://repo.saltstack.com/apt/ubuntu/ubuntu14 trusty main'
+    - file: /etc/apt/sources.list.d/saltstack.list
+    - key_url: https://repo.saltstack.com/apt/ubuntu/ubuntu14/SALTSTACK-GPG-KEY.pub
+```
+### commands
+
+``` yaml
+# salt-ssh jmoney-ubuntu-14 state.apply repo
+jmoney-ubuntu-14:
+----------
+          ID: pkgrepo
+    Function: pkgrepo.managed
+        Name: deb http://repo.saltstack.com/apt/ubuntu/ubuntu14 trusty main
+      Result: False
+     Comment: Failed to configure repo 'deb http://repo.saltstack.com/apt/ubuntu/ubuntu14 trusty main': W: Failed to fetch https://repo.saltstack.com/apt/ubuntu/ubuntu14/dists/trusty/main/binary-amd64/Packages  server certificate verification failed. CAfile: /etc/ssl/certs/ca-certificates.crt CRLfile: none
+
+              W: Failed to fetch https://repo.saltstack.com/apt/ubuntu/ubuntu14/dists/trusty/main/binary-i386/Packages  server certificate verification failed. CAfile: /etc/ssl/certs/ca-certificates.crt CRLfile: none
+
+              E: Some index files failed to download. They have been ignored, or old ones used instead.
+     Started: 12:24:15.642031
+    Duration: 12693.366 ms
+     Changes:
+
+Summary for jmoney-ubuntu-14
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:  12.693 s
+```
+
+But the repo is there:
+
+``` console
+# salt-ssh jmoney-ubuntu-14 cmd.run 'cat /etc/apt/sources.list.d/salt*'
+jmoney-ubuntu-14:
+    deb https://repo.saltstack.com/apt/ubuntu/ubuntu14 trusty main
+    deb http://repo.saltstack.com/apt/ubuntu/ubuntu14 trusty main
+```
+
+And the key is not:
+
+``` console
+# time salt-ssh jmoney-ubuntu-14 cmd.run 'apt-key list'
+jmoney-ubuntu-14:
+    /etc/apt/trusted.gpg
+    --------------------
+    pub   1024D/437D05B5 2004-09-12
+    uid                  Ubuntu Archive Automatic Signing Key <ftpmaster@ubuntu.com>
+    sub   2048g/79164387 2004-09-12
+
+    pub   1024D/FBB75451 2004-12-30
+    uid                  Ubuntu CD Image Automatic Signing Key <cdimage@ubuntu.com>
+
+    pub   4096R/C0B21F32 2012-05-11
+    uid                  Ubuntu Archive Automatic Signing Key (2012) <ftpmaster@ubuntu.com>
+
+    pub   4096R/EFE21092 2012-05-11
+    uid                  Ubuntu CD Image Automatic Signing Key (2012) <cdimage@ubuntu.com>
+```
+
+If I change the URL for the GPG key in the state file to `http` rather than `https`, the state succeeds: both repo list file and key are installed.
+
+``` yaml
+# salt-ssh jmoney-ubuntu-14 state.apply repo
+jmoney-ubuntu-14:
+----------
+          ID: pkgrepo
+    Function: pkgrepo.managed
+        Name: deb http://repo.saltstack.com/apt/ubuntu/ubuntu14 trusty main
+      Result: True
+     Comment: Configured package repo 'deb http://repo.saltstack.com/apt/ubuntu/ubuntu14 trusty main'
+     Started: 12:34:43.047251
+    Duration: 10710.105 ms
+     Changes:
+              ----------
+              repo:
+                  deb http://repo.saltstack.com/apt/ubuntu/ubuntu14 trusty main
+
+Summary for jmoney-ubuntu-14
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  10.710 s
+```

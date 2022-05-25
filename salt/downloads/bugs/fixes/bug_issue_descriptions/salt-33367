@@ -1,0 +1,51 @@
+### Description of Issue/Question
+
+The data type of NodeState members has changed in libcloud >= 1.0.  In the latest stable (0.20.1), it is an integer, in >= 1.0.0, it is a string.
+
+**0.20.1**
+https://github.com/apache/libcloud/blob/87deb04498ea8bb5068e362810c3d2ab89359b48/libcloud/compute/types.py#L192
+
+In version 1.0.0, it is a string
+
+**1.0.0**
+https://github.com/apache/libcloud/blob/735a786e05590a6a1425bff042e8cd35206579b2/libcloud/compute/types.py#L244
+
+Salt-Cloud, explicitly the node_state function, is expecting an integer.
+https://github.com/saltstack/salt/blob/0a35106df9b430436493bcab531e500a3d3c04f9/salt/cloud/libcloudfuncs.py#L54
+
+This results in an error:
+Failed to execute 'gce.list_nodes()' while querying for running nodes: 'running', which ultimately affects the deletion of nodes.
+
+For context, here's the [pull request](https://github.com/apache/libcloud/pull/624) in libcloud referencing where the change was made and the discussion behind it.
+### Possible Solutions
+
+I see a few options to resolve this.
+- libcloud version guard for Salt.  Set a max libcloud version  < 1.0.0, probably around [here](https://github.com/saltstack/salt/blob/0a35106df9b430436493bcab531e500a3d3c04f9/salt/cloud/libcloudfuncs.py#L51)
+- Push it on the provider wrappers.  Have each wrapper do their own checks for data type and version
+- Have node_state do a data type (kind of a hack) or a version check
+
+The first option is the easiest, of course.  It's also not clear to me the future of node_state, as it's not used in too many places.  Node state is an important concept; rather than a utility function, perhaps we should make it an enum or a class (in libcloud it's a class with defined data members) drivers can directly reference?
+
+Happy to implement the fix but would like some feedback/thoughts before I do.  FYI @erjohnso FYI @tonybaloney
+### Steps to Reproduce Issue
+1. Install libcloud >=1.0.0
+2. pip install -I apache-libcloud==1.0.0-rc2
+3. create a cloud node (tested on GCE, but reading the code, looks like ec2 would be affected)
+4. Run commands
+   1. (delete a node) `salt-cloud -d instance-name` (No machines were found to be destroyed)
+   2. (query nodes) `salt-cloud -Q` (no response)
+5. With the debug flag set, we see:
+
+```
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/__init__.py", line 2352, in run_parallel_map_providers_query
+    cloud.clouds[data['fun']]()
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/libcloudfuncs.py", line 443, in list_nodes
+    'state': node_state(node.state)
+  File "/usr/lib/python2.7/dist-packages/salt/cloud/libcloudfuncs.py", line 67, in node_state
+    return states[id_]
+KeyError: 'running' 
+```
+### Versions Report
+
+All recent salt-cloud versions expect node.state to be an integer

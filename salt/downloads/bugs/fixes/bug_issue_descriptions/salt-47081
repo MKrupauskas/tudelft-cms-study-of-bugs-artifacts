@@ -1,0 +1,160 @@
+### Description of Issue/Question
+This used to work but now fails when there are non ASCII characters in the paths
+
+```
+## manage config
+dlmgr.sabnzbd.config::directories:
+  file.directory:
+    - name: /data/sabnzbd
+    - user: sabnzbd
+    - group: dlbox_rw
+    - makedirs: True
+    - mode: 0750
+    - file_mode: 0640
+    - recurse:
+        - user
+        - group
+        - mode
+    - require:
+        - dlmgr.sabnzbd::package
+```
+
+```
+[root@ares ~]# salt-call state.sls role.dlmgr.sabnzbd
+[ERROR   ] Command '/usr/sbin/zpool list -H -p -o name,size' failed with return code: 1
+[ERROR   ] output:
+[ERROR   ] An exception occurred in this state: Traceback (most recent call last):
+  File "/opt/local/lib/python2.7/site-packages/salt/state.py", line 1878, in call
+    **cdata['kwargs'])
+  File "/opt/local/lib/python2.7/site-packages/salt/loader.py", line 1823, in wrapper
+    return f(*args, **kwargs)
+  File "/opt/local/lib/python2.7/site-packages/salt/states/file.py", line 2952, in directory
+    exclude_pat, max_depth, follow_symlinks)
+  File "/opt/local/lib/python2.7/site-packages/salt/states/file.py", line 687, in _check_directory
+    walk_l = list(_depth_limited_walk(name, max_depth))
+  File "/opt/local/lib/python2.7/site-packages/salt/states/file.py", line 2612, in _depth_limited_walk
+    for root, dirs, files in salt.utils.path.os_walk(top):
+  File "/opt/local/lib/python2.7/site-packages/salt/utils/path.py", line 409, in os_walk
+    for item in os.walk(top, *args, **kwargs):
+  File "/opt/local/lib/python2.7/os.py", line 296, in walk
+    for x in walk(new_path, topdown, onerror, followlinks):
+  File "/opt/local/lib/python2.7/os.py", line 286, in walk
+    if isdir(join(top, name)):
+  File "/opt/local/lib/python2.7/posixpath.py", line 73, in join
+    path += '/' + b
+UnicodeDecodeError: 'ascii' codec can't decode byte 0xc3 in position 1: ordinal not in range(128)
+
+local:
+  Name: sabnzbd - Function: pkg.installed - Result: Clean Started: - 12:10:29.820317 Duration: 340.931 ms
+  Name: svccfg -s sabnzbd setenv TZ Europe/Brussels - Function: cmd.wait - Result: Clean Started: - 12:10:30.165478 Duration: 1.111 ms
+  Name: svccfg -s sabnzbd setenv PATH /opt/local/bin:/usr/bin:/bin - Function: cmd.wait - Result: Clean Started: - 12:10:30.166950 Duration: 0.807 ms
+  Name: svcadm refresh sabnzbd - Function: cmd.wait - Result: Clean Started: - 12:10:30.168104 Duration: 0.752 ms
+----------
+          ID: dlmgr.sabnzbd.config::directories
+    Function: file.directory
+        Name: /data/sabnzbd
+      Result: False
+     Comment: An exception occurred in this state: Traceback (most recent call last):
+                File "/opt/local/lib/python2.7/site-packages/salt/state.py", line 1878, in call
+                  **cdata['kwargs'])
+                File "/opt/local/lib/python2.7/site-packages/salt/loader.py", line 1823, in wrapper
+                  return f(*args, **kwargs)
+                File "/opt/local/lib/python2.7/site-packages/salt/states/file.py", line 2952, in directory
+                  exclude_pat, max_depth, follow_symlinks)
+                File "/opt/local/lib/python2.7/site-packages/salt/states/file.py", line 687, in _check_directory
+                  walk_l = list(_depth_limited_walk(name, max_depth))
+                File "/opt/local/lib/python2.7/site-packages/salt/states/file.py", line 2612, in _depth_limited_walk
+                  for root, dirs, files in salt.utils.path.os_walk(top):
+                File "/opt/local/lib/python2.7/site-packages/salt/utils/path.py", line 409, in os_walk
+                  for item in os.walk(top, *args, **kwargs):
+                File "/opt/local/lib/python2.7/os.py", line 296, in walk
+                  for x in walk(new_path, topdown, onerror, followlinks):
+                File "/opt/local/lib/python2.7/os.py", line 286, in walk
+                  if isdir(join(top, name)):
+                File "/opt/local/lib/python2.7/posixpath.py", line 73, in join
+                  path += '/' + b
+              UnicodeDecodeError: 'ascii' codec can't decode byte 0xc3 in position 1: ordinal not in range(128)
+     Started: 12:10:30.178966
+    Duration: 15.992 ms
+     Changes:
+----------
+          ID: dlmgr.sabnzbd.config::symlink
+    Function: file.symlink
+        Name: /opt/local/etc/sabnzbd
+      Result: False
+     Comment: One or more requisite failed: role.dlmgr.sabnzbd.dlmgr.sabnzbd.config::directories
+     Changes:
+----------
+          ID: dlmgr.sabnzbd.config::default
+    Function: file.managed
+        Name: /data/sabnzbd/sabnzbd.ini
+      Result: False
+     Comment: One or more requisite failed: role.dlmgr.sabnzbd.dlmgr.sabnzbd.config::symlink
+     Changes:
+  Name: sabnzbd - Function: user.present - Result: Clean Started: - 12:10:30.196714 Duration: 94.118 ms
+  Name: [ -d /downloads/.in/sabnzbd ] && /bin/chown sabnzbd /downloads/.in/sabnzbd - Function: cmd.wait - Result: Clean Started: - 12:10:30.291612 Duration: 1.193 ms
+----------
+          ID: dlmgr.sabnzbd::service
+    Function: service.running
+        Name: sabnzbd
+      Result: False
+     Comment: One or more requisite failed: role.dlmgr.sabnzbd.dlmgr.sabnzbd.config::default
+     Changes:
+
+Summary for local
+------------
+Succeeded: 6
+Failed:    4
+------------
+Total states run:    10
+Total run time: 454.904 ms
+```
+### Setup
+### Steps to Reproduce Issue
+
+I had a file called '—(HD).nzb.gz'  in a sub directory and this failed until the file was removed.
+
+### Versions Report
+```
+[root@ares /data/sabnzbd]# salt-call --versions-report
+Salt Version:
+           Salt: 2018.3.0
+
+Dependency Versions:
+           cffi: 1.11.5
+       cherrypy: 14.0.1
+       dateutil: 2.7.2
+      docker-py: Not Installed
+          gitdb: 2.0.3
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+        libnacl: 1.6.1
+       M2Crypto: 0.29.0
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: 2.18
+       pycrypto: Not Installed
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.14 (default, Apr  7 2018, 14:51:22)
+   python-gnupg: 0.4.2
+         PyYAML: 3.12
+          PyZMQ: 17.0.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: 0.2.4
+        Tornado: 4.5.3
+            ZMQ: 4.2.3
+
+System Versions:
+           dist:
+         locale: 646
+        machine: i86pc
+        release: 5.11
+         system: SunOS
+        version: Not Installed
+```

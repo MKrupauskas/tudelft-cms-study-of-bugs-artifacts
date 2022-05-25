@@ -1,0 +1,80 @@
+@jacksontj @cachedout 
+
+Backstory: Was trying to create a thread-local log handler/object to log to a separate log file for a large runner that's executed via the reactor.
+
+It appears that the **context** dunder, which is supposed to be thread-local storage, is getting shared between threads.
+
+My simple test setup:
+
+/etc/salt/master.d/master.conf:
+
+```
+reactor:
+  - 'intu/test/*':
+    - /srv/reactor/test.sls
+runner_dirs:
+  - /srv/custom
+```
+
+/srv/reactor/test.sls:
+
+```
+{% set rid = data['data'].get('rid') %}
+
+new_provision:
+  runner.intulog.test:
+    - rid: {{ rid }}
+```
+
+/srv/custom/intulog.py:
+
+```
+import logging
+import time
+import copy
+
+class MyLog(object):
+  def __init__(self, rid):
+    self.jid = __jid__
+    self.file = '/tmp/{0}.log'.format(rid)
+
+  def _write(self, message):
+    with open(self.file, 'a') as f:
+        f.write('{0} {1} {2}\n'.format(self.jid, id(self), message))
+
+  def debug(self, message):
+    self._write('DEBUG {0}'.format(message))
+
+def test(rid=0):
+  __context__['log'] = MyLog(rid)
+  jid = copy.copy(__jid__)
+  __context__['log'].debug("context log id: {0}, __jid__: {1}, jid_copy: {2}, rid: {3}".format(id(__context__['log']), __jid__, jid, rid))
+  time.sleep(20)
+  __context__['log'].debug("context log id: {0}, __jid__: {1}, jid_copy: {2}, rid: {3}".format(id(__context__['log']), __jid__, jid, rid))
+  return True
+```
+
+Running it via:
+
+```
+salt-call event.send 'intu/test/456' '{rid: 456}' &
+salt-call event.send 'intu/test/123' '{rid: 123}' &
+```
+
+produces /tmp/456.log and /tmp/123.log.
+
+/tmp/456.log:
+
+```
+mylog jid: 20160921204604324507, mylog id: 140391946341392 DEBUG context log id: 140391946341392, __jid__: 20160921204604324507, jid_copy: 20160921204604324507, rid: 456
+```
+
+/tmp/123.log:
+
+```
+mylog jid: 20160921204610182328, mylog id: 140391946401040 DEBUG context log id: 140391946401040, __jid__: 20160921204610182328, jid_copy: 20160921204610182328, rid: 123
+mylog jid: 20160921204610182328, mylog id: 140391946401040 DEBUG context log id: 140391946401040, __jid__: 20160921204610182328, jid_copy: 20160921204604324507, rid: 456
+mylog jid: 20160921204610182328, mylog id: 140391946401040 DEBUG context log id: 140391946401040, __jid__: 20160921204610182328, jid_copy: 20160921204610182328, rid: 123
+```
+
+The issue here is that it appears that the **context** dunder ( and other dunder's, like **jid** ) is getting overwritten by the second, concurrent execution of the runner.

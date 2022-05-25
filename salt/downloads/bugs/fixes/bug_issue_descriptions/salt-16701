@@ -1,0 +1,47 @@
+When creating users on multiple Linux distributions, I'm seeing different behavior between major CentOS releases.  I would like to create users with specific uid's and have their gid's be the same number.  In reading issue https://github.com/saltstack/salt/issues/14133, I see this may not be the intended use of the option.  Either way, is there a reason why Centos 5 would give me the expected behavior, but Centos 6 and Ubuntu 14.04 would not?
+
+```
+testuser1:
+  user.present:
+    - fullname: Test User 1
+    - shell: /bin/bash
+    - home: /home/testuser1
+    - group: present
+    - uid: 111111
+    - gid_from_name: True
+    - groups:
+      {% if grains['os_family'] == 'RedHat' %}
+      - wheel
+      {% elif grains['os_family'] == 'Debian' %}
+      - sudo
+      {% endif %}
+    - remove_groups: False
+    - expire: -1
+```
+
+A highstate run is successful
+
+```
+[root@salt-master users]# salt \* cmd.run 'grep testuser /etc/{passwd,group,group-}'
+centos5-minion-1:
+    /etc/passwd:testuser1:x:111111:111111:Test User 1,,,:/home/testuser1:/bin/bash
+    /etc/group:wheel:x:10:root,testuser1
+    /etc/group:testuser1:x:111111:
+    /etc/group-:testuser1:x:111111:
+salt-minion-1:
+    /etc/passwd:testuser1:x:111111:500:Test User 1,,,:/home/testuser1:/bin/bash
+    /etc/group:wheel:x:10:testuser1
+    /etc/group:testuser1:x:500:
+    /etc/group-:testuser1:x:500:
+ubuntu1404:
+    /etc/passwd:testuser1:x:111111:1080:Test User 1,,,:/home/testuser1:/bin/bash
+    /etc/group:sudo:x:27:install,testuser1
+    /etc/group:testuser1:x:1080:
+    /etc/group-:testuser1:x:1080:
+```
+
+"salt-minion1" is CentOS 6.5.
+"centos5-minion-1" is CentOS 5.11
+you might be able to guess what "ubuntu1404" is :)
+
+Is this expected behavior?

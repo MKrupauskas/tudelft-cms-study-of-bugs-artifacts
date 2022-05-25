@@ -1,0 +1,77 @@
+### Description of Issue
+So Salt has this logic for batch execution: https://github.com/saltstack/salt/blob/master/salt/cli/batch.py#L246-L259
+
+I have an orchestration, with batch and `failhard` set to `True` and sometimes get this exception:
+```
+2020-02-28 14:59:44,383 [salt.state] [ERROR]  An exception occurred in this state: Traceback (most recent call last):
+  File "/opt/behavox/salt/venv/lib/python3.6/site-packages/salt/state.py", line 1933, in call
+    **cdata['kwargs'])
+  File "/opt/behavox/salt/venv/lib/python3.6/site-packages/salt/loader.py", line 1951, in wrapper
+    return f(*args, **kwargs)
+  File "/opt/behavox/salt/venv/lib/python3.6/site-packages/salt/states/saltmod.py", line 331, in state
+    cmd_ret = __salt__['saltutil.cmd'](tgt, fun, **cmd_kw)
+  File "/opt/behavox/salt/venv/lib/python3.6/site-packages/salt/modules/saltutil.py", line 1503, in cmd
+    client, tgt, fun, arg, timeout, tgt_type, ret, kwarg, **kwargs)
+  File "/opt/behavox/salt/venv/lib/python3.6/site-packages/salt/modules/saltutil.py", line 1467, in _exec
+    for ret_comp in _cmd(**cmd_kwargs):
+  File "/opt/behavox/salt/venv/lib/python3.6/site-packages/salt/client/__init__.py", line 574, in cmd_batch
+    for ret in batch.run():
+  File "/opt/behavox/salt/venv/lib/python3.6/site-packages/salt/cli/batch.py", line 258, in run
+    if self.opts.get('failhard') and data['retcode'] > 0:
+KeyError: 'retcode'
+```
+
+So I dig in and printed the `minion` and `data` variables from this logic during error and the problem was that for one minion data is `{'ret': {}}`.
+
+I checked this minions logs and see that it has finished its logic correctly and sent the results back to master:
+``` 
+2020-02-28 14:56:08,445 [salt.minion] [INFO] [JID: 20200228145436184480] Returning information for job: 20200228145436184480
+```
+
+### Steps to Reproduce Issue
+It's flapping and looks like only happening during the load.
+
+### Versions Report
+Same for master and minion.
+```
+Salt Version:
+           Salt: 2019.2.2
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.10.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Aug  7 2019, 17:28:10)
+   python-gnupg: 0.4.5
+         PyYAML: 3.11
+          PyZMQ: 18.0.2
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.3.1
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.3.2.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```

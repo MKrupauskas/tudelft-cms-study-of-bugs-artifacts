@@ -1,0 +1,105 @@
+**Description**
+acme.certs isn't returning the certs present under /etc/letsencrypt/live
+
+**Setup**
+This is a masterless minion with two valid LetsEncrypt certs under /etc/letsencrypt/live
+
+**Steps to Reproduce the behavior**
+I am running acme.certs and getting no output.
+
+```
+   # ssh-call acme.certs
+   local: 
+```
+
+However, if I run file.readdir on the /etc/letsencrypt/live directory, it does find the cert directories
+
+```
+# salt-call file.readdir /etc/letsencrypt/live/
+local:
+    - .
+    - ..
+    - first.example.com
+    - second.example.com
+```
+
+**Expected behavior**
+```
+# salt-call acme.certs
+local:
+    - first.example.com
+    - second.example.com
+```
+
+**Screenshots**
+N/A
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+This is a masterless minion, so 'sal' wasn't available, so I used salt-call.
+
+```
+# salt-call --versions-report
+Salt Version:
+           Salt: 3000.2
+ 
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.6.1
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.10
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.9 (default, Apr 18 2020, 01:56:04)
+   python-gnupg: 0.4.1
+         PyYAML: 3.12
+          PyZMQ: 16.0.2
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.2.5
+ 
+System Versions:
+           dist: Ubuntu 18.04 bionic
+         locale: UTF-8
+        machine: x86_64
+        release: 3.13.0-52-generic
+         system: Linux
+        version: Ubuntu 18.04 bionic
+```
+</details>
+
+**Additional context**
+
+Here's my suggested diff:
+```
+$ git diff
+diff --git a/salt/modules/acme.py b/salt/modules/acme.py
+index 8c74cf5dfc..6a0fd758df 100644
+--- a/salt/modules/acme.py
++++ b/salt/modules/acme.py
+@@ -308,7 +308,7 @@ def certs():
+         salt 'vhost.example.com' acme.certs
+     """
+     return [
+-        item for item in __salt__["file.readdir"](LE_LIVE)[2:] if os.path.isdir(item)
++        item for item in __salt__["file.readdir"](LE_LIVE)[2:] if os.path.isdir(LE_LIVE + item)
+     ]
+```
+The problem seems to be that file.readdir is returning a relative path off of /etc/letsencrypt/live, but os.path.isdir(item) is treating it as an absolute path.  So in my example above, the code will fail to find /first.example.com and /second.example.com and an empty list is returned.
+
+With the suggested fix, os.path.dir() will successfully find  /etc/letsencrypt/live/first.example.com, and /etc/letsenrypt/live/second.example.com instead.
+
+It looks like this was introduced [here](https://github.com/saltstack/salt/commit/933d92c879781266a599aa65b08db87ea2a8bc2e#diff-53b84396bbcb2a942960a54a2e22a0afL260).

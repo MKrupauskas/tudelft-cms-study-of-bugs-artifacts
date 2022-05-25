@@ -1,0 +1,113 @@
+### Description of Issue
+
+I have a custom execution module in my master's `module_dirs` directory, but that execution module does not appear to be loaded by the orchestrate runner.  This causes `salt-run` to print an error:
+
+```
+[ERROR   ] Rendering exception occurred: Jinja variable 'salt.utils.templates.AliasedLoader object' has no attribute 'roles'
+[ERROR   ] Pillar rendering failed for minion saltmaster_master:
+Traceback (most recent call last):
+  File "/usr/lib/python2.7/dist-packages/salt/pillar/__init__.py", line 313, in get_tops
+    _pillar_rend=True
+  File "/usr/lib/python2.7/dist-packages/salt/template.py", line 95, in compile_template
+    ret = render(input_data, saltenv, sls, **render_kwargs)
+  File "/usr/lib/python2.7/dist-packages/salt/renderers/jinja.py", line 333, in render
+    **kws)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/templates.py", line 178, in render_tmpl
+    output = render_str(tmplstr, context, tmplpath)
+  File "/usr/lib/python2.7/dist-packages/salt/utils/templates.py", line 384, in render_jinja_tmpl
+    buf=tmplstr)
+SaltRenderError: Jinja variable 'salt.utils.templates.AliasedLoader object' has no attribute 'roles'
+[CRITICAL] Pillar render error: Rendering Primary Top file failed, render error:
+Jinja variable 'salt.utils.templates.AliasedLoader object' has no attribute 'roles'
+```
+
+This issue seems similar to #30296 but I'm not sure.
+### Setup
+
+The master is configured as follows:
+- `/etc/salt/master`:
+  
+  ``` yaml
+  file_roots:
+    base:
+      - /salt/base/states
+  pillar_roots:
+    base:
+      - /salt/base/pillar
+  module_dirs:
+    - salt/modules
+  ```
+- `/salt/modules/modules/roles.py` is a symlink to `/salt/base/states/_modules/roles.py`
+- `/salt/base/states/_modules/roles.py`:
+  
+  ``` python
+  def get(id):
+      if id == 'foo':
+          return ('webserver',)
+      return ()
+  ```
+- `/salt/base/pillar/top.sls`:
+  
+  ``` yaml
+  base:
+    '*':
+      - stuff
+  {% if 'webserver' in salt.roles.get(grains.id) %}
+      - webserver
+  {% endif %}
+  ```
+- `/salt/base/states/orchestrate/init.sls`:
+  
+  ``` yaml
+  highstate_everything:
+    salt.state:
+      - tgt: '*'
+      - highstate: True
+  ```
+### Steps to Reproduce Issue
+
+Configure as described above and run:
+
+```
+sudo salt-run state.orchestrate orchestrate
+```
+### Versions Report
+
+```
+Salt Version:
+           Salt: 2015.8.7
+
+Dependency Versions:
+         Jinja2: 2.7.2
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+         PyYAML: 3.10
+          PyZMQ: 14.4.0
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+           RAET: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.4
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+        libgit2: Not Installed
+        libnacl: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.3.0
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+   python-gnupg: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 4.2.0-30-generic
+         system: Ubuntu 14.04 trusty
+```

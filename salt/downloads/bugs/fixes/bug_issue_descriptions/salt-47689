@@ -1,0 +1,152 @@
+### Description of Issue/Question
+
+When using pip.installed to manage the presence of a list of packages, the performance is quite poor, with each package in the list adding ~1-2s to the runtime of the state.
+
+This is due to the re-execution of "pip freeze" for each package, which is an expensive operation. It could potentially be avoided by running "pip freeze" once and storing the output for re-use, refreshing it only as required.
+
+
+### Setup
+
+Start from a CentOS7 system. Install pip and salt 2017.7.
+
+Note - the issue is also present in 2018.3 and dev.
+
+
+```
+yum -y install python2-pip
+./bootstrap.sh stable 2017.7
+mkdir -p /srv/salt
+```
+
+Set up a pip state to install the current python pip packages:
+```
+cat > /srv/salt/pip.sls << EOF
+pip packages:
+  pip.installed:
+    - pkgs:
+EOF
+
+pip freeze  | gawk '{print "      - "$1}' >> /srv/salt/pip.sls 
+```
+
+
+### Steps to Reproduce Issue
+
+
+Apply the state - note that "pip freeze" is called once for each package.
+
+```
+salt-call --local state.apply pip test=true --log-level=info
+```
+Run time is about 26s:
+```
+    Duration: 26203.069 ms
+```
+
+Example patch that shows an improvement is included below, as well as debug level logs. With that change, run time is about 1.2s:
+```
+    Duration: 1265.095 ms
+```
+
+
+### Versions Report
+```
+# salt-call --versions-report
+Salt Version:
+           Salt: 2017.7.5
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.5.1
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Apr 11 2018, 07:36:10)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.5.1804 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-862.2.3.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.5.1804 Core
+```
+
+
+### Proof of concept patch
+
+This proof of concept patch loads the full pip list only once when checking if packages are installed.
+
+It does not use the `prefix` when calling pip.list, so all packages are returned to the state from the module run.
+
+```
+--- /usr/lib/python2.7/site-packages/salt/states/pip_state.py	2018-02-20 20:37:06.000000000 +0000
++++ /usr/lib/python2.7/site-packages/salt/states/pip_state.py.new	2018-05-16 21:20:11.538319921 +0100
+@@ -182,7 +182,7 @@
+
+ def _check_if_installed(prefix, state_pkg_name, version_spec,
+                         ignore_installed, force_reinstall,
+-                        upgrade, user, cwd, bin_env):
++                        upgrade, user, cwd, bin_env, pip_list=False):
+
+     # result: None means the command failed to run
+     # result: True means the package is installed
+@@ -191,7 +191,8 @@
+
+     # Check if the requested package is already installed.
+     try:
+-        pip_list = __salt__['pip.list'](prefix, bin_env=bin_env,
++        if not pip_list:
++            pip_list = __salt__['pip.list'](prefix, bin_env=bin_env,
+                                         user=user, cwd=cwd)
+         prefix_realname = _find_key(prefix, pip_list)
+     except (CommandNotFoundError, CommandExecutionError) as err:
+@@ -676,6 +677,8 @@
+     # No requirements case.
+     # Check pre-existence of the requested packages.
+     else:
++        pip_list = __salt__['pip.list'](None, bin_env=bin_env,
++                                        user=user, cwd=cwd)
+         for prefix, state_pkg_name, version_spec in pkgs_details:
+
+             if prefix:
+@@ -683,7 +686,7 @@
+                 version_spec = version_spec
+                 out = _check_if_installed(prefix, state_pkg_name, version_spec,
+                                           ignore_installed, force_reinstall,
+-                                          upgrade, user, cwd, bin_env)
++                                          upgrade, user, cwd, bin_env, pip_list)
+                 # If _check_if_installed result is None, something went wrong with
+                 # the command running. This way we keep stateful output.
+                 if out['result'] is None:
+```
+
+### Debug level logs
+
+[debug_before.txt](https://github.com/saltstack/salt/files/2010787/debug_before.txt)
+
+after applying the above change:
+
+[debug_after.txt](https://github.com/saltstack/salt/files/2010788/debug_after.txt)

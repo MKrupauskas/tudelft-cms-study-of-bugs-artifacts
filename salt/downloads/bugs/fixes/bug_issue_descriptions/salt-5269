@@ -1,0 +1,75 @@
+I have a state that `rev` argument to update to a specific release when I bump it in pillar.
+
+```
+webapp:
+  git:
+    - latest
+    - name: git@server:webapp.git
+    - target: /usr/local/webapp
+    - rev: {{ pillar['webapp']['revision'] }}
+    - require:
+      - pkg: git
+```
+
+many things watch: `- git: webapp`, that trigger the upgrade process.
+but with 0.15.1 this way:
+
+```
+webapp:
+----------
+    State: - git
+    Name:      git@server:webapp.git
+    Function:  latest
+        Result:    False
+        Comment:   fatal: reference is not a tree: d05bf15a329b00fd212c594b5862d13063e0dbbd
+        Changes:
+```
+
+the logs look like this:
+
+```
+salt.state[0] Executing state git.latest for git@server:webapp.git
+salt.loaded.int.states.git[0] target /usr/local/webapp is found, "git pull" is probably required
+salt.loaded.int.module.cmdmod[0] Executing command 'git rev-parse HEAD' in directory '/usr/local/webapp'
+salt.loaded.int.module.cmdmod[0] stdout: 93753db1302750a6c1d7f3b88be182b6f5f205b2
+salt.loaded.int.module.cmdmod[0] Executing command 'git remote show -n origin' in directory '/usr/local/webapp'
+salt.loaded.int.module.cmdmod: stdout: * remote origin
+   Fetch URL: git@server:webapp.git
+   Push  URL: git@server:webapp.git
+   HEAD branch: (not queried)
+   Remote branches: (status not queried)
+     xxx
+     yyy
+   Local branches configured for 'git pull':
+     xxx  merges with remote xxx
+     master merges with remote master
+   Local ref configured for 'git push' (status not queried):
+     (matching) pushes to (matching)
+salt.loaded.int.module.cmdmod[0] Executing command 'git rev-parse d05bf15a329b00fd212c594b5862d13063e0dbbd' in directory '/usr/local/webapp'
+salt.loaded.int.module.cmdmod[0] Executing command 'git checkout  d05bf15a329b00fd212c594b5862d13063e0dbbd ' in directory '/usr/local/webapp'
+salt.loaded.int.module.cmdmod[0] Command 'git checkout  d05bf15a329b00fd212c594b5862d13063e0dbbd ' failed with return code: 128
+salt.loaded.int.module.cmdmod[0] stderr: fatal: reference is not a tree: d05bf15a329b00fd212c594b5862d13063e0dbbd
+salt.state[0] No changes made for git@server:webapp.git
+```
+
+so, to work around this I had to do this:
+
+```
+webapp:
+  git:
+    - latest
+    - name: git@server:webapp.git
+    - target: /usr/local/webapp
+    - rev: {{ pillar['webapp']['revision'] }}
+    - require:
+      - pkg: git
+{% if salt['file.file_exists']("/usr/local/webapp/.git/config") %}
+      - cmd: webapp
+  cmd:
+    - run
+    - name: git fetch
+    - cwd: /usr/local/webapp
+    - require:
+      - pkg: git
+{% endif %}
+```

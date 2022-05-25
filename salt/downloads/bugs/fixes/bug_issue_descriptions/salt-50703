@@ -1,0 +1,205 @@
+### Description of Issue/Question
+network.managed sets dns-nameservers up with spaces included after each character
+Resultint interfaces file:
+```
+root@jinjabug:~# cat /etc/network/interfaces
+auto enp0s8
+iface enp0s8 inet static
+    address 192.168.1.70
+    netmask 255.255.255.0
+    dns-nameservers 8 . 8 . 8 . 8   8 . 8 . 4 . 4
+auto enp0s3
+iface enp0s3 inet dhcp
+```
+
+Note the spaces before and after the dots in dns-nameservers.
+Any subsequent state.apply reports a change (i.e. state.apply recognizes the failure, tries to fix it, but sets up the dns-nameservers wrongly again, so during the next state.apply, it will run the exact same cycle):
+
+```
+          ID: enp0s8
+    Function: network.managed
+      Result: True
+     Comment: Interface enp0s8 updated.
+     Started: 12:28:32.366491
+    Duration: 315.748 ms
+     Changes:
+              ----------
+              interface:
+                  ---
+                  +++
+                  @@ -2,5 +2,5 @@
+                   iface enp0s8 inet static
+
+                       address 192.168.1.70
+
+                       netmask 255.255.255.0
+
+                  -    dns-nameservers 8   .   8   .   8   .   8       8   .   8   .   4   .   4
+
+                  +    dns-nameservers 8.8.8.8 8.8.4.4
+
+
+              status:
+                  Interface enp0s8 restart to validate
+
+```
+
+### Upstream tests  & Workaround
+I tried to fix the bug on my own - it seems in debian_eth.jinja is responsible for joining the list of IP addresses. I tried to mess a bit with it without luck. I also saw that debian_eth.jinja had been refactored recently. I tried to patch the new jinja from upstream, but that also resulted in the same issue. It seemed like it's joining the string itself by the spaces, instead of the list of strings.
+
+Unfortunately, jinja doesn't support list comprehension or other fancy Python features, so I couldn't really fix the problem there. Instead, I removed dns-nameservers from concat_opts, and changed debian_ip.py to join the nameservers in python before passing it to the Jinja template resolver:
+
+```
+1748,1749d1747
+<     if 'inet' in opts[iface]['data'] and 'dns_nameservers' in opts[iface]['data']['inet']:
+<         opts[iface]['data']['inet']['dns_nameservers'] = " ".join(opts[iface]['data']['inet']['dns_nameservers'])
+```
+
+This seems to work, but obviously not a long-term solution.
+
+I tried to isolate the issue in Jinja and blame them, but without the whole SlatStack around, Jinja seemed to join the list of strings fine.
+
+Also I'm a bit confused, because this use case seems so common and frequent that I doubt it can really be a failure, but this issue reproduced consistently on all my 3 VMs, and I could reproduce it on a 4th VM after a clean setup.
+
+I'm happy to provide more information on the system, if needed. It's possible that I have a configuration issue, I just cannot see how.
+
+### Setup
+Clean Ubuntu 18.04.1 LTS (GNU/Linux 4.15.0-39-generic x86_64) system running in VirtualBox, only changes applied via Salt. See SLS files below.
+
+### Steps to Reproduce Issue
+Install Ubuntu (VM was cloned from clean installed Ubuntu with MAC addresses re-generated).
+Install Salt with bootstrap.sh, change minion_id to 'jinjabug' (don't get confused, I still suspect this is a SaltStack issue), change minion config: master IP and master_finger provided, accept key on master. Apply states:
+
+**top.sls**
+```
+base:
+  'not master':
+    - base.packages
+    - base.configuration
+  'jinjabug':
+    - minions.jinjabug
+```
+
+**base/packages.sls**
+```
+mc:
+  pkg.installed: []
+ifupdown:
+  pkg.installed: []
+resolvconf:
+  pkg.installed: []
+netplan.io:
+  pkg.purged: []
+```
+
+**base/configuration.sls**
+```
+cloud.cfg:
+  file.managed:
+    - name: /etc/cloud/cloud.cfg
+    - source: salt://_res/cloud.cfg
+sshkeys-tibi:
+  ssh_auth.present:
+    - user: <user> # removed
+    - source: salt://_res/id_rsa_vm.pub
+    - config: '%h/.ssh/authorized_keys'
+sshkeys-root:
+  ssh_auth.present:
+    - user: root
+    - source: salt://_res/id_rsa_vm.pub
+    - config: '%h/.ssh/authorized_keys'
+enp0s8_routes:
+  network.routes:
+    - name: enp0s8
+    - routes:
+      - name: default
+        ipaddr: default
+        netmask: 0.0.0.0
+        gateway: 192.168.1.1
+enp0s3_routes:
+  network.routes:
+    - name: enp0s3
+    - routes: []
+```
+
+**jinjabug.sls**
+```
+'hostnamectl set-hostname jinjabug':
+  cmd.run:
+    - unless: test `cat /etc/hostname` = jinjabug
+system:
+  network.system:
+    - enabled: True
+    - hostname: jinjabug
+    - nozeroconf: True
+    - nisdomain: localdomain
+    - require_reboot: True
+enp0s8:
+  network.managed:
+    - enabled: True
+    - type: eth
+    - proto: none
+    - ipaddr: 192.168.1.70
+    - netmask: 255.255.255.0
+    - dns:
+      - 8.8.8.8
+      - 8.8.4.4
+enp0s3:
+  network.managed:
+    - enabled: True
+    - type: eth
+    - proto: dhcp
+
+```
+
+### Versions Report
+(Provided by running `salt --versions-report`. Please also mention any differences in master/minion versions.)
+
+Below versions-report is from the master (it runs a raspbian). Minion Salt versions are the same, minions are VirtualBox VMs with Ubuntu.
+
+```
+Salt Version:
+           Salt: 2018.3.3
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.2
+      docker-py: Not Installed
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 1.0.0
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.2
+   mysql-python: 1.2.3
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 2.7.9 (default, Mar  8 2015, 00:52:26)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 14.4.0
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+
+System Versions:
+           dist: debian 8.0
+         locale: UTF-8
+        machine: armv7l
+        release: 4.4.13-v7+
+         system: Linux
+        version: debian 8.0
+```
+
+### Notes
+
+Ubuntu uses netplan.io out of the box, which seems to collide with /etc/network/interfaces configuration, so I had to remove the complete package and make a change in /etc/cloud/cloud.cfg to avoid getting a secondary dynamic IP address after setting up static configuration. I'm not sure if this is how Salt should work with Ubuntu. Also at some point ifup/ifdown didn't work, probably because netplan.io messed with the interfaces before. You should probably consider supporting netplan.io instead of the conventional /etc/network/interfaces configuration.

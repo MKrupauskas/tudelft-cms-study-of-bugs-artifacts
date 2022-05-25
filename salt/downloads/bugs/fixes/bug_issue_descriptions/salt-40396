@@ -1,0 +1,119 @@
+### Description of Issue/Question
+
+this code from /usr/lib/python2.7/dist-packages/salt/modules/rabbitmq.py doesn't work properly with rabbitmq-server versions like 3.6.1-ubuntu0-1
+```    try:
+        res = __salt__['cmd.run'](['rabbitmqctl', 'status'], runas=runas, python_shell=False)
+        server_version = re.search(r'\{rabbit,"RabbitMQ","(.+)"\}', res)
+
+        if server_version is None:
+            raise ValueError
+
+        server_version = server_version.group(1)
+        version = [int(i) for i in server_version.split('.')]
+```
+
+It ends up with this:
+```          ID: rabbitmq_user_rasp
+    Function: rabbitmq_user.present
+        Name: rasp
+      Result: False
+     Comment: Error: RabbitMQ command failed: Error: {undef,
+                         [{rabbit_auth_backend_internal,check_user_login,
+                              [<<"rasp">>,[{password,<<"xaequ8paD2">>}]],
+                              []},
+                          {erl_eval,do_apply,6,[{file,"erl_eval.erl"},{line,569}]},
+                          {rpc,'-handle_call_call/6-fun-0-',5,
+                              [{file,"rpc.erl"},{line,205}]}]}
+     Started: 18:17:56.485307
+    Duration: 1490.817 ms
+     Changes:   
+
+Summary for local
+-------------
+Succeeded: 82 (changed=7)
+Failed:     1
+```
+
+There is a fix https://github.com/saltstack/salt/issues/33588 for versions higher 3.5.7, I know, and everything works fine with 3.5.7-1
+
+### Setup
+```{% for user in salt['pillar.get']('rabbitmq:users')  %}
+{% set password = salt.pillar.get('rabbitmq:' + user + ':password')  %}
+{% set vhosts = salt.pillar.get('rabbitmq:' + user + ':vhosts')  %}
+
+{% for vhost in vhosts %}
+rabbitmq_vhost_{{ vhost }}:
+  rabbitmq_vhost.present:
+    - name: {{ vhost }}
+{% endfor %}
+
+rabbitmq_user_{{ user }}:
+  rabbitmq_user.present:
+    - require:
+      - service: rabbitmq_is_running
+    - name: {{ user }}
+    - password: {{ password }}
+    - perms:
+{% for vhost in vhosts %}
+      - {{ vhost }}:
+        - '.*'
+        - '.*'
+        - '.*'
+{% endfor %}
+{% endfor %}
+```
+### Steps to Reproduce Issue
+```
+>>> res = '{running_applications,[{rabbit,"RabbitMQ","3.6.1-ubuntu0"}' 
+>>> server_version = re.search(r'\{rabbit,"RabbitMQ","(.+)"\}', res)
+>>> server_version = server_version.group(1)
+>>> print server_version                                                                                                                                                                                                                   
+3.6.1-ubuntu0
+>>> version = [int(i) for i in server_version.split('.')]
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+ValueError: invalid literal for int() with base 10: '1-ubuntu0'
+```
+We had internal builds of rabbitmq-server with versions like above, so is it possible to split all after "-" like this?
+`        server_version = server_version.group(1).split('-')[0]`
+
+### Versions Report
+```Salt Version:
+           Salt: 2016.11.0
+ 
+Dependency Versions:
+           cffi: 1.5.2
+       cherrypy: Not Installed
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.3
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: 0.21.1
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.7
+   mysql-python: 1.2.5
+      pycparser: 2.14
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Mar 22 2014, 22:59:56)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.3
+            ZMQ: 4.0.4
+ 
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.18.19-24
+         system: Linux
+        version: Ubuntu 14.04 trusty
+ 
+```

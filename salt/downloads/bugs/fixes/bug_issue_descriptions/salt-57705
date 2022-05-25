@@ -1,0 +1,117 @@
+**Description**
+When attempting to configure a vault connection and sdb setup, salt is simply unable to get appropriate values from vault in any capacity, complaining about the sdb vault script and a "uses" KeyError.
+
+**Setup**
+Salt Version 3001
+Vault 1.4.2 running locally in dev mode
+
+**Steps to Reproduce the behavior**
+1. Follow this guide to bootstrap salt w/ vault sdb:
+https://help.saltstack.com/hc/en-us/articles/360041140451-Quick-Guide-to-Vault-Integration
+
+### Error Message
+```
+/etc/salt# salt-run sdb.get 'sdb://localvault/salt/data/test/foo'
+[ERROR   ] Failed to read secret! KeyError: 'uses'
+Exception occurred in runner sdb.get: Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/sdb/vault.py", line 97, in get
+    response = __utils__["vault.make_request"]("GET", url, profile)
+  File "/usr/lib/python3/dist-packages/salt/utils/vault.py", line 326, in make_request
+    **args
+  File "/usr/lib/python3/dist-packages/salt/utils/vault.py", line 342, in make_request
+    connection["uses"] -= 1
+KeyError: 'uses'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/salt/client/mixins.py", line 397, in low
+    data["return"] = func(*args, **kwargs)
+  File "/usr/lib/python3/dist-packages/salt/runners/sdb.py", line 26, in get
+    return salt.utils.sdb.sdb_get(uri, __opts__, __utils__)
+  File "/usr/lib/python3/dist-packages/salt/utils/sdb.py", line 46, in sdb_get
+    return loaded_db[fun](query, profile=profile)
+  File "/usr/lib/python3/dist-packages/salt/sdb/vault.py", line 113, in get
+    raise salt.exceptions.CommandExecutionError(e)
+salt.exceptions.CommandExecutionError: 'uses
+```
+### Master Config:
+```
+vault:
+  url: http://127.0.0.1:8200
+  auth:
+    method: token
+    token: ROOT_TOKEN
+  policies:
+    - saltmaster
+
+localvault:
+  driver: vault
+```
+### Vault Evidence
+```
+# vault kv get salt/test
+====== Metadata ======
+Key              Value
+---              -----
+created_time     2020-06-17T19:35:11.776643342Z
+deletion_time    n/a
+destroyed        false
+version          1
+
+=== Data ===
+Key    Value
+---    -----
+foo    bar
+```
+
+**Expected behavior**
+Salt with a vault sdb is able to successfully pull a secret from vault (either kv1 or kv2)
+
+**Versions Report**
+```
+# salt -V
+Salt Version:
+           Salt: 3001
+
+Dependency Versions:
+           cffi: 1.14.0
+       cherrypy: Not Installed
+       dateutil: 2.8.1
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+         Jinja2: 2.11.2
+        libgit2: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.20
+       pycrypto: 3.9.7
+   pycryptodome: 3.9.7
+         pygit2: Not Installed
+         Python: 3.5.2 (default, Apr 16 2020, 17:47:17)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 17.1.2
+          smmap: 3.0.4
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: ubuntu 16.04 xenial
+         locale: UTF-8
+        machine: x86_64
+        release: 4.4.0-1101-aws
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```
+</details>
+
+**Additional context**
+Upgraded to 3001 today after it was released due to the desire to connect to a v2 kv store on vault. Even attempting vault kv1 with a root token produces the same problem and a complete inability to get secrets out.
+
+Would not be surprised if it was my configuration, but I'd assume the quickstart guide would still be relevant.

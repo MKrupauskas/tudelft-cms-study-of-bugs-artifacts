@@ -1,0 +1,112 @@
+### Description of Issue/Question
+https://docs.saltstack.com/en/latest/ref/states/all/salt.states.sysctl.html
+says:
+
+"Ensure that the named sysctl value is set *in* *memory* and persisted to the named configuration file. The default sysctl configuration file is /etc/sysctl.conf"
+
+
+The bug reporting here shows that the value is not set *in* *memory* if the value is not available to be set.  The desired behavior is to fail when you can not set a value *in* *memory* . In this case the value can only be set after a kernel modules loads.  This bug could lead to sysctl values not being set correctly. In this particular case, the sysctl in kernel will not have enough slots to track connections in the firewall rule and will lead to connections not being ACKed.
+
+### Setup
+Here is an example SLS file:
+```
+sysctl-test-setting:
+  sysctl.present:
+    - name: net.netfilter.nf_conntrack_max
+    - value: 1048576
+```
+You can reproduce a test case by unloading nf_conntrack module from the kernel.
+
+Here it fails the first time:
+```
+root@saltmaster:/srv/salt/state# salt-call -l quiet state.sls example1 
+local:
+----------
+          ID: sysctl-test-setting
+    Function: sysctl.present
+        Name: net.netfilter.nf_conntrack_max
+      Result: False
+     Comment: Failed to set net.netfilter.nf_conntrack_max to 1048576: sysctl net.netfilter.nf_conntrack_max does not exist
+     Started: 17:47:04.964320
+    Duration: 17.166 ms
+     Changes:   
+
+Summary for local
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+Total run time:  17.166 ms
+```
+
+Here it claims to succeed when the value is in the sysctl.conf but loaded into the kernel:
+``` 
+root@saltmaster:/srv/salt/state# salt-call -l quiet state.sls example1 
+local:
+
+Summary for local
+------------
+Succeeded: 1
+Failed:    0
+------------
+Total states run:     1
+Total run time:  17.060 ms
+root@saltmaster:/srv/salt/state# sysctl net.netfilter.nf_conntrack_max
+sysctl: cannot stat /proc/sys/net/netfilter/nf_conntrack_max: No such file or directory
+```
+Salt-call should have failed here.  I have a patch that works in 2016.3 and 2016.11. I will make a PR.
+
+### Steps to Reproduce Issue
+Here is a simpler example on how to reproduce:
+```
+root@saltmaster:/srv/salt/state# salt-call -lquiet  sysctl.persist foo bar
+Error running 'sysctl.persist': sysctl foo does not exist
+
+root@saltmaster:/srv/salt/state# salt-call -lquiet  sysctl.persist foo bar
+local:
+    Already set
+```
+sysctl for `foo` is not set to `bar`. It should have failed here. The value was written to /etc/sysctl.conf but is not set in memory.
+
+### Versions Report
+```
+ root@saltmaster:/srv/salt/state# salt-call --versions
+Salt Version:
+           Salt: 2016.3.4
+ 
+Dependency Versions:
+           cffi: 1.9.1
+       cherrypy: 3.2.2
+       dateutil: 1.5
+          gitdb: 0.5.4
+      gitpython: 0.3.2 RC1
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: 0.9.1
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: 1.2.3
+      pycparser: 2.17
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.6 (default, Jun 22 2015, 17:58:13)
+   python-gnupg: Not Installed
+         PyYAML: 3.10
+          PyZMQ: 14.0.1
+           RAET: Not Installed
+          smmap: 0.8.2
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.0.5
+ 
+System Versions:
+           dist: Ubuntu 14.04 trusty
+        machine: x86_64
+        release: 3.13.0-77-generic
+         system: Linux
+        version: Ubuntu 14.04 trusty
+```

@@ -1,0 +1,100 @@
+I just upgraded my Fedora 21 install from `salt-{,minon-}2014.7.1-1.fc21.noarch` to `2014.7.5-1.fc21.noarch`. Now, my setup does not work anymore.
+
+I have `python-pygit2` version 0.21.4 installed.
+
+```
+# cat /etc/salt/minion
+file_client: local
+fileserver_backend:
+  - git
+gitfs_remotes:
+  - git@git.example.com:saltstack/bar:
+    - pubkey: /root/.ssh/saltstack.pub
+    - privkey: /root/.ssh/saltstack
+```
+
+All I get is this:
+
+```
+# salt-call state.highstate -l debug
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] Using cached minion ID from /etc/salt/minion_id: bar
+[DEBUG   ] Configuration file path: /etc/salt/minion
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] The `dmidecode` binary is not available on the system. GPU grains will not be available.
+[DEBUG   ] Mako not available
+[DEBUG   ] pygit2 gitfs_provider enabled
+[DEBUG   ] Updating git fileserver cache
+[DEBUG   ] Set lock for git@git.example.com:saltstack/bar
+[DEBUG   ] gitfs is fetching from git@git.example.com:saltstack/bar
+[DEBUG   ] gitfs received 0 objects for remote git@git.example.com:saltstack/bar
+[DEBUG   ] gitfs cleaned the following stale refs: ['refs/remotes/origin/master']
+[DEBUG   ] Removed lock for git@git.example.com:saltstack/bar
+[DEBUG   ] Reading configuration from /etc/salt/minion
+[DEBUG   ] The `dmidecode` binary is not available on the system. GPU grains will not be available.
+[INFO    ] Loading fresh modules for state activity
+[DEBUG   ] Fetching file from saltenv 'base', ** attempting ** 'salt://top.sls'
+local:
+----------
+          ID: states
+    Function: no.None
+      Result: False
+     Comment: No Top file or external nodes data matches found
+     Started: 
+    Duration: 
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+```
+
+The `top.sls` is really simple for this repo:
+
+```
+base:
+  'bar':
+    - packages.bash
+    - packages.gitolite
+    - packages.mypkgs
+    - packages.postfix
+    - packages.salt-minion
+    - packages.sshd
+    - packages.sudo
+    - packages.yum-cron
+    - users
+```
+
+The directory `/var/cache/salt/minion/files/base/` _did_ contain the proper files previously. Although, after removing `/var/cache/salt/minion/{gitfs,files}` for testing purposes, it stays empty after a call to `state.highstate`:
+
+```
+# rm -rf /var/cache/salt/minion/{files,gitfs}
+# salt-call state.highstate 
+[INFO    ] Wrote new gitfs_remote map to /var/cache/salt/minion/gitfs/remote_map.txt
+[INFO    ] Loading fresh modules for state activity
+local:
+----------
+          ID: states
+    Function: no.None
+      Result: False
+     Comment: No Top file or external nodes data matches found
+     Started: 
+    Duration: 
+     Changes:   
+
+Summary
+------------
+Succeeded: 0
+Failed:    1
+------------
+Total states run:     1
+# tree -a /var/cache/salt/minion/files/base/
+/var/cache/salt/minion/files/base/
+
+0 directories, 0 files
+```
+
+Is this expected behavior? I can't find anything about this in the [Salt 2014.7.5 Release Notes](http://docs.saltstack.com/en/latest/topics/releases/2014.7.5.html).

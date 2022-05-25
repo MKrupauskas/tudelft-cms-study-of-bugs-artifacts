@@ -1,0 +1,130 @@
+### Description of Issue
+
+`salt-cloud.create` does not operate properly due to an internal exception being thrown when `salt-cloud` attempts to ssh into the instance. The exception is...
+
+```
+local variable 'ssh_gateway_user' referenced before assignment
+```
+
+This exception is not shown to the user unless you modify the code in [salt/utils/cloud.py](https://github.com/saltstack/salt/blob/develop/salt/utils/cloud.py#L1201). Even if you enable debug logging using `-l debug`, you just get repeated messages along the lines of...
+
+```
+[DEBUG   ] Attempting to authenticate as ubuntu (try 1 of 15)
+[DEBUG   ] Using /inst-storage/etc/ssh/shared-testvpc-key.pem as the key_filename
+[DEBUG   ] Attempting to authenticate as ubuntu (try 2 of 15)
+[DEBUG   ] Using /inst-storage/etc/ssh/shared-testvpc-key.pem as the key_filename
+```
+
+Since we don't use an SSH gateway, I was able to get around the issue by just commenting out all of the following lines in [salt/utils/cloud.py](https://github.com/saltstack/salt/blob/develop/salt/utils/cloud.py#L2372)
+
+```
+ssh_args.extend([__ssh_gateway_arguments(kwargs)])
+```
+
+Checking [the docs](https://docs.saltstack.com/en/latest/ref/clouds/all/salt.cloud.clouds.ec2.html), the configuration value `ssh_gateway_username` (not `ssh_gateway_user`) is an optional parameter. Entering either permutation of the configuration variable in my cloud provider entry had no impact on the issue.
+
+(**This exact setup works in `v2018.3.4`**)
+
+
+#### Reporter Note
+
+I hit this issue when conducting an experiment to see if we should continue using `salt-cloud` for provisioning. After running into this immediately, we're going to stop using `salt-cloud`. I just wanted to do the responsible thing and make sure was issue was reported.
+
+### Setup
+
+A single Ubuntu 18.04 master in ec2.
+
+#### /etc/salt/cloud.providers.d/aws.conf
+```
+aws:
+  id: 'use-instance-role-credentials'
+  key: 'use-instance-role-credentials'
+  keyname: {our_keyname}
+  private_key:  {our_local_key_path}
+  ssh_interface: private_ips
+  driver: ec2
+```
+
+#### /etc/salt/cloud.profiles.d/pets.conf
+```
+pet_ubuntu_t3_base:
+  provider: aws
+  image: ami-03804ed633fe58109
+  size: t3.medium
+  ssh_username: ubuntu
+  location: us-west-2
+  minion:
+    master: {our_master}
+    grains:
+      cloud: ec2-us-west-2
+
+pet_ubuntu_t3_primary_az:
+  extends: pet_ubuntu_t3_base
+  subnetid: {our_subnet_id_1}
+
+pet_ubuntu_t3_secondary_az:
+  extends: pet_ubuntu_t3_base
+  subnetid: {our_subnet_id_2}
+```
+
+
+### Steps to Reproduce Issue
+
+Just try to make an instance
+
+```
+salt-cloud -p pet_ubuntu_t3_primary_az pet1
+```
+
+
+### Versions Report
+
+Salt was Installed using the following command, just today.
+
+```
+sudo sh bootstrap-salt.sh -X -M -L git v2019.02
+```
+
+```
+Salt Version:
+            Salt: 2019.2.0
+ 
+Dependency Versions:
+ Apache Libcloud: 2.2.1
+            cffi: Not Installed
+        cherrypy: Not Installed
+        dateutil: Not Installed
+       docker-py: Not Installed
+           gitdb: Not Installed
+       gitpython: Not Installed
+           ioflo: Not Installed
+          Jinja2: 2.10
+         libgit2: Not Installed
+         libnacl: Not Installed
+        M2Crypto: 0.27.0
+            Mako: Not Installed
+    msgpack-pure: Not Installed
+  msgpack-python: 0.5.6
+    mysql-python: Not Installed
+       pycparser: Not Installed
+        pycrypto: 2.6.1
+    pycryptodome: Not Installed
+          pygit2: Not Installed
+          Python: 2.7.15rc1 (default, Nov 12 2018, 14:31:15)
+    python-gnupg: Not Installed
+          PyYAML: 3.12
+           PyZMQ: 16.0.2
+            RAET: Not Installed
+           smmap: Not Installed
+         timelib: Not Installed
+         Tornado: 4.5.3
+             ZMQ: 4.2.5
+ 
+System Versions:
+            dist: Ubuntu 18.04 bionic
+          locale: UTF-8
+         machine: x86_64
+         release: 4.15.0-1035-aws
+          system: Linux
+         version: Ubuntu 18.04 bionic
+```

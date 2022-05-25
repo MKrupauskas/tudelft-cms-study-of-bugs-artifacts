@@ -1,0 +1,102 @@
+**Description**
+We need to be able to add multiple networks to a Rackspace cloud server when spinning it up using salt-cloud.  This is especially important for `Rackconnected` devices which we need to be attached to their internal RC network and not have an external public IP.
+
+Currently documentation suggests this should be possible,
+```
+- **network**: (optional) Network dict or name or ID to attach the
+              server to.  Mutually exclusive with the nics parameter.
+              Can also be be a list of network names or IDs or
+              network dicts.
+```
+.. but has a test which prevents passing multiple items as a list:
+https://github.com/saltstack/salt/blob/master/salt/cloud/clouds/openstack.py#L633
+
+**Setup**
+`/etc/salt/cloud.providers.d/example.conf`
+```
+exampleprovider:
+  minion:
+    master: 172.19.117.1
+  driver: openstack
+  profile: rackspace
+  auth:
+    username: exampleuser
+    api_key: xxxxxxxxxxxxxxxxxxxxxxxxxxx
+  region_name: LON
+  auth_type: rackspace_apikey
+  networks:
+    - name: ef16674f-0b0a-4ead-b4a1-1bfc721ecf2b
+    - name: 1111111-1111-1111-1111-111111111111
+```
+`/etc/salt/cloud.profiles.d/centos_7.conf`
+```
+centos_7:
+  provider: exampleprovider
+  image: fa756e3a-0fe3-4bbf-8f78-e675d8968142
+  size: 2 GB General Purpose v1
+  com.rackspace__1__build_config_options: backup_defaults,monitoring_defaults,updates
+```
+**Steps to Reproduce the behaviour**
+(Include debug logs if possible and relevant)
+```
+[root@salt-master clouds]# salt-cloud -p centos_7 s01.example.com |tee s01.example.com
+[ERROR   ] Error network: [{'id': '11111111-1111-1111-1111-111111111111'}, {'id': 'ef16674f-0b0a-4ead-b4a1-1bfc721ecf2b'}] is not of type <class 'dict'>
+[ERROR   ] Error key_name: None is not of type (<class 'str'>,)
+```
+--- I was able to workaround by changing line 633 to 
+```
+        'network': (dict,list),
+```
+
+**Expected behaviour**
+Server would be built with the specific networks attached but no others
+
+**Screenshots**
+N/A
+
+**Versions Report**
+<details><summary>salt --versions-report</summary>
+
+```
+Salt Version:
+           Salt: 3000.1
+ 
+Dependency Versions:
+           cffi: 1.14.0
+       cherrypy: Not Installed
+       dateutil: Not Installed
+      docker-py: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+         Jinja2: 2.11.1
+        libgit2: Not Installed
+       M2Crypto: 0.35.2
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.6.2
+   mysql-python: Not Installed
+      pycparser: 2.20
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.6.8 (default, Apr  2 2020, 13:34:55)
+   python-gnupg: Not Installed
+         PyYAML: 3.12
+          PyZMQ: 15.3.0
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.5.3
+            ZMQ: 4.1.4
+ 
+System Versions:
+           dist: centos 7.7.1908 Core
+         locale: UTF-8
+        machine: x86_64
+        release: 3.10.0-1062.12.1.el7.x86_64
+         system: Linux
+        version: CentOS Linux 7.7.1908 Core
+```
+</details>
+
+**Additional context**
+Add any other context about the problem here.

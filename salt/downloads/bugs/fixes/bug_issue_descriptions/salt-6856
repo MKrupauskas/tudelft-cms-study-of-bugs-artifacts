@@ -1,0 +1,386 @@
+If you create a bonded interface, it appears that bond0 always gets the MAC address of eth0. It should get the MAC address of one of the interfaces in the bond (preferably the first one). In this example, I create bond0 out of eth1 and eth2, but bond0 is given the MAC address of the unrelated eth0. You can see the rendered salt state in the trace below.
+
+This is the initial interface state:
+
+```
+[vagrant@localhost ~]$ ifconfig -a
+eth0      Link encap:Ethernet  HWaddr 08:00:27:F7:3D:84  
+          inet addr:10.0.2.15  Bcast:10.0.2.255  Mask:255.255.255.0
+          inet6 addr: fe80::a00:27ff:fef7:3d84/64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:346 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:204 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000 
+          RX bytes:38310 (37.4 KiB)  TX bytes:29383 (28.6 KiB)
+
+eth1      Link encap:Ethernet  HWaddr 08:00:27:18:86:A9  
+          BROADCAST MULTICAST  MTU:1500  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000 
+          RX bytes:0 (0.0 b)  TX bytes:0 (0.0 b)
+
+eth2      Link encap:Ethernet  HWaddr 08:00:27:AA:52:94  
+          BROADCAST MULTICAST  MTU:1500  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000 
+          RX bytes:0 (0.0 b)  TX bytes:0 (0.0 b)
+```
+
+After applying the bonded interface state, the interface configuration is:
+
+```
+[vagrant@localhost ~]$ ifconfig -a
+bond0     Link encap:Ethernet  HWaddr 08:00:27:18:86:A9  
+          inet6 addr: fe80::a00:27ff:fe18:86a9/64 Scope:Link
+          UP BROADCAST RUNNING MASTER MULTICAST  MTU:1500  Metric:1
+          RX packets:20 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:8 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0 
+          RX bytes:1756 (1.7 KiB)  TX bytes:1076 (1.0 KiB)
+
+eth0      Link encap:Ethernet  HWaddr 08:00:27:F7:3D:84  
+          inet addr:10.0.2.15  Bcast:10.0.2.255  Mask:255.255.255.0
+          inet6 addr: fe80::a00:27ff:fef7:3d84/64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:1058 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:820 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000 
+          RX bytes:87570 (85.5 KiB)  TX bytes:261175 (255.0 KiB)
+
+eth1      Link encap:Ethernet  HWaddr 08:00:27:18:86:A9  
+          UP BROADCAST RUNNING SLAVE MULTICAST  MTU:1500  Metric:1
+          RX packets:9 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:6 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000 
+          RX bytes:668 (668.0 b)  TX bytes:828 (828.0 b)
+
+eth2      Link encap:Ethernet  HWaddr 08:00:27:18:86:A9  
+          UP BROADCAST RUNNING SLAVE MULTICAST  MTU:1500  Metric:1
+          RX packets:11 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:2 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000 
+          RX bytes:1088 (1.0 KiB)  TX bytes:248 (248.0 b)
+```
+
+Note that bond0 and eth0 have the same MAC address.
+
+Full trace of applying the bonded networking state:
+
+```
+[root@localhost vagrant]# salt-call -l trace state.sls networking
+...
+[INFO    ] Fetching file 'salt://networking.sls'
+[DEBUG   ] Jinja search path: '['/var/cache/salt/minion/files/base']'
+[DEBUG   ] Rendered data from file: /var/cache/salt/minion/files/base/networking.sls:
+bond0:
+    network.managed:
+        - type: bond
+        - enabled: True
+        - proto: dhcp
+        - mode: 802.3ad
+        - require:
+
+            - network: eth1
+
+            - network: eth2
+
+
+
+eth1:
+    network.managed:
+        - type: slave
+        - proto: none
+        - master: bond0
+
+eth2:
+    network.managed:
+        - type: slave
+        - proto: none
+        - master: bond0
+
+
+[DEBUG   ] Results of YAML rendering: 
+{'bond0': {'network.managed': [{'type': 'bond'}, {'enabled': True}, {'proto': 'dhcp'}, {'mode': '802.3ad'}, {'require': [{'network': 'eth1'}, {'network': 'eth2'}]}]}, 'eth2': {'network.managed': [{'type': 'slave'}, {'proto': 'none'}, {'master': 'bond0'}]}, 'eth1': {'network.managed': [{'type': 'slave'}, {'proto': 'none'}, {'master': 'bond0'}]}}
+[INFO    ] Executing state network.managed for eth1
+[DEBUG   ] loading grain in ['/var/cache/salt/minion/extmods/grains', '/usr/lib/python2.6/site-packages/salt/grains']
+
+[DEBUG   ] MinionEvent PUB socket URI: ipc:///var/run/salt/minion/minion_event_e138231a68ad82f054e3d756c6634ba1_pub.ipc
+[DEBUG   ] MinionEvent PULL socket URI: ipc:///var/run/salt/minion/minion_event_e138231a68ad82f054e3d756c6634ba1_pull.ipc
+[INFO    ] {'interface': '---  \n+++  \n@@ -1,25 +1,7 @@\n-DEVICE=eth1\n-BOOTPROTO=dhcp\n-ONBOOT=yes\n-TYPE=Ethernet\n-HWADDR=08:00:27:f7:3d:84\n-IPV6INIT=no\n-USERCTL=no\n-#VAGRANT-BEGIN\n-# The contents below are automatically generated by Vagrant. Do not modify.\n-BOOTPROTO=dhcp\n-ONBOOT=yes\n-DEVICE=eth1\n-#VAGRANT-END\n-#VAGRANT-BEGIN\n-# The contents below are automatically generated by Vagrant. Do not modify.\n-BOOTPROTO=dhcp\n-ONBOOT=yes\n-DEVICE=eth1\n-#VAGRANT-END\n-#VAGRANT-BEGIN\n-# The contents below are automatically generated by Vagrant. Do not modify.\n-BOOTPROTO=dhcp\n-ONBOOT=yes\n-DEVICE=eth1\n-#VAGRANT-END\n+DEVICE="eth1"\n+HWADDR="08:00:27:18:86:a9"\n+USERCTL="no"\n+MASTER="bond0"\n+SLAVE="yes"\n+BOOTPROTO="none"\n+ONBOOT="yes"\n'}
+[INFO    ] Executing state network.managed for eth2
+[DEBUG   ] loading grain in ['/var/cache/salt/minion/extmods/grains', '/usr/lib/python2.6/site-packages/salt/grains']
+[TRACE   ] Added core.append_domain to grain
+[TRACE   ] Added core.get_master to grain
+[TRACE   ] Added core.get_server_id to grain
+[TRACE   ] Added core.hostname to grain
+[TRACE   ] Added core.id_ to grain
+[TRACE   ] Added core.ip4 to grain
+[TRACE   ] Added core.ip_interfaces to grain
+[TRACE   ] Added core.locale_info to grain
+[TRACE   ] Added core.os_data to grain
+[TRACE   ] Added core.path to grain
+[TRACE   ] Added core.pythonpath to grain
+[TRACE   ] Added core.pythonversion to grain
+[TRACE   ] Added core.saltpath to grain
+[TRACE   ] Added core.saltversion to grain
+[TRACE   ] Added macaddr.get_macaddr to grain
+[TRACE   ] Added opts.opts to grain
+[TRACE   ] Added extra.config to grain
+[TRACE   ] Added extra.shell to grain
+[DEBUG   ] MinionEvent PUB socket URI: ipc:///var/run/salt/minion/minion_event_e138231a68ad82f054e3d756c6634ba1_pub.ipc
+[DEBUG   ] MinionEvent PULL socket URI: ipc:///var/run/salt/minion/minion_event_e138231a68ad82f054e3d756c6634ba1_pull.ipc
+[INFO    ] {'interface': '---  \n+++  \n@@ -1,9 +1,7 @@\n-DEVICE=eth2\n-HWADDR=08:00:27:f7:3d:84\n-USERCTL=no\n+DEVICE="eth2"\n+HWADDR="08:00:27:aa:52:94"\n+USERCTL="no"\n MASTER="bond0"\n-SLAVE=yes\n-BOOTPROTO=dhcp\n-TYPE=Ethernet\n-IPV6INIT=no\n-ONBOOT=no\n+SLAVE="yes"\n+BOOTPROTO="none"\n+ONBOOT="yes"\n'}
+[INFO    ] Executing state network.managed for bond0
+[INFO    ] Device: bond0 Bonding Mode: IEEE 802.3ad Dynamic link aggregation
+[INFO    ] Using default option -- Interface: bond0 Option: miimon Value: 100
+[INFO    ] Using default option -- Interface: bond0 Option: downdelay Value: 200
+[INFO    ] Using default option -- Interface: bond0 Option: updelay Value: 0
+[INFO    ] Using default option -- Interface: bond0 Option: lacp_rate Value: 0
+[INFO    ] Using default option -- Interface: bond0 Option: ad_select Value: 0
+[INFO    ] Using default option -- Interface: bond0 Option: use_carrier Value: on
+[INFO    ] Device: bond0 Bonding Mode: IEEE 802.3ad Dynamic link aggregation
+[INFO    ] Using default option -- Interface: bond0 Option: miimon Value: 100
+[INFO    ] Using default option -- Interface: bond0 Option: downdelay Value: 200
+[INFO    ] Using default option -- Interface: bond0 Option: updelay Value: 0
+[INFO    ] Using default option -- Interface: bond0 Option: lacp_rate Value: 0
+[INFO    ] Using default option -- Interface: bond0 Option: ad_select Value: 0
+[INFO    ] Using default option -- Interface: bond0 Option: use_carrier Value: on
+[INFO    ] Executing command 'lsmod' in directory '/root'
+[DEBUG   ] output: Module                  Size  Used by
+ipt_REJECT              2351  2 
+nf_conntrack_ipv4       9506  2 
+nf_defrag_ipv4          1483  1 nf_conntrack_ipv4
+iptable_filter          2793  1 
+ip_tables              17831  1 iptable_filter
+ip6t_REJECT             4628  2 
+nf_conntrack_ipv6       8748  2 
+nf_defrag_ipv6         11182  1 nf_conntrack_ipv6
+xt_state                1492  4 
+nf_conntrack           79645  3 nf_conntrack_ipv4,nf_conntrack_ipv6,xt_state
+ip6table_filter         2889  1 
+ip6_tables             19458  1 ip6table_filter
+ipv6                  321454  15 ip6t_REJECT,nf_conntrack_ipv6,nf_defrag_ipv6
+ppdev                   8537  0 
+parport_pc             22690  0 
+parport                36209  2 ppdev,parport_pc
+microcode             112653  0 
+i2c_piix4              12608  0 
+i2c_core               31084  1 i2c_piix4
+e1000                 170678  0 
+sg                     29350  0 
+ext4                  363408  2 
+mbcache                 8193  1 ext4
+jbd2                   90230  1 ext4
+sd_mod                 38976  3 
+crc_t10dif              1541  1 sd_mod
+sr_mod                 15177  0 
+cdrom                  39085  1 sr_mod
+ahci                   41127  2 
+pata_acpi               3701  0 
+ata_generic             3837  0 
+ata_piix               24121  0 
+dm_mirror              14133  0 
+dm_region_hash         12085  1 dm_mirror
+dm_log                  9930  2 dm_mirror,dm_region_hash
+dm_mod                 82839  8 dm_mirror,dm_log
+[INFO    ] Executing command 'modprobe bonding' in directory '/root'
+[INFO    ] Executing command 'lsmod' in directory '/root'
+[DEBUG   ] output: Module                  Size  Used by
+bonding               127459  0 
+8021q                  25317  1 bonding
+garp                    7152  1 8021q
+stp                     2218  1 garp
+llc                     5546  2 garp,stp
+ipt_REJECT              2351  2 
+nf_conntrack_ipv4       9506  2 
+nf_defrag_ipv4          1483  1 nf_conntrack_ipv4
+iptable_filter          2793  1 
+ip_tables              17831  1 iptable_filter
+ip6t_REJECT             4628  2 
+nf_conntrack_ipv6       8748  2 
+nf_defrag_ipv6         11182  1 nf_conntrack_ipv6
+xt_state                1492  4 
+nf_conntrack           79645  3 nf_conntrack_ipv4,nf_conntrack_ipv6,xt_state
+ip6table_filter         2889  1 
+ip6_tables             19458  1 ip6table_filter
+ipv6                  321454  16 bonding,ip6t_REJECT,nf_conntrack_ipv6,nf_defrag_ipv6
+ppdev                   8537  0 
+parport_pc             22690  0 
+parport                36209  2 ppdev,parport_pc
+microcode             112653  0 
+i2c_piix4              12608  0 
+i2c_core               31084  1 i2c_piix4
+e1000                 170678  0 
+sg                     29350  0 
+ext4                  363408  2 
+mbcache                 8193  1 ext4
+jbd2                   90230  1 ext4
+sd_mod                 38976  3 
+crc_t10dif              1541  1 sd_mod
+sr_mod                 15177  0 
+cdrom                  39085  1 sr_mod
+ahci                   41127  2 
+pata_acpi               3701  0 
+ata_generic             3837  0 
+ata_piix               24121  0 
+dm_mirror              14133  0 
+dm_region_hash         12085  1 dm_mirror
+dm_log                  9930  2 dm_mirror,dm_region_hash
+dm_mod                 82839  8 dm_mirror,dm_log
+[INFO    ] Executing command 'ifup bond0' in directory '/root'
+[DEBUG   ] output: ./network-functions: line 446: echo: write error: Operation not permitted
+Device eth2 has different MAC address than expected, ignoring.
+
+Determining IP information for bond0...dhclient(5767) is already running - exiting. 
+
+This version of ISC DHCP is based on the release available
+on ftp.isc.org.  Features have been added and other changes
+have been made to the base software release in order to make
+it work better with this distribution.
+
+Please report for this software via the CentOS Bugs Database:
+    http://bugs.centos.org/
+
+exiting.
+ failed.
+[DEBUG   ] loading grain in ['/var/cache/salt/minion/extmods/grains', '/usr/lib/python2.6/site-packages/salt/grains']
+[TRACE   ] Added core.append_domain to grain
+[TRACE   ] Added core.get_master to grain
+[TRACE   ] Added core.get_server_id to grain
+[TRACE   ] Added core.hostname to grain
+[TRACE   ] Added core.id_ to grain
+[TRACE   ] Added core.ip4 to grain
+[TRACE   ] Added core.ip_interfaces to grain
+[TRACE   ] Added core.locale_info to grain
+[TRACE   ] Added core.os_data to grain
+[TRACE   ] Added core.path to grain
+[TRACE   ] Added core.pythonpath to grain
+[TRACE   ] Added core.pythonversion to grain
+[TRACE   ] Added core.saltpath to grain
+[TRACE   ] Added core.saltversion to grain
+[TRACE   ] Added macaddr.get_macaddr to grain
+[TRACE   ] Added opts.opts to grain
+[TRACE   ] Added extra.config to grain
+[TRACE   ] Added extra.shell to grain
+[DEBUG   ] MinionEvent PUB socket URI: ipc:///var/run/salt/minion/minion_event_e138231a68ad82f054e3d756c6634ba1_pub.ipc
+[DEBUG   ] MinionEvent PULL socket URI: ipc:///var/run/salt/minion/minion_event_e138231a68ad82f054e3d756c6634ba1_pull.ipc
+[INFO    ] {'interface': 'Added network interface.'}
+[DEBUG   ] loading output in ['/var/cache/salt/minion/extmods/output', '/usr/lib/python2.6/site-packages/salt/output']
+[DEBUG   ] Skipping /var/cache/salt/minion/extmods/output, it is not a directory
+[TRACE   ] Added no_return.NestDisplay to output
+[TRACE   ] Added no_return.output to output
+[TRACE   ] Added grains.output to output
+[TRACE   ] Added overstatestage.output to output
+[DEBUG   ] Loaded no_out as virtual quiet
+[TRACE   ] Added quiet.output to output
+[DEBUG   ] Loaded json_out as virtual json
+[TRACE   ] Added json.output to output
+[TRACE   ] Added nested.NestDisplay to output
+[TRACE   ] Added nested.Number to output
+[TRACE   ] Added nested.output to output
+[TRACE   ] Added raw.output to output
+[TRACE   ] Added highstate.output to output
+[DEBUG   ] Loaded yaml_out as virtual yaml
+[TRACE   ] Added yaml.output to output
+[TRACE   ] Added virt_query.output to output
+[TRACE   ] Added key.output to output
+[TRACE   ] Added txt.output to output
+[DEBUG   ] Loaded pprint_out as virtual pprint
+[TRACE   ] Added pprint.output to output
+local:
+----------
+    State: - network
+    Name:      eth1
+    Function:  managed
+        Result:    True
+        Comment:   Interface eth1 is up to date.
+        Changes:   interface: ---  
++++  
+@@ -1,25 +1,7 @@
+-DEVICE=eth1
+-BOOTPROTO=dhcp
+-ONBOOT=yes
+-TYPE=Ethernet
+-HWADDR=08:00:27:f7:3d:84
+-IPV6INIT=no
+-USERCTL=no
+-#VAGRANT-BEGIN
+-# The contents below are automatically generated by Vagrant. Do not modify.
+-BOOTPROTO=dhcp
+-ONBOOT=yes
+-DEVICE=eth1
+-#VAGRANT-END
+-#VAGRANT-BEGIN
+-# The contents below are automatically generated by Vagrant. Do not modify.
+-BOOTPROTO=dhcp
+-ONBOOT=yes
+-DEVICE=eth1
+-#VAGRANT-END
+-#VAGRANT-BEGIN
+-# The contents below are automatically generated by Vagrant. Do not modify.
+-BOOTPROTO=dhcp
+-ONBOOT=yes
+-DEVICE=eth1
+-#VAGRANT-END
++DEVICE="eth1"
++HWADDR="08:00:27:18:86:a9"
++USERCTL="no"
++MASTER="bond0"
++SLAVE="yes"
++BOOTPROTO="none"
++ONBOOT="yes"
+
+
+----------
+    State: - network
+    Name:      eth2
+    Function:  managed
+        Result:    True
+        Comment:   Interface eth2 is up to date.
+        Changes:   interface: ---  
++++  
+@@ -1,9 +1,7 @@
+-DEVICE=eth2
+-HWADDR=08:00:27:f7:3d:84
+-USERCTL=no
++DEVICE="eth2"
++HWADDR="08:00:27:aa:52:94"
++USERCTL="no"
+ MASTER="bond0"
+-SLAVE=yes
+-BOOTPROTO=dhcp
+-TYPE=Ethernet
+-IPV6INIT=no
+-ONBOOT=no
++SLAVE="yes"
++BOOTPROTO="none"
++ONBOOT="yes"
+
+
+----------
+    State: - network
+    Name:      bond0
+    Function:  managed
+        Result:    True
+        Comment:   Interface bond0 is up to date.
+        Changes:   interface: Added network interface.
+
+```
+
+Salt version:
+
+```
+[root@localhost vagrant]# salt --versions
+           Salt: 0.16.0
+         Python: 2.6.6 (r266:84292, Jul 10 2013, 22:48:45)
+         Jinja2: unknown
+       M2Crypto: 0.20.2
+ msgpack-python: 0.1.13
+   msgpack-pure: Not Installed
+       pycrypto: 2.0.1
+         PyYAML: 3.10
+          PyZMQ: 2.2.0.1
+            ZMQ: 3.2.3
+```

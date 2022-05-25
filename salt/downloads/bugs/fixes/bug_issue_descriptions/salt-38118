@@ -1,0 +1,155 @@
+### Description of Issue/Question
+When `pillar_source_merging_strategy` is set to `none`, `state.top` ignores the `saltenv` argument, while `state.apply` works correctly.
+
+### Setup
+```
+/srv/salt
+|-- pillar
+|   `-- dev
+|       |-- foo.sls
+|       `-- top.sls
+`-- state
+    `-- dev
+        |-- foo.sls
+        `-- top.sls
+```
+master.conf:
+```
+file_roots:
+  dev:
+    - /srv/salt/state/dev
+pillar_roots:
+  dev:
+    - /srv/salt/pillar/dev
+pillar_source_merging_strategy: none
+```
+/srv/salt/pillar/dev/foo.sls:
+```
+foo: bar
+```
+/srv/salt/pillar/dev/top.sls:
+```
+dev:
+  '*':
+    - foo
+```
+/srv/salt/state/dev/foo.sls:
+```
+test-foo:
+  test.succeed_with_changes:
+    - name: foo {{ saltenv }} {{ pillar.foo }}
+```
+/srv/salt/state/dev/top.sls:
+```
+dev:
+  '*':
+    - foo
+```
+
+### Steps to Reproduce Issue
+```
+[root@dev salt]# salt-call state.apply foo saltenv=dev
+local:
+----------
+          ID: test-foo
+    Function: test.succeed_with_changes
+        Name: foo dev bar
+      Result: True
+     Comment: Success!
+     Started: 07:17:03.759854
+    Duration: 0.312 ms
+     Changes:
+              ----------
+              testing:
+                  ----------
+                  new:
+                      Something pretended to change
+                  old:
+                      Unchanged
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   0.312 ms
+```
+```
+[root@dev salt]# salt-call state.apply saltenv=dev
+local:
+----------
+          ID: test-foo
+    Function: test.succeed_with_changes
+        Name: foo dev bar
+      Result: True
+     Comment: Success!
+     Started: 07:17:12.094203
+    Duration: 0.324 ms
+     Changes:
+              ----------
+              testing:
+                  ----------
+                  new:
+                      Something pretended to change
+                  old:
+                      Unchanged
+
+Summary for local
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:   0.324 ms
+```
+```
+[root@dev salt]# salt-call state.top top.sls saltenv=dev
+[ERROR   ] Rendering exception occurred: Jinja variable 'salt.pillar object' has no attribute 'foo'
+[CRITICAL] Rendering SLS 'dev:foo' failed: Jinja variable 'salt.pillar object' has no attribute 'foo'
+local:
+    Data failed to compile:
+----------
+    Rendering SLS 'dev:foo' failed: Jinja variable 'salt.pillar object' has no attribute 'foo'
+```
+
+### Versions Report
+```
+Salt Version:
+           Salt: 2016.11.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: Not Installed
+          gitdb: Not Installed
+      gitpython: Not Installed
+          ioflo: Not Installed
+         Jinja2: 2.7.2
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.8
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+         pygit2: Not Installed
+         Python: 2.7.5 (default, Sep 15 2016, 22:37:39)
+   python-gnupg: Not Installed
+         PyYAML: 3.11
+          PyZMQ: 15.3.0
+           RAET: Not Installed
+          smmap: Not Installed
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: centos 7.2.1511 Core
+        machine: x86_64
+        release: 4.8.0-27-generic
+         system: Linux
+        version: CentOS Linux 7.2.1511 Core
+```
