@@ -44,11 +44,23 @@ Only Jira issues with the `Bug` type are kept.
 node map-filter.js
 ```
 
+### Commits
+
+To pull down all the commits from the `puppet` repo into a JSON format run:
+
+```
+./commits.sh
+```
+
+Verify that the JSON is valid.
+
 ### Data Joining
 
 We must join Jira issues with the pull requests for the analysis step.
 
 By convention pull requests which are related to a Jira issue must have the Jira issue number in the title. We use this convention to associate both issues and pull requests to each other.
+
+To prevent missing bugs with fixes but no pull request the same is done between commits and Jira issues. If a Jira issue number is found in the commit message it is associated to the Jira issue.
 
 ```
 node join.js

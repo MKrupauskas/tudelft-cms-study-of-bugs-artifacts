@@ -52,6 +52,7 @@ const totalMappedIssues = await countTotalFile('output/jira-full.json')
 const totalMappedPRs = await countTotalFile('output/gh-full.json')
 const totalJoinedIssues = await countTotalFile('joined/issues.json')
 const totalJoinedPRs = await countTotalFile('joined/pull-requests.json')
+const totalJoinedIssuesWithPRs = await countTotalFile('joined/issues-with-prs.json')
 const totalJoinedIssuesFiltered = await countTotalFile('joined/issues-filtered.json')
 
 const prs = await readFile('joined/pull-requests.json')
@@ -79,6 +80,7 @@ const stats = {
   totalMappedPRs,
   totalJoinedIssues,
   totalJoinedPRs,
+  totalJoinedIssuesWithPRs,
   totalJoinedIssuesFiltered,
   totalIssuesWithMultiplePRs,
 }
