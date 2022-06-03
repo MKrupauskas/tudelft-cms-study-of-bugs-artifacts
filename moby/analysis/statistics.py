@@ -55,9 +55,9 @@ for bug in bugs.items():
     stats["root_causes"][bug[1]["root_causes"]["category"]] = current_root_causes_amount + 1
 
     # Impact
-    current_impact_amount = stats["impact"][bug[1]["impact"]["category"]]\
-        .get(bug[1]["impact"]["subcategory"], 0)
-    stats["impact"][bug[1]["impact"]["category"]][bug[1]["impact"]["subcategory"]] = current_impact_amount + 1
+    for impact_category in bug[1]["impact"]["subcategory"]:
+        current_impact_amount = stats["impact"][bug[1]["impact"]["category"]].get(impact_category, 0)
+        stats["impact"][bug[1]["impact"]["category"]][impact_category] = current_impact_amount + 1
 
     # Fixes
     for fix_category in bug[1]["fixes"]["categories"]:

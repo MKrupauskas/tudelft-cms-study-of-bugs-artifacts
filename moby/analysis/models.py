@@ -189,6 +189,10 @@ fixes = {
         "name": "Change system structure",
         "description": "Covers fixes that involved a refactoring of the project code. "
                        "This includes file and directories addition, removals, renaming and change of location."
+    },
+    "CCONF": {
+        "name": "Change configuration",
+        "description": "Covers fixes in the CMS configuration."
     }
 }
 

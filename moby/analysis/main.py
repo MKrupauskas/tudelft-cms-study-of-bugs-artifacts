@@ -58,7 +58,9 @@ try:
         bug_root_causes = root_causes[row['root_causes']]['name']
 
         bug_impact = row['impact']
-        bug_consequences = consequences[row['consequences']]['name']
+        bug_consequences = []
+        for consequence in row['consequences'].split(','):
+            bug_consequences.append(consequences[consequence]['name'])
 
         if len(row['system_dependent']) == 0:
             bug_systems = []
