@@ -110,6 +110,26 @@ consequences = {
     "LOGRF": {
         "name": "Logs reporting failure",
         "description": "The system logging fails to provide information correctly."
+    },
+    "MMF": {
+        "name": "Memory management failure",
+        "description": "The system fails to manage memory properly."
+    },
+    "ENVSF": {
+        "name": "Environment setup failure",
+        "description": "The system fails to properly setup the environment in order to run seamlessly. "
+    },
+    "CMSC": {
+        "name": "CMS crash",
+        "description": "The CMS crashes while performing the operations."
+    },
+    "FSOF": {
+        "name": "FileSystem operation failure",
+        "description": "The file system operation fails to perform its task."
+    },
+    "POF": {
+        "name": "Parsing operation failure",
+        "description": "The parser fails to read an input correctly."
     }
 }
 
@@ -169,6 +189,10 @@ fixes = {
         "name": "Change system structure",
         "description": "Covers fixes that involved a refactoring of the project code. "
                        "This includes file and directories addition, removals, renaming and change of location."
+    },
+    "CCONF": {
+        "name": "Change configuration",
+        "description": "Covers fixes in the CMS configuration."
     }
 }
 

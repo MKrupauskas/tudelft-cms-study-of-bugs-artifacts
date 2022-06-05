@@ -18,13 +18,16 @@ MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD")
 # Define the system to retrieve information from
 system = "moby"
 table = "bugs_fixes_sample"
+results_folder = ""
 if len(sys.argv) > 1:
     if sys.argv[1] == "moby":
         system = "moby"
         table = "bugs_fixes_sample"
+        results_folder = ""
     elif sys.argv[1] == "puppet":
         system = "puppet"
         table = "puppet"
+        results_folder = "puppet/"
     else:
         raise ValueError("You can only provide 'moby' or 'puppet' as arguments!")
 
@@ -33,7 +36,7 @@ iteration = 1
 if len(sys.argv) > 2:
     iteration = int(sys.argv[2])
 
-with open(f"./iterations/iteration_{iteration}.txt") as f:
+with open(f"./{results_folder}iterations/iteration_{iteration}.txt") as f:
     iterations = f.read().split("\n")
 
 # MySQL connection
@@ -55,7 +58,9 @@ try:
         bug_root_causes = root_causes[row['root_causes']]['name']
 
         bug_impact = row['impact']
-        bug_consequences = consequences[row['consequences']]['name']
+        bug_consequences = []
+        for consequence in row['consequences'].split(','):
+            bug_consequences.append(consequences[consequence]['name'])
 
         if len(row['system_dependent']) == 0:
             bug_systems = []
@@ -121,7 +126,7 @@ try:
         }
 
     # Store results
-    with open(f"./results/iteration_{iteration}.json", "w", encoding="utf-8") as f:
+    with open(f"./{results_folder}results/iteration_{iteration}.json", "w", encoding="utf-8") as f:
         json.dump(bugs, f, ensure_ascii=False, indent=4)
         print(json.dumps(bugs, indent=4))
 
