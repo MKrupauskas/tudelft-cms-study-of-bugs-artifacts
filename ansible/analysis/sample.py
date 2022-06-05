@@ -12,13 +12,15 @@ with open(filename) as f:
     data = json.load(f)
 
     picked = 0
-    current = 0
+
     while picked < sample_count:
 
         ob = random.choice(data)
-        current=current+1
 
         labelsMapped=list(map(lambda o: o["name"],ob["data"]["labels"]))
+
+        if "bug" not in labelsMapped:
+            continue
 
         if "docs" in labelsMapped or "docsite" in labelsMapped or "docsite_pr" in labelsMapped or "support:core" not in labelsMapped:
             continue
@@ -26,18 +28,19 @@ with open(filename) as f:
         if "waiting_on_contributor" in labelsMapped or "needs_revision" in labelsMapped:
             continue
 
-        if "Fixes" not in ob["data"]["body"]:
+        if "pull_request" not in ob["data"]:
             continue
 
-        del ob["data"]["user"]
-        del ob["data"]["user_data"]
-        del ob["data"]["comments_data"]
+        if "/issues/" not in ob["data"]["pull_request"]["html_url"]:
+            continue
 
         picked=picked+1
-
+  
         print("=====")
+        print("SAMPLE #{}.".format(picked))
+        print("BUG TITLE: '{}'".format(ob["data"]["title"]))
+        print("BUG LABELS: '{}'".format(labelsMapped))
         print("BUG URL: '{}'".format(ob["data"]["html_url"]))
-        print("ISSUE URL: '{}'".format(ob["data"]["issue_url"]))
         print("PULL REQUEST URL: ",ob["data"]["pull_request"]["html_url"]) 
         print("PULL REQUEST MERGED AT: ",ob["data"]["pull_request"]["merged_at"]) 
         print("=====")

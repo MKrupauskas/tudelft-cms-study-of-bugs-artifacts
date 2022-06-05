@@ -6,7 +6,7 @@ filename=sys.argv[1]
 
 sample_count=20
 
-print("Sampling issues for raw file {} ...".format(filename))
+print("Sampling fixes from raw file {} ...".format(filename))
 
 with open(filename) as f:
     data = json.load(f)
@@ -29,15 +29,23 @@ with open(filename) as f:
         if "Fixes" not in ob["data"]["body"]:
             continue
 
-        del ob["data"]["user"]
-        del ob["data"]["user_data"]
-        del ob["data"]["comments_data"]
+        if "Bugfix" not in ob["data"]["body"]:
+            continue
+            
+        if "user" in ob["data"]:
+            del ob["data"]["user"]
 
+        if "user_data" in ob["data"]:
+            del ob["data"]["user_data"]
+
+        if "comments_data" in ob["data"]:
+            del ob["data"]["comments_data"]   
+    
         picked=picked+1
 
         print("=====")
-        print("BUG URL: '{}'".format(ob["data"]["html_url"]))
-        print("ISSUE URL: '{}'".format(ob["data"]["issue_url"]))
-        print("PULL REQUEST URL: ",ob["data"]["pull_request"]["html_url"]) 
-        print("PULL REQUEST MERGED AT: ",ob["data"]["pull_request"]["merged_at"]) 
+        print("FIX URL: '{}'".format(ob["data"]["html_url"]))
+        #   print("ISSUE URL: '{}'".format(ob["data"]["issue_url"]))
+        # print("PULL REQUEST URL: ",ob["data"]["pull_request"]["html_url"]) 
+        # print("PULL REQUEST MERGED AT: ",ob["data"]["pull_request"]["merged_at"]) 
         print("=====")
