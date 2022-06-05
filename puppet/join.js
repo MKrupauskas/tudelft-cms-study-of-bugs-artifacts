@@ -22,7 +22,7 @@ for (let issue of issues) {
     counter++
     console.log(`Issue ${issue.number} and PR #${pullRequest.number} (title: "${pullRequest.title}") are associated (count: ${counter})`)
 
-    issue.pull_request = pullRequest.number
+    issue.pull_request = pullRequest
     pullRequest.issue_number = issue.number
   }
 
@@ -34,7 +34,7 @@ for (let issue of issues) {
     counter++
     console.log(`Issue ${issue.number} and commit ${commit.commit} are associated (count: ${counter})`)
 
-    issue.commit = commit.commit
+    issue.commit = commit
   }
 }
 
