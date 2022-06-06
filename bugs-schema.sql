@@ -34,8 +34,6 @@ CREATE TABLE `bugs_fixes` (
   `notes` text
 );
 
-ALTER TABLE `bugs_fixes`
-  ADD PRIMARY KEY (`id`);
+ALTER TABLE `bugs_fixes` ADD PRIMARY KEY (`id`);
 
-ALTER TABLE `bugs_fixes`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2400;
+ALTER TABLE `bugs_fixes` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2400;
