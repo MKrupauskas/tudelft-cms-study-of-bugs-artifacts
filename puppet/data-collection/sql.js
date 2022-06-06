@@ -1,11 +1,21 @@
 import fs from 'fs';
 
+// max mysql text field length
+const MAX_TEXT_LENGTH = 65535
+
 function escape(str) {
   if (!str) {
     return ''
   }
 
-  return str.replaceAll("'", "''").replaceAll('\n', '\\n').replaceAll('\r', '\\r');
+  const replaced = str.replaceAll("'", '"').replaceAll('\n', '\\n').replaceAll('\r', '\\r');
+
+
+  if (replaced.length > MAX_TEXT_LENGTH) {
+    return replaced.substring(0, MAX_TEXT_LENGTH)
+  }
+
+  return replaced
 }
 
 function parseNumber(number) {
@@ -20,7 +30,7 @@ function parseNumber(number) {
 }
 
 function entry(issue) {
-  return `('puppet', ${parseNumber(issue.issue_id)}, ${parseNumber(issue.pull_request.pull_request_id)}, ${parseNumber(issue.pull_request.number)}, '${escape(issue.title)}', '${escape(issue.body)}', '${escape(issue.url)}', '${escape(issue.pull_request.url || `https://github.com/puppetlabs/puppet/commit/${issue.commit.commit}`)}', '${escape(issue.created_at)}', '${escape(issue.closed_at)}', '${escape(issue.updated_at)}', '${escape(issue.state)}', '${escape(issue.labels)}', ${parseNumber(issue.comments)}, '${parseNumber(issue.comments_url)}', ${parseNumber(issue.pull_request.commits)}, ${parseNumber(issue.pull_request.additions)}, ${parseNumber(issue.pull_request.deletions)}, ${parseNumber(issue.pull_request.changed_files)}, '${escape(issue.commit.commit)}'),
+  return `('puppet', ${parseNumber(issue.issue_id)}, ${parseNumber(issue.pull_request.pull_request_id)}, ${parseNumber(issue.pull_request.number)}, '${escape(issue.title)}', '${escape(issue.body)}', '${escape(issue.url)}', '${escape(issue.pull_request.url)}', '${escape(issue.created_at)}', '${escape(issue.closed_at)}', '${escape(issue.updated_at)}', '${escape(issue.state)}', '${escape(issue.labels)}', ${parseNumber(issue.comments)}, '${parseNumber(issue.comments_url)}', ${parseNumber(issue.pull_request.commits)}, ${parseNumber(issue.pull_request.additions)}, ${parseNumber(issue.pull_request.deletions)}, ${parseNumber(issue.pull_request.changed_files)}, '${escape(issue.commit.commit)}', '${escape(issue.url)}', '${escape(issue.pull_request.url || `https://github.com/puppetlabs/puppet/commit/${issue.commit.commit}`)}'),
 `
 }
 
@@ -36,7 +46,7 @@ function readFile(file) {
 
 
 const header =
-  'INSERT INTO `bugs_fixes_filtered` (`system`, `issue_id`, `pull_request_id`, `number`, `title`, `body`, `issue_url`, `pull_request_url`, `created_at`, `closed_at`, `updated_at`, `state`, `labels`, `comments`, `comments_url`, `commits`, `additions`, `deletions`, `changed_files`, `commits_data`) VALUES\n';
+  'INSERT INTO `bugs_fixes` (`system`, `issue_id`, `pull_request_id`, `number`, `title`, `body`, `issue_url`, `pull_request_url`, `created_at`, `closed_at`, `updated_at`, `state`, `labels`, `comments`, `comments_url`, `commits`, `additions`, `deletions`, `changed_files`, `commits_data`, `bug_report_url`, `bug_fix_url`) VALUES\n';
 let insert = ''
 let count = 0
 let number = 0
