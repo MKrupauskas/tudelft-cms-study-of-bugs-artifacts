@@ -1,5 +1,6 @@
 import json
-import sys
+import sys 
+import re
 
 filename=sys.argv[1]
 
@@ -15,6 +16,31 @@ pr_count_unmerged=0
 filtered_out_count_waiting=0
 support_core=0
 
+def mapBugs(data):
+    bugIssues=dict()
+    pullIssues=dict()
+
+
+    mapped=dict()
+
+
+    for ob in data:
+        if "pull" in ob["data"]["html_url"]:
+            if "body" in ob["data"]:
+                fixes = re.match(r'#\d+',ob["data"]["body"])
+                print("Link",fixes)
+            pullIssues[ob["data"]["number"]]=ob
+
+        elif "issues" in ob["data"]["html_url"]:
+            bugIssues[ob["data"]["number"]]=ob
+        else:
+            print("unexpected issue format",ob["data"]["html_url"])
+
+    #print(bugIssues.keys())
+    #print(pullIssues.keys())
+
+    return data
+
 def isValidBugIssue(ob):
     global total_count
     global pr_count
@@ -29,6 +55,8 @@ def isValidBugIssue(ob):
 
     
     # Leftoff
+
+
 
     # if "24498" in ob["data"]["html_url"]:
     #     print(ob)
@@ -83,8 +111,13 @@ def isValidBugIssue(ob):
 
 with open(filename) as f:
     data = json.load(f)
-    dataFiltered = [ob for ob in data if isValidBugIssue(ob)]
-    resultfile = open("{}-filtered.json".format(filename.replace(".json","")), 'wt')
+
+    mapped = mapBugs(data)
+
+
+    dataFiltered = []
+
+    resultfile = open("{}-filtered-mapped.json".format(filename.replace(".json","")), 'wt')
     resultfile.write(json.dumps(dataFiltered))
     resultfile.close()
 
