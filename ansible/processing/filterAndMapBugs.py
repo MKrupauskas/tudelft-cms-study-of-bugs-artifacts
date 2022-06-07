@@ -20,7 +20,9 @@ def mapIssues(data):
     bugIssues=dict()
 
     for ob in data:
-            bugIssues[ob["data"]["number"]]=ob["data"]
+        ob = ob["data"]
+        if isValidBugIssue(ob):
+            bugIssues[ob["number"]]=ob
 
     return bugIssues
 
@@ -30,14 +32,11 @@ def mapFixes(data, mappedIssues):
     for ob in data:
         ob = ob["data"]
         if "pull" in ob["html_url"]:
-            if "body" in ob and ob["body"] is not None:
+            if isValidBugPullRequest(ob) and "body" in ob and ob["body"] is not None:
                 fixes = re.search(r'#(\d+)',ob["body"], re.IGNORECASE)
 
                 if fixes is not None:
-                    fixesString = str(fixes.group(1))
-                    print("fix found. '{}'".format(fixesString))
-
-                    issueNumber = int(fixesString)
+                    issueNumber = int(fixes.group(1))
                     if issueNumber in mappedIssues:
                         bugIssue = mappedIssues[issueNumber]
                         bugIssue["fix"]=ob
@@ -45,6 +44,16 @@ def mapFixes(data, mappedIssues):
                         issuesWithFixes.append(bugIssue)
 
     return issuesWithFixes
+
+
+def isValidBugPullRequest(ob):
+    if "pull_request" not in  ob:
+        return False
+
+    if ob["pull_request"]["merged_at"] is None:
+        return False
+    
+    return True
 
 def isValidBugIssue(ob):
     global total_count
@@ -58,13 +67,13 @@ def isValidBugIssue(ob):
     global support_core 
 
 
-    labelsMapped=list(map(lambda o: o["name"],ob["data"]["labels"]))
+    labelsMapped=list(map(lambda o: o["name"],ob["labels"]))
     total_count=total_count+1
 
     if "bug" not in labelsMapped:
         return False
 
-    if "issues" not in ob["data"]["html_url"]:
+    if "issues" not in ob["html_url"]:
         return False
 
     if "docs" in labelsMapped or "docsite" in labelsMapped or "docsite_pr" in labelsMapped:
@@ -86,17 +95,6 @@ def isValidBugIssue(ob):
 
     bug_count=bug_count+1
 
-    if "pull_request" not in ob["data"]:
-        return False
-
-    pr_count=pr_count+1
-    if ob["data"]["pull_request"]["merged_at"] is None:
-        pr_count_unmerged=pr_count_unmerged+1
-        return False
-
-    print("=====")
-    print("BUG TITLE: '{}', LABELS: {}".format(ob["data"]["title"],labelsMapped))
-    print(ob["data"]["pull_request"]) 
     return True
 
 with open(filename) as f:
@@ -105,10 +103,12 @@ with open(filename) as f:
     mappedBugIssues = mapIssues(data)
     issuesWithFixes = mapFixes(data, mappedBugIssues)
 
-    dataFiltered = []
+    print("Got {} valid bugs with fixes.".format(len(issuesWithFixes)))
+
+    # TODO: prune data
 
     resultfile = open("{}-filtered-mapped.json".format(filename.replace(".json","")), 'wt')
-    resultfile.write(json.dumps(dataFiltered))
+    resultfile.write(json.dumps(issuesWithFixes))
     resultfile.close()
 
 
