@@ -36,7 +36,7 @@ iteration = 1
 if len(sys.argv) > 2:
     iteration = int(sys.argv[2])
 
-with open(f"./{results_folder}iterations/iteration_{iteration}.txt") as f:
+with open(f"./{results_folder}iterations/iteration_{iteration}.tsv") as f:
     iterations = f.read().split("\n")
 
 # MySQL connection
@@ -100,7 +100,7 @@ try:
         bug_report_url = None
         bug_fix_url = None
         if len(iterations) > 0:
-            iteration_urls = iterations[idx].split(',')
+            iteration_urls = iterations[idx].split('\t')
             bug_report_url = iteration_urls[0]
             bug_fix_url = iteration_urls[1]
 
