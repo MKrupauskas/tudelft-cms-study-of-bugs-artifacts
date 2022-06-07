@@ -87,8 +87,11 @@ def isValidBugIssue(ob):
     if "has_pr" in labelsMapped:
         pr_label_count=pr_label_count+1
 
-    if "support:core" in labelsMapped:
-        support_core=support_core+1
+    if "support:core" not in labelsMapped:
+        return False
+
+    support_core=support_core+1
+
 
     if "verified" in labelsMapped:
         verified_count=verified_count+1
