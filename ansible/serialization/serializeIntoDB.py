@@ -46,30 +46,28 @@ with open(filename) as f:
         ob["bug_report_url"]=ob["html_url"]
         ob["bug_fix_url"]=ob["fix"]["html_url"]
 
-        # TODO: adjust
-        ob["additions"]=""
-        ob["deletions"]=""
-        ob["changed_files"]=""
+        # TODO: get this data
+        ob["additions"]=-1
+        ob["deletions"]=-1
+        ob["changed_files"]=-1
         ob["commits_data"]=""
 
 
         to_insert_dict = {}
         for key in keys_to_store:
-            print(key)
             if isinstance(ob.get(key, None), list):
                 list_to_add = ob.get(key, [])
                 to_insert_dict[key] = ','.join(list_to_add)
             else:
                 to_insert_dict[key] = ob.get(key, None)
         
-        print(to_insert_dict)
-
         cursor.execute(insert_query, tuple(to_insert_dict.values()))
         connection.commit()
 
         inserted_count += 1
 
-        break
+        if inserted_count > 10:
+            break
 
 
 print("{} total bugs serialized into DB.".format(inserted_count))
