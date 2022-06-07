@@ -16,30 +16,35 @@ pr_count_unmerged=0
 filtered_out_count_waiting=0
 support_core=0
 
-def mapBugs(data):
+def mapIssues(data):
     bugIssues=dict()
-    pullIssues=dict()
-
-
-    mapped=dict()
-
 
     for ob in data:
-        if "pull" in ob["data"]["html_url"]:
-            if "body" in ob["data"]:
-                fixes = re.match(r'#\d+',ob["data"]["body"])
-                print("Link",fixes)
-            pullIssues[ob["data"]["number"]]=ob
+            bugIssues[ob["data"]["number"]]=ob["data"]
 
-        elif "issues" in ob["data"]["html_url"]:
-            bugIssues[ob["data"]["number"]]=ob
-        else:
-            print("unexpected issue format",ob["data"]["html_url"])
+    return bugIssues
 
-    #print(bugIssues.keys())
-    #print(pullIssues.keys())
+def mapFixes(data, mappedIssues):
+    issuesWithFixes=[]
 
-    return data
+    for ob in data:
+        ob = ob["data"]
+        if "pull" in ob["html_url"]:
+            if "body" in ob and ob["body"] is not None:
+                fixes = re.search(r'#(\d+)',ob["body"], re.IGNORECASE)
+
+                if fixes is not None:
+                    fixesString = str(fixes.group(1))
+                    print("fix found. '{}'".format(fixesString))
+
+                    issueNumber = int(fixesString)
+                    if issueNumber in mappedIssues:
+                        bugIssue = mappedIssues[issueNumber]
+                        bugIssue["fix"]=ob
+                        print("{}->{}".format(bugIssue["number"],ob["number"]))
+                        issuesWithFixes.append(bugIssue)
+
+    return issuesWithFixes
 
 def isValidBugIssue(ob):
     global total_count
@@ -51,21 +56,6 @@ def isValidBugIssue(ob):
     global pr_count_unmerged 
     global filtered_out_count_waiting 
     global support_core 
-
-
-    
-    # Leftoff
-
-
-
-    # if "24498" in ob["data"]["html_url"]:
-    #     print(ob)
-    #     return True
-    # elif "body" in ob["data"] and ob["data"]["body"] is not None and "24498" in ob["data"]["body"]:
-    #     return True
-    # else:
-    #     return False
-        
 
 
     labelsMapped=list(map(lambda o: o["name"],ob["data"]["labels"]))
@@ -112,8 +102,8 @@ def isValidBugIssue(ob):
 with open(filename) as f:
     data = json.load(f)
 
-    mapped = mapBugs(data)
-
+    mappedBugIssues = mapIssues(data)
+    issuesWithFixes = mapFixes(data, mappedBugIssues)
 
     dataFiltered = []
 
