@@ -3,6 +3,7 @@ import sys
 import re
 
 filename=sys.argv[1]
+prDataFilename=sys.argv[2]
 
 print("Filtering issues from file {} ...".format(filename))
 
@@ -26,7 +27,16 @@ def mapIssues(data):
 
     return bugIssues
 
-def mapFixes(data, mappedIssues):
+def mapPRData(data):
+    prData=dict()
+
+    for ob in data:
+        ob = ob["data"]
+        prData[ob["number"]]=ob
+
+    return prData
+
+def mapFixes(data, mappedIssues, mappedPRData):
     issuesWithFixes=[]
 
     for ob in data:
@@ -41,6 +51,11 @@ def mapFixes(data, mappedIssues):
                         bugIssue = mappedIssues[issueNumber]
                         bugIssue["fix"]=ob
                         print("{}->{}".format(bugIssue["number"],ob["number"]))
+
+                        if ob["number"] in mappedPRData:
+                            print("Attaching PR data for PR number ".format(ob["number"]))
+                            bugIssue["fixData"]=mappedPRData[ob["number"]]
+
                         issuesWithFixes.append(bugIssue)
 
     return issuesWithFixes
@@ -100,11 +115,14 @@ def isValidBugIssue(ob):
 
     return True
 
-with open(filename) as f:
+with open(filename) as f, open(prDataFilename) as prDataFile:
     data = json.load(f)
+    prData = json.load(prDataFile)
+
+    mappedPRData = mapPRData(prData)
 
     mappedBugIssues = mapIssues(data)
-    issuesWithFixes = mapFixes(data, mappedBugIssues)
+    issuesWithFixes = mapFixes(data, mappedBugIssues, mappedPRData)
 
     print("Got {} valid bugs with fixes.".format(len(issuesWithFixes)))
 

@@ -66,9 +66,6 @@ with open(filename) as f:
 
         inserted_count += 1
 
-        if inserted_count > 10:
-            break
-
 
 print("{} total bugs serialized into DB.".format(inserted_count))
 
