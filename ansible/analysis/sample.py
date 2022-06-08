@@ -4,43 +4,33 @@ import random
 
 filename=sys.argv[1]
 
+filenameAlreadySampled=sys.argv[2]
+
+
 sample_count=20
+output_raw=True
 
-print("Sampling issues for raw file {} ...".format(filename))
+print("Sampling fixes from filtered-mapped file {} ...".format(filename))
 
-with open(filename) as f:
+# TODO: assertions
+
+with open(filename) as f, open(filenameAlreadySampled) as alreadySampled:
     data = json.load(f)
 
     picked = 0
-
     while picked < sample_count:
-
         ob = random.choice(data)
 
-        labelsMapped=list(map(lambda o: o["name"],ob["data"]["labels"]))
-
-        if "bug" not in labelsMapped:
-            continue
-
-        if "docs" in labelsMapped or "docsite" in labelsMapped or "docsite_pr" in labelsMapped or "support:core" not in labelsMapped:
-            continue
-        
-        if "waiting_on_contributor" in labelsMapped or "needs_revision" in labelsMapped:
-            continue
-
-        if "pull_request" not in ob["data"]:
-            continue
-
-        if "/issues/" not in ob["data"]["pull_request"]["html_url"]:
+        if ob["number"] in alreadySampled or ob["fix"]["number"] in alreadySampled:
+            print("Skipping already sampled ",ob["number"])
             continue
 
         picked=picked+1
-  
-        print("=====")
-        print("SAMPLE #{}.".format(picked))
-        print("BUG TITLE: '{}'".format(ob["data"]["title"]))
-        print("BUG LABELS: '{}'".format(labelsMapped))
-        print("BUG URL: '{}'".format(ob["data"]["html_url"]))
-        print("PULL REQUEST URL: ",ob["data"]["pull_request"]["html_url"]) 
-        print("PULL REQUEST MERGED AT: ",ob["data"]["pull_request"]["merged_at"]) 
-        print("=====")
+
+        if output_raw:
+            print("{} {}".format(ob["html_url"],ob["fix"]["html_url"]))
+        else:
+            print("=====")
+            print("ISSUE URL: '{}'".format(ob["html_url"]))
+            print("FIX URL: '{}'".format(ob["fix"]["html_url"]))
+            print("=====")
