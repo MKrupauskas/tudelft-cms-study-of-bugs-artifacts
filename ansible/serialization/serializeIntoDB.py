@@ -46,11 +46,16 @@ with open(filename) as f:
         ob["bug_report_url"]=ob["html_url"]
         ob["bug_fix_url"]=ob["fix"]["html_url"]
 
-        # TODO: get this data
-        ob["additions"]=-1
-        ob["deletions"]=-1
-        ob["changed_files"]=-1
-        ob["commits_data"]=""
+        if "fixData" in ob:
+            ob["additions"]=ob["fixData"]["additions"]
+            ob["deletions"]=ob["fixData"]["deletions"]
+            ob["changed_files"]=ob["fixData"]["changed_files"]
+            ob["commits_data"]=ob["fixData"]["commits_data"]
+        else:
+            ob["additions"]=-1
+            ob["deletions"]=-1
+            ob["changed_files"]=-1  
+            ob["commits_data"]=""
 
 
         to_insert_dict = {}
