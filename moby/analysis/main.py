@@ -54,13 +54,13 @@ try:
     for idx, row in enumerate(result):
         bug_id = f"{system}_{row['number']}"
 
-        bug_symptoms = symptoms[row['symptoms']]['name']
-        bug_root_causes = root_causes[row['root_causes']]['name']
+        bug_symptoms = symptoms[row['symptoms']]
+        bug_root_causes = root_causes[row['root_causes']]
 
         bug_impact = row['impact']
         bug_consequences = []
         for consequence in row['consequences'].split(','):
-            bug_consequences.append(consequences[consequence]['name'])
+            bug_consequences.append(consequences[consequence])
 
         if len(row['system_dependent']) == 0:
             bug_systems = []
@@ -71,11 +71,11 @@ try:
 
         bug_triggers_list = []
         for trigger in row['triggers'].split(','):
-            bug_triggers_list.append(triggers[trigger]['name'])
+            bug_triggers_list.append(triggers[trigger])
 
         bug_characteristics_list = []
         for charact in row['characteristics'].split(','):
-            bug_characteristics_list.append(characteristics[charact]["name"])
+            bug_characteristics_list.append(characteristics[charact])
 
         bug_triggers = {
             "errors": bug_triggers_list,
@@ -84,7 +84,7 @@ try:
 
         bug_fixes_list = []
         for fix in row['fixes'].split(','):
-            bug_fixes_list.append(fixes[fix]['name'])
+            bug_fixes_list.append(fixes[fix])
 
         bug_fixes = {
             "stats": {

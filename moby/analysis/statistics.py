@@ -44,6 +44,10 @@ stats = {
     }
 }
 
+stats_symptom_causes = {}
+
+fixes_changes = {}
+
 # Gather statistics
 for bug in bugs.items():
     # Symptoms
@@ -54,6 +58,14 @@ for bug in bugs.items():
     current_root_causes_amount = stats["root_causes"].get(bug[1]["root_causes"]["category"], 0)
     stats["root_causes"][bug[1]["root_causes"]["category"]] = current_root_causes_amount + 1
 
+    # Interpolate symptoms and root causes
+    if bug[1]["symptoms"] not in stats_symptom_causes.keys():
+        stats_symptom_causes[bug[1]["symptoms"]] = {}
+
+    current_symptom_root_cause_amount = stats_symptom_causes[bug[1]["symptoms"]]\
+        .get(bug[1]["root_causes"]["category"], 0)
+    stats_symptom_causes[bug[1]["symptoms"]][bug[1]["root_causes"]["category"]] = current_symptom_root_cause_amount + 1
+
     # Impact
     for impact_category in bug[1]["impact"]["subcategory"]:
         current_impact_amount = stats["impact"][bug[1]["impact"]["category"]].get(impact_category, 0)
@@ -63,6 +75,14 @@ for bug in bugs.items():
     for fix_category in bug[1]["fixes"]["categories"]:
         current_fixes_amount = stats["fixes"].get(fix_category, 0)
         stats["fixes"][fix_category] = current_fixes_amount + 1
+
+        current_fix_changes_value = fixes_changes.get(fix_category, {"loc": 0, "files": 0})
+        current_fix_changes_value["loc"] = current_fix_changes_value["loc"] + \
+                                             bug[1]["fixes"]["stats"]["additions"] + \
+                                             bug[1]["fixes"]["stats"]["deletions"]
+        current_fix_changes_value["files"] = current_fix_changes_value["files"] + \
+                                             bug[1]["fixes"]["stats"]["changed_files"]
+        fixes_changes[fix_category] = current_fix_changes_value
 
     # System dependency
     if bool(bug[1]["system_dependency"]["outcome"]):
@@ -86,7 +106,9 @@ for bug in bugs.items():
 # Set global stats
 all_stats = {
     "configuration_management_system": system,
-    "global": stats
+    "global": stats,
+    "symptoms_root_causes": stats_symptom_causes,
+    "fixes_changes": fixes_changes
 }
 
 # Store results
