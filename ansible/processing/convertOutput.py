@@ -11,7 +11,10 @@ resultfile = open("{}-out.json".format(filename), 'wt')
 data = []
 with open(filename) as f:
     for line in f:
-        data.append(json.loads(line))
+        try:
+            data.append(json.loads(line))
+        except:
+            print("Failed loading line")
 
 resultfile.write(json.dumps(data))
 resultfile.close()
