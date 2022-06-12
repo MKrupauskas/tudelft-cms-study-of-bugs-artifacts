@@ -51,6 +51,7 @@ const Home: NextPage = () => {
   function getOutput(index: number) {
     const item = categorizations[index] ?? {};
     return [
+      item['symptoms'],
       item['root causes'],
       item['impact level'],
       item['impact consequences'],
@@ -139,6 +140,35 @@ const Home: NextPage = () => {
         <Row>
           <Col>
             <Form.Group>
+              <Form.Label>symptoms</Form.Label>
+              <Form.Select
+                value={getValue('symptoms')}
+                onChange={(event: any) =>
+                  setValue(event.target.value, 'symptoms')
+                }
+              >
+                <option value="">select option</option>
+                <option value="URB">Unexpected Runtime Behavior</option>
+                <option value="URBCIBE">Container Image Behavior Error</option>
+                <option value="URBCDNP">
+                  Configuration does not parse as expected
+                </option>
+                <option value="URBTM">Target misconfiguration</option>
+                <option value="MR">Misleading Report</option>
+                <option value="UDBE">
+                  Unexpected Dependency Behavior Error
+                </option>
+                <option value="PI">Performance issue</option>
+                <option value="C">Crash </option>
+                <option value="CFNF">Feature/sub-feature non functional</option>
+                <option value="CEC">Execution crash</option>
+                <option value="CCP">Configuration parsing crash</option>
+                <option value="CERE">Environment Related Error</option>
+              </Form.Select>
+            </Form.Group>
+          </Col>
+          <Col>
+            <Form.Group>
               <Form.Label>root causes</Form.Label>
               <Form.Select
                 value={getValue('root causes')}
@@ -147,18 +177,21 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">Unexpected Runtime Behavior</option>
-                <option value="URBCIBE">Container Image Behavior Error</option>
-                <option value="URBCDNP">Configuration does not parse as expected</option>
-                <option value="URBTM">Target misconfiguration</option>
-                <option value="MR">Misleading Report</option>
-                <option value="UDBE">Unexpected Dependency Behavior Error</option>
-                <option value="PI">Performance issue</option>
-                <option value="C">Crash </option>
-                <option value="CFNF">Feature/sub-feature non functional</option>
-                <option value="CEC">Execution crash</option>
-                <option value="CCP">Configuration parsing crash</option>
-                <option value="CERE">Environment Related Error</option>
+                <option value="CILB">Container Image Life-cycle Bug</option>
+                <option value="EHRB">Error Handler & Reporter Bugs</option>
+                <option value="MC">Misconfiguration inside the codebase</option>
+                <option value="MCDV">Misconfiguration of default values inside the codebase</option>
+                <option value="MCDP">Misconfiguration of dependencies inside the codebase</option>
+                <option value="TMO">Target machine operations</option>
+                <option value="TMOFS">Incorrect filesystem operations</option>
+                <option value="TMOD">Target machine / remote host has dependency issues</option>
+                <option value="TMOFTMF">Fetch target machine variable/facts failure</option>
+                <option value="TMOPI">Parsing issue target machine</option>
+                <option value="TMOITE">Instruction translation error / Abstraction layer error</option>
+                <option value="CMO">Controller machine operations</option>
+                <option value="CMOEP">Executor has problems</option>
+                <option value="CMOCONP">Connection has problems</option>
+                <option value="CMOPI">Parsing issue controller machine</option>
               </Form.Select>
             </Form.Group>
           </Col>
@@ -172,6 +205,7 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
+                <option value="URB">URB</option>
               </Form.Select>
             </Form.Group>
           </Col>
@@ -185,6 +219,7 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
+                <option value="URB">URB</option>
               </Form.Select>
             </Form.Group>
           </Col>
@@ -198,6 +233,7 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
+                <option value="URB">URB</option>
               </Form.Select>
             </Form.Group>
           </Col>
@@ -211,6 +247,7 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
+                <option value="URB">URB</option>
               </Form.Select>
             </Form.Group>
           </Col>
@@ -224,6 +261,7 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
+                <option value="URB">URB</option>
               </Form.Select>
             </Form.Group>
           </Col>
@@ -237,6 +275,7 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
+                <option value="URB">URB</option>
               </Form.Select>
             </Form.Group>
           </Col>
@@ -250,6 +289,7 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
+                <option value="URB">URB</option>
               </Form.Select>
             </Form.Group>
           </Col>
@@ -263,6 +303,7 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
+                <option value="URB">URB</option>
               </Form.Select>
             </Form.Group>
           </Col>
