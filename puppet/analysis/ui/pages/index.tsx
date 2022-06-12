@@ -3,7 +3,7 @@ import Head from 'next/head';
 import { useEffect, useState } from 'react';
 import { Container, Row, Col, Form, Button } from 'react-bootstrap';
 
-function useLocalState<T>(key: string, initial: T) {
+function useLocalState<T>(key: string, initial: T): [T, (value: T) => void] {
   const [state, setState] = useState<T>(initial);
 
   useEffect(() => {
@@ -140,100 +140,130 @@ const Home: NextPage = () => {
           <Col>
             <Form.Group>
               <Form.Label>root causes</Form.Label>
-              <Form.Control
+              <Form.Select
                 value={getValue('root causes')}
                 onChange={(event: any) =>
                   setValue(event.target.value, 'root causes')
                 }
-              />
+              >
+                <option value="">select option</option>
+                <option value="URB">Unexpected Runtime Behavior</option>
+                <option value="URBCIBE">Container Image Behavior Error</option>
+                <option value="URBCDNP">Configuration does not parse as expected</option>
+                <option value="URBTM">Target misconfiguration</option>
+                <option value="MR">Misleading Report</option>
+                <option value="UDBE">Unexpected Dependency Behavior Error</option>
+                <option value="PI">Performance issue</option>
+                <option value="C">Crash </option>
+                <option value="CFNF">Feature/sub-feature non functional</option>
+                <option value="CEC">Execution crash</option>
+                <option value="CCP">Configuration parsing crash</option>
+                <option value="CERE">Environment Related Error</option>
+              </Form.Select>
             </Form.Group>
           </Col>
           <Col>
             <Form.Group>
               <Form.Label>impact level</Form.Label>
-              <Form.Control
+              <Form.Select
                 value={getValue('impact level')}
                 onChange={(event: any) =>
                   setValue(event.target.value, 'impact level')
                 }
-              />
+              >
+                <option value="">select option</option>
+              </Form.Select>
             </Form.Group>
           </Col>
           <Col>
             <Form.Group>
               <Form.Label>impact consequences</Form.Label>
-              <Form.Control
+              <Form.Select
                 value={getValue('impact consequences')}
                 onChange={(event: any) =>
                   setValue(event.target.value, 'impact consequences')
                 }
-              />
+              >
+                <option value="">select option</option>
+              </Form.Select>
             </Form.Group>
           </Col>
           <Col>
             <Form.Group>
               <Form.Label>code fix</Form.Label>
-              <Form.Control
+              <Form.Select
                 value={getValue('code fix')}
                 onChange={(event: any) =>
                   setValue(event.target.value, 'code fix')
                 }
-              />
+              >
+                <option value="">select option</option>
+              </Form.Select>
             </Form.Group>
           </Col>
           <Col>
             <Form.Group>
               <Form.Label>conceptual fix</Form.Label>
-              <Form.Control
+              <Form.Select
                 value={getValue('conceptual fix')}
                 onChange={(event: any) =>
                   setValue(event.target.value, 'conceptual fix')
                 }
-              />
+              >
+                <option value="">select option</option>
+              </Form.Select>
             </Form.Group>
           </Col>
           <Col>
             <Form.Group>
               <Form.Label>system</Form.Label>
-              <Form.Control
+              <Form.Select
                 value={getValue('system')}
                 onChange={(event: any) =>
                   setValue(event.target.value, 'system')
                 }
-              />
+              >
+                <option value="">select option</option>
+              </Form.Select>
             </Form.Group>
           </Col>
           <Col>
             <Form.Group>
               <Form.Label>dependent</Form.Label>
-              <Form.Control
+              <Form.Select
                 value={getValue('dependent')}
                 onChange={(event: any) =>
                   setValue(event.target.value, 'dependent')
                 }
-              />
+              >
+                <option value="">select option</option>
+              </Form.Select>
             </Form.Group>
           </Col>
           <Col>
             <Form.Group>
               <Form.Label>trigger cause</Form.Label>
-              <Form.Control
+              <Form.Select
                 value={getValue('trigger cause')}
                 onChange={(event: any) =>
                   setValue(event.target.value, 'trigger cause')
                 }
-              />
+              >
+                <option value="">select option</option>
+              </Form.Select>
             </Form.Group>
           </Col>
           <Col>
             <Form.Group>
               <Form.Label>trigger reproduction</Form.Label>
-              <Form.Control
+              <Form.Select
                 value={getValue('trigger reproduction')}
                 onChange={(event: any) =>
                   setValue(event.target.value, 'trigger reproduction')
                 }
-              />
+              >
+                <option value="">select option</option>
+              </Form.Select>
             </Form.Group>
           </Col>
           <Col>
