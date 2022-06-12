@@ -21,6 +21,15 @@ function useLocalState<T>(key: string, initial: T): [T, (value: T) => void] {
   return [state, update];
 }
 
+function proxy(url: string) {
+  if (!url) {
+    return '';
+  }
+  return url
+    .replace('https://github.com', '/github')
+    .replace('https://tickets.puppetlabs.com', 'jira');
+}
+
 const Home: NextPage = () => {
   const [data, setData] = useLocalState('data', '');
   const [index, setIndex] = useLocalState('index', 0);
@@ -180,14 +189,24 @@ const Home: NextPage = () => {
                 <option value="CILB">Container Image Life-cycle Bug</option>
                 <option value="EHRB">Error Handler & Reporter Bugs</option>
                 <option value="MC">Misconfiguration inside the codebase</option>
-                <option value="MCDV">Misconfiguration of default values inside the codebase</option>
-                <option value="MCDP">Misconfiguration of dependencies inside the codebase</option>
+                <option value="MCDV">
+                  Misconfiguration of default values inside the codebase
+                </option>
+                <option value="MCDP">
+                  Misconfiguration of dependencies inside the codebase
+                </option>
                 <option value="TMO">Target machine operations</option>
                 <option value="TMOFS">Incorrect filesystem operations</option>
-                <option value="TMOD">Target machine / remote host has dependency issues</option>
-                <option value="TMOFTMF">Fetch target machine variable/facts failure</option>
+                <option value="TMOD">
+                  Target machine / remote host has dependency issues
+                </option>
+                <option value="TMOFTMF">
+                  Fetch target machine variable/facts failure
+                </option>
                 <option value="TMOPI">Parsing issue target machine</option>
-                <option value="TMOITE">Instruction translation error / Abstraction layer error</option>
+                <option value="TMOITE">
+                  Instruction translation error / Abstraction layer error
+                </option>
                 <option value="CMO">Controller machine operations</option>
                 <option value="CMOEP">Executor has problems</option>
                 <option value="CMOCONP">Connection has problems</option>
@@ -319,10 +338,10 @@ const Home: NextPage = () => {
         </Row>
         <Row>
           <Col md={6}>
-            <iframe className="w-100" src={issue}></iframe>
+            <iframe className="w-100" src={proxy(issue)}></iframe>
           </Col>
           <Col md={6}>
-            <iframe className="w-100" src={fix}></iframe>
+            <iframe className="w-100" src={proxy(fix)}></iframe>
           </Col>
         </Row>
       </Container>
