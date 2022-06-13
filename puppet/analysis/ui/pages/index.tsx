@@ -143,6 +143,16 @@ const Home: NextPage = () => {
                   Next
                 </Button>
               </div>
+              <div>
+                <Button
+                  onClick={() => {
+                    window.open(issue);
+                    window.open(fix);
+                  }}
+                >
+                  Open new pages
+                </Button>
+              </div>
             </div>
           </Col>
         </Row>
@@ -336,14 +346,23 @@ const Home: NextPage = () => {
             </Form.Group>
           </Col>
         </Row>
-        <Row>
+        {/* exceedingly hard to display iframes these days https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/frame-ancestors */}
+        {/* <Row>
           <Col md={6}>
-            <iframe className="w-100" src={proxy(issue)}></iframe>
+            <iframe
+              className="w-100"
+              style={{ height: '75vh' }}
+              src={proxy(issue)}
+            ></iframe>
           </Col>
           <Col md={6}>
-            <iframe className="w-100" src={proxy(fix)}></iframe>
+            <iframe
+              className="w-100"
+              style={{ height: '75vh' }}
+              src={proxy(fix)}
+            ></iframe>
           </Col>
-        </Row>
+        </Row> */}
       </Container>
     </div>
   );
