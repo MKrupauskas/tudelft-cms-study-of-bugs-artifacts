@@ -84,8 +84,7 @@ const Home: NextPage = () => {
       item['impact consequences'],
       item['code fix'],
       item['conceptual fix'],
-      item['system'],
-      item['dependent'],
+      item['system dependent'],
       item['trigger cause'],
       item['trigger reproduction'],
       item['notes'],
@@ -255,7 +254,17 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">URB</option>
+                <option value="Low">
+                  System works overall besides in specific edge cases.
+                </option>
+                <option value="Medium">
+                  System starts and works for the majority of cases but fails
+                  when performing one important task.
+                </option>
+                <option value="High">
+                  System won’t compile or start and it fails performing two or
+                  more important tasks.
+                </option>
               </Form.Select>
             </Form.Group>
           </Col>
@@ -269,7 +278,15 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">URB</option>
+                <option value="CNTOC">Container operation crash</option>
+                <option value="SH">Security hazard</option>
+                <option value="PD">Performance degradation</option>
+                <option value="LOGRF">Logs reporting failure</option>
+                <option value="TCF">Target configuration failed</option>
+                <option value="TCFC">CMS operation crash</option>
+                <option value="TCIA">Target configuration inaccurate</option>
+                <option value="TCIN">Target configuration incomplete</option>
+                <option value="CUX">Confusing user experience</option>
               </Form.Select>
             </Form.Group>
           </Col>
@@ -283,7 +300,20 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">URB</option>
+                <option value="CDDI">
+                  Change on data declaration/initialization
+                </option>
+                <option value="CAS">Change on assignment statements</option>
+                <option value="AC">Add class</option>
+                <option value="RC">Remove class</option>
+                <option value="CC">Change class</option>
+                <option value="AM">Add method</option>
+                <option value="RM">Remove method</option>
+                <option value="CM">Change method</option>
+                <option value="CLS">Change loop statements</option>
+                <option value="CBS">Change branch statements</option>
+                <option value="CRS">Change return statement</option>
+                <option value="IM">Invoke a method</option>
               </Form.Select>
             </Form.Group>
           </Col>
@@ -297,35 +327,33 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">URB</option>
+                <option value="FEC">Fix execution component</option>
+                <option value="FPC">Fix parser component</option>
+                <option value="FCC">Fix connectivity component</option>
+                <option value="EEF">Expand execution feature</option>
+                <option value="EPF">Expand parser feature</option>
+                <option value="ECF">Expand connectivity feature</option>
+                <option value="CDEP">Change dependencies</option>
+                <option value="CSS">Change system structure</option>
+                <option value="CCONF">Change configuration</option>
+                <option value="DDM">
+                  Displaying a diagnostic message to the user
+                </option>
               </Form.Select>
             </Form.Group>
           </Col>
           <Col md={2}>
             <Form.Group>
-              <Form.Label>system</Form.Label>
+              <Form.Label>system dependent</Form.Label>
               <Form.Select
-                value={getValue('system')}
+                value={getValue('system dependent')}
                 onChange={(event: any) =>
-                  setValue(event.target.value, 'system')
+                  setValue(event.target.value, 'system dependent')
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">URB</option>
-              </Form.Select>
-            </Form.Group>
-          </Col>
-          <Col md={2}>
-            <Form.Group>
-              <Form.Label>dependent</Form.Label>
-              <Form.Select
-                value={getValue('dependent')}
-                onChange={(event: any) =>
-                  setValue(event.target.value, 'dependent')
-                }
-              >
-                <option value="">select option</option>
-                <option value="URB">URB</option>
+                <option value="True">True</option>
+                <option value="False">False</option>
               </Form.Select>
             </Form.Group>
           </Col>
@@ -339,7 +367,10 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">URB</option>
+                <option value="LE">Logic Errors</option>
+                <option value="AE">Algorithmic Errors</option>
+                <option value="CE">Configuration Errors</option>
+                <option value="PE">Programming Errors</option>
               </Form.Select>
             </Form.Group>
           </Col>
@@ -353,7 +384,19 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">URB</option>
+                <option value="CLIC">CLI commands</option>
+                <option value="CLICCC">Container command</option>
+                <option value="CLICDMO">Dependency module operation</option>
+                <option value="ENVS">Environment setup</option>
+                <option value="FDEPU">Faulty Dependency Usage</option>
+                <option value="OSSE">OS specific execution</option>
+                <option value="TC">Test case</option>
+                <option value="SI">Specific Invocation</option>
+                <option value="SITMCE">Target machine control execution</option>
+                <option value="SIIMI">Internal module invocation</option>
+                <option value="SICMI">Custom module invocation</option>
+                <option value="SITMRP">Target machine related parsing</option>
+                <option value="SICRP">Config/Runbook Parsing</option>
               </Form.Select>
             </Form.Group>
           </Col>
