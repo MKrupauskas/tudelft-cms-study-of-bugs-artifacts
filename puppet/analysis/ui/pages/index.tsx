@@ -34,10 +34,7 @@ const Home: NextPage = () => {
   const [data, setData] = useLocalState('data', '');
   const [index, setIndex] = useLocalState('index', 0);
   const [pages, setPages] = useState<{ bug: Window; fix: Window }[]>([]);
-  const [categorizations, setCategorizations] = useLocalState<any[]>(
-    'categorizations',
-    [],
-  );
+  const [categorizations, setCategorizations] = useState<any[]>([]);
   const bugs = data
     .split('\n')
     .filter((row) => row)
@@ -134,6 +131,7 @@ const Home: NextPage = () => {
                 Output (.tsv) (schema: issue, fix symptoms, root causes, impact
                 level, impact consequences, code fix, conceptual fix, system
                 dependent, trigger cause, trigger reproduction, notes)
+                (categorizations are lost on refresh)
               </Form.Label>
               <Form.Control
                 as="textarea"
