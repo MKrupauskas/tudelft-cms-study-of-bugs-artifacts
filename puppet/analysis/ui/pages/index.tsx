@@ -441,7 +441,7 @@ const Home: NextPage = () => {
           </Col>
         </Row>
         {/* exceedingly hard to display iframes these days https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/frame-ancestors */}
-        {/* <Row>
+        <Row>
           <Col md={6}>
             <iframe
               className="w-100"
@@ -456,7 +456,7 @@ const Home: NextPage = () => {
               src={proxy(fix)}
             ></iframe>
           </Col>
-        </Row> */}
+        </Row>
       </Container>
     </div>
   );
