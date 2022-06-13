@@ -30,15 +30,23 @@ function proxy(url: string) {
     .replace('https://tickets.puppetlabs.com', 'jira');
 }
 
+const SEPARATOR_TO_CHAR = {
+  tab: '\t',
+  space: ' ',
+  comma: ',',
+  semicolon: ';',
+};
+
 const Home: NextPage = () => {
   const [data, setData] = useLocalState('data', '');
   const [index, setIndex] = useLocalState('index', 0);
+  const [separator, setSeparator] = useLocalState('separator', '\t');
   const [page, setPage] = useState<{ bug: Window; fix: Window }>(null);
   const [categorizations, setCategorizations] = useState<any[]>([]);
   const bugs = data
     .split('\n')
     .filter((row) => row)
-    .map((row) => row.split('\t'));
+    .map((row) => row.split(SEPARATOR_TO_CHAR[separator]));
   const [issue, fix] = bugs[index] ?? [];
   const length = bugs.length || 1;
 
@@ -111,7 +119,7 @@ const Home: NextPage = () => {
             <Form.Group>
               <Form.Label>
                 Input (.tsv) (schema: issue url, fix url) <br />
-                parsed bugs: {bugs.length}
+                parsed bugs: {bugs.length}, issue: {issue}, fix: {fix}
               </Form.Label>
               <Form.Control
                 as="textarea"
@@ -133,14 +141,18 @@ const Home: NextPage = () => {
                 as="textarea"
                 rows={5}
                 value={bugs
-                  .map((bug, index) => [...bug, ...getOutput(index)].join('\t'))
+                  .map((bug, i) =>
+                    [...bug, ...getOutput(i)].join(
+                      SEPARATOR_TO_CHAR[separator],
+                    ),
+                  )
                   .join('\n')}
               />
             </Form.Group>
           </Col>
         </Row>
         <Row>
-          <Col>
+          <Col md={6}>
             <div>Selected bug index</div>
             <div className="d-flex align-items-center gap-1">
               <div>
@@ -171,6 +183,20 @@ const Home: NextPage = () => {
                 </Button>
               </div>
             </div>
+          </Col>
+          <Col md={6}>
+            <Form.Group>
+              <Form.Label>Data separator</Form.Label>
+              <Form.Select
+                value={separator}
+                onChange={(event: any) => setSeparator(event.target.value)}
+              >
+                <option value="tab">(\t) tab</option>
+                <option value="space">( ) space</option>
+                <option value="comma">(,) comma</option>
+                <option value="semicolon">(;) semicolon</option>
+              </Form.Select>
+            </Form.Group>
           </Col>
         </Row>
         <Row>
