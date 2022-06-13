@@ -123,7 +123,7 @@ const Home: NextPage = () => {
           </Col>
         </Row>
         <Row>
-          <Col>
+          <Col md={2}>
             <div>Selected bug index</div>
             <div className="d-flex align-items-center gap-1">
               <div>
@@ -157,7 +157,7 @@ const Home: NextPage = () => {
           </Col>
         </Row>
         <Row>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>symptoms</Form.Label>
               <Form.Select
@@ -186,7 +186,7 @@ const Home: NextPage = () => {
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>root causes</Form.Label>
               <Form.Select
@@ -224,7 +224,7 @@ const Home: NextPage = () => {
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>impact level</Form.Label>
               <Form.Select
@@ -238,7 +238,7 @@ const Home: NextPage = () => {
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>impact consequences</Form.Label>
               <Form.Select
@@ -252,7 +252,7 @@ const Home: NextPage = () => {
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>code fix</Form.Label>
               <Form.Select
@@ -266,7 +266,7 @@ const Home: NextPage = () => {
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>conceptual fix</Form.Label>
               <Form.Select
@@ -280,7 +280,7 @@ const Home: NextPage = () => {
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>system</Form.Label>
               <Form.Select
@@ -294,7 +294,7 @@ const Home: NextPage = () => {
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>dependent</Form.Label>
               <Form.Select
@@ -308,7 +308,7 @@ const Home: NextPage = () => {
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>trigger cause</Form.Label>
               <Form.Select
@@ -322,7 +322,7 @@ const Home: NextPage = () => {
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>trigger reproduction</Form.Label>
               <Form.Select
@@ -336,7 +336,7 @@ const Home: NextPage = () => {
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>notes</Form.Label>
               <Form.Control
