@@ -33,6 +33,7 @@ function proxy(url: string) {
 const Home: NextPage = () => {
   const [data, setData] = useLocalState('data', '');
   const [index, setIndex] = useLocalState('index', 0);
+  const [pages, setPages] = useState<{ bug: Window; fix: Window }[]>([]);
   const [categorizations, setCategorizations] = useLocalState<any[]>(
     'categorizations',
     [],
@@ -43,6 +44,26 @@ const Home: NextPage = () => {
     .map((row) => row.split('\t'));
   const [issue, fix] = bugs[index] ?? [];
   const length = bugs.length || 1;
+
+  function openPages() {
+    closePages();
+    const newPages = [...pages];
+    newPages[index] = {
+      bug: window.open(issue),
+      fix: window.open(fix),
+    };
+    setPages(newPages);
+  }
+
+  function closePages() {
+    const page = pages[index];
+    if (!page) {
+      return;
+    }
+    page.bug.close();
+    page.fix.close();
+    setPages(pages.map((p, i) => (index === i ? null : p)));
+  }
 
   function getValue(key: string) {
     if (!categorizations[index]) {
@@ -101,6 +122,7 @@ const Home: NextPage = () => {
               </Form.Label>
               <Form.Control
                 as="textarea"
+                rows={5}
                 value={data}
                 onChange={(event: any) => setData(event.target.value)}
               />
@@ -115,6 +137,7 @@ const Home: NextPage = () => {
               </Form.Label>
               <Form.Control
                 as="textarea"
+                rows={5}
                 value={bugs
                   .map((bug, index) => [...bug, ...getOutput(index)].join('\t'))
                   .join('\n')}
@@ -123,7 +146,7 @@ const Home: NextPage = () => {
           </Col>
         </Row>
         <Row>
-          <Col md={2}>
+          <Col>
             <div>Selected bug index</div>
             <div className="d-flex align-items-center gap-1">
               <div>
@@ -144,13 +167,13 @@ const Home: NextPage = () => {
                 </Button>
               </div>
               <div>
-                <Button
-                  onClick={() => {
-                    window.open(issue);
-                    window.open(fix);
-                  }}
-                >
-                  Open new pages
+                <Button variant="success" onClick={openPages}>
+                  Open pages
+                </Button>
+              </div>
+              <div>
+                <Button variant="danger" onClick={closePages}>
+                  Close pages
                 </Button>
               </div>
             </div>
