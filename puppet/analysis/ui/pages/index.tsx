@@ -33,7 +33,7 @@ function proxy(url: string) {
 const Home: NextPage = () => {
   const [data, setData] = useLocalState('data', '');
   const [index, setIndex] = useLocalState('index', 0);
-  const [pages, setPages] = useState<{ bug: Window; fix: Window }[]>([]);
+  const [page, setPage] = useState<{ bug: Window; fix: Window }>(null);
   const [categorizations, setCategorizations] = useState<any[]>([]);
   const bugs = data
     .split('\n')
@@ -44,22 +44,19 @@ const Home: NextPage = () => {
 
   function openPages() {
     closePages();
-    const newPages = [...pages];
-    newPages[index] = {
+    setPage({
       bug: window.open(issue),
       fix: window.open(fix),
-    };
-    setPages(newPages);
+    });
   }
 
   function closePages() {
-    const page = pages[index];
     if (!page) {
       return;
     }
     page.bug.close();
     page.fix.close();
-    setPages(pages.map((p, i) => (index === i ? null : p)));
+    setPage(null);
   }
 
   function getValue(key: string) {
