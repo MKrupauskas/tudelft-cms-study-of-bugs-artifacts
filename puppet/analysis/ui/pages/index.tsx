@@ -30,19 +30,42 @@ function proxy(url: string) {
     .replace('https://tickets.puppetlabs.com', 'jira');
 }
 
+const SEPARATOR_TO_CHAR = {
+  tab: '\t',
+  space: ' ',
+  comma: ',',
+  semicolon: ';',
+};
+
 const Home: NextPage = () => {
   const [data, setData] = useLocalState('data', '');
   const [index, setIndex] = useLocalState('index', 0);
-  const [categorizations, setCategorizations] = useLocalState<any[]>(
-    'categorizations',
-    [],
-  );
+  const [separator, setSeparator] = useLocalState('separator', '\t');
+  const [page, setPage] = useState<{ bug: Window; fix: Window }>(null);
+  const [categorizations, setCategorizations] = useState<any[]>([]);
   const bugs = data
     .split('\n')
     .filter((row) => row)
-    .map((row) => row.split('\t'));
+    .map((row) => row.split(SEPARATOR_TO_CHAR[separator]));
   const [issue, fix] = bugs[index] ?? [];
   const length = bugs.length || 1;
+
+  function openPages() {
+    closePages();
+    setPage({
+      bug: window.open(issue),
+      fix: window.open(fix),
+    });
+  }
+
+  function closePages() {
+    if (!page) {
+      return;
+    }
+    page.bug.close();
+    page.fix.close();
+    setPage(null);
+  }
 
   function getValue(key: string) {
     if (!categorizations[index]) {
@@ -66,8 +89,7 @@ const Home: NextPage = () => {
       item['impact consequences'],
       item['code fix'],
       item['conceptual fix'],
-      item['system'],
-      item['dependent'],
+      item['system dependent'],
       item['trigger cause'],
       item['trigger reproduction'],
       item['notes'],
@@ -97,10 +119,11 @@ const Home: NextPage = () => {
             <Form.Group>
               <Form.Label>
                 Input (.tsv) (schema: issue url, fix url) <br />
-                parsed bugs: {bugs.length}
+                parsed bugs: {bugs.length}, issue: {issue}, fix: {fix}
               </Form.Label>
               <Form.Control
                 as="textarea"
+                rows={5}
                 value={data}
                 onChange={(event: any) => setData(event.target.value)}
               />
@@ -112,18 +135,24 @@ const Home: NextPage = () => {
                 Output (.tsv) (schema: issue, fix symptoms, root causes, impact
                 level, impact consequences, code fix, conceptual fix, system
                 dependent, trigger cause, trigger reproduction, notes)
+                (categorizations are lost on refresh)
               </Form.Label>
               <Form.Control
                 as="textarea"
+                rows={5}
                 value={bugs
-                  .map((bug, index) => [...bug, ...getOutput(index)].join('\t'))
+                  .map((bug, i) =>
+                    [...bug, ...getOutput(i)].join(
+                      SEPARATOR_TO_CHAR[separator],
+                    ),
+                  )
                   .join('\n')}
               />
             </Form.Group>
           </Col>
         </Row>
         <Row>
-          <Col>
+          <Col md={6}>
             <div>Selected bug index</div>
             <div className="d-flex align-items-center gap-1">
               <div>
@@ -143,11 +172,35 @@ const Home: NextPage = () => {
                   Next
                 </Button>
               </div>
+              <div>
+                <Button variant="success" onClick={openPages}>
+                  Open pages
+                </Button>
+              </div>
+              <div>
+                <Button variant="danger" onClick={closePages}>
+                  Close pages
+                </Button>
+              </div>
             </div>
+          </Col>
+          <Col md={6}>
+            <Form.Group>
+              <Form.Label>Data separator</Form.Label>
+              <Form.Select
+                value={separator}
+                onChange={(event: any) => setSeparator(event.target.value)}
+              >
+                <option value="tab">(\t) tab</option>
+                <option value="space">( ) space</option>
+                <option value="comma">(,) comma</option>
+                <option value="semicolon">(;) semicolon</option>
+              </Form.Select>
+            </Form.Group>
           </Col>
         </Row>
         <Row>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>symptoms</Form.Label>
               <Form.Select
@@ -157,26 +210,30 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">Unexpected Runtime Behavior</option>
-                <option value="URBCIBE">Container Image Behavior Error</option>
+                <option value="URB">(URB) Unexpected Runtime Behavior</option>
+                <option value="URBCIBE">
+                  (URBCIBE) Container Image Behavior Error
+                </option>
                 <option value="URBCDNP">
-                  Configuration does not parse as expected
+                  (URBCDNP) Configuration does not parse as expected
                 </option>
-                <option value="URBTM">Target misconfiguration</option>
-                <option value="MR">Misleading Report</option>
+                <option value="URBTM">(URBTM) Target misconfiguration</option>
+                <option value="MR">(MR) Misleading Report</option>
                 <option value="UDBE">
-                  Unexpected Dependency Behavior Error
+                  (UDBE) Unexpected Dependency Behavior Error
                 </option>
-                <option value="PI">Performance issue</option>
-                <option value="C">Crash </option>
-                <option value="CFNF">Feature/sub-feature non functional</option>
-                <option value="CEC">Execution crash</option>
-                <option value="CCP">Configuration parsing crash</option>
-                <option value="CERE">Environment Related Error</option>
+                <option value="PI">(PI) Performance issue</option>
+                <option value="C">(C) Crash </option>
+                <option value="CFNF">
+                  (CFNF) Feature/sub-feature non functional
+                </option>
+                <option value="CEC">(CEC) Execution crash</option>
+                <option value="CCP">(CCP) Configuration parsing crash</option>
+                <option value="CERE">(CERE) Environment Related Error</option>
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>root causes</Form.Label>
               <Form.Select
@@ -186,35 +243,50 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="CILB">Container Image Life-cycle Bug</option>
-                <option value="EHRB">Error Handler & Reporter Bugs</option>
-                <option value="MC">Misconfiguration inside the codebase</option>
+                <option value="CILB">
+                  (CILB) Container Image Life-cycle Bug
+                </option>
+                <option value="EHRB">
+                  (EHRB) Error Handler & Reporter Bugs
+                </option>
+                <option value="MC">
+                  (MC) Misconfiguration inside the codebase
+                </option>
                 <option value="MCDV">
-                  Misconfiguration of default values inside the codebase
+                  (MCDV) Misconfiguration of default values inside the codebase
                 </option>
                 <option value="MCDP">
-                  Misconfiguration of dependencies inside the codebase
+                  (MCDP) Misconfiguration of dependencies inside the codebase
                 </option>
-                <option value="TMO">Target machine operations</option>
-                <option value="TMOFS">Incorrect filesystem operations</option>
+                <option value="TMO">(TMO) Target machine operations</option>
+                <option value="TMOFS">
+                  (TMOFS) Incorrect filesystem operations
+                </option>
                 <option value="TMOD">
-                  Target machine / remote host has dependency issues
+                  (TMOD) Target machine / remote host has dependency issues
                 </option>
                 <option value="TMOFTMF">
-                  Fetch target machine variable/facts failure
+                  (TMOFTMF) Fetch target machine variable/facts failure
                 </option>
-                <option value="TMOPI">Parsing issue target machine</option>
+                <option value="TMOPI">
+                  (TMOPI) Parsing issue target machine
+                </option>
                 <option value="TMOITE">
-                  Instruction translation error / Abstraction layer error
+                  (TMOITE) Instruction translation error / Abstraction layer
+                  error
                 </option>
-                <option value="CMO">Controller machine operations</option>
-                <option value="CMOEP">Executor has problems</option>
-                <option value="CMOCONP">Connection has problems</option>
-                <option value="CMOPI">Parsing issue controller machine</option>
+                <option value="CMO">(CMO) Controller machine operations</option>
+                <option value="CMOEP">(CMOEP) Executor has problems</option>
+                <option value="CMOCONP">
+                  (CMOCONP) Connection has problems
+                </option>
+                <option value="CMOPI">
+                  (CMOPI) Parsing issue controller machine
+                </option>
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>impact level</Form.Label>
               <Form.Select
@@ -224,11 +296,21 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">URB</option>
+                <option value="Low">
+                  (Low) System works overall besides in specific edge cases.
+                </option>
+                <option value="Medium">
+                  (Medium) System starts and works for the majority of cases but
+                  fails when performing one important task.
+                </option>
+                <option value="High">
+                  (High) System won’t compile or start and it fails performing
+                  two or more important tasks.
+                </option>
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>impact consequences</Form.Label>
               <Form.Select
@@ -238,11 +320,23 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">URB</option>
+                <option value="CNTOC">(CNTOC) Container operation crash</option>
+                <option value="SH">(SH) Security hazard</option>
+                <option value="PD">(PD) Performance degradation</option>
+                <option value="LOGRF">(LOGRF) Logs reporting failure</option>
+                <option value="TCF">(TCF) Target configuration failed</option>
+                <option value="TCFC">(TCFC) CMS operation crash</option>
+                <option value="TCIA">
+                  (TCIA) Target configuration inaccurate
+                </option>
+                <option value="TCIN">
+                  (TCIN) Target configuration incomplete
+                </option>
+                <option value="CUX">(CUX) Confusing user experience</option>
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>code fix</Form.Label>
               <Form.Select
@@ -252,11 +346,26 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">URB</option>
+                <option value="CDDI">
+                  (CDDI) Change on data declaration/initialization
+                </option>
+                <option value="CAS">
+                  (CAS) Change on assignment statements
+                </option>
+                <option value="AC">(AC) Add class</option>
+                <option value="RC">(RC) Remove class</option>
+                <option value="CC">(CC) Change class</option>
+                <option value="AM">(AM) Add method</option>
+                <option value="RM">(RM) Remove method</option>
+                <option value="CM">(CM) Change method</option>
+                <option value="CLS">(CLS) Change loop statements</option>
+                <option value="CBS">(CBS) Change branch statements</option>
+                <option value="CRS">(CRS) Change return statement</option>
+                <option value="IM">(IM) Invoke a method</option>
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>conceptual fix</Form.Label>
               <Form.Select
@@ -266,39 +375,37 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">URB</option>
+                <option value="FEC">(FEC) Fix execution component</option>
+                <option value="FPC">(FPC) Fix parser component</option>
+                <option value="FCC">(FCC) Fix connectivity component</option>
+                <option value="EEF">(EEF) Expand execution feature</option>
+                <option value="EPF">(EPF) Expand parser feature</option>
+                <option value="ECF">(ECF) Expand connectivity feature</option>
+                <option value="CDEP">(CDEP) Change dependencies</option>
+                <option value="CSS">(CSS) Change system structure</option>
+                <option value="CCONF">(CCONF) Change configuration</option>
+                <option value="DDM">
+                  (DDM) Displaying a diagnostic message to the user
+                </option>
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
-              <Form.Label>system</Form.Label>
+              <Form.Label>system dependent</Form.Label>
               <Form.Select
-                value={getValue('system')}
+                value={getValue('system dependent')}
                 onChange={(event: any) =>
-                  setValue(event.target.value, 'system')
+                  setValue(event.target.value, 'system dependent')
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">URB</option>
+                <option value="True">(True) True</option>
+                <option value="False">(False) False</option>
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
-            <Form.Group>
-              <Form.Label>dependent</Form.Label>
-              <Form.Select
-                value={getValue('dependent')}
-                onChange={(event: any) =>
-                  setValue(event.target.value, 'dependent')
-                }
-              >
-                <option value="">select option</option>
-                <option value="URB">URB</option>
-              </Form.Select>
-            </Form.Group>
-          </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>trigger cause</Form.Label>
               <Form.Select
@@ -308,11 +415,14 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">URB</option>
+                <option value="LE">(LE) Logic Errors</option>
+                <option value="AE">(AE) Algorithmic Errors</option>
+                <option value="CE">(CE) Configuration Errors</option>
+                <option value="PE">(PE) Programming Errors</option>
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>trigger reproduction</Form.Label>
               <Form.Select
@@ -322,11 +432,31 @@ const Home: NextPage = () => {
                 }
               >
                 <option value="">select option</option>
-                <option value="URB">URB</option>
+                <option value="CLIC">(CLIC) CLI commands</option>
+                <option value="CLICCC">(CLICCC) Container command</option>
+                <option value="CLICDMO">
+                  (CLICDMO) Dependency module operation
+                </option>
+                <option value="ENVS">(ENVS) Environment setup</option>
+                <option value="FDEPU">(FDEPU) Faulty Dependency Usage</option>
+                <option value="OSSE">(OSSE) OS specific execution</option>
+                <option value="TC">(TC) Test case</option>
+                <option value="SI">(SI) Specific Invocation</option>
+                <option value="SITMCE">
+                  (SITMCE) Target machine control execution
+                </option>
+                <option value="SIIMI">
+                  (SIIMI) Internal module invocation
+                </option>
+                <option value="SICMI">(SICMI) Custom module invocation</option>
+                <option value="SITMRP">
+                  (SITMRP) Target machine related parsing
+                </option>
+                <option value="SICRP">(SICRP) Config/Runbook Parsing</option>
               </Form.Select>
             </Form.Group>
           </Col>
-          <Col>
+          <Col md={2}>
             <Form.Group>
               <Form.Label>notes</Form.Label>
               <Form.Control
@@ -336,14 +466,23 @@ const Home: NextPage = () => {
             </Form.Group>
           </Col>
         </Row>
-        <Row>
+        {/* exceedingly hard to display iframes these days https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/frame-ancestors */}
+        {/* <Row>
           <Col md={6}>
-            <iframe className="w-100" src={proxy(issue)}></iframe>
+            <iframe
+              className="w-100"
+              style={{ height: '75vh' }}
+              src={proxy(issue)}
+            ></iframe>
           </Col>
           <Col md={6}>
-            <iframe className="w-100" src={proxy(fix)}></iframe>
+            <iframe
+              className="w-100"
+              style={{ height: '75vh' }}
+              src={proxy(fix)}
+            ></iframe>
           </Col>
-        </Row>
+        </Row> */}
       </Container>
     </div>
   );
