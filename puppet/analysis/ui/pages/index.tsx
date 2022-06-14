@@ -53,8 +53,8 @@ const Home: NextPage = () => {
   function openPages() {
     closePages();
     setPage({
-      bug: window.open(issue),
       fix: window.open(fix),
+      bug: window.open(issue),
     });
   }
 
