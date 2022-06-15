@@ -16,7 +16,9 @@ async function aggregate(iteration) {
 		for (let i = 2; i < header.length; i++) {
 			const key = header[i]
 			const value = item[i]
-			aggregated[key][value] = (aggregated[key][value] ?? 0) + 1
+			for (const subval of value.split(',')) {
+				aggregated[key][subval] = (aggregated[key][subval] ?? 0) + 1
+			}
 		}
 	}
 }
