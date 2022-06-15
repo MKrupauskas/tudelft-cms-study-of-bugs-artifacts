@@ -29,5 +29,6 @@ await aggregate(3)
 await aggregate(4)
 await aggregate(5)
 
-console.log('writing aggregations to aggregated-categorization.json')
-fs.writeFile("aggregated-categorization.json", JSON.stringify(aggregated, null, 2))
+const filename = "aggregated-categorization.json"
+console.log(`writing aggregations to ${filename}`)
+fs.writeFile(filename, JSON.stringify(aggregated, null, 2))
