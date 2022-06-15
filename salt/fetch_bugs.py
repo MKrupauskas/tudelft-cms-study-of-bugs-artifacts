@@ -74,20 +74,12 @@ def get_data(descriptions, token): #descriptions = the directory where to put th
             resolution = datetime.strptime(
                 item['closed_at'], "%Y-%m-%dT%H:%M:%S%z")
             passed = resolution - created
-            reporter = item['user']['login']
-            if item['assignee']:
-                assignee = item['assignee']['login']
-            else:
-                assignee = ""
             comments = int(item['comments'])
             stats = {
                 "created": str(created),
                 "resolution": str(resolution),
                 "passed": str(passed),
-                "comments": comments,
-                "reporter": reporter,
-                "assignee": assignee,
-                "reporter_is_assigned": reporter == assignee
+                "comments": comments
             }
             statistics[name + '-' + str(item['number'])] = stats
             res.append(item['html_url'])
