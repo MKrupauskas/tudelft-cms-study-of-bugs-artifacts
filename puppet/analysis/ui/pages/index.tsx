@@ -115,6 +115,14 @@ const Home: NextPage = () => {
 
       <Container fluid>
         <Row>
+          <Col>
+            <h1>Bug Study Analysis</h1>
+          </Col>
+        </Row>
+        <Row>
+          <Col md={12}>
+            <h2>Input</h2>
+          </Col>
           <Col md={6}>
             <Form.Group>
               <Form.Label>
@@ -152,6 +160,9 @@ const Home: NextPage = () => {
           </Col>
         </Row>
         <Row>
+          <Col pt={3} md={12}>
+            <h2>Controls</h2>
+          </Col>
           <Col md={6}>
             <div>Selected bug index</div>
             <div className="d-flex align-items-center gap-1">
@@ -200,6 +211,9 @@ const Home: NextPage = () => {
           </Col>
         </Row>
         <Row>
+          <Col md={12}>
+            <h2>Categories</h2>
+          </Col>
           <Col md={2}>
             <Form.Group>
               <Form.Label>symptoms</Form.Label>
