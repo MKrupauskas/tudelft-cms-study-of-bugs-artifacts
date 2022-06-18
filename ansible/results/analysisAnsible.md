@@ -27,7 +27,7 @@ https://github.com/ansible/ansible/issues/30688	 https://github.com/ansible/ansi
 https://github.com/ansible/ansible/issues/20752	 https://github.com/ansible/ansible/pull/28701 	CFNF	TMOFTMF	Low	CUX	CM	FCC	True	PE	OSSE	IBM AIX
 https://github.com/ansible/ansible/issues/34392	 https://github.com/ansible/ansible/pull/54297	CFNF	TMO	Low	CUX	CM	CSS	True	PE	OSSE	Windows
 https://github.com/ansible/ansible/issues/54510	 https://github.com/ansible/ansible/pull/54511	MR	MC	Low	CUX	CAS	CCONF	False	CE	SI	
-https://github.com/ansible/ansible/issues/59667	 https://github.com/ansible/ansible/pull/59703	URBCDNP	TMOITE	Low	CUX	CDDI	FEC	True	CE	OSSE	Windows
+https://github.com/ansible/ansible/issues/59667	 https://github.com/ansible/ansible/pull/59703	URBCDNP	TMO	Low	CUX	CDDI	FEC	True	CE	OSSE	Windows
 https://github.com/ansible/ansible/issues/61978	 https://github.com/ansible/ansible/pull/62146	URB	TMO	Medium	TCIA	CM	FEC	False	LE	TC	
 https://github.com/ansible/ansible/issues/43748	 https://github.com/ansible/ansible/pull/43885	URB	TMOFTMF	Low	TCIA	CM	CSS	True	PE	OSSE	Cisco IOS
 https://github.com/ansible/ansible/issues/36717	 https://github.com/ansible/ansible/pull/36952	URB	CMOEP	Medium	TCFC	CM	FEC	True	PE	SIIMI	Cisco IOS
@@ -67,7 +67,7 @@ https://github.com/ansible/ansible/issues/65636	 https://github.com/ansible/ansi
 https://github.com/ansible/ansible/issues/27262	 https://github.com/ansible/ansible/pull/39539 	CCP	CMOPI	Medium	TCFC	CM	FPC	False	PE	TC	
 https://github.com/ansible/ansible/issues/56488	 https://github.com/ansible/ansible/pull/56532 	URB	CMO	Low	CUX	IM	FEC	False	PE	TC	
 https://github.com/ansible/ansible/issues/22468	 https://github.com/ansible/ansible/pull/48821 	CEC	CMOPI	Medium	TCFC	CM	FPC	False	PE	TC	
-https://github.com/ansible/ansible/issues/43090	 https://github.com/ansible/ansible/pull/43563 	MR	EHRB	Medium	CUX	IM	FEC	False	PE	ENVS	
+https://github.com/ansible/ansible/issues/43090	 https://github.com/ansible/ansible/pull/43563 	MR	CMO	Medium	CUX	IM	FEC	False	PE	ENVS	
 https://github.com/ansible/ansible/issues/55007	 https://github.com/ansible/ansible/pull/55046 	MR	TMO	Medium	CUX	CM	FEC	True	LE	OSSE	AWS
 https://github.com/ansible/ansible/issues/34164	 https://github.com/ansible/ansible/pull/45441										
 https://github.com/ansible/ansible/issues/45418	 https://github.com/ansible/ansible/pull/45620 										
@@ -99,9 +99,20 @@ https://github.com/ansible/ansible/issues/34164	 https://github.com/ansible/ansi
 https://github.com/ansible/ansible/issues/20160	 https://github.com/ansible/ansible/pull/26612	MR	MC	Low	CUX	CM	CSS	True	PE	OSSE	Windows
 https://github.com/ansible/ansible/issues/57327	 https://github.com/ansible/ansible/pull/57328	URB	TMOFS	Low	CUX	IM	FEC	False	PE	SI	
 https://github.com/ansible/ansible/issues/40729	 https://github.com/ansible/ansible/pull/51228	URBCDNP	CMOPI	Medium	TCF	CM	FPC	False	LE	TC	
-https://github.com/ansible/ansible/issues/31905	 https://github.com/ansible/ansible/pull/32216	CFNF	MCDV	Medium	TCFC	CDDI	FEC	True	CE	SI	AWS
+https://github.com/ansible/ansible/issues/31905	 https://github.com/ansible/ansible/pull/32216	CFNF	MCDV	Medium	TCFC	CDDI	FEC	True	CE	SIIMI	AWS
 https://github.com/ansible/ansible/issues/31420	 https://github.com/ansible/ansible/pull/31959	URB	CMOCONP	High	TCF	CM	FEC	False	PE	SI	
 https://github.com/ansible/ansible/issues/21401	 https://github.com/ansible/ansible/pull/39100	URBTM	MC	Low	CUX	CDDI	DDM	False	CE	SIIMI	
 https://github.com/ansible/ansible/issues/20160	 https://github.com/ansible/ansible/pull/26612										
 https://github.com/ansible/ansible/issues/64768	 https://github.com/ansible/ansible/pull/64785										
 https://github.com/ansible/ansible/issues/49734	 https://github.com/ansible/ansible/pull/50770	MR	TMOFTMF	Low	CUX	CAS	FCC	True	CE	OSSE	KVM Hosts
+
+
+
+
+MR -> URB
+EHRB -> CMO/TMO
+CUX -> TCF(?)
+PE -> LE/AE
+
+
+AE = incorrectly implemented function or algorithm
