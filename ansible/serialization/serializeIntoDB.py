@@ -66,8 +66,11 @@ with open(filename) as f:
             else:
                 to_insert_dict[key] = ob.get(key, None)
         
-        cursor.execute(insert_query, tuple(to_insert_dict.values()))
-        connection.commit()
+        try:
+            cursor.execute(insert_query, tuple(to_insert_dict.values()))
+            connection.commit()
+        except:
+            print("Failed to insert issue {}".format(ob["issue_id"]))
 
         inserted_count += 1
 

@@ -5,7 +5,7 @@ import re
 filename=sys.argv[1]
 prDataFilename=sys.argv[2]
 
-print("Filtering issues from file {} ...".format(filename))
+print("Filtering issues from file {} and mapping with PRs from file {} ...".format(filename, prDataFilename))
 
 total_count=0
 pr_count=0
@@ -141,5 +141,4 @@ print("{} Bugs with the 'has_pr' label.".format(pr_label_count))
 print("{} Documentation Bugs Filtered out, leaving {}.".format(filtered_out_count,pr_count-filtered_out_count))
 print("{} Unmerged PRs.".format(pr_count_unmerged))
 print("{} support:core.".format(support_core))
-print("{} Remaining Bugs.".format(pr_count-filtered_out_count-filtered_out_count_waiting-pr_count_unmerged))
 
