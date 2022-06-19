@@ -55,7 +55,11 @@ with open("results/categorized.tsv") as categorizedFile:
         results["trigger_causes"][triggerCause] = results["trigger_causes"].get(triggerCause, 0) + 1
         results["trigger_reproductions"][triggerReproduction] = results["trigger_reproductions"].get(triggerReproduction, 0) + 1
 
-        #results["system_dependencies_systems"][symptom] = results["system_dependencies_systems"].get(symptom, 0) + 1
+        for system in rest:
+            if len(system)==0:
+                system="N/A"
+                
+            results["system_dependencies_systems"][system] = results["system_dependencies_systems"].get(system, 0) + 1
 
 
     # Write aggregation
